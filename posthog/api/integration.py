@@ -72,6 +72,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
+from posthog.integrations import IntegrationInUse, IntegrationManager, IntegrationUsage
 from posthog.models import OrganizationMembership, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
@@ -149,8 +150,6 @@ from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationInUse, IntegrationUsage
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO

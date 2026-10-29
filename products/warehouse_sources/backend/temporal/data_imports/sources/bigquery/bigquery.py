@@ -58,6 +58,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import (
     GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
@@ -65,8 +66,6 @@ from posthog.models.integration.google_cloud import (
     require_google_token_uri,
 )
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,

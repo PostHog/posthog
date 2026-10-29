@@ -6,8 +6,8 @@ OAuth default, such as `stripe`, the typed-in row has a second auth type (`token
 the OAuth rows of the kind never gets a typed-in row.
 """
 
-from products.integrations.backend.facade.api import AuthAccessor, IntegrationManager
-from products.integrations.backend.facade.enums import AuthType
+from posthog.integrations import AuthAccessor, AuthType, IntegrationManager
+
 from products.warehouse_sources.backend.facade.credential_auth_types import CREDENTIAL_AUTH_TYPES
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 

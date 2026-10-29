@@ -22,18 +22,15 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 from uuid import UUID, uuid4
 
-from django.db import transaction
-
 import structlog
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
+from posthog.integrations import AuthAccessor, IntegrationNotFound, IntegrationUsage
 from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.sync import database_sync_to_async_pool
 
-from products.integrations.backend.facade.api import AuthAccessor, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound, IntegrationPatch, IntegrationUsage
 from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE, SharedCredentialsError
 from products.warehouse_sources.backend.logic.credential_auth_types import credentials_accessor
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -152,29 +149,24 @@ class WarehouseSourceCredentialsStore:
             raise CredentialsNotFoundError(f"Source {source.id} has no credentials reference")
         source_type = str(source.source_type)
         rows = credentials_accessor(source_type)
-        needs_new_row = False
-
-        def change(row: IntegrationRecord) -> IntegrationPatch:
-            nonlocal needs_new_row
+        try:
+            row = rows.get(source.team_id, pk)
             others = _other_usages(rows, source, row.id)
-            if others:
-                current = _fields_of(row.sensitive_config)
-                if current is None or _identity(source_type, current) != _identity(source_type, fields):
-                    needs_new_row = True
-                    return IntegrationPatch()
-                if not allow_shared:
-                    raise SharedCredentialsError(row.id, others)
-            return IntegrationPatch(sensitive_config_patch={"fields": dict(fields)})
-
-        # The outer transaction keeps the row locked until the new row exists.
-        with transaction.atomic():
-            try:
-                rows.update_atomically(source.team_id, pk, change)
-            except IntegrationNotFound as error:
-                raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
-            if needs_new_row:
+        except IntegrationNotFound as error:
+            raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
+        if others:
+            current = _fields_of(row.sensitive_config)
+            if current is None or _identity(source_type, current) != _identity(source_type, fields):
                 return WarehouseSourceCredentialsStore.create(source, fields)
-            return pk
+            if not allow_shared:
+                raise SharedCredentialsError(row.id, others)
+        # No lock spans the usages check and the write. When two sources edit one shared row at the
+        # same time, the last write wins. The source lock serializes the edits of one source only.
+        try:
+            rows.update(source.team_id, pk, sensitive_config_patch={"fields": dict(fields)})
+        except IntegrationNotFound as error:
+            raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
+        return pk
 
     @staticmethod
     def release(source: ExternalDataSource, ref: int | str | None) -> bool:

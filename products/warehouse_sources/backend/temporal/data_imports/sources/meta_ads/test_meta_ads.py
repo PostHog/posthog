@@ -13,7 +13,8 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     error_message_matches,
@@ -1756,6 +1757,8 @@ class TestNonRetryableErrors:
             # Integration row deleted/de-authorized while the source still references it —
             # get_integration raises Django's IntegrationNotFound with this message.
             "Integration matching query does not exist.",
+            # `_fetch_integration_row` raises `IntegrationNotFound` with this text.
+            "Integration not found: 42",
             # 400 from Meta when the ad account no longer belongs to the authorised user.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
@@ -2185,12 +2188,12 @@ class TestFetchIntegrationRowDbResilience:
         assert sleeps == [2, 4, 6]
 
     def test_missing_integration_is_not_retried(self, monkeypatch) -> None:
-        get = mock.Mock(side_effect=IntegrationNotFound())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
         monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda _s: None)
 
-        with pytest.raises(IntegrationNotFound):
+        with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
             _fetch_integration_row(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.

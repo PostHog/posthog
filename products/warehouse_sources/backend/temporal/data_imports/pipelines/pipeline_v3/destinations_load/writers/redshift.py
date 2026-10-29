@@ -30,11 +30,11 @@ import pyarrow as pa
 from psycopg import sql
 from psycopg.errors import InsufficientPrivilege
 
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import RedshiftIntegration
 
 from products.batch_exports.backend.facade.destinations.postgres import Fields, PostgreSQLClient
 from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,

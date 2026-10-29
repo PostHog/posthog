@@ -7,11 +7,11 @@ has one default auth type: the meaning the kind had before auth types existed. A
 type in `config["auth_type"]` only when it is not the default. A row without that key has the
 default auth type of its kind, so rows written before auth types existed need no migration.
 
-Code outside the integrations SDK (`products/integrations/backend/facade/api.py`) does not query
-the model. The SDK states the auth types of each query with the internal
-`IntegrationQuerySet._with_auth`.
+Code outside the integrations SDK (`posthog/integrations/`) does not query the model. The SDK
+states the auth types of each query with the internal `IntegrationQuerySet._with_auth`.
 
-This module must not import `model.py`: `model.py` imports it to build the queryset filters.
+This module must not import `model.py`: `model.py` imports it to build the queryset filters. It
+imports only the light SDK modules (catalogue, contracts, enums), which do not import the model.
 """
 
 from collections.abc import Iterable, Mapping
@@ -21,15 +21,14 @@ from typing import Any, Self
 from django.db.models import Q
 
 from posthog.dataclasses import frozen
-
-from products.integrations.backend.facade.catalogue import KINDS
-from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY, KindSpec
-from products.integrations.backend.facade.enums import IntegrationAuthType
+from posthog.integrations.catalogue import KINDS
+from posthog.integrations.contracts import SOURCE_MARKER_CONFIG_KEY, KindSpec
+from posthog.integrations.enums import IntegrationAuthType
 
 AUTH_TYPE_CONFIG_KEY = "auth_type"
 
 
-# The auth types and the kind catalogue belong to the integrations product. Core reads them here for
+# The auth types and the kind catalogue belong to the integrations SDK. The model reads them here for
 # the storage rule and the implicit default filter of the model manager.
 KindAuthTypes = KindSpec
 

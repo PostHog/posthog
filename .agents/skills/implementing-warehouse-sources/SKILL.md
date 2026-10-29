@@ -429,7 +429,7 @@ Each credential kind also has a default auth type: the `credential_auth_type` pr
 
 Override `credential_auth_type` in your `source.py` only when this rule gives the wrong type for the source.
 
-The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `products/integrations/backend/facade/api.py`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
+The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `posthog.integrations`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
 
 Both generated files are append-only. A new source adds its entry. A removed source keeps its entry, because rows of its kind can exist. When a change to a source would change a committed kind or default auth type, `generate_source_field_classification` fails and writes nothing. Keep the old value with an override in the source class. If the change is necessary, write a data migration for the stored rows first, then rerun the command with `--allow-changed-defaults`.
 
@@ -451,11 +451,11 @@ The semgrep rule `warehouse-source-inputs-go-through-store` blocks `source.job_i
 
 #### Connection fields in an Integration row
 
-A source's typed-in connection fields go to one `Integration` row of the source's credential kind (see "Credential kind"). `WarehouseSourceCredentialsStore` (`products/warehouse_sources/backend/logic/source_credentials.py`) is the only code that reads or writes these rows. It goes through the integrations SDK: `IntegrationManager.source(kind).token` or `.credentials` (`products/integrations/backend/facade/api.py`). It never uses the `Integration` model directly.
+A source's typed-in connection fields go to one `Integration` row of the source's credential kind (see "Credential kind"). `WarehouseSourceCredentialsStore` (`products/warehouse_sources/backend/logic/source_credentials.py`) is the only code that reads or writes these rows. It goes through the integrations SDK: `IntegrationManager.source(kind).token` or `.credentials` (`posthog/integrations/manager.py`). It never uses the `Integration` model directly.
 
 - The source points at its row with the `credentials_integration_id` key in its inputs (`CREDENTIALS_REFERENCE_KEY`). This key is a reference, so it stays in `job_inputs`.
 - An OAuth source keeps its own `*_integration_id` key and gets no new row. Account selectors stay in `job_inputs`, because several sources can share one OAuth row.
-- The row has the auth type that `facade/credential_auth_types.py` derives for the kind (`token` or `credentials`). An OAuth-only source has no typed-in row. On a catalogue kind with an OAuth default, the row has a second auth type of that kind (`stripe` `token`, `github` `token`). The catalogue entry of the kind (`products/integrations/backend/facade/catalogue.py`) must support the derived auth type. If it does not, add the type there and run `hogli build:projections --only integration-kinds`. The test `test_every_typed_in_source_type_has_an_auth_type_its_kind_supports` fails otherwise.
+- The row has the auth type that `facade/credential_auth_types.py` derives for the kind (`token` or `credentials`). An OAuth-only source has no typed-in row. On a catalogue kind with an OAuth default, the row has a second auth type of that kind (`stripe` `token`, `github` `token`). The catalogue entry of the kind (`posthog/integrations/catalogue.py`) must support the derived auth type. If it does not, add the type there and run `hogli build:projections --only integration-kinds`. The test `test_every_typed_in_source_type_has_an_auth_type_its_kind_supports` fails otherwise.
 - The row has the marker `config["warehouse_source_type"]`. The SDK writes the marker only through `IntegrationManager.source(kind)`, and the named accessors (`IntegrationManager.stripe.token`) and kind-limited pickers skip marked rows. Hog functions can never use a marked row as an input.
 - Rows are visible in the integrations list with their auth type, and several sources can use one row. An edit of a shared row raises `SharedCredentialsError` unless the caller confirms. An edit of an identifying field of a shared row makes a new row. The source gives these fields with the `credential_identity_fields` property on its class. The default is `connection_host_fields` plus each generic name in `GENERIC_IDENTITY_FIELDS` (host, port, user, account, SSH tunnel) that the source declares. Override the property in your `source.py` only when a different field says where the credentials connect, or as which account.
 - The store never deletes a row. When a source is soft deleted, the store only releases the row. A row that nothing uses stays in the integrations list.
@@ -840,9 +840,9 @@ If new:
 
 2. **Integration kind**.
    - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
-   - Add the kind to `KINDS` in `products/integrations/backend/facade/catalogue.py`, with `default=_OAUTH`, then run `hogli build:projections --only integration-kinds`.
+   - Add the kind to `KINDS` in `posthog/integrations/catalogue.py`, with `default=_OAUTH`, then run `hogli build:projections --only integration-kinds`.
      Read and write its rows through the integrations SDK, for example `IntegrationManager.your_source.oauth.get(team_id, integration_id)`.
-     See `products/integrations/backend/README.md`.
+     See `posthog/integrations/README.md`.
    - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
@@ -921,7 +921,7 @@ client where the driver allows it (see `pinned_host_kwargs` in `common/mixins.py
 From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mixins.py`:
 
 - `SSHTunnelMixin` — `with_ssh_tunnel()` context plus `make_ssh_tunnel_func()` for deferred tunnel opening. Both re-check the SSH host and the database host on every open.
-- `OAuthMixin` — `get_oauth_integration()` to pull the `Integration` row from the DB. It raises `ValueError("Integration not found: <id>")` when the row is gone. Code that reads a row directly uses `IntegrationManager` from `products.integrations.backend.facade.api`, for example `IntegrationManager.google_ads.oauth.get(team_id, integration_id)`, and catches `IntegrationNotFound`. Never use `Integration.objects`.
+- `OAuthMixin` — `get_oauth_integration()` to pull the `Integration` row from the DB. It raises `ValueError("Integration not found: <id>")` when the row is gone or is not an OAuth row. Code that reads a row directly uses `IntegrationManager` from `posthog.integrations`, for example `IntegrationManager.google_ads.oauth.get(team_id, integration_id)`, and catches `IntegrationNotFound`. Never use `Integration.objects`.
 - `ValidateDatabaseHostMixin` — `is_database_host_valid()` to block internal VPC IPs (unless SSH tunnel is used).
 
 ## Icons

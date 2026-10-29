@@ -11,14 +11,12 @@ from cryptography.fernet import Fernet
 from parameterized import parameterized
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.integrations import AuthType, IntegrationInUse, IntegrationManager, IntegrationUsage
 from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, AuthTypeSelector, Integration
 from posthog.models.integration.auth_types import catalogued_kinds, kind_auth_types
 from posthog.models.integration.model import integration_kind_choices
 from posthog.models.team import Team
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationInUse, IntegrationUsage
-from products.integrations.backend.facade.enums import AuthType
 from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY, SharedCredentialsError
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 from products.warehouse_sources.backend.logic.credential_auth_types import (

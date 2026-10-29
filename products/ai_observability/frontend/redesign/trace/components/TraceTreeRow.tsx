@@ -5,6 +5,7 @@ import { cn } from 'lib/utils/css-classes'
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { EvalRollupOutcome } from '../types'
 import { EvalOutcomeMarker } from './EvalOutcomeMarker'
+import { FeedbackMarker } from './FeedbackMarker'
 import { NodeKindGlyph } from './NodeKindGlyph'
 import { NodeStatsLine } from './NodeStatsLine'
 
@@ -15,6 +16,8 @@ export interface TraceTreeRowProps {
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     evalOutcomes: Record<string, EvalRollupOutcome>
+    /** Feedback entries per step id, trace-level ones on the root. */
+    feedbackCountByNodeId?: Record<string, number>
 }
 
 export function TraceTreeRow({
@@ -24,10 +27,13 @@ export function TraceTreeRow({
     onSelectNode,
     onPrefetchNode,
     evalOutcomes,
+    feedbackCountByNodeId,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
     // Node ids come from free-form trace ids, so a name like "constructor" would read an inherited property.
     const evalOutcome = Object.hasOwn(evalOutcomes, node.id) ? evalOutcomes[node.id] : null
+    const feedbackCount =
+        feedbackCountByNodeId && Object.hasOwn(feedbackCountByNodeId, node.id) ? feedbackCountByNodeId[node.id] : 0
     return (
         <li>
             <button
@@ -56,6 +62,7 @@ export function TraceTreeRow({
                         <span className="truncate">{node.name}</span>
                         {node.hasError ? <IconWarning className="shrink-0" role="img" aria-label="Error" /> : null}
                         {evalOutcome ? <EvalOutcomeMarker outcome={evalOutcome} /> : null}
+                        {feedbackCount > 0 ? <FeedbackMarker count={feedbackCount} /> : null}
                     </span>
                     <NodeStatsLine stats={node.stats} model={node.model} compact />
                 </span>
@@ -71,6 +78,7 @@ export function TraceTreeRow({
                             onSelectNode={onSelectNode}
                             onPrefetchNode={onPrefetchNode}
                             evalOutcomes={evalOutcomes}
+                            feedbackCountByNodeId={feedbackCountByNodeId}
                         />
                     ))}
                 </ul>

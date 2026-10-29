@@ -33,7 +33,8 @@ from google.auth import exceptions as google_auth_exceptions
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
@@ -215,13 +216,16 @@ def _get_integration(integration_id: int, team_id: int) -> IntegrationRecord:
     query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
     backoff also gives a saturated pool time to drain rather than retrying straight back into the
     same wait timeout. This read is idempotent, so it is safe to repeat. Mirrors the backoff shape
-    of the client-init and search retries. ``IntegrationNotFound`` is left to propagate.
+    of the client-init and search retries. A missing row raises ``IntegrationNotFound`` with the text "Integration not found: <id>".
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
             return IntegrationManager.google_ads.oauth.get(team_id, integration_id)
+        except IntegrationNotFound as error:
+            # A fixed text, because the error maps match on it. The SDK message is not part of its contract.
+            raise IntegrationNotFound(f"Integration not found: {integration_id}") from error
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:

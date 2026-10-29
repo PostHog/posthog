@@ -3,7 +3,8 @@ from unittest import mock
 
 import requests
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,

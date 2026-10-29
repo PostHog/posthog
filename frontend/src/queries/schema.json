@@ -6222,6 +6222,10 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICatalogMetricStatus": {
+            "enum": ["approved", "proposed"],
+            "type": "string"
+        },
         "BICategoryGroup": {
             "additionalProperties": false,
             "properties": {
@@ -6267,6 +6271,32 @@
                 "catalogMetric": {
                     "description": "Catalog provenance only: the snapshot does not track subsequent definition edits.",
                     "type": "string"
+                },
+                "catalogMetricContext": {
+                    "additionalProperties": false,
+                    "description": "Catalog metadata at copy time, not a live approval of the worksheet.",
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        },
+                        "isDrifted": {
+                            "type": "boolean"
+                        },
+                        "owner": {
+                            "type": ["string", "null"]
+                        },
+                        "status": {
+                            "$ref": "#/definitions/BICatalogMetricStatus"
+                        },
+                        "unit": {
+                            "type": "string"
+                        },
+                        "updatedAt": {
+                            "type": ["string", "null"]
+                        }
+                    },
+                    "required": ["id", "status", "isDrifted", "unit", "owner", "updatedAt"],
+                    "type": "object"
                 },
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"

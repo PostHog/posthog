@@ -54,6 +54,7 @@ from posthog.credentials_service.errors import (
 )
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationInUse, IntegrationManager, IntegrationReader, IntegrationUsage
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
     ANY as ANY_AUTH_TYPE,
@@ -100,8 +101,6 @@ from products.batch_exports.backend.facade import testing as batch_exports_testi
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationReader
-from products.integrations.backend.facade.contracts import IntegrationInUse, IntegrationUsage
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

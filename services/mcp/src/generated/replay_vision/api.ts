@@ -513,11 +513,17 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
     watch_group: zod
         .string()
         .optional()
         .describe(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
 })
 
@@ -1589,11 +1595,17 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
     watch_group: zod
         .string()
         .optional()
         .describe(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
 })
 
@@ -1679,11 +1691,17 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
     watch_group: zod
         .string()
         .optional()
         .describe(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
 })
 
@@ -1768,11 +1786,17 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
     watch_group: zod
         .string()
         .optional()
         .describe(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
 })
 
@@ -2236,6 +2260,93 @@ export const VisionScannersEstimateCreateBody = () => zod
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
 
 /**
+ * Succeeded observations in the window worth watching, ranked for the Highlights tab.
+ */
+export const VisionScannersHighlightFeedRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionScannersHighlightFeedRetrieveQueryDateFromDefault = `-7d`
+
+export const visionScannersHighlightFeedRetrieveQueryLimitDefault = 20
+export const visionScannersHighlightFeedRetrieveQueryLimitMax = 50
+
+export const visionScannersHighlightFeedRetrieveQueryOffsetDefault = 0
+export const visionScannersHighlightFeedRetrieveQueryOffsetMin = 0
+export const visionScannersHighlightFeedRetrieveQueryOffsetMax = 1000
+
+export const VisionScannersHighlightFeedRetrieveQueryParams = () => zod.object({
+    as_of: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.'
+        ),
+    categories: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` (repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops its sessions without promoting weaker ones.'
+        ),
+    created_by: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated user IDs. Restrict the feed to observations from scanners those users created.'),
+    date_from: zod
+        .string()
+        .min(1)
+        .default(visionScannersHighlightFeedRetrieveQueryDateFromDefault)
+        .describe(
+            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days."
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionScannersHighlightFeedRetrieveQueryLimitMax)
+        .default(visionScannersHighlightFeedRetrieveQueryLimitDefault)
+        .describe(
+            'Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.'
+        ),
+    offset: zod
+        .number()
+        .min(visionScannersHighlightFeedRetrieveQueryOffsetMin)
+        .max(visionScannersHighlightFeedRetrieveQueryOffsetMax)
+        .default(visionScannersHighlightFeedRetrieveQueryOffsetDefault)
+        .describe('How many ranked items to skip. Send `as_of` with every page after the first.'),
+    scanner_ids: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.'),
+    scanner_type: zod
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
+        .optional()
+        .describe(
+            'Restrict the feed to observations from scanners of this type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
+        ),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.'
+        ),
+})
+
+/**
  * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
@@ -2319,85 +2430,5 @@ export const VisionScannersStatsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Succeeded observations in the window worth watching, ranked for the Highlights tab.
- */
-export const VisionScannersWatchFeedRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const visionScannersWatchFeedRetrieveQueryDateFromDefault = `-7d`
-
-export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
-export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
-
-export const visionScannersWatchFeedRetrieveQueryOffsetDefault = 0
-export const visionScannersWatchFeedRetrieveQueryOffsetMin = 0
-export const visionScannersWatchFeedRetrieveQueryOffsetMax = 1000
-
-export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
-    as_of: zod.iso
-        .datetime({ offset: true })
-        .optional()
-        .describe(
-            'The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.'
-        ),
-    created_by: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe('Comma-separated user IDs. Restrict the feed to observations from scanners those users created.'),
-    date_from: zod
-        .string()
-        .min(1)
-        .default(visionScannersWatchFeedRetrieveQueryDateFromDefault)
-        .describe(
-            "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days."
-        ),
-    date_to: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe(
-            'Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.'
-        ),
-    limit: zod
-        .number()
-        .min(1)
-        .max(visionScannersWatchFeedRetrieveQueryLimitMax)
-        .default(visionScannersWatchFeedRetrieveQueryLimitDefault)
-        .describe(
-            'Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.'
-        ),
-    offset: zod
-        .number()
-        .min(visionScannersWatchFeedRetrieveQueryOffsetMin)
-        .max(visionScannersWatchFeedRetrieveQueryOffsetMax)
-        .default(visionScannersWatchFeedRetrieveQueryOffsetDefault)
-        .describe('How many ranked items to skip. Send `as_of` with every page after the first.'),
-    scanner_ids: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe('Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.'),
-    scanner_type: zod
-        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
-        .optional()
-        .describe(
-            'Restrict the feed to observations from scanners of this type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
-        ),
-    tags: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe(
-            'Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.'
         ),
 })

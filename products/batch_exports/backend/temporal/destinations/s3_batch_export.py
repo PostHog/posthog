@@ -29,6 +29,7 @@ from temporalio.common import RetryPolicy
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
 from posthog.models.integration import (
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
@@ -74,8 +75,6 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 # Errors that any write to S3 can raise, whichever bucket it targets. The file download
 # export shares these, since it runs the same write against a PostHog-owned bucket.
@@ -183,12 +182,12 @@ async def _get_s3_integration(
     except IntegrationNotFound:
         raise S3IntegrationNotFoundError(integration_id, team_id)
 
-    if integration.kind == IntegrationRecord.IntegrationKind.AWS_S3:
+    if integration.kind == IntegrationKind.AWS_S3:
         if "aws_role_arn" in integration.config:
             return AWSS3RoleBasedIntegration(integration)
         return AWSS3Integration(integration)
 
-    if integration.kind == IntegrationRecord.IntegrationKind.S3_COMPATIBLE:
+    if integration.kind == IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
 
     raise IntegrationError(

@@ -1,6 +1,7 @@
 """The warehouse sources that use an integration row. The integrations SDK loads this module."""
 
-from products.integrations.backend.facade.contracts import IntegrationUsage
+from posthog.integrations import IntegrationUsage
+
 from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE
 from products.warehouse_sources.backend.logic.integration_references import list_sources_using_integration
 

@@ -13,9 +13,9 @@ from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationNotFound
 from posthog.temporal.common.errors import NonReportableError
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     MISSING_INTEGRATION_MESSAGE,
     Any_Source_Errors,
@@ -675,7 +675,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         ]
     )
     def test_retries_transient_db_error_then_succeeds(self, _name: str, message: str):
-        integration = object()
+        integration = mock.Mock(auth_type="oauth")
         get = mock.Mock(side_effect=[OperationalError(message), OperationalError(message), integration])
 
         with (
@@ -695,7 +695,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
     def test_success_does_not_evict_connection(self):
         # Closing the connection on the happy path would tear down the caller's open transaction
         # (e.g. inside a transactional test), so eviction must only happen between retries.
-        integration = object()
+        integration = mock.Mock(auth_type="oauth")
 
         with (
             patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", return_value=integration),
@@ -739,6 +739,18 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
 
         assert get.call_count == 1
         sleep.assert_not_called()
+
+    @parameterized.expand([("token",), ("credentials",)])
+    def test_row_of_another_auth_type_is_surfaced_as_not_found(self, auth_type: str):
+        get = mock.Mock(return_value=mock.Mock(auth_type=auth_type))
+
+        with (
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
+            patch(f"{_MIXINS_MODULE}.close_old_connections"),
+            patch(f"{_MIXINS_MODULE}.time.sleep"),
+        ):
+            with pytest.raises(ValueError, match="^Integration not found: 1$"):
+                OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
 
     def test_deletion_during_retry_is_surfaced_as_not_found(self):
         # The row vanishes after a transient failure: the retry must convert IntegrationNotFound into the
