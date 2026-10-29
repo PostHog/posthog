@@ -2769,7 +2769,7 @@ export const experimentLogic = kea<experimentLogicType>([
         exposures: [
             null as any,
             {
-                loadExposures: async (refresh: boolean = false) => {
+                loadExposures: async (refresh: boolean = false, breakpoint) => {
                     const { experiment } = values
 
                     // The legacy page shows no exposures, but its variant exclusion toggle still dispatches this.
@@ -2797,7 +2797,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     })
                     // Show the cached exposures immediately when the backend is recomputing in the
                     // background, instead of hanging on the spinner until the recompute finishes.
-                    return await performQuery(
+                    const response = await performQuery(
                         query,
                         undefined,
                         getExperimentRefreshMode(values.featureFlags, refresh),
@@ -2809,6 +2809,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         undefined, // limitContext
                         true // acceptStaleCache
                     )
+                    /** A newer load can target a later window, so a slower older response must not replace it. */
+                    breakpoint()
+                    return response
                 },
             },
         ],

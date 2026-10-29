@@ -85,6 +85,34 @@ describe('experimentExposuresWindowLogic', () => {
         }
     })
 
+    it('keeps the newer window when an older load returns last', async () => {
+        let releaseOlder: () => void = () => {}
+        const olderHeld = new Promise<void>((resolve) => {
+            releaseOlder = resolve
+        })
+        useMocks({
+            post: {
+                '/api/environments/:team/query/:kind': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { as_of: string | null } }
+                    if (query.as_of === FIRST_WINDOW) {
+                        await olderHeld
+                    }
+                    return [200, { as_of: query.as_of }]
+                },
+            },
+        })
+
+        mainLogic.actions.loadExposures()
+        await expectLogic(mainLogic, () => {
+            metricsLogic.actions.setCurrentRecalculation(run('completed', NEXT_WINDOW))
+        }).toDispatchActions(['loadExposuresSuccess'])
+        releaseOlder()
+
+        await expectLogic(mainLogic).toFinishAllListeners()
+        expect(mainLogic.values.exposures).toEqual({ as_of: NEXT_WINDOW })
+        expect(mainLogic.values.exposuresAsOf).toEqual(NEXT_WINDOW)
+    })
+
     it('sends a failed reload again on the next mount', async () => {
         useMocks({ post: { '/api/environments/:team/query/:kind': () => [500, { detail: 'Unavailable' }] } })
         await expectLogic(mainLogic, () => {
