@@ -362,7 +362,9 @@ rules:
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerFeedGroup
+                              |ReplayScannerFeedGroupDay
                               |ReplayScannerSearchTheme
+                              |ReplayScannerSearchThemeDay
                               |ReplayScannerSemanticCenter
                               |ReplayVisionLearnedRuleset
                               |Repo
@@ -851,7 +853,9 @@ rules:
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerFeedGroup
+                        |ReplayScannerFeedGroupDay
                         |ReplayScannerSearchTheme
+                        |ReplayScannerSearchThemeDay
                         |ReplayScannerSemanticCenter
                         |ReplayVisionLearnedRuleset
                         |Repo

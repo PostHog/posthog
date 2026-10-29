@@ -324,7 +324,9 @@ class TestAssignSemantics(BaseTest):
         pruned = uuid.uuid4()
         rows = [self._observation(), self._observation("routine"), self._observation()]
         for row, group in zip(rows, [live.id, live.id, pruned]):
-            ReplayObservation.objects.filter(id=row.id).update(watch_rank={**row.watch_rank, "group": str(group)})
+            ReplayObservation.objects.filter(id=row.id).update(
+                watch_rank={**(row.watch_rank or {}), "group": str(group)}
+            )
 
         first = backfill_team_memberships(self.team.id, timezone.now() - timedelta(days=1))
         again = backfill_team_memberships(self.team.id, timezone.now() - timedelta(days=1))
