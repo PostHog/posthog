@@ -16,8 +16,9 @@ from posthog.tasks.email import (
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
-from products.workflows.backend.services.email_sending_tier import SesTenantState, recompute_email_sending_tier_for_team
+from products.workflows.backend.services.email_sending_tier import SesTenantState
 from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
+from products.workflows.backend.tasks.email_sending_tiers import raise_trusted_email_sending_tier_floor
 from products.workflows.backend.utils.email_sending_tiers import MIN_EMAIL_SENDING_TIER
 
 logger = structlog.get_logger(__name__)
@@ -61,15 +62,11 @@ def _announce_state_change(team_id: int) -> None:
         logger.exception("Failed to announce SES tenant state change to workers", team_id=team_id)
 
 
-def _recompute_tier(team_id: int) -> None:
-    """
-    Best effort, like the announcement: the state change has already committed, and the daily
-    sweep applies the same decision if this one fails.
-    """
+def _queue_trusted_floor_raise(team_id: int) -> None:
     try:
-        recompute_email_sending_tier_for_team(team_id)
+        raise_trusted_email_sending_tier_floor.delay(team_id)
     except Exception:
-        logger.exception("Failed to recompute email sending tier after SES tenant state change", team_id=team_id)
+        logger.exception("Failed to queue the trusted email tier floor raise", team_id=team_id)
 
 
 def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None, *, verify_team: bool = True) -> None:
@@ -169,7 +166,7 @@ def apply_ses_tenant_state(
             sending_status=previous_status, reputation_impact=previous_impact
         ).is_verified_clean
         if is_verified_clean and not was_verified_clean:
-            transaction.on_commit(lambda: _recompute_tier(team_id))
+            transaction.on_commit(lambda: _queue_trusted_floor_raise(team_id))
 
         notify = _pick_notification(
             previous_status=previous_status,

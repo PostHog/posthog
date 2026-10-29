@@ -12,6 +12,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.organization import Organization
+from posthog.plugins.plugin_server_api import reload_team_workflows_config_on_workers
 
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -495,6 +496,7 @@ def recompute_email_sending_tiers(
     trigger: Trigger | None = None,
     user_id: int | None = None,
     was_impersonated: bool = False,
+    only_reasons: frozenset[str] | None = None,
 ) -> list[TierDecision]:
     """
     Move every candidate team at most one tier, up or down.
@@ -502,7 +504,8 @@ def recompute_email_sending_tiers(
     Candidates are teams that sent workflow email in the window plus teams whose stored state can
     only be corrected by a run: a suspended team owed a demotion, any team already above tier 0, and
     a team at tier 0 with a healthy tenant, which may qualify for the trusted floor before it sends.
-    A pinned team is skipped in both directions.
+    A pinned team is skipped in both directions. With `only_reasons`, a decision for any other
+    reason is neither applied nor returned.
 
     Returns every decision, including holds (`changed` False, with the reason), so callers like the
     admin recompute action can say why a team did not move. A changed decision whose write lost to
@@ -586,6 +589,8 @@ def recompute_email_sending_tiers(
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
             account_trust=AccountTrust.from_organization(config.team.organization),
         )
+        if only_reasons is not None and decision.reason not in only_reasons:
+            continue
         if not decision.changed or apply_tier_decision(
             config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated
         ):
@@ -604,3 +609,40 @@ def recompute_email_sending_tier_for_team(
     """
     decisions = recompute_email_sending_tiers(team_ids=[team_id], user_id=user_id, was_impersonated=was_impersonated)
     return decisions[0] if decisions else None
+
+
+def raise_trusted_floor_for_team(team_id: int) -> Optional[TierDecision]:
+    """
+    Give a qualifying team its trusted floor now, without waiting for the daily sweep. Applies only
+    the floor raise: any other change waits for the sweep, which also sends its notifications.
+    """
+    config = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .select_related("team__organization")
+        .only(
+            "email_sending_tier",
+            "email_sending_tier_pinned",
+            "email_sending_tier_demoted_at",
+            "email_sending_suspended_at",
+            "team__organization__has_active_subscription",
+            "team__organization__created_at",
+            "team__organization__customer_trust_scores",
+        )
+        .first()
+    )
+    if (
+        config is None
+        or config.email_sending_tier_pinned
+        or config.email_sending_tier_demoted_at is not None
+        or config.email_sending_suspended_at is not None
+        or trusted_floor_tier(AccountTrust.from_organization(config.team.organization), now=timezone.now())
+        <= config.email_sending_tier
+    ):
+        return None
+
+    decisions = recompute_email_sending_tiers(team_ids=[team_id], only_reasons=frozenset({"trusted_account"}))
+    if not any(decision.changed for decision in decisions):
+        return None
+    # The send path caches the tier for a couple of minutes and may have just re-read the old one.
+    reload_team_workflows_config_on_workers(team_id)
+    return decisions[0]

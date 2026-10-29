@@ -507,24 +507,39 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         assert (entry.detail or {})["context"] == {"reason": "trusted_account"}
 
-    def test_trusted_account_gets_the_floor_when_aws_first_enables_its_tenant(self) -> None:
+    @parameterized.expand(
+        [
+            ("trusted account", 7, 0, False, 3),
+            ("untrusted account", 3, 0, False, 0),
+            ("dirty recent rates wait for the sweep", 7, 1, True, 1),
+        ]
+    )
+    def test_aws_first_enabling_the_tenant_raises_only_the_trusted_floor(
+        self, _name: str, trust_score: int, tier: int, dirty: bool, expected_tier: int
+    ) -> None:
         self.organization.has_active_subscription = True
         self.organization.created_at = timezone.now() - timedelta(days=120)
-        self.organization.customer_trust_scores = {"workflow_emails": 7}
+        self.organization.customer_trust_scores = {"workflow_emails": trust_score}
         self.organization.save()
-        self._config(email_sending_tier=0)
+        self._config(email_sending_tier=tier)
+        recent = {self.team.id: history(team_id=self.team.id, sent=1000, hard_bounced=100)} if dirty else {}
 
         with (
             patch(
                 "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
-                return_value=SendingHistoryWindows(window={}, recent={}),
-            ),
+                return_value=SendingHistoryWindows(window={}, recent=recent),
+            ) as histories,
+            patch(
+                "products.workflows.backend.services.email_sending_tier.reload_team_workflows_config_on_workers"
+            ) as reload,
             patch("products.workflows.backend.services.ses_tenant_state.reload_team_workflows_config_on_workers"),
             self.captureOnCommitCallbacks(execute=True),
         ):
             apply_ses_tenant_state(self.team.id, sending_status="ENABLED", reputation_impact="NONE")
 
-        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 3
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
+        assert histories.called == (trust_score == 7)
+        assert reload.called == (expected_tier != tier)
 
     @parameterized.expand([("staff_suspension",), ("ses_tenant_pause",)])
     def test_reinstated_team_does_not_regain_the_trusted_floor(self, suspension: str) -> None:
