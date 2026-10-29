@@ -14,8 +14,10 @@ const PULL_REQUEST_TOTAL = 40;
 const REPORT_TAB_TOTAL = 75;
 
 const mockGetSignalReports = vi.hoisted(() => vi.fn());
+const mockGetSectionCounts = vi.hoisted(() => vi.fn());
 const mockClient = vi.hoisted(() => ({
   getSignalReports: mockGetSignalReports,
+  getSignalReportSectionCounts: mockGetSectionCounts,
 }));
 const filterMocks = vi.hoisted(() => ({
   sourceProductFilter: [] as string[],
@@ -67,18 +69,12 @@ function readyReport(index: number): SignalReport {
 }
 
 /**
- * Answers the three distinct queries the hook fires. The pipeline page is all
- * `ready` reports with no PR, which is what the server's status-ranked ordering
- * actually returns first, and is the condition under which deriving the Reports
- * badge by subtraction silently overcounts.
+ * Answers the pipeline page. It is all `ready` reports with no PR, which is
+ * what the server's status-ranked ordering actually returns first, and is the
+ * condition under which deriving the Reports badge by subtraction silently
+ * overcounts.
  */
 function fakeServer(params?: SignalReportsQueryParams): SignalReportsResponse {
-  if (params?.count_only && params.has_implementation_pr === true) {
-    return { count: PULL_REQUEST_TOTAL, results: [] };
-  }
-  if (params?.count_only && params.has_implementation_pr === false) {
-    return { count: REPORT_TAB_TOTAL, results: [] };
-  }
   const offset = params?.offset ?? 0;
   const limit = params?.limit ?? 100;
   const resultCount = Math.max(0, Math.min(limit, PIPELINE_TOTAL - offset));
@@ -98,15 +94,6 @@ function pipelineRequests(): SignalReportsQueryParams[] {
     }
   }
   return requests;
-}
-
-/** Params of the Reports-count request, or undefined if it was never fired. */
-function reportsCountParams(): SignalReportsQueryParams | undefined {
-  for (const [params] of mockGetSignalReports.mock.calls) {
-    if (params?.count_only && params.has_implementation_pr === false)
-      return params;
-  }
-  return undefined;
 }
 
 function renderCounts(options?: {
@@ -135,6 +122,10 @@ describe("useInboxAllReports", () => {
     mockGetSignalReports.mockImplementation(async (params) =>
       fakeServer(params),
     );
+    mockGetSectionCounts.mockResolvedValue({
+      pull_requests: PULL_REQUEST_TOTAL,
+      reports: REPORT_TAB_TOTAL,
+    });
   });
 
   it("counts Reports from the server, not by subtracting from the pipeline total", async () => {
@@ -144,12 +135,10 @@ describe("useInboxAllReports", () => {
       expect(result.current.counts.reports).toBe(REPORT_TAB_TOTAL);
     });
     expect(result.current.counts.pulls).toBe(PULL_REQUEST_TOTAL);
-
-    // Anything wider than `ready` pulls in the queued, live and failed runs that
-    // the Reports tab routes elsewhere, which is what made the badge disagree
-    // with the list it labels.
-    expect(reportsCountParams()?.status).toBe("ready");
-    expect(reportsCountParams()?.count_only).toBe(true);
+    expect(mockGetSectionCounts).toHaveBeenCalledOnce();
+    expect(
+      mockGetSignalReports.mock.calls.some(([params]) => params?.count_only),
+    ).toBe(false);
   });
 
   it("uses a 30-second desktop poll interval", () => {
@@ -176,20 +165,20 @@ describe("useInboxAllReports", () => {
     ]);
   });
 
-  it("skips the Reports count query for consumers that only read the pulls badge", async () => {
+  it("leaves the Reports count at 0 for consumers that only read the pulls badge", async () => {
     const { result } = renderCounts();
 
     await waitFor(() => {
       expect(result.current.counts.pulls).toBe(PULL_REQUEST_TOTAL);
     });
     expect(result.current.counts.reports).toBe(0);
-    expect(reportsCountParams()).toBeUndefined();
   });
 
   it("does not request reports when its surface is unavailable", () => {
     renderCounts({ enabled: false, withReportsCount: true });
 
     expect(mockGetSignalReports).not.toHaveBeenCalled();
+    expect(mockGetSectionCounts).not.toHaveBeenCalled();
   });
 
   it("ignores a saved source filter when its surface hides that control", async () => {
@@ -223,8 +212,6 @@ describe("useInboxAllReports", () => {
       has_implementation_pr: false,
       actionability: "immediately_actionable,requires_human_input",
     });
-    expect(
-      mockGetSignalReports.mock.calls.some(([params]) => params?.count_only),
-    ).toBe(false);
+    expect(mockGetSectionCounts).not.toHaveBeenCalled();
   });
 });
