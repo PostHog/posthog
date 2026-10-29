@@ -43,6 +43,7 @@ jobs:
                       /.github/actions/
                       /services/mcp/
                       /packages/
+                      /patches/
                       /common/
                       /tools/openapi-codegen/
                       /products/*/mcp/
