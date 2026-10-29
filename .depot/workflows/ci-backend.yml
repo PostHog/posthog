@@ -2134,6 +2134,11 @@ jobs:
                   GH_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   REPO: ${{ github.repository }}
+              # A repeated POST adds a second identical check run, and GitHub shows the newest one.
+              retry:
+                  retries: 3
+                  backoff: exponential
+                  delay-seconds: 5
               run: |
                   if [ ! -f migration_analysis.json ]; then
                     # Analyzer crashed before writing JSON. Publish a failure
@@ -2618,7 +2623,21 @@ jobs:
               run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
             - name: Commit OpenAPI types via GitHub API (signed)
+              id: openapi-commit
               if: steps.openapi-check.outputs.needs-commit == 'true'
+              continue-on-error: true
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update OpenAPI generated types'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
+              env:
+                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+
+            # Depot rejects retry: on a uses: step, so a failed commit gets one more attempt here.
+            - name: Retry OpenAPI types commit
+              if: steps.openapi-commit.outcome == 'failure'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'chore: update OpenAPI generated types'
