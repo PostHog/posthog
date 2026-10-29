@@ -1,9 +1,12 @@
 import posthog from 'posthog-js'
 
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { ApiError } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { fullName, fullNameOrEmail } from 'lib/utils/strings'
 
 import { UserBasicType } from '~/types'
 
@@ -17,7 +20,7 @@ export type OwnerUnavailableCause = (typeof OWNER_UNAVAILABLE_CAUSES)[keyof type
 
 export type OwnedResourceLabel = 'subscription' | 'alert'
 
-export type ResourceOwner = Pick<Partial<UserBasicType>, 'first_name' | 'last_name' | 'email'>
+export type ResourceOwner = Pick<UserBasicType, 'email'> & Partial<Pick<UserBasicType, 'first_name' | 'last_name'>>
 
 /** Why a write was refused because the resource's owner can no longer run it, or null for any other error. */
 export function ownerUnavailableCause(error: unknown): OwnerUnavailableCause | null {
@@ -27,7 +30,31 @@ export function ownerUnavailableCause(error: unknown): OwnerUnavailableCause | n
     return OWNER_UNAVAILABLE_CAUSES[error.code as keyof typeof OWNER_UNAVAILABLE_CAUSES] ?? null
 }
 
-function OwnerUnavailableDescription({
+function OwnerChip({ owner }: { owner: ResourceOwner }): JSX.Element {
+    const name = fullName(owner)
+    return (
+        <Tooltip
+            title={
+                <span className="ph-no-capture">
+                    {name ? (
+                        <>
+                            {name}
+                            <br />
+                        </>
+                    ) : null}
+                    {owner.email}
+                </span>
+            }
+        >
+            <span className="inline-flex items-center gap-1 align-middle font-semibold">
+                <ProfilePicture user={owner} size="xs" />
+                <span className="ph-no-capture">{fullNameOrEmail(owner)}</span>
+            </span>
+        </Tooltip>
+    )
+}
+
+function OwnerUnavailableContent({
     resourceLabel,
     owner,
     cause,
@@ -44,17 +71,17 @@ function OwnerUnavailableDescription({
             <p className="m-0">
                 {owner ? (
                     <>
-                        <ProfilePicture user={owner} size="xs" showName />{' '}
+                        It runs with the access of its creator, <OwnerChip owner={owner} />,{' '}
                         {cause === 'left'
-                            ? 'is no longer in the organization.'
-                            : 'no longer has access to the data it reads.'}
+                            ? 'who is no longer in the organization.'
+                            : 'who no longer has access to the data it reads.'}
                     </>
                 ) : (
-                    // The owner foreign key is set to null when the account is deleted.
-                    "Its owner's account was deleted."
-                )}{' '}
-                Take ownership to run it with your access.
+                    // The creator foreign key is set to null when the account is deleted.
+                    'It runs with the access of its creator, whose account was deleted.'
+                )}
             </p>
+            <p className="m-0">Take ownership to enable it with your access instead.</p>
         </div>
     )
 }
@@ -81,7 +108,7 @@ export function openTakeOwnershipDialog({
         let request: Promise<void> = Promise.resolve()
         LemonDialog.open({
             title: `Take ownership of this ${resourceLabel}?`,
-            description: <OwnerUnavailableDescription resourceLabel={resourceLabel} owner={owner} cause={cause} />,
+            content: <OwnerUnavailableContent resourceLabel={resourceLabel} owner={owner} cause={cause} />,
             // The modal grows to fit its text, so a long reason would stretch it across the screen.
             maxWidth: '30rem',
             shouldAwaitSubmit: true,
