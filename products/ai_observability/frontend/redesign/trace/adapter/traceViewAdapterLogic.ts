@@ -219,11 +219,7 @@ export interface traceViewAdapterLogicMeta {
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
         feedbackChip: (traceFeedback: TraceFeedbackApi | null) => FeedbackChipData | null
         feedbackCount: (traceFeedback: TraceFeedbackApi | null) => number | null
-        stepFeedback: (
-            traceFeedback: TraceFeedbackApi | null,
-            tree: TraceNodeApi[],
-            traceId: string
-        ) => Record<string, StepFeedback>
+        stepFeedback: (traceFeedback: TraceFeedbackApi | null) => Record<string, StepFeedback>
         feedbackCountByNodeId: (stepFeedback: Record<string, StepFeedback>) => Record<string, number>
         selectedStepFeedback: (
             stepFeedback: Record<string, StepFeedback>,
@@ -484,9 +480,9 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (feedback: TraceFeedbackApi | null): number | null => feedback?.summary.total ?? null,
         ],
         stepFeedback: [
-            (s, p) => [s.traceFeedback, s.tree, p.traceId],
-            (feedback: TraceFeedbackApi | null, tree: TraceNodeApi[], traceId: string): Record<string, StepFeedback> =>
-                feedback ? toStepFeedback(feedback, tree, traceId) : {},
+            (s) => [s.traceFeedback],
+            (feedback: TraceFeedbackApi | null): Record<string, StepFeedback> =>
+                feedback ? toStepFeedback(feedback) : {},
         ],
         feedbackCountByNodeId: [
             (s) => [s.stepFeedback],

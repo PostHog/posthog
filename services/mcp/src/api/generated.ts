@@ -121409,8 +121409,8 @@ export namespace Schemas {
       name: string | null;
       /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
       value: string;
-      /** The step the score targets, or null for the whole trace. */
-      nodeId: string | null;
+      /** The tree node the score targets: the step's event uuid, or the trace id for a trace-level score. */
+      nodeId: string;
       timestamp: string;
     }
 
@@ -121418,8 +121418,8 @@ export namespace Schemas {
       kind: 'text';
       id: string;
       text: string;
-      /** The step the feedback targets, or null for the whole trace. */
-      nodeId: string | null;
+      /** The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback. */
+      nodeId: string;
       timestamp: string;
     }
 

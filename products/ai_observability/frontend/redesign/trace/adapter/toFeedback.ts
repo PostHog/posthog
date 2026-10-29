@@ -6,22 +6,11 @@ export function toFeedbackChip(summary: TraceFeedbackSummaryApi): FeedbackChipDa
     return summary.total > 0 ? { total: summary.total } : null
 }
 
-/** The step an entry belongs to in this tree. Entries on the whole trace, or on a step the tree lacks, are null. */
-function treeStepId(nodeId: string | null, labels: Map<string, string>): string | null {
-    return nodeId !== null && labels.has(nodeId) ? nodeId : null
-}
-
 /** Trace-level entries sit on the root, whose id is the trace id. */
-export function toStepFeedback(
-    feedback: TraceFeedbackApi,
-    tree: TraceNodeApi[],
-    traceId: string
-): Record<string, StepFeedback> {
-    const labels = nodeLabels(tree)
+export function toStepFeedback(feedback: TraceFeedbackApi): Record<string, StepFeedback> {
     // The root's key is the trace id, which is free-form, so a prototype key such as `constructor` must not resolve.
     const byStep: Record<string, StepFeedback> = Object.create(null)
-    const entry = (nodeId: string | null): StepFeedback =>
-        (byStep[treeStepId(nodeId, labels) ?? traceId] ??= { scores: [], textCount: 0 })
+    const entry = (nodeId: string): StepFeedback => (byStep[nodeId] ??= { scores: [], textCount: 0 })
     for (const score of feedback.scores) {
         entry(score.nodeId).scores.push(score)
     }
@@ -50,11 +39,11 @@ export function toFeedbackMode({
     focusNodeId,
 }: FeedbackModeArgs): Extract<FeedbackModeState, { status: 'ready' }> {
     const labels = nodeLabels(tree)
-    const placement = (nodeId: string | null): FeedbackPlacement => {
-        const stepId = treeStepId(nodeId, labels)
+    const placement = (nodeId: string): FeedbackPlacement => {
+        const name = nodeId !== traceId ? labels.get(nodeId) : undefined
         return {
-            step: stepId !== null ? { id: stepId, name: labels.get(stepId) ?? stepId } : null,
-            focused: focusNodeId !== null && (stepId ?? traceId) === focusNodeId,
+            step: name !== undefined ? { id: nodeId, name } : null,
+            focused: nodeId === focusNodeId,
         }
     }
     return {

@@ -49,12 +49,12 @@ def test_orders_entries_and_drops_empty_ones() -> None:
     [
         ("the step's event uuid", "e1", "e1"),
         ("the step's generation id", "gen-a", "e1"),
-        ("the trace id", "trace-1", None),
-        ("an id no step carries", "trace-event-span", None),
-        ("no parent", None, None),
+        ("the trace id", "trace-1", "trace-1"),
+        ("an id no step carries", "trace-event-span", "trace-1"),
+        ("no parent", None, "trace-1"),
     ]
 )
-def test_entry_targets(_name: str, parent_id: str | None, node_id: str | None) -> None:
+def test_entry_targets(_name: str, parent_id: str | None, node_id: str) -> None:
     feedback = TraceFeedback(
         "trace-1",
         [

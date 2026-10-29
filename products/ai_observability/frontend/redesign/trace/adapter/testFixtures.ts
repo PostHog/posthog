@@ -162,7 +162,7 @@ export function makeFeedbackText(overrides: Partial<TraceFeedbackTextApi> = {}):
         kind: 'text',
         id: 'text-1',
         text: 'Too long, but correct.',
-        nodeId: null,
+        nodeId: 'trace-1',
         timestamp: '2026-09-01T10:17:00Z',
         ...overrides,
     }

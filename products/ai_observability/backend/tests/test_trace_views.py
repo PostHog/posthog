@@ -377,7 +377,7 @@ class TestTraceFeedbackView(ClickhouseTestMixin, APIBaseTest):
             {"id": SCORE, "name": "helpfulness", "value": "0", "nodeId": GENERATION, "timestamp": None}
         ]
         assert [(item["kind"], item["text"], item["nodeId"]) for item in body["responses"]] == [
-            ("text", "Too long, but correct.", None)
+            ("text", "Too long, but correct.", "trace-1")
         ]
         assert body["summary"]["total"] == 2
 

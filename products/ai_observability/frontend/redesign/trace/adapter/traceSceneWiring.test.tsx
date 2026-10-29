@@ -182,7 +182,7 @@ describe('TraceScene', () => {
                         200,
                         makeFeedback({
                             scores: [makeFeedbackScore({ name: 'helpfulness', value: '0', nodeId: 'gen-1' })],
-                            responses: [makeFeedbackText({ text: 'Too long, but correct.', nodeId: null })],
+                            responses: [makeFeedbackText({ text: 'Too long, but correct.', nodeId: 'trace-1' })],
                         }),
                     ],
                 },

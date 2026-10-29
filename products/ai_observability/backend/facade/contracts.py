@@ -173,7 +173,9 @@ class TraceFeedbackScore(Contract):
     value: str = Field(
         description="The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5."
     )
-    node_id: str | None = Field(description="The step the score targets, or null for the whole trace.")
+    node_id: str = Field(
+        description="The tree node the score targets: the step's event uuid, or the trace id for a trace-level score."
+    )
     timestamp: datetime
 
 
@@ -181,7 +183,9 @@ class TraceFeedbackText(Contract):
     kind: Literal["text"]
     id: str
     text: str
-    node_id: str | None = Field(description="The step the feedback targets, or null for the whole trace.")
+    node_id: str = Field(
+        description="The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback."
+    )
     timestamp: datetime
 
 

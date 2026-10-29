@@ -433,15 +433,15 @@ export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready'
     scores: [
         { ...feedbackScore('score-helpful', 'helpfulness', '0', 16), step: answerStep, focused: true },
         { ...feedbackScore('score-resolved', 'resolved', 'false', 17), step: answerStep, focused: true },
-        { ...feedbackScore('score-csat', 'csat', '4', 21), nodeId: null, step: null, focused: false },
-        { ...feedbackScore('score-unnamed', null, '{"stars":3}', 22), nodeId: null, step: null, focused: false },
+        { ...feedbackScore('score-csat', 'csat', '4', 21), nodeId: 'trace-1', step: null, focused: false },
+        { ...feedbackScore('score-unnamed', null, '{"stars":3}', 22), nodeId: 'trace-1', step: null, focused: false },
     ],
     responses: [
         {
             kind: 'text',
             id: 'text-long',
             text: 'Too long, but correct.',
-            nodeId: null,
+            nodeId: 'trace-1',
             timestamp: '2026-09-01T10:23:00Z',
             step: null,
             focused: false,
