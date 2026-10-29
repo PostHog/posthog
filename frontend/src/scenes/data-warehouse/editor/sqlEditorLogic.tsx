@@ -2661,7 +2661,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                     <span className="text-muted cursor-pointer">&#9432;</span>
                                                 </Tooltip>
                                             </div>
-                                            {value && <IncrementalConfigFields queries={candidates.queries} />}
+                                            <IncrementalConfigFields queries={candidates.queries} />
                                         </>
                                     )}
                                 </LemonField>

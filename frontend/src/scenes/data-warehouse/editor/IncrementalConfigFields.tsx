@@ -1,9 +1,8 @@
-import { useValues } from 'kea'
-import { FormContext } from 'kea-forms'
-import { useContext } from 'react'
+import { useMountedLogic, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { lemonDialogLogic } from 'lib/lemon-ui/LemonDialog/lemonDialogLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
@@ -290,19 +289,20 @@ export function IncrementalConfigOptions({
  * Rendered only when the view is being materialized, since incremental describes how a
  * materialized table is refreshed and means nothing without one.
  */
-export function IncrementalConfigFields({ queries }: IncrementalConfigFieldsProps): JSX.Element {
-    const { logic: formLogic } = useContext(FormContext)
-    if (!formLogic) {
-        throw new Error('IncrementalConfigFields requires a form')
-    }
+export function IncrementalConfigFields({ queries }: IncrementalConfigFieldsProps): JSX.Element | null {
+    const formLogic = useMountedLogic(lemonDialogLogic)
     const { form } = useValues(formLogic)
     const { check, checkLoading } = useValues(
         saveViewIncrementalLogic({
-            query: queries[form.saveTarget] ?? '',
+            query: queries[Number(form.saveTarget)] ?? '',
             dialogKey: String(formLogic.key),
-            setFormValue: formLogic.actions.setFormValue,
+            enabled: Boolean(form.materializeAfterSave),
         })
     )
+
+    if (!form.materializeAfterSave) {
+        return null
+    }
 
     if (checkLoading) {
         return (

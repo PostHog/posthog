@@ -45,10 +45,6 @@ Saving a view infers its column types with LIMIT 0 on the outer SELECT branches 
 Scalar subqueries can still read data, so column inference shares the organization's foreground query concurrency limit.
 API-key requests and background jobs retain the query runner's existing exemptions from that limit.
 
-The **Save as view** dialog opens without waiting for the incremental materialization check.
-Selecting **Materialize this view** loads incremental options for the selected SQL.
-If the check fails, the view can still use a full refresh.
-
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
