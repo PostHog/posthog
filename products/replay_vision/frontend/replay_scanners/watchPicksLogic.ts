@@ -187,7 +187,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                         limit: PICKS_LIMIT,
                     })
                     breakpoint()
-                    actions.setPicksLoad(newWatchFeedLoad(response.ranker, response.results))
+                    actions.setPicksLoad(newWatchFeedLoad(response.results))
                     return response.results
                 },
             },

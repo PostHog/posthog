@@ -213,7 +213,8 @@ class MetaAdsSchema:
     single_object: bool = False
     # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
     hoisted_columns: tuple[HoistedColumn, ...] = ()
-    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`).
+    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`), or
+    # heavy fields that can make even the smallest page too much data. Both read them back per row.
     refusable_fields: tuple[str, ...] = ()
 
 
@@ -919,9 +920,10 @@ def _iter_simple_pagination(
     then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
 
     When Meta refuses a page for one row's ``refusable_fields`` (see
-    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), the same page is fetched
-    again without those fields, and the fields are read back per row from
-    ``node_lookup_url``. The next page asks for every field again.
+    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), or the smallest page is still
+    too much data, the same page is fetched again without those fields, and
+    the fields are read back per row from ``node_lookup_url``. The next page
+    asks for every field again.
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
@@ -975,6 +977,12 @@ def _iter_simple_pagination(
                 smaller = _next_smaller_limit(current_limit)
                 if smaller is not None:
                     current_limit = smaller
+                    response = _issue()
+                    continue
+                # A Meta refusal that persists at the smallest page is the same request every time, so
+                # backoff alone never clears it when a few rows carry very large heavy fields.
+                if refusable_fields and node_lookup_url is not None and not without_refusable_fields:
+                    without_refusable_fields = True
                     response = _issue()
                     continue
                 if smallest_limit_retries < SMALLEST_PAGE_LIMIT_MAX_RETRIES:

@@ -5,6 +5,7 @@ from typing import Any, Self, cast
 
 from django.db import models
 from django.db.models import Q
+from django.db.models.manager import ManagerDescriptor
 from django.utils.functional import Promise
 
 import structlog
@@ -26,6 +27,7 @@ from .auth_types import (
     effective_auth_type,
     normalized_config,
     rows_with_default_auth_type_q,
+    rows_without_source_marker_q,
 )
 
 logger = structlog.get_logger(__name__)
@@ -73,8 +75,7 @@ def _decrypted_sensitive_value(integration: "Integration", field_name: str) -> s
     if not isinstance(value, str) or not value.startswith(FERNET_TOKEN_PREFIX):
         return value
 
-    # django-stubs can't see through `field_access_control`, so it doesn't know this field name.
-    field = cast(EncryptedJSONField, integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+    field = cast(EncryptedJSONField, integration._meta.get_field("sensitive_config"))
     recovered = field.decrypt_all_layers(value)
 
     if recovered is None:
@@ -110,8 +111,9 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
     # Set by `_with_auth`. None means the query did not state its auth types.
     _auth_requirement: AuthRequirement | None = None
     # True on the queryset that `Integration.objects` returns without `_with_auth`. It holds only
-    # rows with the default auth type of their kind, so code that does not state its auth types
-    # never gets a row it cannot handle.
+    # rows with the default auth type of their kind and without the warehouse source marker, so code
+    # that does not state its auth types never gets a row it cannot handle. A source row can have
+    # the default auth type of its kind and still hold a different config shape.
     _implicit_default_auth: bool = False
 
     def _clone(self) -> Self:
@@ -142,7 +144,7 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
         return queryset
 
     def _with_implicit_default_auth(self) -> Self:
-        queryset = self.filter(rows_with_default_auth_type_q())
+        queryset = self.filter(rows_with_default_auth_type_q(), rows_without_source_marker_q())
         queryset._implicit_default_auth = True
         return queryset
 
@@ -191,10 +193,12 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
 
 class IntegrationModelManager(models.Manager["Integration"]):
     _queryset_class = IntegrationQuerySet
+    # False on `_AllRowsManager`, the default manager that Django internals use.
+    _filters_to_default_auth: bool = True
 
     def get_queryset(self) -> IntegrationQuerySet:
         queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)  # type: ignore[attr-defined]
-        if self._is_related_manager():
+        if self._is_related_manager() or not self._filters_to_default_auth:
             return queryset
         return queryset._with_implicit_default_auth()
 
@@ -229,6 +233,10 @@ class IntegrationModelManager(models.Manager["Integration"]):
             .for_github_installation_id(installation_id)
             .first()
         )
+
+
+class _AllRowsManager(IntegrationModelManager):
+    _filters_to_default_auth = False
 
 
 def integration_kind_choices() -> list[tuple[str, str | Promise]]:
@@ -323,7 +331,12 @@ class Integration(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
-    objects: IntegrationModelManager = IntegrationModelManager()
+    # Django's default manager, because it is declared first. Admin widgets, DRF relation fields,
+    # `validate_constraints` and `get_object_or_404` read through it, so it must see every row. After
+    # the class, `Integration.objects` points to `_implicit_default_auth_objects` instead. The Django
+    # name stays `objects`, so the migration state does not change.
+    objects: IntegrationModelManager = _AllRowsManager()
+    _implicit_default_auth_objects: IntegrationModelManager = IntegrationModelManager()
 
     class Meta:
         constraints = [
@@ -447,7 +460,11 @@ class Integration(models.Model):
         return _decrypted_sensitive_value(self, "refresh_token")
 
 
-def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:
+# `setattr`, because the type of `objects` is the manager, not its descriptor.
+setattr(Integration, "objects", ManagerDescriptor(Integration._implicit_default_auth_objects))  # noqa: B010
+
+
+def defer_repository_cache_fields[QuerySetT: models.QuerySet[Integration]](queryset: QuerySetT) -> QuerySetT:
     return queryset.defer("repository_cache", "repository_cache_updated_at")
 
 

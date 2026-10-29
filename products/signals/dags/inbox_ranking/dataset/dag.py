@@ -644,10 +644,10 @@ def server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -
             .values("report_id")
             .annotate(row_count=Count("id"), earliest_at=Min("first_at"))
         )
-        for row in discussions.iterator(chunk_size=2000):
-            values = entry(row["report_id"])
-            values["slack_discussion_count"] = row["row_count"]
-            values["first_slack_discussed_at"] = row["earliest_at"]
+        for discussion_row in discussions.iterator(chunk_size=2000):
+            values = entry(discussion_row["report_id"])
+            values["slack_discussion_count"] = discussion_row["row_count"]
+            values["first_slack_discussed_at"] = discussion_row["earliest_at"]
     return [
         (report_id, *(values[column] for column in SERVER_ACTIONS_COLUMNS)) for report_id, values in entries.items()
     ]

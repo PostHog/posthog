@@ -725,14 +725,6 @@ const HIGHLIGHTS: HighlightsApi = {
     ],
 }
 
-const SAVED_INSIGHTS = [
-    { id: 1, short_id: 'chk01', name: 'Checkout conversion' },
-    { id: 2, short_id: 'rev01', name: 'Refunds' },
-    { id: 3, short_id: 'arr01', name: 'Monthly recurring revenue' },
-    { id: 4, short_id: 'ret01', name: 'Week 1 retention' },
-    { id: 5, short_id: 'trl01', name: 'Trial to paid' },
-]
-
 const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
     ...HIGHLIGHTS.pulse[0],
     key: 'insight:chk01',
@@ -748,9 +740,6 @@ const CHECKOUT_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 0.329,
     movers: [],
 }
-
-let storyPins: { key: string; name: string }[] = []
-let storyComputingCalls = 0
 
 const RETENTION_METRIC: HighlightsApi['pulse'][number] = {
     ...CHECKOUT_METRIC,
@@ -775,36 +764,8 @@ const REVENUE_METRIC: HighlightsApi['pulse'][number] = {
     previous_value: 46600,
 }
 
-let storyLastReady: HighlightsApi | null = null
-
 function storyHighlights(): HighlightsApi {
-    if (storyComputingCalls > 0) {
-        storyComputingCalls -= 1
-        return storyLastReady
-            ? { ...storyLastReady, status: 'computing' }
-            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
-    }
-    const offered = [CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC, ...HIGHLIGHTS.pulse]
-    const chosen = storyPins.flatMap((pin) => {
-        const metric = offered.find((candidate) => candidate.key === pin.key)
-        return metric ? [metric] : []
-    })
-    const suggested = HIGHLIGHTS.pulse.filter((metric) => !storyPins.some((pin) => pin.key === metric.key))
-    const pins = storyPins.map((pin) => ({
-        key: pin.key,
-        status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
-    }))
-    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested].slice(0, 4), pins }
-    return storyLastReady
-}
-
-function keepNumbers(pins: { key: string; name: string }[]) {
-    return function KeepNumbers(Story: () => JSX.Element): JSX.Element {
-        storyPins = pins
-        storyComputingCalls = 0
-        storyLastReady = null
-        return <Story />
-    }
+    return { ...HIGHLIGHTS, pulse: [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC] }
 }
 
 const meta: Meta = {
@@ -851,12 +812,6 @@ const meta: Meta = {
                 '/api/users/@me/integrations/': { results: [] },
                 '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/highlights/': () => [200, storyHighlights()],
-                '/api/projects/:team_id/today/pulse_pins/': () => [200, { pins: storyPins }],
-                '/api/projects/:team_id/insights/': ({ request }) => {
-                    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
-                    const results = SAVED_INSIGHTS.filter((insight) => insight.name.toLowerCase().includes(search))
-                    return [200, { results, count: results.length, next: null, previous: null }]
-                },
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
@@ -954,14 +909,6 @@ const meta: Meta = {
                     ],
                 },
             },
-            put: {
-                '/api/projects/:team_id/today/pulse_pins/': async ({ request }) => {
-                    const body = (await request.json()) as { pins: { key: string; name: string }[] }
-                    storyPins = body.pins
-                    storyComputingCalls = 1
-                    return [200, { pins: storyPins }]
-                },
-            },
         }),
     ],
     parameters: {
@@ -977,7 +924,7 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const Home: Story = { decorators: [keepNumbers([])] }
+export const Home: Story = {}
 
 export const HomeWithFrequentItems: Story = {
     parameters: {
@@ -988,7 +935,6 @@ export const HomeWithFrequentItems: Story = {
         },
     },
     decorators: [
-        keepNumbers([]),
         mswDecorator({
             get: {
                 '/api/projects/:team_id/file_system/frequent/': [
@@ -1023,15 +969,6 @@ export const HomeWithRecentRanking: Story = {
             [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'control',
         },
     },
-}
-
-export const HomeWithKeptNumbers: Story = {
-    decorators: [
-        keepNumbers([
-            { key: 'insight:chk01', name: 'Checkout conversion' },
-            { key: 'activity_event', name: 'Active users' },
-        ]),
-    ],
 }
 
 export const HomeWithSampleReports: Story = {

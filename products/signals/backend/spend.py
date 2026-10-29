@@ -129,7 +129,9 @@ def _locked_ad_hoc_spend(*, team_id: int, signal_id: str) -> SignalSpend:
         team_id=team_id,
         signal_id=signal_id,
         kind=SignalSpend.Kind.AD_HOC,
-        defaults={"billing_exempt": lambda: trial_spend_exempt(team_id)},
+        # get_or_create calls callable defaults only when it creates the row, so the trial lookup is
+        # skipped for existing rows. django-stubs types defaults as plain field values.
+        defaults={"billing_exempt": lambda: trial_spend_exempt(team_id)},  # type: ignore[misc]
     )
     return SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
 

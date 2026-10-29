@@ -63,7 +63,7 @@ from posthog.api.integration_push_tokens import (
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.dns_hosts import lookup_dns_host
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
@@ -392,6 +392,20 @@ class GitHubRepoSerializer(serializers.Serializer):
         required=False,
         help_text="Whether the PostHog GitHub App has write access — required to open pull requests.",
     )
+
+
+class GitHubRepositoryAccessQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        required=False,
+        help_text="Repository in owner/repo format. Omit to check access to any repository.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        return validate_github_repository_name(value)
+
+
+class GitHubRepositoryAccessResponseSerializer(serializers.Serializer):
+    available = serializers.BooleanField(help_text="Whether a live GitHub request confirmed repository access.")
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
@@ -1562,6 +1576,7 @@ class IntegrationViewSet(
         "channels",
         "users",
         "github_repos",
+        "github_repository_access",
         "github_branches",
         "github_teams",
         "github_available_installations",
@@ -1649,7 +1664,7 @@ class IntegrationViewSet(
 
     def perform_destroy(self, instance: Integration) -> None:
         # Check before the teardown below, which revokes grants at the provider. `delete` checks again.
-        usages = IntegrationManager.any.usages(instance.team_id, instance.id)
+        usages = IntegrationManager.any.with_source_rows().usages(instance.team_id, instance.id)
         if usages:
             raise _integration_in_use_error(usages)
 
@@ -1722,7 +1737,7 @@ class IntegrationViewSet(
                     github_audit.record("personal_cleanup_failed", failure_type=type(e).__name__)
 
         try:
-            IntegrationManager.any.delete(instance.team_id, instance.id)
+            IntegrationManager.any.with_source_rows().delete(instance.team_id, instance.id)
         except Exception as exc:
             if github_audit:
                 github_audit.record("disconnect_failed", stage="project_deletion", failure_type=type(exc).__name__)
@@ -2433,6 +2448,33 @@ class IntegrationViewSet(
                 query_serializer.validated_data,
             )
         )
+
+    @validated_request(
+        query_serializer=GitHubRepositoryAccessQuerySerializer,
+        responses={200: GitHubRepositoryAccessResponseSerializer, 503: ErrorResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_repository_access")
+    def github_repository_access(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_repository_access endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL)
+        repository = request.validated_query_data.get("repository")
+        try:
+            if repository:
+                available = github.installation_can_access_repository(repository, raise_on_transient=True)
+            else:
+                repositories, _ = github.list_repositories(per_page=1)
+                available = bool(repositories)
+        except GitHubIntegrationError as error:
+            if error.status_code in (401, 403, 404) or github.installation_unavailable():
+                available = False
+            else:
+                return Response(
+                    {"error": "Couldn't check GitHub access. Try again in a moment."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+        return Response({"available": available})
 
     @extend_schema(parameters=[GitHubAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="github_assignees")

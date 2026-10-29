@@ -358,6 +358,7 @@ def create_resources(
             retry_backoff_max_seconds=client_config.get("retry_backoff_max_seconds", DEFAULT_RETRY_BACKOFF_MAX_SECONDS),
             allowed_hosts=client_config.get("allowed_hosts"),
             allow_redirects=client_config.get("allow_redirects", True),
+            presigned_redirect_host_pattern=client_config.get("presigned_redirect_host_pattern"),
             request_timeout=client_config.get("request_timeout"),
             capture=client_config.get("capture", True),
             **_retry_limit_overrides(client_config),
