@@ -12,20 +12,27 @@ from django.conf import settings
 
 import pytz
 import httpx
+import openai
 import anthropic
 import structlog
 from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult, LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_core.runnables import ensure_config
 from langchain_openai import ChatOpenAI
 from prometheus_client import Counter
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, anthropic_gateway_base_url
+from posthog.llm.gateway_client import (
+    AIGatewayConfig,
+    ai_gateway_headers,
+    anthropic_gateway_base_url,
+    resolve_ai_gateway_config,
+)
 from posthog.models import Team, User
 from posthog.settings import CLOUD_DEPLOYMENT
 
@@ -118,18 +125,18 @@ def _marked_as_gateway_served(chunks: list[ChatGenerationChunk]) -> list[ChatGen
 
 def _ai_gateway_fallback_reason(error: Exception) -> str | None:
     """None re-raises: a direct retry cannot fix other errors, and the gateway's own 402/403 must stay binding."""
-    if isinstance(error, anthropic.APITimeoutError):
+    if isinstance(error, (anthropic.APITimeoutError, openai.APITimeoutError)):
         return "timeout"
-    if isinstance(error, anthropic.APIConnectionError):
+    if isinstance(error, (anthropic.APIConnectionError, openai.APIConnectionError)):
         return "connection"
-    if isinstance(error, anthropic.APIStatusError):
+    if isinstance(error, (anthropic.APIStatusError, openai.APIStatusError)):
         if error.status_code == 401:
             return "unauthorized"
         if error.status_code == 429:
             return "rate_limited"
         if error.status_code >= 500:
             return "server_error"
-        if _is_provider_billing_block(error):
+        if isinstance(error, anthropic.APIStatusError) and _is_provider_billing_block(error):
             return "provider_billing"
     return None
 
@@ -157,6 +164,7 @@ class MaxChatMixin(BaseModel):
     user: User
     team: Team
     max_retries: int | None = None
+    streaming: bool = False
     stream_usage: bool | None = None
     conversation_start_dt: datetime.datetime | None = None
     """
@@ -177,6 +185,8 @@ class MaxChatMixin(BaseModel):
     These will be merged with the standard properties like $ai_billable and team_id.
     """
     posthog_provider: ClassVar[str]
+    ai_gateway_fallback: BaseChatModel | None = Field(default=None, exclude=True)
+    """Direct twin that serves calls which must not route, and gateway failures before any output."""
 
     def model_post_init(self, __context: Any) -> None:
         if self.max_retries is None:
@@ -273,6 +283,163 @@ class MaxChatMixin(BaseModel):
 
         return new_kwargs
 
+    def _routes_via_ai_gateway(self) -> bool:
+        """Other products keep their capture and billing on the direct path."""
+        if self.ai_gateway_fallback is None:
+            return False
+        configurable = ensure_config().get("configurable") or {}
+        return (
+            configurable.get("ai_product") == POSTHOG_AI_PRODUCT
+            and (self.posthog_properties or {}).get("ai_product", POSTHOG_AI_PRODUCT) == POSTHOG_AI_PRODUCT
+        )
+
+    def _with_ai_gateway_headers(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        configurable = ensure_config().get("configurable") or {}
+        posthog_properties = kwargs["metadata"]["posthog_properties"]
+        trace_id = str(configurable["trace_id"]) if configurable.get("trace_id") else None
+        conversation_id = str(configurable["thread_id"]) if configurable.get("thread_id") else None
+        # The gateway strips `$` keys and stamps ai_product itself; team_id names the customer it bills.
+        labels = {
+            key: str(value)
+            for key, value in posthog_properties.items()
+            if value is not None and not key.startswith("$") and key != "ai_product"
+        }
+        if conversation_id:
+            labels["conversation_id"] = conversation_id
+        # Support-trace filters read this property, which the SDK handler sets only on its own events.
+        if configurable.get("is_impersonated"):
+            labels["ai_support_impersonated"] = "true"
+        headers = (
+            ai_gateway_headers(
+                ai_product=POSTHOG_AI_PRODUCT,
+                trace_id=trace_id,
+                session_id=conversation_id,
+                properties=labels,
+                distinct_id=configurable.get("distinct_id") or self.user.distinct_id,
+            )
+            or {}
+        )
+        if not posthog_properties["$ai_billable"]:
+            headers["X-PostHog-Billable"] = "false"
+        # The gateway records prompts and outputs unless asked not to, so an unknown privacy mode redacts too.
+        if configurable.get("privacy_mode") is not False:
+            headers["X-PostHog-Privacy-Mode"] = "true"
+        return {**kwargs, "extra_headers": {**(kwargs.get("extra_headers") or {}), **headers}}
+
+    def _record_ai_gateway_fallback(self, reason: str, error: Exception) -> None:
+        AI_GATEWAY_FALLBACK_COUNTER.labels(reason=reason).inc()
+        model_name = getattr(self, "model", None) or getattr(self, "model_name", "unknown")
+        logger.warning("posthog_ai_gateway_fallback", reason=reason, error_type=type(error).__name__, model=model_name)
+
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        # Sync calls stay direct: only `agenerate` adds the gateway headers.
+        if self.ai_gateway_fallback is not None:
+            return self.ai_gateway_fallback._stream(
+                messages,
+                stop=stop,
+                run_manager=run_manager,
+                **_without_ai_gateway_headers(kwargs),
+            )
+        return cast(BaseChatModel, super())._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if self.ai_gateway_fallback is not None:
+            return self.ai_gateway_fallback._generate(
+                messages, stop=stop, run_manager=run_manager, **_without_ai_gateway_headers(kwargs)
+            )
+        return cast(BaseChatModel, super())._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    async def _astream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        fallback = self.ai_gateway_fallback
+        if fallback is None:
+            async for chunk in cast(BaseChatModel, super())._astream(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            ):
+                yield chunk
+            return
+
+        direct_kwargs = _without_ai_gateway_headers(kwargs)
+        if _has_ai_gateway_headers(kwargs):
+            served = False
+            # Anthropic opens the stream with a metadata chunk. Holding those keeps the fallback open until real
+            # output, and keeps their usage off the twin's generation.
+            held: list[ChatGenerationChunk] = []
+            try:
+                async for chunk in cast(BaseChatModel, super())._astream(
+                    messages, stop=stop, run_manager=run_manager, **kwargs
+                ):
+                    if served:
+                        yield chunk
+                        continue
+                    held.append(chunk)
+                    if not _carries_output(chunk):
+                        continue
+                    served = True
+                    for pending in _marked_as_gateway_served(held):
+                        yield pending
+                if not served and held:
+                    # A stream that ended without output was still served by the gateway.
+                    for pending in _marked_as_gateway_served(held):
+                        yield pending
+                return
+            except Exception as error:
+                reason = _ai_gateway_fallback_reason(error)
+                # After output the user has seen the turn, so a direct retry would repeat it.
+                if served or reason is None:
+                    raise
+                self._record_ai_gateway_fallback(reason, error)
+
+        async for chunk in fallback._astream(messages, stop=stop, run_manager=run_manager, **direct_kwargs):
+            yield chunk
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        fallback = self.ai_gateway_fallback
+        # A streaming call resolves through `_astream`, which routes and falls back on its own.
+        if fallback is None or self.streaming:
+            return await cast(BaseChatModel, super())._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+        direct_kwargs = _without_ai_gateway_headers(kwargs)
+        if _has_ai_gateway_headers(kwargs):
+            try:
+                result = await cast(BaseChatModel, super())._agenerate(
+                    messages, stop=stop, run_manager=run_manager, **kwargs
+                )
+            except Exception as error:
+                reason = _ai_gateway_fallback_reason(error)
+                if reason is None:
+                    raise
+                self._record_ai_gateway_fallback(reason, error)
+            else:
+                for generation in result.generations:
+                    generation.generation_info = {**(generation.generation_info or {}), AI_GATEWAY_SERVED_KEY: True}
+                return result
+
+        return await fallback._agenerate(messages, stop=stop, run_manager=run_manager, **direct_kwargs)
+
 
 class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
     """PostHog-tuned subclass of ChatOpenAI.
@@ -284,6 +451,26 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
     """
 
     posthog_provider: ClassVar[str] = "openai"
+
+    ai_gateway_fallback: ChatOpenAI | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _via_ai_gateway(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or "ai_gateway_fallback" in data:
+            return data
+        ai_gateway = resolve_ai_gateway_config()
+        if ai_gateway is None:
+            return data
+        return {
+            **data,
+            "base_url": ai_gateway.url,
+            "api_key": ai_gateway.api_key,
+            "http_client": httpx.Client(trust_env=False),
+            "http_async_client": httpx.AsyncClient(trust_env=False),
+            "max_retries": 0,
+            "ai_gateway_fallback": cls(**data, ai_gateway_fallback=None),
+        }
 
     def model_post_init(self, __context: Any) -> None:
         super().model_post_init(__context)
@@ -305,6 +492,8 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
         else:
             # Initialise instructions if absent or falsy
             self.model_kwargs["instructions"] = system_msg_content
+        if self.ai_gateway_fallback is not None:
+            self.ai_gateway_fallback.model_kwargs["instructions"] = self.model_kwargs["instructions"]
 
     def generate(
         self,
@@ -337,6 +526,8 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
                 messages = self._enrich_messages(messages, project_org_user_variables)
 
         kwargs = self._with_posthog_properties(kwargs)
+        if self._routes_via_ai_gateway():
+            kwargs = self._with_ai_gateway_headers(kwargs)
 
         return await super().agenerate(messages, *args, **kwargs)
 
@@ -356,7 +547,6 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     """
 
     ai_gateway_fallback: ChatAnthropic | None = Field(default=None, exclude=True)
-    """Direct twin that serves calls which must not route, and gateway failures before any output."""
 
     @classmethod
     def via_ai_gateway(cls, ai_gateway: AIGatewayConfig, **kwargs: Any) -> "MaxChatAnthropic":
@@ -418,172 +608,11 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             kwargs["timeout"] = client_params["timeout"]
         return kwargs
 
-    def _routes_via_ai_gateway(self) -> bool:
-        """Other products keep their capture and billing on the direct path."""
-        if self.ai_gateway_fallback is None:
-            return False
-        configurable = ensure_config().get("configurable") or {}
-        return (
-            configurable.get("ai_product") == POSTHOG_AI_PRODUCT
-            and (self.posthog_properties or {}).get("ai_product", POSTHOG_AI_PRODUCT) == POSTHOG_AI_PRODUCT
-        )
-
-    def _with_ai_gateway_headers(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        configurable = ensure_config().get("configurable") or {}
-        posthog_properties = kwargs["metadata"]["posthog_properties"]
-        trace_id = str(configurable["trace_id"]) if configurable.get("trace_id") else None
-        conversation_id = str(configurable["thread_id"]) if configurable.get("thread_id") else None
-        # The gateway strips `$` keys and stamps ai_product itself; team_id names the customer it bills.
-        labels = {
-            key: str(value)
-            for key, value in posthog_properties.items()
-            if value is not None and not key.startswith("$") and key != "ai_product"
-        }
-        if conversation_id:
-            labels["conversation_id"] = conversation_id
-        # Support-trace filters read this property, which the SDK handler sets only on its own events.
-        if configurable.get("is_impersonated"):
-            labels["ai_support_impersonated"] = "true"
-        headers = (
-            ai_gateway_headers(
-                ai_product=POSTHOG_AI_PRODUCT,
-                trace_id=trace_id,
-                session_id=conversation_id,
-                properties=labels,
-                distinct_id=configurable.get("distinct_id") or self.user.distinct_id,
-            )
-            or {}
-        )
-        if not posthog_properties["$ai_billable"]:
-            headers["X-PostHog-Billable"] = "false"
-        # The gateway records prompts and outputs unless asked not to, so an unknown privacy mode redacts too.
-        if configurable.get("privacy_mode") is not False:
-            headers["X-PostHog-Privacy-Mode"] = "true"
-        return {**kwargs, "extra_headers": {**(kwargs.get("extra_headers") or {}), **headers}}
-
-    def _record_ai_gateway_fallback(self, reason: str, error: Exception) -> None:
-        AI_GATEWAY_FALLBACK_COUNTER.labels(reason=reason).inc()
-        logger.warning("posthog_ai_gateway_fallback", reason=reason, error_type=type(error).__name__, model=self.model)
-
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], tools: Any = None, **kwargs: Any) -> int:
         # Token counts have no fallback, so a gateway 429 here would fail the turn.
         if self.ai_gateway_fallback is not None:
             return self.ai_gateway_fallback.get_num_tokens_from_messages(messages, tools=tools, **kwargs)
         return super().get_num_tokens_from_messages(messages, tools=tools, **kwargs)
-
-    def _stream(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        *,
-        stream_usage: bool | None = None,
-        **kwargs: Any,
-    ) -> Iterator[ChatGenerationChunk]:
-        # Sync calls stay direct: only `agenerate` adds the gateway headers.
-        if self.ai_gateway_fallback is not None:
-            return self.ai_gateway_fallback._stream(
-                messages,
-                stop=stop,
-                run_manager=run_manager,
-                stream_usage=stream_usage,
-                **_without_ai_gateway_headers(kwargs),
-            )
-        return super()._stream(messages, stop=stop, run_manager=run_manager, stream_usage=stream_usage, **kwargs)
-
-    def _generate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        if self.ai_gateway_fallback is not None:
-            return self.ai_gateway_fallback._generate(
-                messages, stop=stop, run_manager=run_manager, **_without_ai_gateway_headers(kwargs)
-            )
-        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
-
-    async def _astream(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: AsyncCallbackManagerForLLMRun | None = None,
-        *,
-        stream_usage: bool | None = None,
-        **kwargs: Any,
-    ) -> AsyncIterator[ChatGenerationChunk]:
-        fallback = self.ai_gateway_fallback
-        if fallback is None:
-            async for chunk in super()._astream(
-                messages, stop=stop, run_manager=run_manager, stream_usage=stream_usage, **kwargs
-            ):
-                yield chunk
-            return
-
-        direct_kwargs = _without_ai_gateway_headers(kwargs)
-        if _has_ai_gateway_headers(kwargs):
-            served = False
-            # Anthropic opens the stream with a metadata chunk. Holding those keeps the fallback open until real
-            # output, and keeps their usage off the twin's generation.
-            held: list[ChatGenerationChunk] = []
-            try:
-                async for chunk in super()._astream(
-                    messages, stop=stop, run_manager=run_manager, stream_usage=stream_usage, **kwargs
-                ):
-                    if served:
-                        yield chunk
-                        continue
-                    held.append(chunk)
-                    if not _carries_output(chunk):
-                        continue
-                    served = True
-                    for pending in _marked_as_gateway_served(held):
-                        yield pending
-                if not served and held:
-                    # A stream that ended without output was still served by the gateway.
-                    for pending in _marked_as_gateway_served(held):
-                        yield pending
-                return
-            except Exception as error:
-                reason = _ai_gateway_fallback_reason(error)
-                # After output the user has seen the turn, so a direct retry would repeat it.
-                if served or reason is None:
-                    raise
-                self._record_ai_gateway_fallback(reason, error)
-
-        async for chunk in fallback._astream(
-            messages, stop=stop, run_manager=run_manager, stream_usage=stream_usage, **direct_kwargs
-        ):
-            yield chunk
-
-    async def _agenerate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: AsyncCallbackManagerForLLMRun | None = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        fallback = self.ai_gateway_fallback
-        # A streaming call resolves through `_astream`, which routes and falls back on its own.
-        if fallback is None or self.streaming:
-            return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
-
-        direct_kwargs = _without_ai_gateway_headers(kwargs)
-        if _has_ai_gateway_headers(kwargs):
-            try:
-                result = await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
-            except Exception as error:
-                reason = _ai_gateway_fallback_reason(error)
-                if reason is None:
-                    raise
-                self._record_ai_gateway_fallback(reason, error)
-            else:
-                for generation in result.generations:
-                    generation.generation_info = {**(generation.generation_info or {}), AI_GATEWAY_SERVED_KEY: True}
-                return result
-
-        return await fallback._agenerate(messages, stop=stop, run_manager=run_manager, **direct_kwargs)
 
     def generate(
         self,

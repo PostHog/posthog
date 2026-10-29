@@ -10,6 +10,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 import httpx
+import openai
 import anthropic
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
@@ -1063,3 +1064,142 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
         self.assertTrue(is_ai_gateway_served(served))
         self.assertFalse(is_ai_gateway_served(unmarked))
         self.assertFalse(is_ai_gateway_served(ValueError("failed")))
+
+
+def _openai_body(text: str, responses_api: bool) -> dict:
+    if responses_api:
+        return {
+            "id": "resp_test",
+            "object": "response",
+            "created_at": 0,
+            "status": "completed",
+            "model": "gpt-4.1",
+            "output": [
+                {
+                    "id": "msg_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": text, "annotations": []}],
+                }
+            ],
+            "parallel_tool_calls": True,
+            "tool_choice": "auto",
+            "tools": [],
+            "usage": {
+                "input_tokens": 3,
+                "output_tokens": 2,
+                "total_tokens": 5,
+                "input_tokens_details": {"cached_tokens": 0},
+                "output_tokens_details": {"reasoning_tokens": 0},
+            },
+        }
+    return {
+        "id": "chatcmpl_test",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "gpt-4.1",
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+    }
+
+
+@patch.dict("os.environ", {"OPENAI_API_KEY": "direct-api-key"})
+class TestMaxChatOpenAIAIGateway(BaseTest):
+    gateway = AIGatewayConfig(url="https://ai-gateway.test/v1", api_key="phs_gateway")
+
+    def _model(self, gateway: AIGatewayConfig | None, **kwargs) -> MaxChatOpenAI:
+        with patch("ee.hogai.llm.resolve_ai_gateway_config", return_value=gateway):
+            return MaxChatOpenAI(model="gpt-4.1", user=self.user, team=self.team, billable=True, **kwargs)
+
+    def _config(self, ai_product: str) -> dict:
+        return {
+            "configurable": {
+                "trace_id": "trace-1",
+                "thread_id": "conversation-1",
+                "distinct_id": "distinct-1",
+                "ai_product": ai_product,
+                "privacy_mode": True,
+                "is_agent_billable": True,
+            }
+        }
+
+    def test_gateway_config_targets_the_gateway_and_keeps_a_direct_twin(self):
+        model = self._model(self.gateway)
+        twin = model.ai_gateway_fallback
+
+        self.assertEqual(str(model.root_async_client.base_url), "https://ai-gateway.test/v1/")
+        self.assertEqual(model.root_async_client.api_key, "phs_gateway")
+        self.assertEqual(model.root_async_client.max_retries, 0)
+        assert isinstance(twin, MaxChatOpenAI)
+        self.assertNotIn("ai-gateway.test", str(twin.root_async_client.base_url))
+        self.assertEqual(twin.root_async_client.api_key, "direct-api-key")
+        self.assertEqual(twin.max_retries, 3)
+        self.assertIsNone(twin.ai_gateway_fallback)
+        self.assertIsNone(self._model(None).ai_gateway_fallback)
+
+    @parameterized.expand(
+        [
+            ("routed_chat", "posthog_ai", False, 200, ["ai-gateway.test"], "gateway", True),
+            ("routed_responses", "posthog_ai", True, 200, ["ai-gateway.test"], "gateway", True),
+            ("other_product", "mcp", False, 200, ["api.openai.com"], "direct", False),
+            ("fallback_chat", "posthog_ai", False, 503, ["ai-gateway.test", "api.openai.com"], "direct", False),
+            ("fallback_responses", "posthog_ai", True, 503, ["ai-gateway.test", "api.openai.com"], "direct", False),
+        ]
+    )
+    async def test_agenerate_routing(self, _name, ai_product, responses_api, gateway_status, hosts, text, served):
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.host == "ai-gateway.test" and gateway_status != 200:
+                return httpx.Response(gateway_status, json={"error": {"message": "failed", "type": "server_error"}})
+            source = "gateway" if request.url.host == "ai-gateway.test" else "direct"
+            return httpx.Response(200, json=_openai_body(source, responses_api))
+
+        model = self._model(self.gateway, use_responses_api=responses_api)
+        for target in (model, model.ai_gateway_fallback):
+            assert target is not None
+            target.root_async_client = target.root_async_client.with_options(
+                http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)), max_retries=0
+            )
+            target.async_client = target.root_async_client.chat.completions
+
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config(ai_product)):
+            result = await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual([request.url.host for request in requests], hosts)
+        self.assertEqual(result.generations[0][0].text, text)
+        self.assertEqual(is_ai_gateway_served(result), served)
+        first = requests[0]
+        if first.url.host == "ai-gateway.test":
+            self.assertEqual(first.headers["x-posthog-product"], "posthog_ai")
+            self.assertEqual(first.headers["x-posthog-trace-id"], "trace-1")
+            self.assertEqual(first.headers["x-posthog-session-id"], "conversation-1")
+            self.assertEqual(first.headers["x-posthog-distinct-id"], "distinct-1")
+            self.assertEqual(first.headers["x-posthog-privacy-mode"], "true")
+            self.assertEqual(json.loads(first.headers["x-posthog-properties"])["team_id"], str(self.team.id))
+        last = requests[-1]
+        if last.url.host == "api.openai.com":
+            self.assertFalse(any(name.startswith("x-posthog-") for name in last.headers))
+            if responses_api:
+                self.assertIn("You are currently in project", json.loads(last.content)["instructions"])
+
+    async def test_gateway_denial_raises_without_fallback(self):
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(402, json={"error": {"message": "out of balance", "type": "insufficient_quota"}})
+
+        model = self._model(self.gateway)
+        model.root_async_client = model.root_async_client.with_options(
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)), max_retries=0
+        )
+        model.async_client = model.root_async_client.chat.completions
+
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config("posthog_ai")):
+            with self.assertRaises(openai.APIStatusError):
+                await model.agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual([request.url.host for request in requests], ["ai-gateway.test"])
