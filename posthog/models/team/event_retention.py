@@ -9,6 +9,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
+from posthog.models.events_retention_config import effective_events_retention
 from posthog.models.organization import ProductFeature
 from posthog.models.team.team import Team
 
@@ -51,9 +52,9 @@ def should_enforce_events_retention(team_id: int) -> bool:
 def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int]) -> Optional[int]:
     """Months of events retention to floor a query's events scans to, or None if retention isn't enforced.
 
-    Computed once per query in prepare_ast_for_printing. The cohort gate runs first and is DB-free, so non-cohort
-    teams (the vast majority during rollout) never hit Postgres here — only an enforced team triggers the lean
-    field load.
+    The plan's window, shortened by the window set in project or organization settings. Computed once per query in
+    prepare_ast_for_printing. The cohort gate runs first and is DB-free, so non-cohort teams (the vast majority during
+    rollout) never hit Postgres here — only an enforced team triggers the lean field load.
     """
     if team_id is None:
         if team is None:
@@ -68,7 +69,23 @@ def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int
         if team is None:
             return None
 
-    return team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
+    plan_months = team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
+    configured_months = _configured_events_retention_months(team)
+    return min(plan_months, configured_months) if configured_months is not None else plan_months
+
+
+_REQUEST_CACHED_CONFIGURED_RETENTION_ATTR = "_request_cached_configured_events_retention_months"
+
+
+def _configured_events_retention_months(team: Team) -> int | None:
+    """Memoise the window set in settings on the team instance, which is request-scoped in practice.
+
+    Every insight on a dashboard and every query it prints asks again, and each ask is a Postgres query.
+    """
+    if not hasattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR):
+        configured = effective_events_retention(team_ids=[team.id])
+        setattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR, configured[0].months if configured else None)
+    return getattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR)
 
 
 def events_retention_floor_date(team: Team, retention_months: int) -> date:

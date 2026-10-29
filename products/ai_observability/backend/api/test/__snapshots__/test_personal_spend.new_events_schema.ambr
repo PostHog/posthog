@@ -2,7 +2,7 @@
 # name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.1]
   '''
   /* user_id:0 request:_snapshot_@me_spend_ */
-  SELECT nullIf(arrayJoin(splitByChar(',', coalesce(if(notEquals(toJSONString(events.properties.^`$ai_tools_called`), '{}'), toJSONString(events.properties.^`$ai_tools_called`), if(isNull(nullIf(toString(events.properties.`$ai_tools_called`), '')), NULL, if(and(in(ascii(toString(events.properties.`$ai_tools_called`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$ai_tools_called`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$ai_tools_called`), '[]'), '{}'), toString(events.properties.`$ai_tools_called`)))), ''))), '') AS tool,
+  SELECT nullIf(arrayJoin(splitByChar(',', coalesce(if(notEquals(toJSONString(events.properties.^`$ai_tools_called`), '{}'), toJSONString(events.properties.^`$ai_tools_called`), if(isNull(events.properties.`$ai_tools_called`), NULL, if(and(in(ascii(toString(events.properties.`$ai_tools_called`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$ai_tools_called`)), tuple(91, 123))), toJSONString(events.properties.`$ai_tools_called`), toString(events.properties.`$ai_tools_called`)))), ''))), '') AS tool,
          count() AS generation_count,
          round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS cost_usd,
          round(avg(accurateCastOrNull(events.properties.`$ai_input_tokens`, 'Float64')), 0) AS avg_input_tokens
@@ -29,7 +29,7 @@
 # name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.2]
   '''
   /* user_id:0 request:_snapshot_@me_spend_ */
-  SELECT if(notEquals(toJSONString(events.properties.^ai_product), '{}'), toJSONString(events.properties.^ai_product), if(isNull(nullIf(toString(events.properties.ai_product), '')), NULL, if(and(in(ascii(toString(events.properties.ai_product)), tuple(91, 123)), in(ascii(toJSONString(events.properties.ai_product)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.ai_product), '[]'), '{}'), toString(events.properties.ai_product)))) AS product,
+  SELECT if(notEquals(toJSONString(events.properties.^ai_product), '{}'), toJSONString(events.properties.^ai_product), if(isNull(events.properties.ai_product), NULL, if(and(in(ascii(toString(events.properties.ai_product)), tuple(91, 123)), in(ascii(toJSONString(events.properties.ai_product)), tuple(91, 123))), toJSONString(events.properties.ai_product), toString(events.properties.ai_product)))) AS product,
          count() AS event_count,
          round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS cost_usd
   FROM events_json AS events
@@ -55,7 +55,7 @@
 # name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.3]
   '''
   /* user_id:0 request:_snapshot_@me_spend_ */
-  SELECT if(notEquals(toJSONString(events.properties.^`$ai_model`), '{}'), toJSONString(events.properties.^`$ai_model`), if(isNull(nullIf(toString(events.properties.`$ai_model`), '')), NULL, if(and(in(ascii(toString(events.properties.`$ai_model`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$ai_model`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$ai_model`), '[]'), '{}'), toString(events.properties.`$ai_model`)))) AS model,
+  SELECT if(notEquals(toJSONString(events.properties.^`$ai_model`), '{}'), toJSONString(events.properties.^`$ai_model`), if(isNull(events.properties.`$ai_model`), NULL, if(and(in(ascii(toString(events.properties.`$ai_model`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$ai_model`)), tuple(91, 123))), toJSONString(events.properties.`$ai_model`), toString(events.properties.`$ai_model`)))) AS model,
          count() AS generation_count,
          round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS cost_usd,
          sum(accurateCastOrNull(events.properties.`$ai_input_tokens`, 'Float64')) AS input_tokens,
@@ -111,9 +111,9 @@
 # name: TestPersonalSpendQueries.test_empty_result_when_no_events[new_events_schema.5]
   '''
   /* user_id:0 request:_snapshot_@me_spend_ */
-  SELECT if(notEquals(toJSONString(events.properties.^`$ai_model`), '{}'), toJSONString(events.properties.^`$ai_model`), if(isNull(nullIf(toString(events.properties.`$ai_model`), '')), NULL, if(and(in(ascii(toString(events.properties.`$ai_model`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$ai_model`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$ai_model`), '[]'), '{}'), toString(events.properties.`$ai_model`)))) AS model
+  SELECT if(notEquals(toJSONString(events.properties.^`$ai_model`), '{}'), toJSONString(events.properties.^`$ai_model`), if(isNull(events.properties.`$ai_model`), NULL, if(and(in(ascii(toString(events.properties.`$ai_model`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$ai_model`)), tuple(91, 123))), toJSONString(events.properties.`$ai_model`), toString(events.properties.`$ai_model`)))) AS model
   FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(CAST(events.properties.ai_product, 'Nullable(String)'), 'posthog_code'), 0), ifNull(equals(CAST(events.person_properties.email, 'Nullable(String)'), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))), isNotNull(if(notEquals(toJSONString(events.properties.^`$ai_model`), '{}'), toJSONString(events.properties.^`$ai_model`), if(isNull(nullIf(toString(events.properties.`$ai_model`), '')), NULL, if(and(in(ascii(toString(events.properties.`$ai_model`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$ai_model`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$ai_model`), '[]'), '{}'), toString(events.properties.`$ai_model`))))))
+  WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(CAST(events.properties.ai_product, 'Nullable(String)'), 'posthog_code'), 0), ifNull(equals(CAST(events.person_properties.email, 'Nullable(String)'), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))), isNotNull(if(notEquals(toJSONString(events.properties.^`$ai_model`), '{}'), toJSONString(events.properties.^`$ai_model`), if(isNull(events.properties.`$ai_model`), NULL, if(and(in(ascii(toString(events.properties.`$ai_model`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$ai_model`)), tuple(91, 123))), toJSONString(events.properties.`$ai_model`), toString(events.properties.`$ai_model`))))))
   GROUP BY model
   ORDER BY sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')) DESC, model ASC
   LIMIT 6 SETTINGS readonly=2,
@@ -169,7 +169,8 @@
   SELECT countIf(ifNull(equals(CAST(events.properties.ai_product, 'Nullable(String)'), 'posthog_code'), 0)) AS scoped_event_count,
          round(sumIf(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64'), ifNull(equals(CAST(events.properties.ai_product, 'Nullable(String)'), 'posthog_code'), 0)), 6) AS scoped_cost_usd,
          count() AS event_count,
-         round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS total_cost_usd
+         round(sum(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), 6) AS total_cost_usd,
+         round(sumIf(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64'), in(CAST(events.properties.ai_product, 'Nullable(String)'), tuple('alert_investigation_agent', 'alert_llm_detector', 'hogql_decide', 'posthog_ai', 'posthog_code', 'product_analytics', 'replay_vision', 'slack_app', 'subscriptions', 'surveys', 'workflows'))), 6) AS billable_cost_usd
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_generation', '$ai_embedding')), ifNull(equals(CAST(events.person_properties.email, 'Nullable(String)'), 'user1@posthog.com'), 0), and(greaterOrEquals(events.timestamp, toDateTime64('2025-12-16 12:00:00.000000', 6, 'UTC')), less(events.timestamp, toDateTime64('today', 6, 'UTC'))))
   LIMIT 100 SETTINGS readonly=2,

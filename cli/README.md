@@ -102,7 +102,15 @@ A single command handles both desktop/server formats:
 - **macOS (Apple `.dSYM`):** dSYM bundles are packaged through the same path as `posthog-cli dsym upload`. That path shells out to `dwarfdump` (bundled with Xcode), so it only runs on macOS — if `dwarfdump` is missing, the bundle is reported and skipped while any ELF symbols in the same directory still upload.
 - **macOS (Mach-O executables):** binaries that embed their own DWARF upload directly, keyed by their `LC_UUID`; universal (fat) binaries upload one symbol set per architecture slice. This branch is cross-platform. It exists mainly for Go, which never produces a dSYM (`dsymutil` reports "no debug symbols in executable") — but note Go compresses the embedded DWARF by default, which symbolication can't read yet, so build with `-ldflags=-compressdwarf=false`. C/Swift/Rust executables normally carry no embedded DWARF; upload their dSYMs instead.
 
-Pass `--include-source` to bundle the referenced source files for richer context around frames.
+Pass `--include-source` to bundle referenced source files for context around frames.
+For Flutter `.symbols` files, add `--source-root <app-directory>` to include only source files inside your app directory:
+
+```bash
+posthog-cli symbol-sets upload --directory ./build/debug-info --include-source --source-root ./lib
+```
+
+This option limits uploaded source files, not the debug symbols scanned under `--directory`.
+Upload from the build machine while those source files are still available.
 
 The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
 

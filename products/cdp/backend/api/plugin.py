@@ -49,6 +49,7 @@ from products.cdp.backend.models.plugin import (
     PluginAttachment,
     PluginConfig,
     PluginSourceFile,
+    get_secret_fields,
     transpile,
     update_validated_data_from_url,
 )
@@ -663,7 +664,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         new_plugin_config = plugin_config.config.copy()
 
-        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+        secret_fields = get_secret_fields(plugin_config.plugin.config_schema)
 
         # do not send the real value to the client
         for key in secret_fields:
@@ -767,7 +768,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             validated_data["enabled"] = False
 
         # Keep old value for secret fields if no new value in the request
-        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+        secret_fields = get_secret_fields(plugin_config.plugin.config_schema)
 
         if "config" in validated_data:
             for key in secret_fields:
@@ -916,12 +917,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             obj.save()
 
         return Response(hog_function_serializer.data)
-
-
-def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
-    # A set of keys for config fields that have secret = true
-    secret_fields = {field["key"] for field in plugin.config_schema if isinstance(field, dict) and field.get("secret")}
-    return secret_fields
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):

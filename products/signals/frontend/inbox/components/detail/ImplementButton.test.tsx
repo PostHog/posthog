@@ -1,3 +1,4 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -6,6 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
@@ -15,6 +17,7 @@ import { mockTask } from '../../__mocks__/inboxMocks'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic, REPORT_AI_PANEL_ID } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { ImplementButton } from './ImplementButton'
 
@@ -68,11 +71,14 @@ describe('ImplementButton', () => {
         return user
     }
 
-    it('starts a PostHog agent from the main action', async () => {
+    it('offers implementation choices before starting a PostHog agent', async () => {
         const user = userEvent.setup()
         render(<ImplementButton report={makeReport()} />)
 
         await user.click(screen.getByTestId('inbox-report-create-pr'))
+
+        expect(createPrFromReport).not.toHaveBeenCalled()
+        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
 
         expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
@@ -90,7 +96,13 @@ describe('ImplementButton', () => {
             detail.actions.loadReportTasksSuccess([
                 { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
             ])
-            render(<ImplementButton report={report} />)
+            render(
+                <ImplementButton
+                    report={report}
+                    reportTaskToOpen={detail.values.reportTaskToOpen}
+                    implementationDisabledReason={detail.values.implementationDisabledReason}
+                />
+            )
 
             expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
             await user.click(screen.getByTestId('inbox-report-open-task'))
@@ -104,13 +116,47 @@ describe('ImplementButton', () => {
         }
     )
 
-    it('opens both implementation options without starting work', async () => {
-        await openMenu()
-
-        expect(screen.getByText('Implement with PostHog')).toBeInTheDocument()
-        expect(screen.getByText('Copy prompt for your agent')).toBeInTheDocument()
+    it.each([200, 503])('keeps customer prompts available without GitHub access (status %i)', async (status) => {
+        let repositoryStatus = status
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/onboarding/': {
+                    draft: null,
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+                '/api/projects/:team_id/integrations/': { results: [{ id: 1, kind: 'github' }], next: null },
+                '/api/projects/:team_id/integrations/1/github_repository_access/': () => [
+                    repositoryStatus,
+                    { available: false },
+                ],
+                '/api/projects/:team_id/integrations/github/available_installations/': {
+                    installations: [],
+                    personal_github_connected: false,
+                },
+            },
+        })
+        const user = userEvent.setup()
+        const report = makeReport()
+        render(<ImplementButton report={report} />)
+        const access = reportGithubAccessLogic({ report })
+        await waitFor(() => expect(access.values[status === 503 ? 'failed' : 'repairNeeded']).toBe(true))
+        await user.click(screen.getByTestId('inbox-report-create-pr'))
+        await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            expect.stringContaining('report ID: report-1'),
+            'prompt for your agent'
+        )
         expect(createPrFromReport).not.toHaveBeenCalled()
-        expect(copyToClipboard).not.toHaveBeenCalled()
+        if (status === 503) {
+            expect(screen.getByTestId('inbox-report-create-pr-submit')).toHaveAttribute('aria-disabled', 'true')
+            repositoryStatus = 200
+            await user.click(screen.getByText('Retry GitHub check'))
+            await waitFor(() => expect(access.values.repairNeeded).toBe(true))
+        }
+        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+        expect(await screen.findByText('Manage on GitHub')).toBeInTheDocument()
+        expect(createPrFromReport).not.toHaveBeenCalled()
     })
 
     it.each([

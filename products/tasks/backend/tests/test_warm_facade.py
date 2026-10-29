@@ -17,6 +17,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 from posthog.models.user_integration import UserIntegration
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as facade,
@@ -835,19 +836,22 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("credential_does_not_match_the_gate", "discussion", True, False),
-            ("implementation_never_takes_a_discussion_warm", "implementation", False, False),
+            ("credential_does_not_match_the_gate", "discussion", True, False, False),
+            ("implementation_never_takes_a_discussion_warm", "implementation", False, False, False),
+            ("old_warm_has_signals_credentials", "discussion", False, False, True),
         ]
     )
     def test_report_create_cold_starts_when_the_warm_does_not_fit(
-        self, _name, relationship, warm_has_credential, code_access_allowed
+        self, _name, relationship, warm_has_credential, code_access_allowed, legacy_billing
     ):
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
-        warm_task, _run = self._report_warm_run(
+        warm_task, run = self._report_warm_run(
             report, github_integration=self.integration if warm_has_credential else None
         )
+        if legacy_billing:
+            TaskRun.update_state_atomic(run.id, remove_keys=["billing_product"])
 
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
             dto = self._create_report_task(report, relationship=relationship, code_access_allowed=code_access_allowed)
@@ -1703,6 +1707,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
             branch="release",
             extra_state={
                 "snapshot_external_id": "snapshot-1",
+                "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 "pr_base_branch": base_branch,
                 "stack_base_branch": "release",
                 "auto_publish": True,

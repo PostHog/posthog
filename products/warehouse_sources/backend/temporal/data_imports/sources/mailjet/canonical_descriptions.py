@@ -123,6 +123,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "CreatedAt": "Time the template was created.",
         },
     },
+    "contactdata": {
+        "description": "The custom contact property values stored for each contact in Mailjet.",
+        "docs_url": "https://dev.mailjet.com/openapi/openapi-mailjet/contacts/get_v3_contactdata",
+        "columns": {
+            "ID": "Unique identifier of the contact's data object. Always equal to ContactID.",
+            "ContactID": "The identifier of the contact the property values belong to.",
+            "Data": "List of the contact's property values, each with the property Name and its Value.",
+        },
+    },
+    "messageinformation": {
+        "description": "Sending, size and spam information for each message processed by Mailjet.",
+        "docs_url": "https://dev.mailjet.com/openapi/openapi-mailjet/messages/get_v3_messageinformation",
+        "columns": {
+            "ID": "Unique identifier of the message.",
+            "CampaignID": "The identifier of the campaign the message is part of.",
+            "ContactID": "The identifier of the recipient contact.",
+            "CreatedAt": "Time the message was created.",
+            "SendEndAt": "Time the last message of the campaign was sent.",
+            "MessageSize": "The size of the message in bytes.",
+            "SentCount": "The number of send attempts.",
+            "QueuedCount": "The number of messages waiting in the send queue.",
+            "OpenTrackedCount": "The number of messages with open tracking enabled.",
+            "ClickTrackedCount": "The number of messages with click tracking enabled.",
+            "SpamAssassinScore": "The SpamAssassin score of the message.",
+            "SpamAssassinRules": "The SpamAssassin rules the message matched.",
+        },
+    },
     "openinformation": {
         "description": "An open event recording that a recipient opened a message in Mailjet.",
         "docs_url": "https://dev.mailjet.com/email/reference/messages/#v3_get_openinformation",
