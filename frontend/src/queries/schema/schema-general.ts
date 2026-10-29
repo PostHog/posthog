@@ -5306,9 +5306,9 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
 
-/** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
 export type SpanHealthStatus = 'silent' | 'regressed' | 'degraded' | 'new' | 'recovered' | 'improved' | 'ok'
 
+/** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
 export interface AggregatedSpanRow {
     service_name: string
     name: string

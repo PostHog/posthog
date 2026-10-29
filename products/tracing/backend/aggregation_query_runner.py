@@ -295,8 +295,8 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
 
     def _classify(self, current_rows: list[AggregatedSpanRow], baseline_rows: list[AggregatedSpanRow]) -> None:
-        # shortcut: rows carry no last-seen time, so silent never fires, and a baseline cut off by the
-        # row limit reads as new. Add a last_seen column if per-endpoint silence detection is needed.
+        # shortcut: rows carry no last-seen time, so silent never fires, and a row the baseline window drops
+        # through its limit or offset reads as new. Add a last_seen column if per-endpoint silence detection is needed.
         baseline = {(row.service_name, row.name): row for row in baseline_rows}
         window_from = self.query_date_range.date_from()
         window_to = min(self.query_date_range.date_to(), dt.datetime.now(tz=ZoneInfo("UTC")))

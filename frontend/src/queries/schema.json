@@ -1432,6 +1432,7 @@
         },
         "AggregatedSpanRow": {
             "additionalProperties": false,
+            "description": "One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view.",
             "properties": {
                 "avg_duration_nano": {
                     "type": "number"
@@ -53403,7 +53404,6 @@
             "type": "object"
         },
         "SpanHealthStatus": {
-            "description": "One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view.",
             "enum": ["silent", "regressed", "degraded", "new", "recovered", "improved", "ok"],
             "type": "string"
         },
