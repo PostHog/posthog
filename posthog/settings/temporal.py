@@ -411,8 +411,8 @@ ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = _set_isolated_temporal_task_qu
 )
 ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-evaluation-task-queue")
 ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-delivery-task-queue")
-# The platform's parallel insight checks allowed to run at once, across every team. A pool of its
-# own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
+# The platform's insight queries allowed to run in ClickHouse at once, across every team. A pool of
+# its own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
 ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
     "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS", 10, type_cast=int
 )
@@ -420,6 +420,15 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
+# A check holds a worker slot while it waits for a query slot, so keep this inside the evaluation
+# workers' activity slots. A value below the query pool is raised to it rather than refused, because
+# every process loads these settings and a platform value must not stop other workers from starting.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS: int = max(
+    get_from_env(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS", ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS, type_cast=int
+    ),
+    ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+)
 # Insight batch keys the platform starts per tick, across every team. A key is one team's checks due
 # in one slot. With a tick a minute, 60 times this must cover the keys due per hour, or hourly alerts
 # fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the

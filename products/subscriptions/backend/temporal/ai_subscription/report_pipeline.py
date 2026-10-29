@@ -13,7 +13,7 @@ from openai.lib._pydantic import to_strict_json_schema
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -58,15 +58,21 @@ from products.subscriptions.backend.temporal.ai_subscription.schemas import (
 )
 from products.subscriptions.backend.temporal.ai_subscription.spec_generator import (
     AI_QUERY_PLAN_VERSION,
+    COMPARE_DATE_RANGE_PLACEHOLDER,
+    COMPARE_WINDOW_START_PLACEHOLDER,
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
+    WINDOW_BOUND_PLACEHOLDERS,
+    WINDOW_FILTER_PLACEHOLDERS,
     WINDOW_PLACEHOLDERS,
+    WINDOW_START_PLACEHOLDER,
     ReportWindow,
     StoredPlanInvalidError,
     build_enriched_prompt,
     build_frozen_prompt,
     get_ai_query_plan_status,
     resolve_ai_query_plan_status,
+    window_token_problems,
 )
 from products.subscriptions.backend.temporal.types import safe_query_error_details
 
@@ -120,6 +126,25 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     ExposedHogQLError,
     InternalHogQLError,
 )
+
+
+def _or_list(tokens: Sequence[str]) -> str:
+    quoted = [f"`{token}`" for token in tokens]
+    return f"{', '.join(quoted[:-1])} or {quoted[-1]}"
+
+
+WINDOW_TOKEN_HINT = (
+    f"For the report window, use {_or_list(WINDOW_FILTER_PLACEHOLDERS)} as a whole time filter, or "
+    f"{_or_list(WINDOW_BOUND_PLACEHOLDERS)} as a single timestamp, outside quotes. "
+    f"`{COMPARE_DATE_RANGE_PLACEHOLDER}` covers the previous and the current period together. For the previous "
+    f"period alone, use `timestamp >= {COMPARE_WINDOW_START_PLACEHOLDER} AND timestamp < {WINDOW_START_PLACEHOLDER}`. "
+    "The report fills in the dates when it runs."
+)
+
+
+def _reject_unknown_placeholders(hogql: str) -> None:
+    if problems := window_token_problems(hogql):
+        raise QueryError(" ".join([*problems, WINDOW_TOKEN_HINT]))
 
 
 def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
@@ -616,6 +641,7 @@ async def _run_steps(
         for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
             executable_hogql = window.render_window_filter(current_hogql)
             try:
+                _reject_unknown_placeholders(current_hogql)
                 query = AssistantHogQLQuery(query=executable_hogql)
                 query_result = await asyncio.wait_for(
                     executor.arun_format_and_capture(query),

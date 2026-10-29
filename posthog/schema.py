@@ -5797,7 +5797,10 @@ class ExperimentExposureHealthCheck(BaseModel):
         extra="forbid",
     )
     key: ExperimentExposureHealthCheckKey = Field(..., description="Stable identifier of the check.")
-    name: str = Field(..., description="What the check looks at, as the health panel lists it.")
+    name: str = Field(
+        ...,
+        description="The problem the check looks for, as the health panel lists it.",
+    )
     reason: str | None = Field(
         ...,
         description=(
