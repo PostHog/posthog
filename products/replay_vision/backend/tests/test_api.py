@@ -780,9 +780,11 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             ("unknown_field", {"this_field_does_not_exist": True}),
             # An oversized query is copied into every observation's snapshot, so it is capped on save.
             ("oversized", {"distinct_ids": ["x" * 1_000 for _ in range(100)]}),
+            # Every rule reads fields off the query, so any other shape must be refused before they run.
+            ("not_an_object", ["kind", "RecordingsQuery"]),
         ]
     )
-    def test_create_rejects_invalid_query(self, _name: str, query: dict) -> None:
+    def test_create_rejects_invalid_query(self, _name: str, query: object) -> None:
         resp = self.client.post(
             self.scanners_url,
             data={
