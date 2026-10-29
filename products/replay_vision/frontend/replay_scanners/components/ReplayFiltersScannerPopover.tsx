@@ -11,9 +11,13 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
 import { type ReplayFiltersCreditCap, replayFiltersScannerLogic } from '../replayFiltersScannerLogic'
+import type { GoalDraftSpend } from '../replayScannerLogic'
 import type { ScannerHandoffFromFilters } from '../scannerHandoffFromFilters'
 import type { ReplayScanner } from '../types'
 import { eligibleFilterGroups } from './ScannerGoalOverview'
+
+// The draft API's limit for `monthly_credit_budget`.
+const MAX_CREDIT_CAP = 100_000_000
 
 const GOAL_PLACEHOLDER =
     'For example: Where do people give up before they pay?\nOr: Watch for errors and buttons that do nothing on the payment step.'
@@ -23,6 +27,7 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
     const { setGoal, setCreditCap, setBudget, draftWithAi, setUpManually } = useActions(replayFiltersScannerLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
+    const [pendingSpend, setPendingSpend] = useState<GoalDraftSpend | null>(null)
 
     const editDisabledReason = getReplayVisionEditDisabledReason()
     // The draft API takes the experiment but not the variant, so a variant filter would widen to every variant.
@@ -34,8 +39,10 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
         variantDisabledReason ??
         (!goal.trim()
             ? 'Say what the scanner should watch for or answer'
-            : !spendChoice.spend || (budget !== null && budget < 1)
-              ? 'Enter a monthly credit cap'
+            : !spendChoice.spend ||
+                (spendChoice.mode === 'budget' &&
+                    (budget == null || !Number.isInteger(budget) || budget < 1 || budget > MAX_CREDIT_CAP))
+              ? 'Enter a monthly credit cap from 1 to 100,000,000 credits'
               : null)
 
     const filterGroups = handoff.narrowsSessions
@@ -50,9 +57,17 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
     const notKept = [
         'the date range',
         ...(handoff.pinnedSessionCount > 0 ? [pluralize(handoff.pinnedSessionCount, 'pinned recording')] : []),
+        ...(handoff.droppedCommentSearch ? ['the comment search'] : []),
     ].join(', ')
 
-    const draft = (): void => (dataProcessingAccepted ? draftWithAi(handoff) : setConsentRequested(true))
+    const draft = (): void => {
+        if (dataProcessingAccepted) {
+            draftWithAi(handoff)
+            return
+        }
+        setPendingSpend(spendChoice.spend)
+        setConsentRequested(true)
+    }
 
     return (
         <div className="flex flex-col gap-3 p-1 w-[26rem] max-w-full">
@@ -83,7 +98,10 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                             ))
                         )
                     ) : (
-                        <LemonTag type="default">All new session recordings</LemonTag>
+                        // Some filters (custom durations, console logs) have no chip, so only claim "all" when nothing narrows.
+                        <LemonTag type="default">
+                            {handoff.narrowsSessions ? 'The replay filters you picked' : 'All new session recordings'}
+                        </LemonTag>
                     )}
                 </div>
                 <div className="text-xs text-secondary">
@@ -168,7 +186,7 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                     hidden={!consentRequested}
                     onApprove={() => {
                         setConsentRequested(false)
-                        draftWithAi(handoff)
+                        draftWithAi(handoff, pendingSpend ?? undefined)
                     }}
                     onDismiss={() => setConsentRequested(false)}
                 >

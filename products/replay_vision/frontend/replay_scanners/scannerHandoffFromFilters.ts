@@ -1,3 +1,4 @@
+import { isCommentTextFilter } from 'lib/components/UniversalFilters/utils'
 import { objectsEqual } from 'lib/utils/objects'
 import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { stripSessionIds } from 'scenes/session-recordings/playlist/playlistUtils'
@@ -19,6 +20,8 @@ export interface ScannerHandoffFromFilters {
     experiment: ExperimentScannerParams | null
     /** Pinned recordings in the filters. A scanner drops them, so the person is told. */
     pinnedSessionCount: number
+    /** Whether the filters searched recording comments. A scanner cannot apply that search, so it is dropped. */
+    droppedCommentSearch: boolean
     /**
      * Whether the resulting scanner would watch a subset of sessions rather than all of them.
      *
@@ -45,11 +48,17 @@ export interface ScannerHandoffFromFilters {
  *   It becomes the wizard's experiment deep link instead, which builds the same experiment
  *   scanner the experiment's own entry point does.
  * - The date range is dropped by the backend on save, because a scanner's schedule owns time.
+ * - The comment search and "hide viewed recordings" are resolved only by the replay list API. A
+ *   scanner keeps them in its query but never applies them, so it would silently watch more
+ *   recordings than the person chose. They are dropped here, where the person can be told.
  */
 export function scannerHandoffFromFilters(filters: RecordingUniversalFilters): ScannerHandoffFromFilters {
-    const { experiment_exposure: exposure, ...query } = convertUniversalFiltersToRecordingsQuery(
-        stripSessionIds(filters)
-    )
+    const {
+        experiment_exposure: exposure,
+        comment_text: commentText,
+        hide_viewed_recordings: _hideViewedRecordings,
+        ...query
+    } = convertUniversalFiltersToRecordingsQuery(stripSessionIds(filters))
 
     const experiment = exposure ? { experimentId: exposure.experiment_id, variantKey: exposure.variant ?? null } : null
 
@@ -61,8 +70,9 @@ export function scannerHandoffFromFilters(filters: RecordingUniversalFilters): S
         query,
         experiment,
         pinnedSessionCount: filters.session_ids?.length ?? 0,
+        droppedCommentSearch: !!commentText,
         narrowsSessions:
-            filtersFromUniversalFilterGroups(filters).length > 0 ||
+            filtersFromUniversalFilterGroups(filters).some((filter) => !isCommentTextFilter(filter)) ||
             // Every filter set carries a duration floor, so only one the user moved off the default
             // counts as narrowing.
             (filters.duration ?? []).some((predicate) => !objectsEqual(predicate, defaultRecordingDurationFilter)) ||

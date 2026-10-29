@@ -43,6 +43,13 @@ function handoffQuery(f: RecordingUniversalFilters): Record<string, any> {
     return JSON.parse(scannerHandoffFromFilters(f).searchParams.filters)
 }
 
+const COMMENT_SEARCH: UniversalFiltersGroupValue = {
+    type: PropertyFilterType.Recording,
+    key: 'comment_text',
+    value: 'checkout',
+    operator: PropertyOperator.IContains,
+}
+
 describe('scannerHandoffFromFilters', () => {
     // A scanner carrying session IDs is pinned to recordings that already exist, so it matches
     // nothing ever while still looking healthy in the scanner list.
@@ -73,6 +80,17 @@ describe('scannerHandoffFromFilters', () => {
         expect(searchParams).not.toHaveProperty('variant')
     })
 
+    // The replay list resolves the comment search itself. A scanner never applies it, so keeping it would
+    // save a scanner that watches more recordings than the person chose.
+    it('drops a comment search from the query and reports it', () => {
+        const handoff = scannerHandoffFromFilters(filters({ values: [PAGEVIEW, COMMENT_SEARCH] }))
+
+        expect(handoff.query.comment_text).toBeUndefined()
+        expect(JSON.parse(handoff.searchParams.filters).comment_text).toBeUndefined()
+        expect(handoff.droppedCommentSearch).toBe(true)
+        expect(handoff.narrowsSessions).toBe(true)
+    })
+
     describe('narrowsSessions', () => {
         // The replay list counts these as filters, but a scanner keeps none of them, so it watches every session.
         it.each([
@@ -80,6 +98,7 @@ describe('scannerHandoffFromFilters', () => {
             ['only a date range', filters({ date_from: '-7d' })],
             ['only pinned session IDs', filters({ session_ids: ['abc-123'] })],
             ['only the default duration floor', filters({ duration: [defaultRecordingDurationFilter] })],
+            ['only a comment search', filters({ values: [COMMENT_SEARCH] })],
         ])('is false for %s', (_label, f) => {
             expect(scannerHandoffFromFilters(f).narrowsSessions).toBe(false)
         })

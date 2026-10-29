@@ -566,11 +566,13 @@ describe('replayScannerLogic', () => {
         // The replay filters popover arms the person's own filters. Losing them on the way, or on a retry
         // from the goal page after a failed draft, would save a scanner watching recordings they never chose.
         it('a draft intent from the replay filters drafts against its query and spend, and a retry keeps the query', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
             const query: RecordingsQuery = { kind: NodeKind.RecordingsQuery, filter_test_accounts: true }
             markScannerGoalDraftIntent({
                 goal: 'find rage clicks',
                 query,
                 spend: { monthlyCreditBudget: 900 },
+                experimentId: 11,
                 source: 'replay_filters',
             })
             router.actions.push(urls.replayVisionScannerGoal('new'))
@@ -583,9 +585,32 @@ describe('replayScannerLogic', () => {
                 (draftSpy.mock.calls as unknown as [{ request: Request }][]).map(([{ request }]) => request.json())
             )
             expect(bodies).toEqual([
-                expect.objectContaining({ query, monthly_credit_budget: 900 }),
-                expect.objectContaining({ query }),
+                expect.objectContaining({ query, monthly_credit_budget: 900, experiment_id: 11 }),
+                expect.objectContaining({ query, experiment_id: 11 }),
             ])
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_scanner_creation_started',
+                expect.objectContaining({ creation_method: 'ai', entry_point: 'replay_filters' })
+            )
+        })
+
+        // A link-based entry point (an upsell card, the manual path from the replay filters) names itself in
+        // the URL. Lost here, its scanners would count as unattributed. A value the create API rejects would
+        // block the save, so it is dropped instead.
+        it.each([
+            ['a valid slug', 'replay_upsell_player', 'replay_upsell_player'],
+            ['an invalid value', 'Replay-Upsell', null],
+        ])('an ?entry_point= param with %s reaches the creation-started event', async (_, param, expected) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            router.actions.push(urls.replayVisionScannerGoal('new'), { entry_point: param })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            logic.actions.startFromScratch()
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_scanner_creation_started',
+                expect.objectContaining({ creation_method: 'scratch', entry_point: expected })
+            )
+            expect(router.values.searchParams.entry_point).toBeUndefined()
         })
 
         it('a draft intent older than a minute is dropped', async () => {
@@ -1926,6 +1951,7 @@ describe('replayScannerLogic', () => {
             expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
                 creation_method: 'scratch',
                 template_key: null,
+                entry_point: null,
             })
         })
 
@@ -1946,7 +1972,7 @@ describe('replayScannerLogic', () => {
                 expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     template_key: reportedKey,
-                    source: null,
+                    entry_point: null,
                     query_pinned: false,
                     spend_mode: spendMode,
                     goal_length: 'find users who get stuck'.length,
