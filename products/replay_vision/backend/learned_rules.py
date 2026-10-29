@@ -770,7 +770,6 @@ def _generate(*, user_content: str, team_id: int, trace_id: str) -> _LlmRules:
             posthog_distinct_id=f"team:{team_id}",
             posthog_trace_id=trace_id,
             posthog_properties={"ai_product": "replay_vision", "feature": "learned_rules", "team_id": team_id},
-            posthog_groups={"project": str(team_id)},
         )
     except Exception as e:
         logger.exception("replay_vision.learned_rules.generate_failed", team_id=team_id)

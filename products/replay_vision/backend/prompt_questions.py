@@ -147,7 +147,6 @@ def _generate(
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=str(uuid.uuid4()),
             posthog_properties={"ai_product": "replay_vision", "feature": "prompt_question", "team_id": team_id},
-            posthog_groups={"project": str(team_id)},
         )
         return _LlmQuestion.model_validate_json(response.text or "")
     except Exception:

@@ -184,7 +184,6 @@ async def rewrite_without_pii(*, team_id: int, question: str, text: dict[str, st
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=trace_id,
             posthog_properties={"$ai_span_name": "pii_rewrite"},
-            posthog_groups={"project": str(team_id)},
         )
     finally:
         await client.aclose()

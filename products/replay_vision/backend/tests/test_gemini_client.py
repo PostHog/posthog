@@ -1,3 +1,4 @@
+import gc
 import json
 import asyncio
 from collections.abc import Callable
@@ -103,7 +104,6 @@ class TestReplayGeminiClient:
                 posthog_distinct_id="user-1",
                 posthog_trace_id="trace-1",
                 posthog_properties={"$ai_span_name": "core", "feature": "override"},
-                posthog_groups={"project": "42"},
             )
         )
 
@@ -205,7 +205,6 @@ def test_text_models_send_the_timeout_and_capture_headers() -> None:
             contents="c",
             posthog_trace_id="t",
             posthog_properties={"feature": "prompt_question", "team_id": 42},
-            posthog_groups={"project": "42"},
         )
 
     assert gateway_client.call_args.kwargs["http_options"].timeout == 1000
@@ -216,6 +215,20 @@ def test_text_models_send_the_timeout_and_capture_headers() -> None:
         "team_id": "42",
         "ai_product": "replay_vision",
     }
+
+
+def test_text_models_keep_their_client_open_between_calls() -> None:
+    with override_settings(**_GATEWAY):
+        models = gemini_text_models(timeout_ms=1000)
+    gc.collect()
+    seen: list[httpx.Request] = []
+    http_client = models._client._api_client._httpx_client
+    assert http_client is not None
+    http_client._transport = httpx.MockTransport(lambda request: seen.append(request) or _ok(request))
+
+    assert models.generate_content(model="gemini-test", contents="hi").text == "ok"
+    assert models.generate_content(model="gemini-test", contents="again").text == "ok"
+    assert len(seen) == 2
 
 
 def _chunk(*parts: types.Part, finish: types.FinishReason | None = None) -> types.GenerateContentResponse:

@@ -871,7 +871,6 @@ async def _run_step(
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=trace_id,
             posthog_properties={"$ai_span_name": step.name},
-            posthog_groups={"project": str(team_id)},
         )
 
     last_error: str | None = None

@@ -9,13 +9,9 @@ from google.genai import (
     types,
 )
 
-from posthog.llm.gateway_client import ai_gateway_headers, build_gemini_client
+from posthog.llm.gateway_client import GatewayNotConfiguredError, ai_gateway_headers, build_gemini_client
 
 AI_PRODUCT = "replay_vision"
-
-
-class GatewayNotConfiguredError(RuntimeError):
-    """`AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` are unset or invalid, so Replay Vision cannot reach Gemini."""
 
 
 def replay_gemini_client(*, properties: Mapping[str, Any] | None = None) -> "ReplayGemini":
@@ -26,7 +22,7 @@ def replay_gemini_client(*, properties: Mapping[str, Any] | None = None) -> "Rep
 
 def gemini_text_models(*, timeout_ms: int) -> "_SyncGatewayModels":
     """Sync `models` for text-only calls; takes the analytics wrapper's `posthog_*` kwargs as gateway headers."""
-    return _SyncGatewayModels(_gateway_client(privacy_mode=True, timeout_ms=timeout_ms).models)
+    return _SyncGatewayModels(_gateway_client(privacy_mode=True, timeout_ms=timeout_ms))
 
 
 def gemini_files_client() -> RawGenAIClient:
@@ -61,15 +57,15 @@ class ReplayGemini:
 
 def _gateway_config(
     config: types.GenerateContentConfig | None,
-    base_properties: Mapping[str, Any],
     posthog_distinct_id: str | None,
     posthog_trace_id: str | None,
     posthog_properties: Mapping[str, Any] | None,
+    base_properties: Mapping[str, Any] | None = None,
 ) -> types.GenerateContentConfig | None:
-    """Turn the analytics wrapper's `posthog_*` kwargs into gateway headers; groups have none, so they drop."""
+    """Turn the analytics wrapper's `posthog_*` kwargs into gateway headers."""
     # The client's default headers carry the product, privacy mode and base labels; a call adds its own.
     labels = (
-        _gateway_labels({**base_properties, **posthog_properties, "ai_product": AI_PRODUCT})
+        _gateway_labels({**(base_properties or {}), **posthog_properties, "ai_product": AI_PRODUCT})
         if posthog_properties
         else None
     )
@@ -83,8 +79,9 @@ def _gateway_config(
 class _SyncGatewayModels:
     """Buffered, unlike the async path: text calls finish far inside the gateway's 290s cut."""
 
-    def __init__(self, models: Any) -> None:
-        self._models = models
+    def __init__(self, client: RawGenAIClient) -> None:
+        # Holds the client, not just `models`: a collected client closes the transport `models` sends on.
+        self._client = client
 
     def generate_content(
         self,
@@ -95,13 +92,11 @@ class _SyncGatewayModels:
         posthog_distinct_id: str | None = None,
         posthog_trace_id: str | None = None,
         posthog_properties: Mapping[str, Any] | None = None,
-        posthog_privacy_mode: bool | None = None,
-        posthog_groups: Mapping[str, Any] | None = None,
     ) -> types.GenerateContentResponse:
-        return self._models.generate_content(
+        return self._client.models.generate_content(
             model=model,
             contents=contents,
-            config=_gateway_config(config, {}, posthog_distinct_id, posthog_trace_id, posthog_properties),
+            config=_gateway_config(config, posthog_distinct_id, posthog_trace_id, posthog_properties),
         )
 
 
@@ -121,14 +116,12 @@ class _AsyncGatewayModels:
         posthog_distinct_id: str | None = None,
         posthog_trace_id: str | None = None,
         posthog_properties: Mapping[str, Any] | None = None,
-        posthog_privacy_mode: bool | None = None,
-        posthog_groups: Mapping[str, Any] | None = None,
     ) -> types.GenerateContentResponse:
         stream = await self._models.generate_content_stream(
             model=model,
             contents=contents,
             config=_gateway_config(
-                config, self._base_properties, posthog_distinct_id, posthog_trace_id, posthog_properties
+                config, posthog_distinct_id, posthog_trace_id, posthog_properties, self._base_properties
             ),
         )
         chunks = [chunk async for chunk in stream]

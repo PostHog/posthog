@@ -1562,7 +1562,6 @@ def _generate(
                 "team_id": team_id,
                 "thinking_budget": thinking_budget,
             },
-            posthog_groups={"project": str(team_id)},
         )
 
     started = time.monotonic()

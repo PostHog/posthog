@@ -2758,6 +2758,22 @@ class TestCleanupGeminiFileActivity:
         assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone") == 0
         assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-gone") is None
 
+    @pytest.mark.parametrize("code", [403, 404])
+    @pytest.mark.asyncio
+    async def test_keeps_tracking_when_the_gateway_refuses_the_delete(self, gemini_redis, code: int) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-refused", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-refused": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = APIError(
+            code=code, response_json={"error": {"code": code, "details": [{"domain": "posthog.com"}]}}
+        )
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-refused"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-refused") == 1
+
 
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:
     defaults: dict[str, Any] = {
