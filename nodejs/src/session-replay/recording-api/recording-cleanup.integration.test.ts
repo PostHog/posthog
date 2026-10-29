@@ -54,10 +54,10 @@ describe('recording cleanup (integration)', () => {
             `INSERT INTO replay_vision_replayscanner
                  (id, team_id, name, description, scanner_type, scanner_config, query, sampling_rate,
                   sampling_mode, provider, model, enabled, emits_signals, scanner_version, last_swept_at,
-                  search_suggestions, admission_credits_since_refresh, created_at, updated_at)
+                  admission_credits_since_refresh, created_at, updated_at)
              VALUES ($1, $2, 'cleanup-scanner', '', 'monitor', '{}'::jsonb, '{}'::jsonb, 1.0,
                      'comprehensive', 'google', 'gemini-3.8-flash', true, false, 1, now(),
-                     '{}'::jsonb, 0, now(), now())`,
+                     0, now(), now())`,
             [scannerId, teamId],
             'fixtureScanner'
         )

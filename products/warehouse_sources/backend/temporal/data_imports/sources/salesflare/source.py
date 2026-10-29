@@ -55,7 +55,7 @@ class SalesflareSource(ResumableSource[SalesflareSourceConfig, SalesflareResumeC
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Salesflare API key to pull your CRM data into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API keys** in [Salesflare](https://app.salesflare.com/#/settings/apikeys). The key grants read access to your contacts, accounts, opportunities, pipelines, tasks, tags, and workflows.
+You can create an API key under **Settings → API keys** in [Salesflare](https://app.salesflare.com/#/settings/apikeys). The key grants read access to your contacts, accounts, opportunities, pipelines, stages, tasks, tags, users, and workflows.
 """,
             iconPath="/static/services/salesflare.png",
             docsUrl="https://posthog.com/docs/cdp/sources/salesflare",

@@ -142,8 +142,11 @@ class TestFirstReportScout(BaseTest):
         assert all(
             not call.kwargs["query"].select_from.table.chain[0].startswith("orders") for call in query.call_args_list
         )
-        if row_counts:
-            assert f'"recorded_row_count": {json.dumps(row_counts[-1])}' in context.prompt_context()
+        prompt = context.prompt_context()
+        payload = json.loads(prompt.rsplit("\n\n", 1)[1])
+        assert payload.get("warehouse_tables_connected", False) is bool(row_counts)
+        assert "orders_" not in prompt
+        assert "recorded_row_count" not in prompt
 
     def test_older_product_data_still_qualifies_for_an_investigation(self) -> None:
         with patch(
@@ -154,6 +157,9 @@ class TestFirstReportScout(BaseTest):
         assert context.has_data()
         assert context.product_data["session_replay_fragments"].rows == 0
         assert context.product_data["session_replay_fragments"].has_rows is True
+        sources = json.loads(context.prompt_context().rsplit("\n\n", 1)[1])["posthog_sources"]
+        assert list(sources) == ["Logs", "Traces", "Product analytics", "Session recordings"]
+        assert set(sources.values()) == {"data observed"}
         assert [call.kwargs["workload"] for call in query.call_args_list] == [
             Workload.OFFLINE,
             Workload.OFFLINE,
@@ -218,6 +224,17 @@ class TestFirstReportScout(BaseTest):
             context = build_first_report_context(self.team, self.user)
         assert context.has_data() is ingested_event
         assert context.data_is_unknown()
+        context.inventory.products_in_use = ["error_tracking", "metrics"]
+        sources = json.loads(context.prompt_context().rsplit("\n\n", 1)[1])["posthog_sources"]
+        assert sources == {
+            "Error tracking": "configured; data unverified",
+            "Metrics": "configured; data unverified",
+            **(
+                {"Product analytics": "past event ingestion recorded; current data unverified"}
+                if ingested_event
+                else {}
+            ),
+        }
 
     @parameterized.expand(
         [

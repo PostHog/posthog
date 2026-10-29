@@ -23,11 +23,14 @@ MAX_CHANNELS_PER_PAGE = 50
 
 # `playlistItems.list` pages at most 50 items, and `videos.list` takes at most 50 IDs per request.
 MAX_VIDEOS_PER_PAGE = 50
+
+# `playlists.list` pages at most 50 playlists.
+MAX_PLAYLISTS_PER_PAGE = 50
 VIDEO_PARTS = "snippet,contentDetails,statistics,status"
 
-# Audience retention needs one request per video, so it covers only the channel's top videos by views
+# Per-video reports need one request per video, so they cover only the channel's top videos by views
 # in the sync window. 200 is the most the top-videos report returns in one request.
-MAX_RETENTION_VIDEOS = 200
+MAX_PER_VIDEO_REPORT_VIDEOS = 200
 
 # YouTube keeps revising the most recent days for a while, and the current day is always
 # partial, so the sync stops short of today and re-reads a trailing window every run.
@@ -59,6 +62,10 @@ SUBSCRIBED_STATUS = "subscribed_status"
 TRAFFIC_SOURCE_DETAILS = "traffic_source_details"
 VIDEOS = "videos"
 AUDIENCE_RETENTION = "audience_retention"
+PLAYLIST_DAILY = "playlist_daily"
+CONCURRENT_VIEWERS = "concurrent_viewers"
+
+PLAYLIST_DIMENSION = "playlist"
 
 # Every row carries the day it describes, either from the report's own `day` dimension or
 # stamped from the one-day query window.
@@ -83,12 +90,19 @@ class YouTubeAnalyticsReportConfig:
     # stamped with the value it was filtered on.
     filter_dimension: str | None = None
     filter_values: tuple[str, ...] = ()
+    # Take the filter values from the playlists the channel owns instead of `filter_values`.
+    filter_values_from_playlists: bool = False
     should_sync_default: bool = True
 
     @property
     def primary_keys(self) -> list[str]:
         filter_keys = [self.filter_dimension] if self.filter_dimension else []
         return [DAY_FIELD, *filter_keys, *self.dimensions]
+
+    @property
+    def rows_ascend_by_day(self) -> bool:
+        # A multi-day window queried once per filter value restarts at the window's first day for each value.
+        return not (self.day_is_dimension and self.filter_dimension)
 
 
 YOUTUBE_ANALYTICS_REPORTS: dict[str, YouTubeAnalyticsReportConfig] = {
@@ -205,21 +219,72 @@ YOUTUBE_ANALYTICS_REPORTS: dict[str, YouTubeAnalyticsReportConfig] = {
             "YT_SEARCH",
         ),
     ),
+    PLAYLIST_DAILY: YouTubeAnalyticsReportConfig(
+        name=PLAYLIST_DAILY,
+        dimensions=(),
+        metrics=(
+            "views",
+            "estimatedMinutesWatched",
+            "averageViewDuration",
+            "playlistViews",
+            "playlistStarts",
+            "playlistSaves",
+            "viewsPerPlaylistStart",
+            "playlistEstimatedMinutesWatched",
+            "playlistAverageViewDuration",
+            "averageTimeInPlaylist",
+        ),
+        day_is_dimension=True,
+        sort="day",
+        # The report requires exactly one playlist, so it runs once per playlist per window.
+        filter_dimension=PLAYLIST_DIMENSION,
+        filter_values_from_playlists=True,
+        # A channel with many playlists makes the backfill heavy, so it is opt-in.
+        should_sync_default=False,
+    ),
 }
 
-RETENTION_DIMENSION = "elapsedVideoTimeRatio"
-RETENTION_METRICS = (
-    "audienceWatchRatio",
-    "relativeRetentionPerformance",
-    "startedWatching",
-    "stoppedWatching",
-    "totalSegmentImpressions",
-)
+
+@dataclass(frozen=True)
+class YouTubeAnalyticsVideoReportConfig:
+    """A report that accepts exactly one video per request, run for the channel's top videos."""
+
+    name: str
+    dimension: str
+    metrics: tuple[str, ...]
+    # Narrows the top-videos query that picks which videos to report on.
+    video_filter: str | None = None
+
+    @property
+    def primary_keys(self) -> list[str]:
+        return ["video", self.dimension]
+
+
+PER_VIDEO_REPORTS: dict[str, YouTubeAnalyticsVideoReportConfig] = {
+    AUDIENCE_RETENTION: YouTubeAnalyticsVideoReportConfig(
+        name=AUDIENCE_RETENTION,
+        dimension="elapsedVideoTimeRatio",
+        metrics=(
+            "audienceWatchRatio",
+            "relativeRetentionPerformance",
+            "startedWatching",
+            "stoppedWatching",
+            "totalSegmentImpressions",
+        ),
+    ),
+    CONCURRENT_VIEWERS: YouTubeAnalyticsVideoReportConfig(
+        name=CONCURRENT_VIEWERS,
+        dimension="livestreamPosition",
+        metrics=("averageConcurrentViewers", "peakConcurrentViewers"),
+        # Only a live stream has live views, so this picks the streams broadcast in the sync window.
+        video_filter="liveOrOnDemand==LIVE",
+    ),
+}
 
 # Tables with no day grain. They have no server-side change filter, so they only full refresh.
 FULL_REFRESH_PRIMARY_KEYS: dict[str, list[str]] = {
     VIDEOS: ["id"],
-    AUDIENCE_RETENTION: ["video", RETENTION_DIMENSION],
+    **{name: report.primary_keys for name, report in PER_VIDEO_REPORTS.items()},
 }
 
 ENDPOINTS = (*YOUTUBE_ANALYTICS_REPORTS.keys(), *FULL_REFRESH_PRIMARY_KEYS.keys())

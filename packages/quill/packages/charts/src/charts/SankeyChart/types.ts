@@ -62,7 +62,8 @@ export interface SankeyChartConfig {
 export interface SankeyChartProps<NodeMeta = unknown, LinkMeta = NodeMeta> {
     nodes: SankeyNodeInput<NodeMeta>[]
     links: SankeyLinkInput<LinkMeta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: SankeyChartConfig
     tooltip?: (ctx: SankeyTooltipContext<NodeMeta, LinkMeta>) => React.ReactNode
     onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void

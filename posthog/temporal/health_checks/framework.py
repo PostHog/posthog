@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -15,6 +15,9 @@ from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, Hea
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS, ensure_registry_loaded
 
 from products.signals.backend.enums import ReportPriority
+
+if TYPE_CHECKING:
+    from django.db.models import Model
 
 # Severity → signal weight. Critical issues hit weight 1.0, which triggers the
 # Signals summary pipeline; lower severities rank below in the inbox feed.
@@ -154,6 +157,8 @@ class HealthCheckRegistration:
     product: Product | None
     remediation: Remediation | None
     access_controlled_resource: APIScopeObject | None
+    access_controlled_object_key: str | None
+    access_controlled_object_model: type[Model] | None
 
     def __post_init__(self) -> None:
         # A fraction, not a percent: 50 here would silently skip the rollout filter and hit every team.
@@ -165,6 +170,18 @@ class HealthCheckRegistration:
             raise ValueError(
                 f"HealthCheckRegistration not_processed_threshold must be between 0 and 1, "
                 f"got {self.not_processed_threshold}"
+            )
+        # The denied ids are looked up under the resource, so a key alone would gate nobody.
+        if self.access_controlled_object_key is not None and self.access_controlled_resource is None:
+            raise ValueError(
+                f"HealthCheckRegistration access_controlled_object_key={self.access_controlled_object_key!r} "
+                "requires access_controlled_resource"
+            )
+        # The creator exemption only lifts an object-level deny, so it means nothing without one.
+        if self.access_controlled_object_model is not None and self.access_controlled_object_key is None:
+            raise ValueError(
+                f"HealthCheckRegistration access_controlled_object_model={self.access_controlled_object_model!r} "
+                "requires access_controlled_object_key"
             )
 
 
@@ -187,6 +204,8 @@ def _register_health_check(cls: type[HealthCheck]) -> None:
         product=cls.product,
         remediation=cls.remediation,
         access_controlled_resource=cls.access_controlled_resource,
+        access_controlled_object_key=cls.access_controlled_object_key,
+        access_controlled_object_model=cls.access_controlled_object_model,
     )
 
     HEALTH_CHECKS[cls.kind] = registration
@@ -204,6 +223,13 @@ class HealthCheck:
     not_processed_threshold: float = 0.1
     dry_run: bool = False
     active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
+    # False stops the `$health_check_issue_firing` and `$health_check_issue_resolved` events for
+    # this kind. Issues are still written, served by the Health API, and sent to the Signals inbox
+    # when the check overrides `render_signal`. Use it for a check that writes many issues per
+    # team, because the stock health-alert destination does not filter on kind and sends one
+    # notification per issue. The alert emitter also ignores the access-control fields below, so
+    # this is the only way to keep a gated payload out of destinations.
+    emits_alerts: bool = True
 
     # Static, kind-level guidance on how to resolve issues of this kind. Unlike
     # `render_alert` (which describes a *specific* issue), this is the same for
@@ -227,12 +253,30 @@ class HealthCheck:
     # Health API hides the check's issues from members whose access to the
     # resource is restricted. None means every team member sees the issues.
     #
-    # Two limits. The gate is resource-level only: an `AccessControl` deny scoped
-    # to one object's `resource_id` is not consulted, so a member barred from a
-    # single source or view still sees its issues. And only the Health API reads
-    # this field: the Signals inbox emitter does not, so a check that also
-    # overrides `render_signal` still publishes its payload there.
+    # Two limits. On its own the gate is resource-level only: an `AccessControl`
+    # deny scoped to one object's `resource_id` is not consulted, so a member
+    # barred from a single source or view still sees its issues. Set
+    # `access_controlled_object_key` as well to close that. And only the Health
+    # API reads these fields. The alert emitter does not, so set `emits_alerts`
+    # to False to keep the payload out of destinations. The Signals inbox emitter
+    # does not either, so a check that also overrides `render_signal` still
+    # publishes its payload there.
     access_controlled_resource: APIScopeObject | None = None
+
+    # The payload key that holds the id of the one object an issue describes, for
+    # example "flag_id" under the "feature_flag" resource. When set, the Health API
+    # also hides an issue from a member whose access to that object resolves to
+    # "none", even though they can view the resource in general. The payload value
+    # and the `AccessControl.resource_id` are compared as strings, so an integer id
+    # in the payload matches. Requires `access_controlled_resource`.
+    access_controlled_object_key: str | None = None
+
+    # The model the object ids belong to. When set, the Health API reads its
+    # `created_by_id` and still shows a creator the issues about objects they are
+    # denied, to match the creator exemption on the resource's own endpoints,
+    # where a creator can always open what they made. Requires
+    # `access_controlled_object_key`.
+    access_controlled_object_model: type[Model] | None = None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
@@ -324,6 +368,31 @@ def access_controlled_resources_by_kind() -> dict[str, APIScopeObject]:
         kind: registration.access_controlled_resource
         for kind, registration in HEALTH_CHECKS.items()
         if registration.access_controlled_resource is not None
+    }
+
+
+@dataclass(frozen=True)
+class ObjectAccessGate:
+    resource: APIScopeObject
+    object_key: str
+    model: type[Model] | None
+
+
+def object_access_gates_by_kind() -> dict[str, ObjectAccessGate]:
+    """Map check kind → how its issues are gated on the one object each describes.
+
+    Only kinds that declare both `access_controlled_resource` and
+    `access_controlled_object_key` appear.
+    """
+    ensure_registry_loaded()
+    return {
+        kind: ObjectAccessGate(
+            resource=registration.access_controlled_resource,
+            object_key=registration.access_controlled_object_key,
+            model=registration.access_controlled_object_model,
+        )
+        for kind, registration in HEALTH_CHECKS.items()
+        if registration.access_controlled_resource is not None and registration.access_controlled_object_key is not None
     }
 
 
