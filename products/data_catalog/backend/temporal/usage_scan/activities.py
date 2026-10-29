@@ -4,7 +4,8 @@ from posthog.sync import database_sync_to_async
 
 from ...logic.usage_adjusted import detect_adjusted_runs_into_snapshot
 from ...logic.usage_runs import collect_metric_runs_into_snapshot
-from .types import CollectRunsInput, DetectAdjustedRunsInput, SectionWritten
+from ...logic.usage_topics import collect_topics_into_snapshot
+from .types import CollectRunsInput, CollectTopicsInput, DetectAdjustedRunsInput, SectionWritten
 
 
 @activity.defn(name="data-catalog-usage-collect-metric-runs")
@@ -18,6 +19,17 @@ async def collect_metric_runs(input: CollectRunsInput) -> SectionWritten:
 @activity.defn(name="data-catalog-usage-detect-adjusted-runs")
 async def detect_adjusted_runs(input: DetectAdjustedRunsInput) -> SectionWritten:
     rows = await detect_adjusted_runs_into_snapshot(
+        team_id=input.team_id,
+        snapshot_id=input.snapshot_id,
+        telemetry_team_id=input.telemetry_team_id,
+        heartbeat=activity.heartbeat,
+    )
+    return SectionWritten(rows=rows)
+
+
+@activity.defn(name="data-catalog-usage-collect-topics")
+async def collect_topics(input: CollectTopicsInput) -> SectionWritten:
+    rows = await collect_topics_into_snapshot(
         team_id=input.team_id,
         snapshot_id=input.snapshot_id,
         telemetry_team_id=input.telemetry_team_id,

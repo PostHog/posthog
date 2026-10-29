@@ -1597,6 +1597,8 @@ from = [
 path = "products.data_catalog"
 depends_on = [
     "posthog",
+    # Facade-only: the usage scan clusters agent intents through mcp_analytics' facade.
+    "products.mcp_analytics",
     "products.data_quality",
     "products.data_tools",
     "products.product_analytics",

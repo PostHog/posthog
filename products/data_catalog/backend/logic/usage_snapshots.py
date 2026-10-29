@@ -107,6 +107,10 @@ def usage_snapshot_window(team_id: int, snapshot_id: UUID) -> UsageWindow:
     return UsageWindow(start=row.window_start, end=row.window_end)
 
 
+def read_payload(team_id: int, snapshot_id: UUID) -> UsageSnapshotPayload:
+    return payload_from_json(UsageSnapshot.objects.for_team(team_id).only("payload").get(id=snapshot_id).payload)
+
+
 def write_payload_sections(team_id: int, snapshot_id: UUID, **sections: Any) -> None:
     """Replace the named payload sections and keep every other section.
 
