@@ -41,7 +41,7 @@ export interface DataCatalogMetricSceneLogicProps {
     name: string
 }
 
-export type MetricSceneTab = 'definition' | 'data-quality' | 'lineage'
+export type MetricSceneTab = 'definition' | 'data-quality' | 'lineage' | 'usage'
 
 /** What stopped the lineage load, in the terms the tab has a screen for. */
 export type LineageLoadProblem = 'not_ready' | 'no_warehouse_access' | 'failed'
@@ -670,7 +670,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             // `tests` is the old key for the data quality tab; links in sent notifications still use it.
             const tabParam = searchParams.tab === 'tests' ? 'data-quality' : searchParams.tab
             const activeTab: MetricSceneTab =
-                tabParam === 'data-quality' || tabParam === 'lineage' ? tabParam : 'definition'
+                tabParam === 'data-quality' || tabParam === 'lineage' || tabParam === 'usage' ? tabParam : 'definition'
             if (activeTab !== searchParams.tab && searchParams.tab !== undefined) {
                 // Drop the param so a refresh or a back navigation does not ask for the tab again.
                 router.actions.replace(urls.dataCatalogMetric(props.name, activeTab))
