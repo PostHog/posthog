@@ -404,6 +404,8 @@ class TestGetStatus:
         source = _source(cdc_enabled=True, cdc_slot_name="slot", cdc_publication_name="pub")
         status = PostgresCDCAdapter().get_status(source)
         assert status == {
+            "slot_name": "slot",
+            "publication_name": "pub",
             "slot_exists": True,
             "publication_exists": True,
             "lag_bytes": 42,

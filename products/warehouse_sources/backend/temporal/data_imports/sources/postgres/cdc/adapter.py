@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _retry_on_connection_dropped,
     source_requires_ssl,
 )
+from products.warehouse_sources.backend.types import CDCEngine
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -109,6 +110,8 @@ def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, st
 
 
 class PostgresCDCAdapter:
+    engine = CDCEngine.POSTGRES
+
     def parse_cdc_config(self, source: ExternalDataSource) -> PostgresCDCConfig:
         return PostgresCDCConfig.from_source(source)
 
@@ -378,11 +381,16 @@ class PostgresCDCAdapter:
                 else []
             )
         return {
+            "slot_name": cdc_config.slot_name,
+            "publication_name": cdc_config.publication_name,
             "slot_exists": slot_present,
             "publication_exists": pub_present,
             "lag_bytes": lag_bytes,
             "published_tables": published_tables,
         }
+
+    def capture_resources_present(self, status: Mapping[str, Any]) -> bool:
+        return status.get("slot_exists") is not False and status.get("publication_exists") is not False
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         """ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication. Raises on failure."""

@@ -20804,6 +20804,16 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    /**
+     * Change data capture engine of a source type, which picks its CDC setup form and status panel.
+     */
+    export type CDCEngine = typeof CDCEngine[keyof typeof CDCEngine];
+
+
+    export const CDCEngine = {
+      Postgres: 'postgres',
+    } as const;
+
     export interface CICardSummary {
       /** Count of open pull requests. */
       open_prs: number;
@@ -112079,6 +112089,8 @@ export namespace Schemas {
       /** Vendor API docs or changelog URL, or null when the vendor publishes none. */
       apiDocsUrl?: string | null;
       deprecatedVersions: SourceVersionDeprecation[];
+      /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
+      cdcEngine?: CDCEngine | null;
       /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
       tables?: SourceDocumentedTable[] | null;
     }

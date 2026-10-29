@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conforma
     Transaction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, CDCStreamReader, ChangeEvent
+from products.warehouse_sources.backend.types import CDCEngine
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
@@ -129,6 +130,9 @@ class FakeCDCStreamReader:
 
 
 class FakeCDCAdapter:
+    # The catalog never lists the fake engine, so any member satisfies the interface.
+    engine = CDCEngine.POSTGRES
+
     def __init__(self, db: SourceDatabase) -> None:
         self._db = db
 
@@ -198,6 +202,9 @@ class FakeCDCAdapter:
         raise NotImplementedError(_NOT_EXERCISED)
 
     def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
+        raise NotImplementedError(_NOT_EXERCISED)
+
+    def capture_resources_present(self, status: Mapping[str, Any]) -> bool:
         raise NotImplementedError(_NOT_EXERCISED)
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
