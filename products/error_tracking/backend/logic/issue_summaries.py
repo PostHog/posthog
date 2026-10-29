@@ -85,6 +85,8 @@ from products.error_tracking.backend.logic.issue_summary_config import (
 from products.error_tracking.backend.logic.issue_summary_prompt import (
     ISSUE_SUMMARY_CATEGORY_QUESTION,
     ISSUE_SUMMARY_CATEGORY_QUESTION_ID,
+    ISSUE_SUMMARY_IMPACT_LINE,
+    ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET,
     ISSUE_SUMMARY_INPUT_TEMPLATE,
     ISSUE_SUMMARY_PROMPT_VERSION,
     ISSUE_SUMMARY_SYSTEM_PROMPT,
@@ -117,7 +119,6 @@ ISSUE_SUMMARY_TASK_EVENT = "error_tracking_issue_summary_generation"
 PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 
 UNKNOWN = "unknown"
-IMPACT_NOT_KNOWN_YET = "Impact: not known yet, because the issue was just created from its first event"
 IN_APP_FRAME_MARKER = "[in-app]"
 WAIT_POLL_INTERVAL_SECONDS = 0.25
 # Event values must not open or close the <issue> block that fences them in the prompt.
@@ -783,7 +784,6 @@ def _summary_inputs(
     impact: dict[str, object] | None,
     trend: dict[str, object],
 ) -> IssueSummaryInputs:
-    """`impact` is None for a new issue: more events of it can arrive before the summary is read."""
     latest_release = extract_release(event_properties).get("version")
     first_release = extract_release(first_event_properties).get("version")
     exception = first_exception(event_properties)
@@ -803,12 +803,7 @@ def _summary_inputs(
         "trend_direction": _text(trend.get("direction")),
         "previous_occurrences": _count(trend.get("previous_occurrences")),
         "current_occurrences": _count(trend.get("current_occurrences")),
-        "impact": IMPACT_NOT_KNOWN_YET
-        if impact is None
-        else (
-            f"Impact in range: {_count(impact.get('occurrences'))} occurrences, "
-            f"{_count(impact.get('users'))} users, {_count(impact.get('sessions'))} sessions"
-        ),
+        "impact": _impact_line(impact),
     }
     prompt = ISSUE_SUMMARY_INPUT_TEMPLATE.format(
         **{name: ISSUE_FENCE_TAG.sub("", value) for name, value in fields.items()}
@@ -867,6 +862,16 @@ def _text(value: object) -> str:
 def _count(value: object) -> str:
     number = to_number(value)
     return str(int(number)) if number is not None else UNKNOWN
+
+
+def _impact_line(impact: dict[str, object] | None) -> str:
+    if impact is None:
+        return ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET
+    return ISSUE_SUMMARY_IMPACT_LINE.format(
+        occurrences=_count(impact.get("occurrences")),
+        users=_count(impact.get("users")),
+        sessions=_count(impact.get("sessions")),
+    )
 
 
 def _exception_event_properties(

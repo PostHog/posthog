@@ -45,6 +45,9 @@ Facts:
 - {impact}
 </issue>"""
 
+ISSUE_SUMMARY_IMPACT_LINE = "Impact in range: {occurrences} occurrences, {users} users, {sessions} sessions"
+ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET = "Impact: not known yet, because the issue was just created from its first event"
+
 
 class IssueSummaryResponse(BaseModel):
     # extra="forbid" makes the JSON schema carry additionalProperties: false, which strict mode requires.
