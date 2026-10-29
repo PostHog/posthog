@@ -210,5 +210,7 @@ describe('ReportContextMenu', () => {
 
         expect(await screen.findByText(dialog)).toBeInTheDocument()
         expect(stateRequests).toEqual([])
+        fireEvent.click(screen.getByText('Cancel'))
+        await waitFor(() => expect(screen.queryByText(dialog)).not.toBeInTheDocument())
     })
 })
