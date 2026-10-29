@@ -1685,7 +1685,11 @@ mod tests {
 
         /// The flag call by person 4 in `events` must not count in a run pinned to
         /// `flag_evaluations`. Each table pair backs `$feature_flag` with a column of its own name,
-        /// so a query that reads the other pair's column fails.
+        /// so a query that reads the other pair's column fails. The flag call by person 5 holds a
+        /// blob that is not JSON, so its `flag_key` is empty. The row filter admits an empty
+        /// column value, so every scan reads the row. The row matches no condition. A scan that
+        /// builds `properties` from `flag_key` never parses the blob. A scan that selects the
+        /// whole blob fails to parse it and skips the row.
         async fn mixed_chunk_database(database: &str) -> ClickHouseClient {
             let events_columns = "uuid UUID, event String, properties String, \
                 timestamp DateTime64(6, 'UTC'), distinct_id String, person_id UUID, \
@@ -1699,9 +1703,9 @@ mod tests {
                     person(person_id),
                 )
             };
-            let flag_row = |uuid: u128, flag: &str, person_id: u128| {
+            let flag_row = |uuid: u128, properties: &str, person_id: u128| {
                 format!(
-                    "(toUUID('{}'), '$feature_flag_called', '{{\"$feature_flag\":\"{flag}\"}}', \
+                    "(toUUID('{}'), '$feature_flag_called', '{properties}', \
                      toDateTime64(100000, 6, 'UTC'), 2, 'distinct-{person_id}', toUUID('{}'), \
                      toDateTime(100000, 'UTC'))",
                     person(uuid),
@@ -1744,11 +1748,12 @@ mod tests {
                 ),
                 format!(
                     "INSERT INTO {database}.sharded_flag_evaluations (uuid, event, properties, \
-                     timestamp, team_id, distinct_id, person_id, _timestamp) VALUES {}, {}, {}, {}",
-                    flag_row(20, "my-flag", 1),
-                    flag_row(21, "my-flag", 3),
-                    flag_row(22, "my-flag", 3),
-                    flag_row(23, "other-flag", 1),
+                     timestamp, team_id, distinct_id, person_id, _timestamp) VALUES {}, {}, {}, {}, {}",
+                    flag_row(20, r#"{"$feature_flag":"my-flag"}"#, 1),
+                    flag_row(21, r#"{"$feature_flag":"my-flag"}"#, 3),
+                    flag_row(22, r#"{"$feature_flag":"my-flag"}"#, 3),
+                    flag_row(23, r#"{"$feature_flag":"other-flag"}"#, 1),
+                    flag_row(24, "not json", 5),
                 ),
             ]);
             for statement in statements {
@@ -1831,7 +1836,11 @@ mod tests {
         }
 
         /// The backfill gate reads this verdict. A compare that re-scanned one table, or read flag
-        /// calls from `events`, would report a diff on every mixed chunk.
+        /// calls from `events`, would report a diff on every mixed chunk. A compare that sent the
+        /// narrow projection would match as well, because both arms would then send the same
+        /// query. The projected arm reads person 5's flag call through `flag_key` and keeps it.
+        /// The wide arm skips it. The skip count is therefore 1 only when the compare sends the
+        /// wide query.
         #[tokio::test]
         async fn the_shadow_compare_of_a_mixed_chunk_rescans_both_tables() {
             let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
@@ -1848,6 +1857,19 @@ mod tests {
                     "{SHADOW_COMPARE}{{result=\"match\",team_id=\"2\"}} 1"
                 )),
                 "the mixed chunk's compare did not match:\n{rendered}"
+            );
+            assert!(
+                rendered.contains(&format!(
+                    "{SCAN_PROPERTIES_SOURCE}{{source=\"columns\",table=\"flag_evaluations\",team_id=\"2\"}} 1"
+                )),
+                "the projected arm did not read `properties` from `flag_key`, so it parses person \
+                 5's blob too:\n{rendered}"
+            );
+            assert!(
+                rendered.contains(&format!(
+                    "{SHADOW_COMPARE_LEGACY_SKIPPED}{{team_id=\"2\"}} 1"
+                )),
+                "the compare did not re-scan the whole blob:\n{rendered}"
             );
         }
     }
