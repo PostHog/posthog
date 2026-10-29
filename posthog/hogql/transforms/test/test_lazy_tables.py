@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, _use_person_id_from_person_overrides
 from posthog.hogql.parser import parse_select
@@ -127,7 +128,7 @@ class TestLazyJoins(BaseTest):
     ) -> None:
         for name, property_type in [("amount", "Numeric"), ("enabled", "Boolean"), ("scheduled_at", "DateTime")]:
             PropertyDefinition.objects.create(team=self.team, name=name, property_type=property_type)
-        _create_event(
+        event_uuid = _create_event(
             team=self.team,
             event="joined-event",
             distinct_id="joined-user",
@@ -143,8 +144,9 @@ class TestLazyJoins(BaseTest):
         result = execute_hogql_query(
             f"SELECT {select} FROM events AS source "
             "JOIN events AS related ON source.person_id = related.person_id "
-            "WHERE source.event = 'joined-event' AND related.event = 'joined-event'",
+            "WHERE source.uuid = {event_uuid} AND related.uuid = {event_uuid}",
             team=self.team,
+            placeholders={"event_uuid": ast.Constant(value=event_uuid)},
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
