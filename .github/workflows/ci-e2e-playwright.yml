@@ -272,8 +272,9 @@ jobs:
               # launches. After the wait, if the PR head has already moved past this run's
               # SHA, skip: the newer run is the real gate (and always runs, since the tip
               # is never stale against itself). Single pushes just pay the short wait.
+              # Trunk pushes each merge-queue branch once, so there is nothing to debounce there.
               id: debounce
-              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
                   REPO: ${{ github.repository }}
