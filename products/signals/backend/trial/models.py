@@ -39,6 +39,13 @@ class SignalTrialReportReservation(TeamScopedRootMixin, UUIDModel):
     attempt_run_ids = ArrayField(models.UUIDField(), default=list)
 
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["id"],
+                condition=models.Q(status="reserved", active_attempts__gt=0, attempt_run_ids__len__gt=0),
+                name="signals_trial_report_pending",
+            )
+        ]
         constraints = [
             models.UniqueConstraint(fields=["team_id", "report_id"], name="signals_trial_report_identity"),
         ]

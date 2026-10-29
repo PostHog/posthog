@@ -1127,11 +1127,15 @@ def get_resume_snapshot_carry_state(run_state: dict[str, Any] | None) -> dict[st
     return parse_run_state(run_state).resume_snapshot_carry_state()
 
 
-def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.TaskRunDTO | None:
+def get_task_run(
+    run_id: str | UUID, team_id: int | None = None, *, include_child_environments: bool = False
+) -> contracts.TaskRunDTO | None:
     """Fetch a single task run as a DTO, optionally scoped to a team."""
     qs = TaskRun.objects.select_related("task", "task__created_by")
     if team_id is not None:
-        qs = qs.filter(team_id=team_id)
+        qs = qs.filter(
+            Q(team_id=team_id) | Q(team__parent_team_id=team_id) if include_child_environments else Q(team_id=team_id)
+        )
     run = qs.filter(id=run_id).first()
     if run is None:
         return None
@@ -1168,6 +1172,14 @@ def trial_research_has_started(*, team_id: int, report_pass_key: str) -> bool:
         state__self_driving_funding__report_pass_key=report_pass_key,
         state__self_driving_funding__stage="research",
         state__sandbox_provisioning_started=True,
+    ).exists()
+
+
+def has_active_task_runs(*, team_id: int, run_ids: list[UUID]) -> bool:
+    return TaskRun.objects.filter(
+        Q(team_id=team_id) | Q(team__parent_team_id=team_id),
+        id__in=run_ids,
+        status__in=[TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
     ).exists()
 
 
