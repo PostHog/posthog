@@ -1,21 +1,32 @@
 import ipaddress
+from datetime import UTC, datetime
+from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
+    SourceDriver,
     scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pganalyze import (
+    PgAnalyzeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze import (
     PgAnalyzeRetryableError,
     _post_graphql,
+    _query_stats_windows,
     _resolve_api_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.settings import PGANALYZE_API_URL
+from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.source import PgAnalyzeSource
 
 _PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
@@ -190,3 +201,123 @@ class TestResolveApiUrl:
         with mock.patch("posthog.security.url_validation.is_dev_mode", return_value=False):
             with pytest.raises(ValueError, match="not allowed"):
                 _resolve_api_url(blocked_url)
+
+
+_NOW = datetime(2026, 3, 4, 15, 30, tzinfo=UTC)
+
+
+class TestQueryStatsWindows:
+    @parameterized.expand(
+        [
+            (
+                "no_watermark_covers_yesterday_and_today",
+                None,
+                _NOW,
+                [
+                    (datetime(2026, 3, 3, tzinfo=UTC), datetime(2026, 3, 4, tzinfo=UTC)),
+                    (datetime(2026, 3, 4, tzinfo=UTC), _NOW),
+                ],
+            ),
+            (
+                "string_watermark_resumes_at_its_day",
+                "2026-03-02T00:00:00+00:00",
+                _NOW,
+                [
+                    (datetime(2026, 3, 2, tzinfo=UTC), datetime(2026, 3, 3, tzinfo=UTC)),
+                    (datetime(2026, 3, 3, tzinfo=UTC), datetime(2026, 3, 4, tzinfo=UTC)),
+                    (datetime(2026, 3, 4, tzinfo=UTC), _NOW),
+                ],
+            ),
+            (
+                "watermark_today_refetches_the_partial_day",
+                datetime(2026, 3, 4, tzinfo=UTC),
+                _NOW,
+                [(datetime(2026, 3, 4, tzinfo=UTC), _NOW)],
+            ),
+            (
+                "midnight_emits_no_empty_window",
+                datetime(2026, 3, 4, tzinfo=UTC),
+                datetime(2026, 3, 4, tzinfo=UTC),
+                [],
+            ),
+        ]
+    )
+    def test_windows(
+        self, _label: str, watermark: Any, now: datetime, expected: list[tuple[datetime, datetime]]
+    ) -> None:
+        assert _query_stats_windows(watermark, now) == expected
+
+    def test_old_watermark_is_capped_at_the_catchup_limit(self) -> None:
+        windows = _query_stats_windows(datetime(2025, 1, 1, tzinfo=UTC), _NOW)
+
+        assert windows[0][0] == datetime(2026, 2, 25, tzinfo=UTC)
+        assert windows[-1] == (datetime(2026, 3, 4, tzinfo=UTC), _NOW)
+        assert len(windows) == 8
+
+
+def _query_stats_script(request: RecordedRequest) -> ScriptedResponse:
+    body = request.json()
+    query = body["query"]
+    if "getServers" in query:
+        return ScriptedResponse(
+            json={
+                "data": {
+                    "getServers": [
+                        {"humanId": "srv-a", "name": "primary"},
+                        {"humanId": None, "name": "unregistered"},
+                        {"humanId": "srv-b", "name": "replica"},
+                    ]
+                }
+            }
+        )
+    if "getIssues" in query:
+        issues = {
+            "srv-a": [{"databaseId": 11}, {"databaseId": 11}, {"databaseId": None}],
+            "srv-b": [{"databaseId": 22}],
+        }[body["variables"]["serverId"]]
+        return ScriptedResponse(json={"data": {"getIssues": issues}})
+    database_id = body["variables"]["databaseId"]
+    return ScriptedResponse(
+        json={"data": {"getQueryStats": [{"id": int(database_id) * 100, "totalCalls": 5, "avgTime": 1.5}]}}
+    )
+
+
+class TestQueryStatsExtraction:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, 2),
+            ("incremental_from_watermark", True, "2026-03-04T00:00:00+00:00", 1),
+        ]
+    )
+    def test_fetches_each_discovered_database_per_window(
+        self, _label: str, incremental: bool, watermark: str | None, window_count: int
+    ) -> None:
+        config = PgAnalyzeSourceConfig(api_key="token", organization_slug="acme", api_url=None)
+        with time_machine.travel(_NOW, tick=False):
+            result = SourceDriver(PgAnalyzeSource(), config).run(
+                "query_stats",
+                _query_stats_script,
+                should_use_incremental_field=incremental,
+                incremental_field="window_start" if incremental else None,
+                db_incremental_field_last_value=watermark,
+            )
+
+        assert result.raised is None
+        stats_variables = [r.json()["variables"] for r in result.requests if "getQueryStats" in r.json()["query"]]
+        assert [v["databaseId"] for v in stats_variables] == ["11", "22"] * window_count
+        assert stats_variables[-1] == {
+            "databaseId": "22",
+            "startTs": int(datetime(2026, 3, 4, tzinfo=UTC).timestamp()),
+            "endTs": int(_NOW.timestamp()),
+        }
+        assert len(result.rows) == 2 * window_count
+        assert result.rows[-1] == {
+            "id": 2200,
+            "totalCalls": 5,
+            "avgTime": 1.5,
+            "databaseId": 22,
+            "serverHumanId": "srv-b",
+            "serverName": "replica",
+            "window_start": "2026-03-04T00:00:00+00:00",
+            "window_end": _NOW.isoformat(),
+        }
