@@ -97,6 +97,27 @@ class TestClassify(BaseTest):
                 SqlWindowClass.UP_TO_NOW_LONG,
             ),
             (
+                "person_id",
+                "select uniq(person_id) from events where timestamp > now() - interval 7 day",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "person_properties",
+                "select count() from events where timestamp > now() - interval 7 day and person.properties.email = 'a'",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "group_properties",
+                "select count() from events where timestamp < '2026-10-01' and timestamp >= '2026-09-01' "
+                "and group_0.properties.plan = 'x'",
+                SqlWindowClass.FIXED_PAST,
+            ),
+            (
+                "session_properties",
+                "select count() from events where timestamp > now() - interval 2 day and session.$session_duration > 10",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
                 "absolute_past_range",
                 "select count() from events where timestamp between '2026-10-01' and '2026-10-15'",
                 SqlWindowClass.FIXED_PAST,
@@ -173,25 +194,10 @@ class TestClassify(BaseTest):
             ("no_time_filter", "select count() from events", FreshnessReason.UNBOUNDED),
             ("upper_bound_only", "select count() from events where timestamp < now()", FreshnessReason.UNBOUNDED),
             (
-                "person_id_follows_merges",
-                "select uniq(person_id) from events where timestamp > now() - interval 7 day",
-                FreshnessReason.MUTABLE_FIELD,
-            ),
-            (
-                "person_properties",
-                "select count() from events where timestamp > now() - interval 7 day and person.properties.email = 'a'",
-                FreshnessReason.MUTABLE_FIELD,
-            ),
-            (
-                "group_properties",
-                "select count() from events where timestamp < '2026-10-01' and group_0.properties.plan = 'x'",
-                FreshnessReason.MUTABLE_FIELD,
-            ),
-            (
                 "revenue_join",
                 "select poe.revenue_analytics.revenue from events "
                 "where timestamp >= '2025-01-01' and timestamp < '2025-02-01'",
-                FreshnessReason.MUTABLE_FIELD,
+                FreshnessReason.UNSUPPORTED_FIELD,
             ),
             (
                 "clock_in_select_list",
@@ -216,7 +222,7 @@ class TestClassify(BaseTest):
             (
                 "persons_table",
                 "select count() from persons where created_at < '2025-01-01'",
-                FreshnessReason.MUTABLE_FIELD,
+                FreshnessReason.UNSUPPORTED_FIELD,
             ),
             (
                 "timezone_on_a_non_literal",

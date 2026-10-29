@@ -31,7 +31,7 @@ class FreshnessReason(StrEnum):
     CLOCK_DAY = "clock_day"
     NOW_ANCHORED = "now_anchored"
     NO_EVENTS = "no_events"
-    MUTABLE_FIELD = "mutable_field"
+    UNSUPPORTED_FIELD = "unsupported_field"
     JOIN = "join"
     FOREIGN_SOURCE = "foreign_source"
     UNBOUNDED = "unbounded"
@@ -75,8 +75,8 @@ def _reads_fixed_past(facts: QueryFacts) -> bool:
     return any(window_class(window, facts) == SqlWindowClass.FIXED_PAST for window in facts.windows)
 
 
-def only_events_columns(facts: QueryFacts) -> Verdict:
-    return Reject(reason=FreshnessReason.MUTABLE_FIELD) if facts.mutable_field else None
+def supported_fields_only(facts: QueryFacts) -> Verdict:
+    return Reject(reason=FreshnessReason.UNSUPPORTED_FIELD) if facts.unsupported_field else None
 
 
 def no_joins(facts: QueryFacts) -> Verdict:
@@ -120,7 +120,7 @@ def now_anchored_past_moves(facts: QueryFacts) -> Verdict:
 
 
 RULES: tuple[Rule, ...] = (
-    only_events_columns,
+    supported_fields_only,
     no_joins,
     only_events_sources,
     supported_bounds,

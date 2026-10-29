@@ -8,8 +8,13 @@ from dateutil.parser import isoparse
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import DatabaseField, ExpressionField
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
+from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
+from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
+from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.functions.clickhouse.datetime import DATE_GENERATOR_FUNCTIONS
 from posthog.hogql.functions.mapping import find_hogql_function
@@ -20,6 +25,15 @@ from posthog.dataclasses import frozen
 from posthog.interval_specs import INTERVAL_SPECS, PERIOD_MAP
 
 _MONDAY = 1
+_JOINABLE_TABLES = (
+    PersonsTable,
+    PersonDistinctIdsTable,
+    GroupsTable,
+    SessionsTableV1,
+    SessionsTableV2,
+    SessionsTableV3,
+)
+_EXPRESSION_FIELDS = frozenset({"person_id"})
 _DATE_PREFIX_LENGTH = len("2026-01-01")
 _TIMESTAMP_COLUMN = "timestamp"
 _TIMESTAMP_WRAPPERS = frozenset({"toDateTime", "toDateTime64", "parseDateTimeBestEffort", "parseDateTime64BestEffort"})
@@ -63,7 +77,7 @@ class QueryFacts:
     windows: tuple[Window, ...]
     relative_date_range: bool
     rolling_filters: bool
-    mutable_field: bool = False
+    unsupported_field: bool = False
     join: bool = False
     foreign_source: bool = False
     unbounded_select: bool = False
@@ -103,20 +117,26 @@ def _is_subquery_type(table_type: Any) -> bool:
     )
 
 
-def _is_immutable_field_type(field_type: Any) -> bool:
+def _reads_supported_table(table_type: Any) -> bool:
+    if isinstance(table_type, ast.VirtualTableType):
+        return _reads_supported_table(table_type.table_type)
+    if isinstance(table_type, ast.LazyJoinType):
+        return isinstance(table_type.lazy_join.join_table, _JOINABLE_TABLES) and _reads_supported_table(
+            table_type.table_type
+        )
+    return _events_table_type(table_type) is not None
+
+
+def _is_supported_field_type(field_type: Any) -> bool:
     if isinstance(field_type, ast.FieldAliasType):
         return True
     if isinstance(field_type, ast.PropertyType):
-        return _is_immutable_field_type(field_type.field_type)
+        return _is_supported_field_type(field_type.field_type)
+    if isinstance(field_type, ast.ExpressionFieldType):
+        return field_type.name in _EXPRESSION_FIELDS and _reads_supported_table(field_type.table_type)
     if not isinstance(field_type, ast.FieldType):
         return False
-    if _is_subquery_type(field_type.table_type):
-        return True
-    events = _events_table_type(field_type.table_type)
-    if events is None:
-        return False
-    database_field = events.table.fields.get(field_type.name)
-    return isinstance(database_field, DatabaseField) and not isinstance(database_field, ExpressionField)
+    return _is_subquery_type(field_type.table_type) or _reads_supported_table(field_type.table_type)
 
 
 def _is_events_timestamp(expr: ast.Expr) -> bool:
@@ -192,15 +212,15 @@ class _QueryScan(TraversingVisitor):
         super().__init__()
         self.selects: list[ast.SelectQuery] = []
         self.clock_calls: set[int] = set()
-        self.mutable_field = False
+        self.unsupported_field = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
         super().visit_select_query(node)
 
     def visit_field(self, node: ast.Field) -> None:
-        if not isinstance(node.type, ast.BaseTableType) and not _is_immutable_field_type(node.type):
-            self.mutable_field = True
+        if not isinstance(node.type, ast.BaseTableType) and not _is_supported_field_type(node.type):
+            self.unsupported_field = True
 
     def visit_call(self, node: ast.Call) -> None:
         if clock_name(node) is not None:
@@ -424,7 +444,7 @@ def extract_facts(
         windows=tuple(windows),
         relative_date_range=relative_date_range,
         rolling_filters=rolling_filters,
-        mutable_field=scan.mutable_field,
+        unsupported_field=scan.unsupported_field,
         join=has_join,
         foreign_source=foreign_source,
         unbounded_select=unbounded_select,
