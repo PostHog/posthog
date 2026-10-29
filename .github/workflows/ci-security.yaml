@@ -452,8 +452,8 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # PR merge commit plus both parents, so the new-warnings
-                  # pass can baseline against the PR base (HEAD^1)
+                  # PR merge commit plus both parents, so the errors and
+                  # new-warnings passes can diff against the PR base (HEAD^1)
                   fetch-depth: 2
                   persist-credentials: false
 
@@ -475,7 +475,8 @@ jobs:
                       bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
-            # job — regression guards live here.
+            # job — regression guards live here. Pull requests scan their
+            # changed files; master scans the whole tree.
             - name: Errors (blocking)
               uses: ./.github/actions/semgrep-ci
               with:
@@ -494,7 +495,7 @@ jobs:
                       --include /products
                       --include /services
                       --include /tools
-                      --exclude products/desktop
+                      --exclude /products/desktop
 
             # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
             # baseline file lists the allowed count per file. More findings than the baseline fails, and
@@ -522,7 +523,7 @@ jobs:
 
             # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
             # --baseline-commit diffs against the PR base (first parent of the
-            # merge commit), so the pass-1 backlog is grandfathered while new
+            # merge commit), so the existing backlog is grandfathered while new
             # violations block. See .semgrep/rules/devex/README.md.
             - name: New warnings (blocking)
               if: github.event_name == 'pull_request'
