@@ -310,6 +310,20 @@ def reject_plus_addressed_email(value: str) -> None:
         )
 
 
+# Mail systems fold these dots to "." or drop the hidden characters, so the address that reaches the
+# mail provider is not the one we stored, and it can't receive verification or reset emails.
+_LOOKALIKE_EMAIL_CHAR_RE = re.compile(r"[\u2024\u3002\ufe52\uff0e\uff61\u200b-\u200d\u2060\ufeff]")
+
+
+def reject_lookalike_email_characters(value: str) -> None:
+    """Raise if `value` contains a look-alike dot or a zero-width character."""
+    if _LOOKALIKE_EMAIL_CHAR_RE.search(value):
+        raise serializers.ValidationError(
+            "Enter an email address using standard dots and no hidden characters.",
+            code="lookalike_characters_not_allowed",
+        )
+
+
 class EmailLookupHandler:
     @staticmethod
     def users_matching_email(email: str, queryset: Optional[QuerySet] = None) -> QuerySet:

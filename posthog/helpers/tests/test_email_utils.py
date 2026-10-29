@@ -21,6 +21,7 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     sanitize_display_name,
     sanitize_email_string,
@@ -236,6 +237,36 @@ class TestRejectPlusAddressedEmail(SimpleTestCase):
     def test_allows_email_without_plus(self):
         # Should not raise.
         reject_plus_addressed_email("someuser@domain.com")
+
+
+class TestRejectLookalikeEmailCharacters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ideographic_full_stop", "user@ph\u3002example.com"),
+            ("fullwidth_full_stop", "user@ph\uff0eexample.com"),
+            ("small_full_stop", "user@ph\ufe52example.com"),
+            ("one_dot_leader", "user@ph\u2024example.com"),
+            ("halfwidth_ideographic_full_stop", "user@ph\uff61example.com"),
+            ("zero_width_space", "user@example\u200b.com"),
+            ("zero_width_joiner_in_local_part", "us\u200der@example.com"),
+            ("word_joiner", "user@exam\u2060ple.com"),
+            ("byte_order_mark", "\ufeffuser@example.com"),
+        ]
+    )
+    def test_rejects_lookalike_dots_and_hidden_characters(self, _name: str, email: str) -> None:
+        with self.assertRaises(serializers.ValidationError) as ctx:
+            reject_lookalike_email_characters(email)
+        self.assertEqual(ctx.exception.get_codes(), ["lookalike_characters_not_allowed"])
+
+    @parameterized.expand(
+        [
+            ("ascii", "user@example.com"),
+            ("idn_domain", "user@ex\u00e4mple.com"),
+            ("non_latin_domain", "user@\u4f8b\u3048.jp"),
+        ]
+    )
+    def test_allows_addresses_without_lookalike_characters(self, _name: str, email: str) -> None:
+        reject_lookalike_email_characters(email)
 
 
 class TestUserExistsWithStrippedAlias(TestCase):
