@@ -65,6 +65,7 @@ from posthog.rate_limit import (
     ReplayVisionHighlightFeedSustainedRateThrottle,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -260,6 +261,38 @@ class RecordingsQueryField(serializers.JSONField):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Recording filter must be a JSON object.")
         return value
+
+
+def query_reference_error(
+    query: dict[str, Any],
+    *,
+    team: Team,
+    user_access_control: UserAccessControl,
+    allowed_scopes: list[str] | None,
+) -> str | None:
+    """Why the actions and cohorts a recording filter names can't be used, or None when they can.
+
+    Gated before anything resolves, so a caller without read access learns nothing about which ids
+    exist. A reference the query builder cannot load would fail every estimate and every run, and
+    the estimate cannot tell that apart from a timeout, so it is refused here too. Create, update,
+    the estimate and the draft all run the filter, so all of them check it.
+    """
+    try:
+        refs = query_references(query, team)
+    except ScannerQueryError as error:
+        return str(error)
+    kinds = readable_entity_kinds(user_access_control, allowed_scopes)
+    for kind, ids in (("action", refs.actions), ("cohort", refs.cohorts)):
+        if ids and kind not in kinds:
+            return f"This recording filter uses {kind}s, which your access doesn't cover."
+    missing = unresolved_references(
+        query,
+        team,
+        can_read_action=lambda action: bool(user_access_control.check_access_level_for_object(action, "viewer")),
+    )
+    if missing:
+        return f"This recording filter uses {', '.join(missing)}, which this project doesn't have."
+    return None
 
 
 def _clean_query(value: dict[str, Any]) -> dict[str, Any]:
@@ -987,7 +1020,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
-        return _clean_query(value)
+        query = _clean_query(value)
+        request = self.context.get("request")
+        if error := query_reference_error(
+            query,
+            team=self.context["get_team"](),
+            user_access_control=cast(UserAccessControl, self.user_access_control),
+            allowed_scopes=get_authenticator_scopes(request.successful_authenticator) if request else None,
+        ):
+            raise serializers.ValidationError(error)
+        return query
 
     def to_representation(self, instance: ReplayScanner) -> dict[str, Any]:
         data = super().to_representation(instance)
@@ -3177,6 +3219,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         ):
             raise serializers.ValidationError({scope_field: "Experiment not found in this project."})
 
+        if (query := body.validated_data.get("query")) is not None:
+            self._check_query_references(query, get_authenticator_scopes(request.successful_authenticator))
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
         query_dict.setdefault("kind", "RecordingsQuery")
@@ -3216,30 +3260,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             ).data
         )
 
-    def _check_chosen_references(self, query: dict[str, Any], allowed_scopes: list[str] | None) -> None:
-        """Refuse a chosen filter that names actions or cohorts the caller may not read, or that a scan
-        cannot load.
-
-        Gated before anything resolves, so a caller without read access learns nothing about which ids
-        exist. A reference the query builder cannot load would fail every estimate and every run, and
-        the estimate cannot tell that apart from a timeout, so it is refused here too.
-        """
-        refs = query_references(query)
-        kinds = readable_entity_kinds(self.user_access_control, allowed_scopes)
-        for kind, ids in (("action", refs.actions), ("cohort", refs.cohorts)):
-            if ids and kind not in kinds:
-                raise ValidationError(
-                    {"query": f"This recording filter uses {kind}s, which your access doesn't cover."}
-                )
-        missing = unresolved_references(
-            query,
-            self.team,
-            can_read_action=lambda action: self.user_access_control.check_access_level_for_object(action, "viewer"),
-        )
-        if missing:
-            raise ValidationError(
-                {"query": f"This recording filter uses {', '.join(missing)}, which this project doesn't have."}
-            )
+    def _check_query_references(self, query: dict[str, Any], allowed_scopes: list[str] | None) -> None:
+        if error := query_reference_error(
+            query, team=self.team, user_access_control=self.user_access_control, allowed_scopes=allowed_scopes
+        ):
+            raise ValidationError({"query": error})
 
     @extend_schema(
         request=DraftScannerRequestSerializer,
@@ -3321,7 +3346,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         ):
             raise ValidationError({"experiment_id": "Experiment not found in this project."})
         if scope is not None:
-            self._check_chosen_references(scope.query, allowed_scopes)
+            self._check_query_references(scope.query, allowed_scopes)
 
         try:
             drafted = draft_scanner_from_goal(

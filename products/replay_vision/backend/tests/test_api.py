@@ -34,6 +34,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
     HIGHLIGHT_FEED_PICKS_BUCKET_S,
@@ -791,6 +792,26 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "experiment_exposure",
                 {"experiment_exposure": {"experiment_id": 1}},
                 "Recording filter can't set experiment exposure directly. Set experiment_targeting instead.",
+            ),
+            # Only the replay list applies it, so a scanner would watch recordings the filter leaves out.
+            (
+                "replay_list_only",
+                {
+                    "kind": "RecordingsQuery",
+                    "comment_text": {
+                        "type": "recording",
+                        "key": "comment_text",
+                        "value": "refund",
+                        "operator": "icontains",
+                    },
+                },
+                "A scanner can't apply these recording filters: comment_text. Remove them and try again.",
+            ),
+            # The query builder fails on a missing action, so every run of the scanner would fail.
+            (
+                "missing_action",
+                {"kind": "RecordingsQuery", "actions": [{"id": 999999, "type": "actions"}]},
+                "This recording filter uses action 999999, which this project doesn't have.",
             ),
         ]
     )
@@ -4216,11 +4237,44 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             ("query_oversized", {"query": {"distinct_ids": ["x" * 1_000 for _ in range(100)]}}),
             ("query_experiment_exposure", {"query": {"experiment_exposure": {"experiment_id": 1}}}),
             ("query_not_an_object", {"query": ["kind", "RecordingsQuery"]}),
+            ("query_missing_cohort", {"query": {"properties": [{"type": "cohort", "key": "id", "value": 999999}]}}),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
         resp = self.client.post(self.estimate_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
+
+    @parameterized.expand([("estimate",), ("create",)])
+    def test_a_token_without_cohort_read_cannot_filter_by_cohort(self, endpoint: str) -> None:
+        # Both run the filter, so either would otherwise count or watch a cohort the token cannot read.
+        cohort = Cohort.objects.create(team=self.team, name="Paying customers")
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="cohort-scope-test",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["replay_scanner:write", "session_recording:read"],
+        )
+        query = {"kind": "RecordingsQuery", "properties": [{"type": "cohort", "key": "id", "value": cohort.id}]}
+        url, data = (
+            (self.estimate_url, {"query": query})
+            if endpoint == "estimate"
+            else (
+                self.scanners_url,
+                {
+                    "name": "cohort-scoped",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "query": query,
+                },
+            )
+        )
+
+        resp = self.client.post(url, data=data, format="json", HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["detail"], "This recording filter uses cohorts, which your access doesn't cover.")
 
     def test_estimate_scopes_to_an_experiment_scanners_experiment(self) -> None:
         # An experiment scanner keeps its experiment in its config, so the estimate has to take that

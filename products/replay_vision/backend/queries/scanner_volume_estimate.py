@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 from dataclasses import dataclass
 from typing import Any
@@ -96,9 +97,8 @@ class _EstimateQueryPlan:
     sampled: bool
 
 
-# Enough rows that a page whose sessions a negative person filter drops after the fetch still leaves
-# one to find, without paying for a full recordings page.
-_MATCH_CHECK_PAGE = 20
+# One page of recordings, checked for exclusions together. A page the exclusions empty moves on to the next.
+_MATCH_CHECK_PAGE = 100
 
 
 def has_recent_matching_recording(
@@ -109,13 +109,26 @@ def has_recent_matching_recording(
     sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
     budget: EstimateBudget = PREVIEW_ESTIMATE_BUDGET,
 ) -> bool:
-    """Whether at least one recording the sweep would observe in the estimate's window matches `query`.
+    """Whether the sweep would observe at least one recording that matches `query` in the estimate's window.
 
     The estimate is no answer to this: it drops negative filters, because they never sample and an
-    over-count is the safe direction for a forecast. This asks the recordings list itself, so negative
-    event and person filters apply exactly as they do on the replay page, and the sweep's eligibility
-    rules apply as they do in the estimate. `user` is the principal for the exposure access check.
+    over-count is the safe direction for a forecast. This runs the sweep's own selection instead: the
+    recordings list without its in-query blocklists, the sweep's eligibility rules, then the negative
+    filters against each fetched page, the way `find_scanner_candidates` excludes. A page the
+    exclusions empty moves on to the next, so a match further back is still found.
+
+    Every query shares one deadline from `budget`. Raises `TimeoutError` when it passes first, and
+    lets any query failure raise, so the caller never reads "no match" from a check that did not
+    finish. `user` is the principal for the exposure access check and the exclusion reads.
     """
+    deadline = time.monotonic() + budget.max_execution_seconds
+
+    def seconds_left() -> int:
+        remaining = int(deadline - time.monotonic())
+        if remaining < 1:
+            raise TimeoutError("The recent-recording match check ran out of time.")
+        return remaining
+
     scan_window_days = budget.window_days(unsampled=query.operand == FilterLogicalOperator.OR_)
     windowed = query.model_copy(deep=True)
     windowed.date_from = (dt.datetime.now(dt.UTC) - dt.timedelta(days=scan_window_days)).isoformat()
@@ -123,14 +136,36 @@ def has_recent_matching_recording(
     windowed.limit = _MATCH_CHECK_PAGE
     windowed.offset = None
     windowed.after = None
-    extra_having = eligibility_predicates()
-    if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
-        extra_having.append(surfacing)
     tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
-    result = SessionRecordingListFromQuery(
-        team=team, query=windowed, user=user, extra_having_predicates=extra_having
-    ).run()
-    return bool(result.results)
+    while True:
+        extra_having = eligibility_predicates()
+        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+            extra_having.append(surfacing)
+        listing = SessionRecordingListFromQuery(
+            team=team,
+            query=windowed,
+            user=user,
+            extra_having_predicates=extra_having,
+            skip_negative_blocklists=True,
+            max_execution_time=seconds_left(),
+        )
+        page = listing.run()
+        session_ids = [row["session_id"] for row in page.results]
+        excluded: set[str] = set()
+        for exclusion in listing.excluded_sessions_queries(session_ids) if session_ids else []:
+            response = execute_hogql_query(
+                query=exclusion,
+                team=team,
+                user=user,
+                query_type="ScannerMatchCheckExcludedSessions",
+                settings=HogQLGlobalSettings(max_execution_time=seconds_left(), timeout_overflow_mode="throw"),
+            )
+            excluded.update(row[0] for row in response.results or [])
+        if any(session_id not in excluded for session_id in session_ids):
+            return True
+        if not page.has_more_recording or not page.next_cursor:
+            return False
+        windowed.after = page.next_cursor
 
 
 def estimate_scanner_session_volume(

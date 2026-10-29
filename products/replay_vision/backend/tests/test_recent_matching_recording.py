@@ -1,5 +1,6 @@
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
@@ -22,22 +23,25 @@ class TestHasRecentMatchingRecording(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
-        an_hour_ago = now() - relativedelta(hours=1)
+        self._recording(hours_ago=1, pathname="/checkout")
+
+    def _recording(self, *, hours_ago: int, pathname: str) -> None:
+        started = now() - relativedelta(hours=hours_ago)
         distinct_id = str(uuid7())
         session_id = str(uuid7())
         produce_replay_summary(
             team_id=self.team.id,
             distinct_id=distinct_id,
             session_id=session_id,
-            first_timestamp=an_hour_ago.isoformat(),
-            last_timestamp=(an_hour_ago + relativedelta(minutes=2)).isoformat(),
+            first_timestamp=started.isoformat(),
+            last_timestamp=(started + relativedelta(minutes=2)).isoformat(),
             active_milliseconds=30_000,
         )
         create_event(
             team=self.team,
             distinct_id=distinct_id,
-            timestamp=an_hour_ago,
-            properties={"$session_id": session_id, "$window_id": "1", "$pathname": "/checkout"},
+            timestamp=started,
+            properties={"$session_id": session_id, "$window_id": "1", "$pathname": pathname},
         )
 
     @parameterized.expand(
@@ -65,3 +69,19 @@ class TestHasRecentMatchingRecording(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert has_recent_matching_recording(team=self.team, query=query, user=self.user) is expected
+
+    @parameterized.expand([("an older recording matches", True), ("no recording matches", False)])
+    def test_reads_past_a_page_the_negative_filters_empty(self, name, expected):
+        # The sweep applies negative filters to each fetched page, so the newest page can come back empty
+        # while an older recording still matches.
+        if expected:
+            self._recording(hours_ago=2, pathname="/pricing")
+        query = RecordingsQuery.model_validate(
+            {
+                "kind": "RecordingsQuery",
+                "properties": [{"key": "$pathname", "type": "event", "value": "/checkout", "operator": "is_not"}],
+            }
+        )
+
+        with patch("products.replay_vision.backend.queries.scanner_volume_estimate._MATCH_CHECK_PAGE", 1):
+            assert has_recent_matching_recording(team=self.team, query=query, user=self.user) is expected

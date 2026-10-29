@@ -1959,6 +1959,9 @@ def draft_scanner_from_goal(
                 query=apply_experiment_targeting(
                     RecordingsQuery.model_validate(query), config_experiment_scope(draft.scanner_config)
                 ),
+                # The solver keeps either every recording or the model's mode, and the model's mode is
+                # the narrower one, so a match there holds for whichever the solver picks.
+                sampling_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
             )
 
         return _settle_chosen_scope(draft, chosen=chosen_query, solve=solve, has_match=has_match, team_id=team.id)

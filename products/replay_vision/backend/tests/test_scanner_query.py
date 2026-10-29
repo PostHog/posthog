@@ -9,7 +9,10 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.replay_vision.backend.scanner_query import (
     MAX_QUERY_BYTES,
     NarrowingRefusal,
+    QueryReferences,
+    ScannerQueryError,
     narrow_chosen_query,
+    query_references,
     unresolved_references,
 )
 
@@ -86,12 +89,29 @@ class TestUnresolvedReferences(BaseTest):
             "properties": [
                 {"type": "cohort", "key": "id", "value": live_cohort.id, "operator": "in"},
                 {"type": "cohort", "key": "id", "value": deleted_cohort.id, "operator": "in"},
-                {"type": "cohort", "key": "id", "value": "not-an-id", "operator": "in"},
             ],
         }
 
-        assert unresolved_references(query, self.team) == [
-            "action 999999",
-            f"cohort {deleted_cohort.id}",
-            "cohort not-an-id",
-        ]
+        assert unresolved_references(query, self.team) == ["action 999999", f"cohort {deleted_cohort.id}"]
+
+    def test_finds_references_in_every_shape_the_query_builder_runs(self):
+        # Each of these runs as an action or cohort filter, so a reference read off the raw JSON would let
+        # a caller without read access use the entity unchecked.
+        query = {
+            "kind": "RecordingsQuery",
+            "events": [
+                {"id": 901, "type": "actions"},
+                {
+                    "id": "$pageview",
+                    "type": "events",
+                    "properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 902}]},
+                },
+            ],
+            "properties": [{"value": 903}],
+        }
+
+        assert query_references(query, self.team) == QueryReferences(actions=[901], cohorts=[902, 903])
+
+    def test_refuses_an_action_id_that_is_not_a_number(self):
+        with self.assertRaises(ScannerQueryError):
+            query_references({"kind": "RecordingsQuery", "actions": [{"id": float("inf")}]}, self.team)

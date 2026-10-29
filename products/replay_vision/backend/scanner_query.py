@@ -11,19 +11,25 @@ from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
 
-from pydantic import ValidationError as PydanticValidationError
+from pydantic import (
+    BaseModel,
+    ValidationError as PydanticValidationError,
+)
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from posthog.schema import FilterLogicalOperator, RecordingsQuery
+from posthog.schema import ActionsNode, FilterLogicalOperator, RecordingsQuery
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
+from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 
 # A scanner's schedule owns time, so a saved filter never carries a date range.
 DATE_FIELDS = ("date_from", "date_to")
-# Only the replay list API resolves these. A scanner would keep them and never apply them.
+# Only the replay list API resolves these. A scanner would keep them and never apply them, and watch
+# more recordings than the filter shows.
 REPLAY_LIST_ONLY_FIELDS = ("comment_text", "hide_viewed_recordings")
 # Copied into every observation's snapshot, so the write boundary caps it.
 MAX_QUERY_BYTES = 50_000
@@ -77,6 +83,10 @@ def clean_scanner_query(value: object) -> dict[str, Any]:
             "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
         )
     cleaned = {key: item for key, item in value.items() if key not in DATE_FIELDS}
+    if fields := replay_list_only_fields(cleaned):
+        raise ScannerQueryError(
+            f"A scanner can't apply these recording filters: {', '.join(fields)}. Remove them and try again."
+        )
     if len(json.dumps(cleaned, separators=(",", ":")).encode()) > MAX_QUERY_BYTES:
         raise ScannerQueryError(f"Recording filter is too large. Keep it under {MAX_QUERY_BYTES // 1000} KB.")
     return cleaned
@@ -99,7 +109,7 @@ def unresolved_references(
     An action `can_read_action` refuses reads as unresolved too, so the result never tells a caller
     that an id they cannot read exists.
     """
-    refs = query_references(query)
+    refs = query_references(query, team)
     action_ids = {ref for ref in refs.actions if isinstance(ref, int)}
     cohort_ids = {ref for ref in refs.cohorts if isinstance(ref, int)}
     found_actions = {
@@ -126,38 +136,51 @@ class QueryReferences:
     cohorts: list[int | str]
 
 
-def query_references(query: dict[str, Any]) -> QueryReferences:
-    """Every action and cohort id the query names."""
+def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
+    """Every action and cohort id the query names, read from the filters the query builder runs.
+
+    The builder reads typed filters, not the raw JSON: an untyped `{"value": 7}` is a cohort filter,
+    an event entry of type `actions` is an action, and a property group nests its filters. Reading the
+    same typed filters means a reference cannot run without being found here.
+    """
+    parsed = _parsed(query)
+    try:
+        builder = ReplayFiltersEventsSubQuery(team, parsed)
+        entities = [*builder.entities, *builder.negated_entities]
+    except DRFValidationError:
+        raise ScannerQueryError("Recording filter is invalid.")
     actions: dict[int | str, None] = {}
     cohorts: dict[int | str, None] = {}
 
     def as_id(value: object) -> int | str:
         try:
             return int(value)  # type: ignore[call-overload]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return str(value)
 
-    def visit(filters: object) -> None:
-        if not isinstance(filters, list):
+    def visit(item: object) -> None:
+        if isinstance(item, BaseModel):
+            item = item.model_dump(exclude_none=True)
+        if isinstance(item, list):
+            for child in item:
+                visit(child)
             return
-        for item in filters:
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") in ("cohort", "precalculated-cohort"):
-                cohorts[as_id(item.get("value"))] = None
-            elif item.get("type") == "behavioral" and item.get("event_type") == "actions":
-                actions[as_id(item.get("key"))] = None
-            visit(item.get("properties"))
+        if not isinstance(item, dict):
+            return
+        if item.get("type") in ("cohort", "precalculated-cohort", "static-cohort"):
+            cohorts[as_id(item.get("value"))] = None
+        elif item.get("type") == "behavioral" and item.get("event_type") == "actions":
+            actions[as_id(item.get("key"))] = None
+        # A property group holds its filters in `values`, and a filter can nest its own `properties`.
+        visit(item.get("values"))
+        visit(item.get("properties"))
 
-    for entity in query.get("actions") or []:
-        if isinstance(entity, dict):
-            actions[as_id(entity.get("id"))] = None
-            visit(entity.get("properties"))
-    for entity in query.get("events") or []:
-        if isinstance(entity, dict):
-            visit(entity.get("properties"))
-    visit(query.get("properties"))
-    visit(query.get("having_predicates"))
+    for entity in entities:
+        if isinstance(entity, ActionsNode):
+            actions[as_id(entity.id)] = None
+        visit(entity.properties)
+    visit(parsed.properties)
+    visit(parsed.having_predicates)
     return QueryReferences(actions=list(actions), cohorts=list(cohorts))
 
 
@@ -231,10 +254,6 @@ def chosen_scope(value: object, *, experiment_id: int | None) -> ChosenScope:
     value = _as_object(value)
     exposure = _parsed(value).experiment_exposure
     query = clean_scanner_query({key: item for key, item in value.items() if key != "experiment_exposure"})
-    if fields := replay_list_only_fields(query):
-        raise ScannerQueryError(
-            f"A scanner can't apply these recording filters: {', '.join(fields)}. Remove them and try again."
-        )
     if exposure is None:
         return ChosenScope(
             query=query, experiment_id=experiment_id, experiment_variants=None, experiment_from_query=False
@@ -243,7 +262,8 @@ def chosen_scope(value: object, *, experiment_id: int | None) -> ChosenScope:
         raise ScannerQueryError("A scanner can't keep the in-session exposure condition. Remove it and try again.")
     if experiment_id is not None and experiment_id != exposure.experiment_id:
         raise ScannerQueryError("This is not the experiment the recording filter is scoped to.", field="experiment_id")
-    variants = list(exposure.variants or ([exposure.variant] if exposure.variant else [])) or None
+    # In order and without repeats, as the replay list resolves them: a scanner refuses repeated variants.
+    variants = list(dict.fromkeys(exposure.variants or ([exposure.variant] if exposure.variant else []))) or None
     return ChosenScope(
         query=query,
         experiment_id=exposure.experiment_id,

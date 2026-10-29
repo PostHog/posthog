@@ -1881,11 +1881,11 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
     )
     def test_a_chosen_query_is_the_starting_point(self, _name, chosen, drafted_events, matched, extended, refusal):
         EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
-        checked: list[RecordingsQuery] = []
+        checked: list[str] = []
         estimated: list[RecordingsQuery] = []
 
-        def has_match(*, team, user, query):
-            checked.append(query)
+        def has_match(*, team, user, query, sampling_mode):
+            checked.append(sampling_mode)
             if matched is None:
                 raise RuntimeError("clickhouse timeout")
             return matched
@@ -1895,7 +1895,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
             return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
 
         draft = self._drafted_with(
-            _draft(filter_events=drafted_events, rationale="Watches billing sessions."),
+            _draft(filter_events=drafted_events, rationale="Watches billing sessions.", sampling_mode="focused"),
             estimate,
             chosen_query=chosen,
             has_match=has_match,
@@ -1914,7 +1914,8 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         # The model wrote its rationale about the narrower filter, so a dropped proposal must be explained.
         assert draft.rationale.endswith("This watches the recordings you picked.") == (refusal is not None)
         # Only a proposal that could narrow the filter is checked, and only the filter that won is priced.
-        assert len(checked) == (1 if drafted_events and refusal != "or_operand" else 0)
+        # Under the model's mode, the narrowest the solver can pick, so a kept addition matches whichever it picks.
+        assert checked == (["focused"] if drafted_events and refusal != "or_operand" else [])
         assert len(estimated) == 1
         assert bool(estimated[0].events) == extended
 
