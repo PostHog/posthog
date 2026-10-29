@@ -99,7 +99,10 @@ from products.customer_analytics.backend.facade.temporal import (
     create_membership_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
 )
-from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
+from products.data_catalog.backend.facade.temporal import (
+    create_data_catalog_usage_scan_schedule,
+    create_data_catalog_weekly_digest_schedule,
+)
 from products.data_quality.backend.facade.temporal import (
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
@@ -1002,6 +1005,7 @@ schedules = [
     create_wa_digest_notification_schedule,
     create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
+    create_data_catalog_usage_scan_schedule,
     create_alerts_platform_tick_schedule,
     create_alerts_platform_inventory_schedule,
     create_alerts_platform_expired_holds_schedule,

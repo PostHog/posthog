@@ -72589,6 +72589,13 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    export interface SectionFailure {
+      /** The failed section: metric_runs, adjusted_runs, topics or uncovered. */
+      section: string;
+      /** Why the scan step failed. */
+      reason: string;
+    }
+
     export interface MetricUsage {
       /** ID of the catalog metric. */
       metric_id: string;
@@ -72611,6 +72618,8 @@ export namespace Schemas {
       scout_adjusted: FetchOutcomeCounts;
       /** The agent queries behind both counts. is_scout tells them apart. */
       adjusted_runs: AdjustedRun[];
+      /** Failed sections that these numbers read, so a missing count is not a zero. */
+      failed_sections: SectionFailure[];
     }
 
     /**
@@ -122009,6 +122018,8 @@ export namespace Schemas {
          * @nullable
          */
       uncovered: UncoveredGroup[] | null;
+      /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+      failed_sections: SectionFailure[];
     }
 
     export interface UsageSnapshot {

@@ -44,6 +44,7 @@ from ..logic.metrics import (
 )
 from ..logic.pending_review import PendingGroup, PendingKind, TeamPendingReview, build_team_pending_review
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
+from ..logic.usage_scan import ScanAlreadyRunning, start_usage_scan
 from ..logic.usage_snapshots import (
     get_usage_snapshot,
     is_usage_enabled,
@@ -75,6 +76,7 @@ __all__ = [
     "MetricSummary",
     "MetricRead",
     "MetricUsage",
+    "ScanAlreadyRunning",
     "UsageSnapshotDetail",
     "UsageSnapshotSummary",
     "metric_reads_for_ids",
@@ -114,6 +116,7 @@ __all__ = [
     "revoke_certification",
     "run_metric",
     "soft_delete_metric",
+    "start_usage_scan",
     "update_metric",
     "upsert_metric",
     "usage_snapshot_history",

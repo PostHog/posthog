@@ -69,6 +69,15 @@ class UsageSnapshotStatus(LabeledStrEnum):
     ERROR = "error", "Error"
 
 
+class UsageSection(StrEnum):
+    """One section of a usage snapshot payload. Each scan step writes one section."""
+
+    METRIC_RUNS = "metric_runs"
+    ADJUSTED_RUNS = "adjusted_runs"
+    TOPICS = "topics"
+    UNCOVERED = "uncovered"
+
+
 class JudgeRelation(StrEnum):
     """What the judge decided about an agent query that resembles a catalog metric."""
 

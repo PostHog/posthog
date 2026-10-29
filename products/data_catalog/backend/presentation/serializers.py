@@ -580,6 +580,11 @@ class UncoveredGroupSerializer(serializers.Serializer):
     )
 
 
+class SectionFailureSerializer(serializers.Serializer):
+    section = serializers.CharField(help_text="The failed section: metric_runs, adjusted_runs, topics or uncovered.")
+    reason = serializers.CharField(help_text="Why the scan step failed.")
+
+
 class UsageSnapshotPayloadSerializer(serializers.Serializer):
     metric_runs = MetricRunCountsSerializer(
         many=True, allow_null=True, help_text="Run counts per metric. Null until the scan counts runs."
@@ -590,6 +595,9 @@ class UsageSnapshotPayloadSerializer(serializers.Serializer):
     topics = TopicClusterSerializer(many=True, allow_null=True, help_text="Agent session topics. Null until clustered.")
     uncovered = UncoveredGroupSerializer(
         many=True, allow_null=True, help_text="Recurring query shapes and their catalog outcome. Null until grouped."
+    )
+    failed_sections = SectionFailureSerializer(
+        many=True, help_text="Sections whose scan step failed. Each one stays null, and the others keep their results."
     )
 
 
@@ -619,4 +627,7 @@ class MetricUsageSerializer(serializers.Serializer):
     scout_adjusted = FetchOutcomeCountsSerializer(help_text="Re-derivations of the metric by scouts.")
     adjusted_runs = AdjustedRunSerializer(
         many=True, help_text="The agent queries behind both counts. is_scout tells them apart."
+    )
+    failed_sections = SectionFailureSerializer(
+        many=True, help_text="Failed sections that these numbers read, so a missing count is not a zero."
     )
