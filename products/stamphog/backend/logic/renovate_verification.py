@@ -50,6 +50,10 @@ _NPM_NAME_RE = re.compile(r"^(@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0
 _NUMERIC_VERSION_RE = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?")
 _VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+-]*$")
 _PNPM_LOCK_DERIVED_KEYS = frozenset({"packages", "snapshots", "importers", "catalogs"})
+# Settings that skip the release-age, provenance or lockfile checks, or run every install script.
+_PNPM_WEAKENING_SETTINGS = frozenset(
+    {"dangerouslyAllowAllBuilds", "ignoreMissingTimeField", "trustLockfile", "trustPolicyIgnoreAfter"}
+)
 # The fields pnpm 9 writes on a registry package entry. Any other field, such as `version` or
 # `dependencies`, overrides what the entry's key or its snapshot says.
 _PNPM_REGISTRY_ENTRY_KEYS = frozenset(
@@ -218,12 +222,11 @@ def pnpm_policy_problems(workspace_path: str, base_text: str | None, changes: It
         and settings["minimumReleaseAge"] > 0
         and settings.get("minimumReleaseAgeStrict") is not False
         and settings.get("trustPolicy") == "no-downgrade"
-        and "trustPolicyIgnoreAfter" not in settings
-        and settings.get("dangerouslyAllowAllBuilds") is not True
+        and not _PNPM_WEAKENING_SETTINGS & settings.keys()
     ):
         return [
-            f"{workspace_path} does not make pnpm enforce a strict minimumReleaseAge, trustPolicy: no-downgrade "
-            "and its default refusal of dependency install scripts, so nothing checks the new versions."
+            f"{workspace_path} does not make pnpm enforce a strict minimumReleaseAge and trustPolicy: no-downgrade, "
+            f"or it sets one of {', '.join(sorted(_PNPM_WEAKENING_SETTINGS))}, so nothing checks the new versions."
         ]
     excluded = [
         _excluded_name_pattern(str(entry))

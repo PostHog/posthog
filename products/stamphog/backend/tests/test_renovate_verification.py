@@ -111,6 +111,7 @@ class TestManifestProblems(SimpleTestCase):
             ("loose_release_age", _PNPM_POLICY + "minimumReleaseAgeStrict: false\n", False),
             ("no_trust_policy", "minimumReleaseAge: 10080\n", False),
             ("every_build_allowed", _PNPM_POLICY + "dangerouslyAllowAllBuilds: true\n", False),
+            ("lockfile_trusted", _PNPM_POLICY + "trustLockfile: true\n", False),
             ("package_build_allowed", _PNPM_POLICY + "allowBuilds:\n  left-pad: true\n", False),
             ("trust_policy_expires", _PNPM_POLICY + "trustPolicyIgnoreAfter: 1\n", False),
             ("other_package_exempt", _PNPM_POLICY + "minimumReleaseAgeExclude:\n  - right-pad\n", True),
