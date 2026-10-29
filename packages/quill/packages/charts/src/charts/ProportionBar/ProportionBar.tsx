@@ -90,7 +90,10 @@ function ProportionBarInner<Meta = unknown>({
 
     const legendConfig: ChartLegendConfig = { show: true, position: 'bottom', align: 'start', ...legend }
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
-    const legendItems = proportionLegendItems(series, theme, valueFormatter, legendProps.hiddenKeys)
+    const legendItems = useMemo(
+        () => proportionLegendItems(series, theme, valueFormatter, legendProps.hiddenKeys),
+        [series, theme, valueFormatter, legendProps.hiddenKeys]
+    )
     const colorByKey = new Map(legendItems.map((item) => [item.key, item.color]))
     // Tooltips and clicks hand back the consumer's own series, not the single-value copies the bar draws.
     const seriesByKey = new Map(series.map((s) => [s.key, s]))

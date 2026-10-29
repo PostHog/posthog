@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
 import type { ResolvedSeries } from '../../core/types'
@@ -55,35 +55,37 @@ export function SlopeValueLabels({
 }: SlopeValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels } = useChartLayout()
 
-    if (labels.length < 2) {
-        return null
-    }
-    const x0 = scales.x(labels[0])
-    const x1 = scales.x(labels[labels.length - 1])
-    const start: ValueCandidate[] = []
-    const end: ValueCandidate[] = []
-    for (const s of series as ResolvedSeries[]) {
-        if (slopeLabelVisible(s, 'start', showStartLabels) && x0 != null) {
-            const y = scales.y(slopeStart(s))
-            if (isFinite(y)) {
-                start.push({
-                    key: s.key,
-                    side: 'start',
-                    text: valueFormatter(slopeStart(s)),
-                    color: s.color,
-                    x: x0,
-                    y,
-                })
+    const visible = useMemo(() => {
+        if (labels.length < 2) {
+            return []
+        }
+        const x0 = scales.x(labels[0])
+        const x1 = scales.x(labels[labels.length - 1])
+        const start: ValueCandidate[] = []
+        const end: ValueCandidate[] = []
+        for (const s of series as ResolvedSeries[]) {
+            if (slopeLabelVisible(s, 'start', showStartLabels) && x0 != null) {
+                const y = scales.y(slopeStart(s))
+                if (isFinite(y)) {
+                    start.push({
+                        key: s.key,
+                        side: 'start',
+                        text: valueFormatter(slopeStart(s)),
+                        color: s.color,
+                        x: x0,
+                        y,
+                    })
+                }
+            }
+            if (slopeLabelVisible(s, 'end', showEndLabels) && x1 != null) {
+                const y = scales.y(slopeEnd(s))
+                if (isFinite(y)) {
+                    end.push({ key: s.key, side: 'end', text: valueFormatter(slopeEnd(s)), color: s.color, x: x1, y })
+                }
             }
         }
-        if (slopeLabelVisible(s, 'end', showEndLabels) && x1 != null) {
-            const y = scales.y(slopeEnd(s))
-            if (isFinite(y)) {
-                end.push({ key: s.key, side: 'end', text: valueFormatter(slopeEnd(s)), color: s.color, x: x1, y })
-            }
-        }
-    }
-    const visible = [...columnSweep(start, minGap), ...columnSweep(end, minGap)]
+        return [...columnSweep(start, minGap), ...columnSweep(end, minGap)]
+    }, [series, scales, labels, valueFormatter, showStartLabels, showEndLabels, minGap])
 
     if (visible.length === 0) {
         return null
