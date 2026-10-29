@@ -92,6 +92,23 @@ describe('highlightFeedLogic', () => {
             .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
             .toFinishAllListeners()
         expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('date_from')).toBe('-30d')
+
+        const lastCategories = (): string | null =>
+            new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('categories')
+        expect(lastCategories()).toBeNull()
+        await expectLogic(logic, () => {
+            logic.actions.setCategories(['revenue', 'failure'])
+        })
+            .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
+            .toFinishAllListeners()
+        expect(lastCategories()).toBe('failure,revenue')
+        // Hiding every kind would send an empty filter the server rejects, so the feed shows them all.
+        await expectLogic(logic, () => {
+            logic.actions.setCategories([])
+        })
+            .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
+            .toFinishAllListeners()
+        expect(lastCategories()).toBeNull()
     })
 
     it('names the empty reason only once the fleet and budget have answered', async () => {
