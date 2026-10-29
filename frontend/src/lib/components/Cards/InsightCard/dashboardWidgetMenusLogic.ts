@@ -13,7 +13,7 @@ import type { DashboardWidgetPlacementDestination } from './DashboardWidgetPlace
 export interface DashboardWidgetMenusLogicProps {
     instanceKey: string
     dashboardId: number | null | undefined
-    dashboard_tiles: readonly DashboardTileBasicType[] | null | undefined
+    dashboard_tiles: DashboardTileBasicType[] | null | undefined
 }
 
 function canEditDestinationDashboard(d: DashboardBasicType): boolean {
@@ -33,10 +33,7 @@ export interface dashboardWidgetMenusLogicValues {
 export interface dashboardWidgetMenusLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        dashboardIdsWithThisWidget: (
-            dashboard_tiles: readonly DashboardTileBasicType[] | null | undefined,
-            dashboardId: number | null | undefined
-        ) => Set<number>
+        dashboardIdsWithThisWidget: (liveIds: string, dashboardId: number | null | undefined) => Set<number>
         copyToDestinations: (
             nameSortedDashboards: (DashboardBasicType | DashboardType)[],
             dashboardIdsWithThisWidget: Set<number>,
@@ -63,12 +60,16 @@ export const dashboardWidgetMenusLogic = kea<dashboardWidgetMenusLogicType>([
     selectors(() => ({
         /** Dashboards where this widget (insight / text / button / …) is already placed. */
         dashboardIdsWithThisWidget: [
-            (_, p) => [p.dashboard_tiles, p.dashboardId],
-            (
-                dashboard_tiles: readonly DashboardTileBasicType[] | null | undefined,
-                dashboardId: number | null | undefined
-            ): Set<number> => {
-                const set = new Set(liveDashboardIds(dashboard_tiles).map(Number))
+            // Selectors compare inputs by reference, and callers often pass a new tiles array on each render.
+            // A string of the ids compares by value, so the result changes only when the placements change.
+            // Otherwise every store change gives `copyToDestinations` a new value and re-renders every caller.
+            (_, p) => [
+                (_state: unknown, props: DashboardWidgetMenusLogicProps) =>
+                    liveDashboardIds(props.dashboard_tiles).join(','),
+                p.dashboardId,
+            ],
+            (liveIds: string, dashboardId: number | null | undefined): Set<number> => {
+                const set = new Set(liveIds ? liveIds.split(',').map(Number) : [])
                 if (dashboardId != null) {
                     set.add(Number(dashboardId))
                 }

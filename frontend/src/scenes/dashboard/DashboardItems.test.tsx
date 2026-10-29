@@ -5,7 +5,6 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type { PositionStrategy } from 'react-grid-layout/core'
 
-import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -29,7 +28,7 @@ jest.mock('scenes/dashboard/dashboardLogic', () => ({
 }))
 
 jest.mock('lib/components/Cards/InsightCard/dashboardWidgetMenusLogic', () => ({
-    dashboardWidgetMenusLogic: jest.fn(() => ({ __mock: 'dashboardWidgetMenusLogic' })),
+    dashboardWidgetMenusLogic: () => ({ __mock: 'dashboardWidgetMenusLogic' }),
 }))
 
 jest.mock('~/models/dashboardsModel', () => ({
@@ -325,19 +324,6 @@ describe('DashboardItems', () => {
 
             return {}
         })
-    })
-
-    it('gives the group menu logic the same tiles array on every render', () => {
-        // A new array changes the logic props, and the grid then re-renders every tile on any store change.
-        const { rerender } = render(<DashboardItems />)
-        rerender(<DashboardItems />)
-
-        const groupTiles = (dashboardWidgetMenusLogic as unknown as jest.Mock).mock.calls
-            .map(([props]) => props)
-            .filter((props) => props.instanceKey === 'dashboard-groups')
-            .map((props) => props.dashboard_tiles)
-        expect(groupTiles.length).toBeGreaterThanOrEqual(2)
-        expect(new Set(groupTiles).size).toBe(1)
     })
 
     it('matches snapshot in edit mode with layout zoom enabled', () => {

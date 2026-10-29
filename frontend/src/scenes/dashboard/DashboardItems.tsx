@@ -38,7 +38,7 @@ import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunity
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardTileBasicType, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 import { biDashboardCrossFilterLogic } from 'products/business_intelligence/frontend/biDashboardCrossFilterLogic'
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
@@ -59,9 +59,6 @@ import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
-// One shared empty array: a new `[]` on each render changes the logic props, so its selectors
-// return new values on every store change and re-render the whole grid.
-const NO_GROUP_TILES: readonly DashboardTileBasicType[] = Object.freeze([])
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean
@@ -167,11 +164,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // dashboard_tiles is empty because this selector covers a whole group, not one tile; the
     // backend still rejects a destination that already has one of the group's tiles.
     const { copyToDestinations } = useValues(
-        dashboardWidgetMenusLogic({
-            instanceKey: 'dashboard-groups',
-            dashboardId: dashboard?.id,
-            dashboard_tiles: NO_GROUP_TILES,
-        })
+        dashboardWidgetMenusLogic({ instanceKey: 'dashboard-groups', dashboardId: dashboard?.id, dashboard_tiles: [] })
     )
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
