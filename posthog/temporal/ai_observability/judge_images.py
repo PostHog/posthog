@@ -1,5 +1,6 @@
 """Images an LLM judge sees next to the transcript that refers to them as `[image N]`."""
 
+import re
 import base64
 from collections import Counter
 from collections.abc import Callable
@@ -38,12 +39,19 @@ _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
 }
 
 
+_NUMBERED_MARKER_RE = re.compile(r"\[image \d+\]")
+
+
 @frozen
 class ImagePrompt:
     """The judge transcript with `[image N]` markers, and the images those markers refer to."""
 
     text: str
     images: "JudgeImages"
+
+    def unnumbered_text(self) -> str:
+        """The transcript for a judge call that sends no images, so no marker points at a missing image."""
+        return _NUMBERED_MARKER_RE.sub("[image]", self.text)
 
 
 @frozen

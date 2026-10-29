@@ -4740,7 +4740,9 @@ class TestJudgePromptAssembly:
 
         image_prompt = judge.call_args.kwargs["image_prompt"]
         assert image_prompt is not None
-        assert judge.call_args.kwargs["user_prompt"] == image_prompt.text
+        # Decision judges and the text-only retry use this prompt, and they send no images.
+        assert judge.call_args.kwargs["user_prompt"] == image_prompt.unnumbered_text()
+        assert "[image 1]" not in judge.call_args.kwargs["user_prompt"]
 
     @pytest.mark.parametrize(
         "text,expected_text",

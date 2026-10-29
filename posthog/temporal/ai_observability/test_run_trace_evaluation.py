@@ -169,6 +169,16 @@ class TestFormatTraceForJudge:
                                 "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image]}],
                             },
                             {"role": "user", "parts": [otel_blob]},
+                            {
+                                "type": "function_call_output",
+                                "call_id": "c1",
+                                "output": [
+                                    {
+                                        "type": "input_image",
+                                        "image_url": f"phaiblob://v1/sha256/{'c' * 64}?mime=image%2Fpng&size=1",
+                                    }
+                                ],
+                            },
                         ],
                         "$ai_output": "A rising line.",
                     },
@@ -183,6 +193,7 @@ class TestFormatTraceForJudge:
         # The message and the tool result repeat one image, and the OTel part adds a second.
         assert marked.count("[image 1]") == 2
         assert "[image 2]" in marked
+        assert "[image 3]" in marked
 
     def test_includes_tool_catalog(self):
         tools = [{"type": "function", "function": {"name": "search_docs", "description": "Search the docs"}}]

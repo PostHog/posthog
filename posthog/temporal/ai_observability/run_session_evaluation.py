@@ -511,7 +511,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     )
     if transcript is None and image_prompt is not None:
         # Inline base64 can push the plain transcript over the limit when the marked one still fits.
-        transcript = image_prompt.text
+        transcript = image_prompt.unnumbered_text()
     if transcript is None:
         return build_session_skip_result(allows_na, "session_too_long_to_judge", output_type=output_type)
 

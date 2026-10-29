@@ -509,7 +509,7 @@ def extract_text_content(content: Any, media_marker: MediaMarker | None = None) 
     return safe_extract_text(content, media_marker)
 
 
-def extract_payload_text(payload: Any) -> str:
+def extract_payload_text(payload: Any, media_marker: MediaMarker | None = None) -> str:
     """Extract text from a tool payload, returning "" only when nothing was recorded.
 
     A falsey scalar such as `0` or `False` is a real result, so it must not collapse to "" the
@@ -524,7 +524,7 @@ def extract_payload_text(payload: Any) -> str:
         # `extract_text_content`'s repr fallback would render an empty container as a literal
         # "[]" / "{}", which reads as recorded output.
         return ""
-    return extract_text_content(payload)
+    return extract_text_content(payload, media_marker)
 
 
 def _is_responses_item(msg: dict[str, Any]) -> bool:
@@ -607,7 +607,8 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
 
     if item_type in RESPONSES_TOOL_OUTPUT_TYPES:
         output = msg.get("output")
-        text = extract_payload_text(msg.get("content") if output is None else output)
+        media_marker = options.get("media_marker") if options else None
+        text = extract_payload_text(msg.get("content") if output is None else output, media_marker)
         if not text:
             return [MISSING_TOOL_OUTPUT_NOTE]
         lines, _ = truncate_content(text, options)

@@ -592,7 +592,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     )
     if user_prompt is None and image_prompt is not None:
         # Inline base64 can push the plain text over the limit when the marked text still fits.
-        user_prompt = image_prompt.text
+        user_prompt = image_prompt.unnumbered_text()
     if user_prompt is None:
         return build_skipped_evaluation_result(
             output_type=output_type,
