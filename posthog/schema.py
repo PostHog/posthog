@@ -14597,6 +14597,10 @@ class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
+    disclaimer: str = Field(
+        ...,
+        description=("Caveat to show with the results. The results are suggestions, and impact figures are estimates."),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -20848,6 +20852,10 @@ class MarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    disclaimer: str = Field(
+        ...,
+        description=("Caveat to show with the results. The results are suggestions, and impact figures are estimates."),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -23088,6 +23096,10 @@ class QueryResponseAlternative38(BaseModel):
 class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    disclaimer: str = Field(
+        ...,
+        description=("Caveat to show with the results. The results are suggestions, and impact figures are estimates."),
     )
     error: str | None = Field(
         default=None,

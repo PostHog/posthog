@@ -250,6 +250,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 // column names are the only way to read each cell.
                 ...(Array.isArray(data.columns) && Array.isArray(data.results) ? { columns: data.columns } : {}),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
+                ...(typeof data.disclaimer === 'string' ? { disclaimer: data.disclaimer } : {}),
                 // Cursor-paginated queries (e.g. RecordingsQuery) need these for the caller to request the next page.
                 ...(typeof data.has_next === 'boolean'
                     ? { has_next: data.has_next, next_cursor: data.next_cursor ?? null }

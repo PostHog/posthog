@@ -8505,6 +8505,8 @@ export interface MarketingAnalyticsRecommendation {
 
 export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRecommendation[]
+    /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
+    disclaimer: string
 }
 
 export type CachedMarketingAnalyticsRecommendationsQueryResponse =

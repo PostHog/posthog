@@ -12868,6 +12868,10 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "disclaimer": {
+                    "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -12950,6 +12954,7 @@
             },
             "required": [
                 "cache_key",
+                "disclaimer",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -36094,6 +36099,10 @@
         "MarketingAnalyticsRecommendationsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "disclaimer": {
+                    "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -36153,7 +36162,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": ["disclaimer", "results"],
             "type": "object"
         },
         "MarketingAnalyticsRecommendationsSource": {
@@ -45329,6 +45338,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "disclaimer": {
+                            "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -45388,7 +45401,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": ["disclaimer", "results"],
                     "type": "object"
                 },
                 {
