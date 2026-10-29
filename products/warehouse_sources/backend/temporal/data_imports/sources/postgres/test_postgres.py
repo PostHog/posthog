@@ -1827,6 +1827,28 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/RLS
+            # policy's own PL/pgSQL function doing FOREACH over an array that is null for a row.
+            'FOREACH expression must not be null\nCONTEXT:  PL/pgSQL function ledger.holdout_hash(text,text) line 4 at FOREACH over array\nSQL function "is_holdout_domain" statement 1',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "NullValueNotAllowed: FOREACH expression must not be null",
+        ],
+    )
+    def test_foreach_over_null_array_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"FOREACH-over-null-array error should be non-retryable: {error_msg}"
+
+    def test_foreach_over_null_array_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "FOREACH expression must not be null"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "FOREACH-over-null-array error should surface an actionable message"
+        assert "FOREACH" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)) — a view/trigger
             # function refreshing a materialized view during our read-only SELECT.
             'cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction\nCONTEXT:  SQL statement "REFRESH MATERIALIZED VIEW CONCURRENTLY analyticssnapshot"',
