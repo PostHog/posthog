@@ -1607,9 +1607,16 @@ export interface BoxPlotDatumApi {
     series_label?: string | null
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type TrendsQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: TrendsQueryResponseApiActionNames
     boxplot_data?: BoxPlotDatumApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3281,9 +3288,16 @@ export interface PathsV2QueryApi {
     version?: number | null
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type StickinessQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type StickinessQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface StickinessQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: StickinessQueryResponseApiActionNames
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -3435,9 +3449,16 @@ export interface LifecycleFilterApi {
     toggledLifecycles?: LifecycleToggleApi[] | null
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type LifecycleQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type LifecycleQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface LifecycleQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: LifecycleQueryResponseApiActionNames
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */

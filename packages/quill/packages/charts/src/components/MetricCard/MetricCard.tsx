@@ -32,7 +32,7 @@ export interface MetricCardProps {
     /** Formats a label for the default subtitle, e.g. an ISO time as a short date. The sparkline
      *  keeps the raw `labels`, which must stay unique. */
     formatLabel?: (label: string) => React.ReactNode
-    /** Required when `data` is present. */
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
     color?: string
@@ -121,7 +121,7 @@ function MetricCardInner({
     dataAttr,
     onError,
 }: MetricCardProps): React.ReactElement | null {
-    const sparklineData = data != null && data.length > 0 && theme != null ? data : null
+    const sparklineData = data != null && data.length > 0 ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = useState(-1)
@@ -215,7 +215,7 @@ function MetricCardInner({
                 </div>
             )}
 
-            {sparklineData && theme && (
+            {sparklineData && (
                 <Sparkline
                     data={sparklineData}
                     labels={labels}
