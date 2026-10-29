@@ -246,8 +246,8 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT actors_with_t0.actor_id AS actor_id,
-            floor(divide(dateDiff('hour', assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), actors_with_t0.t_0), 24)) AS start_interval_index,
-            arrayJoin(arrayDistinct(arrayConcat([0], arrayFilter(x -> ifNull(greaterOrEquals(x, 0), 0), groupUniqArray(if(equals(events.event, '$pageview'), floor(divide(dateDiff('hour', actors_with_t0.t_0, toTimeZone(events.timestamp, 'UTC')), 24)), -1)))))) AS intervals_from_base
+            floor(divide(dateDiff('hour', assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), actors_with_t0.t_0, 'UTC'), 24)) AS start_interval_index,
+            arrayJoin(arrayDistinct(arrayConcat([0], arrayFilter(x -> ifNull(greaterOrEquals(x, 0), 0), groupUniqArray(if(equals(events.event, '$pageview'), floor(divide(dateDiff('hour', actors_with_t0.t_0, toTimeZone(events.timestamp, 'UTC'), 'UTC'), 24)), -1)))))) AS intervals_from_base
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -343,8 +343,8 @@
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
     (SELECT actors_with_t0.actor_id AS actor_id,
-            floor(divide(dateDiff('hour', assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), actors_with_t0.t_0), 24)) AS start_interval_index,
-            arrayJoin(arrayDistinct(arrayConcat([0], arrayFilter(x -> ifNull(greaterOrEquals(x, 0), 0), groupUniqArray(if(equals(events.event, '$pageview'), floor(divide(dateDiff('hour', actors_with_t0.t_0, toTimeZone(events.timestamp, 'UTC')), 24)), -1)))))) AS intervals_from_base
+            floor(divide(dateDiff('hour', assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')), actors_with_t0.t_0, 'UTC'), 24)) AS start_interval_index,
+            arrayJoin(arrayDistinct(arrayConcat([0], arrayFilter(x -> ifNull(greaterOrEquals(x, 0), 0), groupUniqArray(if(equals(events.event, '$pageview'), floor(divide(dateDiff('hour', actors_with_t0.t_0, toTimeZone(events.timestamp, 'UTC'), 'UTC'), 24)), -1)))))) AS intervals_from_base
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
