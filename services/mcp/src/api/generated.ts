@@ -122749,6 +122749,23 @@ export namespace Schemas {
       error: string;
     }
 
+    export interface WarehouseMigrationSkipItems {
+      /**
+         * Items to skip. Pass this or `keep_item_ids`, not both.
+         * @minItems 1
+         */
+      item_ids?: string[];
+      /** Items to keep. Every other item is skipped, for example to migrate only one connection. */
+      keep_item_ids?: string[];
+    }
+
+    export interface WarehouseMigrationSkipItemsResponse {
+      /** Items that are now skipped, including ones skipped before. */
+      skipped_item_ids: string[];
+      /** Items that stay as they are because they are being created or are already PostHog sources. */
+      not_skipped_item_ids: string[];
+    }
+
     /**
      * * `pending` - pending
      * * `provisioning` - provisioning

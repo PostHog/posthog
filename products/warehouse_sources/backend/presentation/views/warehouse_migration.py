@@ -296,6 +296,8 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise exceptions.NotFound()
         return Response(WarehouseMigrationItemSerializer(item).data)
 
+    # The single-item skip already uses the generated `items_skip_create` id.
+    @extend_schema(operation_id="warehouse_migrations_items_bulk_skip_create")
     @validated_request(
         request_serializer=WarehouseMigrationSkipItemsSerializer,
         responses={200: WarehouseMigrationSkipItemsResponseSerializer},
