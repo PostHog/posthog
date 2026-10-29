@@ -4,8 +4,10 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
 import { FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { actorsOnlyMathTypes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import {
     FLAG_EVALUATIONS_SERIES_FIELDS,
@@ -50,6 +52,7 @@ import {
     TrendsQuery,
     MetricsQuery,
 } from '~/queries/schema/schema-general'
+import type { Node } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     getResultCustomizations,
@@ -88,9 +91,6 @@ import {
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { Node } from '../../../queries/schema/schema-general'
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 import { expandGroupNodes } from './expandGroupNodes'
 
 export interface Tab {

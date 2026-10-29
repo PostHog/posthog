@@ -4,8 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
@@ -44,7 +44,7 @@ import {
 
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
-import { insightDataLogic } from '../insightDataLogic'
+import { insightNavLogic } from './insightNavLogic'
 
 describe('insightNavLogic', () => {
     let logic: ReturnType<typeof insightNavLogic.build>

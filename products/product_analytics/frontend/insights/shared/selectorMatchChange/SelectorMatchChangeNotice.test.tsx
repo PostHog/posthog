@@ -6,7 +6,6 @@ import { Provider } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { SelectorMatchChangeNotice } from 'scenes/insights/SelectorMatchChangeNotice'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -15,6 +14,8 @@ import { initKeaTests } from '~/test/init'
 import { BaseMathType } from '~/types'
 
 import { ActionSelectorMatchChangeApi } from 'products/actions/frontend/generated/api.schemas'
+
+import { SelectorMatchChangeNotice } from './SelectorMatchChangeNotice'
 
 const insightProps = { dashboardItemId: 'new' as const }
 
