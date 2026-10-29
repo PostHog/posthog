@@ -75,6 +75,10 @@ class DeprecatePayloadSerializer(DataclassSerializer):
             "subject_name": {"help_text": "Name of the unread view to deprecate."},
             "refresh_seconds_per_month": {"help_text": "Time its refreshes take in a month, in seconds."},
             "refresh_bytes_per_month": {"help_text": "Bytes its refreshes read in a month."},
+            "materialized": {
+                "help_text": "Whether the view is materialized. A plain view has no refreshes, so both refresh "
+                "costs are 0."
+            },
         }
 
 

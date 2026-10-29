@@ -38,7 +38,8 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
             ? undefined
             : CATALOG_EDIT_ACCESS_REASON)
     const deprecating = isDeprecatePayload(payload)
-    const confirmsFirst = deprecating && !isTable
+    const refreshes = deprecating && payload.materialized !== false
+    const confirmsFirst = refreshes && !isTable
 
     return (
         <SuggestionRow
@@ -63,8 +64,8 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                               windowDays={windowDays}
                               label={noReadsLabel(windowDays)}
                           />,
-                          <span key="cost">{refreshCostLabel(payload)}</span>,
-                      ]
+                          refreshes && <span key="cost">{refreshCostLabel(payload)}</span>,
+                      ].filter(Boolean)
                     : [
                           <WhyThisSuggestion
                               key="reads"

@@ -17,6 +17,7 @@ from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
+    DeprecatePayload,
     MaterializePayload,
     UnmaterializePayload,
 )
@@ -339,6 +340,32 @@ class TestDeprecateCandidate(BaseTest):
             expected_subjects,
             expected_skip,
         )
+
+    @parameterized.expand(
+        [
+            ("unread", None, [(0.0, False)], False),
+            ("already_deprecated", CertificationStatus.DEPRECATED, [], True),
+        ]
+    )
+    def test_an_unread_plain_view(
+        self, _name: str, certification: CertificationStatus | None, expected_drafts: list, expected_resolved: bool
+    ) -> None:
+        subject = view_subject(VIEW_ID)
+        candidate_context = context(
+            team_reads({}),
+            views=[view(VIEW_ID)],
+            certifications={subject: certification} if certification else None,
+            team_id=self.team.pk,
+        )
+
+        result = DeprecateCandidate().evaluate(candidate_context)
+
+        assert [
+            (draft.score, draft.payload.materialized)
+            for draft in result.drafts
+            if isinstance(draft.payload, DeprecatePayload)
+        ] == expected_drafts
+        assert DeprecateCandidate().is_resolved(candidate_context, subject) == expected_resolved
 
     @parameterized.expand([("background_reads_count", True, []), ("only_people_count", False, [VIEW_ID])])
     def test_a_view_read_only_by_background_traffic(

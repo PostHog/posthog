@@ -46,6 +46,7 @@ class DeprecatePayload:
     subject_name: str
     refresh_seconds_per_month: float
     refresh_bytes_per_month: float
+    materialized: bool = True
 
 
 @frozen

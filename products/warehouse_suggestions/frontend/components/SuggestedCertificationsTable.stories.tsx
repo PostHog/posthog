@@ -126,6 +126,15 @@ export const ReviewDialog: Story = {
             suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue'),
             suggestion('2', 'certify', 'table', 'stripe_charges'),
             suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup', false),
+            {
+                ...suggestion('4', 'deprecate', 'saved_query', 'signups_scratch'),
+                payload: {
+                    subject_name: 'signups_scratch',
+                    refresh_seconds_per_month: 0,
+                    refresh_bytes_per_month: 0,
+                    materialized: false,
+                },
+            },
         ],
     },
     parameters: dialogSnapshot(1300),

@@ -62,7 +62,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             Edge.objects.create(team=self.team, dag=dag, source=table, target=busy_node)
         unread, _ = self._view("old_rollup", dag, materialized=True)
         feeds_another, source_node = self._view("feeds_another", dag, materialized=True)
-        _, dependent_node = self._view("reads_feeds_another", dag)
+        reads_feeds_another, dependent_node = self._view("reads_feeds_another", dag)
         created_today, _ = self._view("new_rollup", dag, materialized=True, created_at=NOW)
         Edge.objects.create(team=self.team, dag=dag, source=source_node, target=dependent_node)
         seed_reads(
@@ -92,6 +92,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
                 (WarehouseSuggestionKind.CERTIFY, busy.id, WarehouseSuggestionStatus.PROPOSED),
                 (WarehouseSuggestionKind.MATERIALIZE, busy.id, WarehouseSuggestionStatus.PROPOSED),
                 (WarehouseSuggestionKind.DEPRECATE, unread.id, WarehouseSuggestionStatus.PROPOSED),
+                (WarehouseSuggestionKind.DEPRECATE, reads_feeds_another.id, WarehouseSuggestionStatus.PROPOSED),
             ]
         )
         assert not (

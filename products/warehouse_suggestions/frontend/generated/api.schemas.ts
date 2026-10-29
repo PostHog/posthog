@@ -19,6 +19,8 @@ export interface WarehouseSuggestionDeprecatePayloadApi {
     refresh_seconds_per_month: number
     /** Bytes its refreshes read in a month. */
     refresh_bytes_per_month: number
+    /** Whether the view is materialized. A plain view has no refreshes, so both refresh costs are 0. */
+    materialized?: boolean
 }
 
 export interface WarehouseSuggestionVisibleSourcesApi {
