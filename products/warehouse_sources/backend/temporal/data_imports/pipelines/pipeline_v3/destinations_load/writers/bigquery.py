@@ -119,7 +119,9 @@ def _ddl_type(field: bigquery.SchemaField) -> str:
     base = (
         f"STRUCT<{', '.join(f'{_backtick(sub.name)} {_ddl_type(sub)}' for sub in field.fields)}>"
         if field.field_type in ("RECORD", "STRUCT")
-        else field.field_type
+        # DDL only accepts the standard SQL type names: FLOAT has no DDL alias, unlike INTEGER
+        # (INT64) and BOOLEAN (BOOL), so an unmapped FLOAT fails the ALTER TABLE outright.
+        else _STANDARD_BIGQUERY_TYPE.get(field.field_type, field.field_type)
     )
     return f"ARRAY<{base}>" if field.mode == "REPEATED" else base
 

@@ -1,12 +1,12 @@
 rules:
     # Severity INFO keeps this rule out of the three semgrep-devex passes, which select WARNING and
     # ERROR. The "Integration model ratchet" step of that job runs it on its own and compares the
-    # findings per file with products/integrations/backend/model_access_baseline.txt.
+    # findings per file with posthog/integrations/model_access_baseline.txt.
     - id: integration-model-through-sdk
       message: |
           Read and write integration rows through the integrations SDK, not through the `Integration` model:
 
-              from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+              from posthog.integrations import IntegrationManager, IntegrationRecord
 
               IntegrationManager.github.oauth.get(team_id, integration_id)
               IntegrationManager.stripe.any.list(team_id)
@@ -17,11 +17,11 @@ rules:
           managers (`Integration.objects`, `_default_manager`, `_base_manager`), load it with
           `apps.get_model`, add a relation field to it, join it with `select_related`, `prefetch_related`
           or an `integration__` lookup, or call `.save()` on a row. For a DRF field, use
-          `IntegrationReferenceField` from `products/integrations/backend/presentation/fields.py`.
-          See `products/integrations/backend/README.md`.
+          `IntegrationReferenceField` from `posthog/integrations/fields.py`.
+          See `posthog/integrations/README.md`.
 
           After you move a file to the SDK, lower its count in
-          `products/integrations/backend/model_access_baseline.txt`, or remove the line at zero.
+          `posthog/integrations/model_access_baseline.txt`, or remove the line at zero.
       severity: INFO
       languages: [python]
       paths:
@@ -41,7 +41,7 @@ rules:
               # The model, its per-kind adapters and the SDK are the implementation.
               - 'posthog/models/integration/**'
               - 'posthog/models/github_integration_base.py'
-              - 'products/integrations/backend/**'
+              - 'posthog/integrations/**'
               # Django admin works on the model by design.
               - 'posthog/admin/**'
               - 'products/*/backend/admin.py'
