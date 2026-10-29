@@ -3,6 +3,18 @@ import { objectsEqual } from 'lib/utils/objects'
 import { SignalReport } from '../types'
 
 type ReportCopy = Pick<SignalReport, 'id' | 'assignee' | 'priority'>
+type WrittenFields = Partial<Pick<SignalReport, 'assignee' | 'priority'>>
+
+function fieldsWrittenBetween(before: ReportCopy, current: ReportCopy): WrittenFields {
+    const written: WrittenFields = {}
+    if (!objectsEqual(current.assignee ?? null, before.assignee ?? null)) {
+        written.assignee = current.assignee
+    }
+    if (current.priority !== before.priority) {
+        written.priority = current.priority
+    }
+    return written
+}
 
 /**
  * A claim or a priority edit patches the local copy of a report while a fetch for it is in flight. The fetch can
@@ -15,19 +27,14 @@ export function keepFieldsWrittenDuringFetch<T extends ReportCopy>(
     before: ReportCopy | null | undefined,
     current: ReportCopy | null | undefined
 ): T {
-    if (!before || !current || current === before || before.id !== fetched.id || current.id !== fetched.id) {
+    if (!before || !current || current === before) {
         return fetched
     }
-    const assigneeWritten = !objectsEqual(current.assignee ?? null, before.assignee ?? null)
-    const priorityWritten = current.priority !== before.priority
-    if (!assigneeWritten && !priorityWritten) {
+    if (before.id !== fetched.id || current.id !== fetched.id) {
         return fetched
     }
-    return {
-        ...fetched,
-        ...(assigneeWritten ? { assignee: current.assignee } : {}),
-        ...(priorityWritten ? { priority: current.priority } : {}),
-    }
+    const written = fieldsWrittenBetween(before, current)
+    return Object.keys(written).length > 0 ? { ...fetched, ...written } : fetched
 }
 
 /** {@link keepFieldsWrittenDuringFetch} for each row of a fetched list. */
