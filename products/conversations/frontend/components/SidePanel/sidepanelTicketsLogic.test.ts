@@ -19,6 +19,7 @@ import { BillingType, SidePanelTab } from '~/types'
 
 import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
+import { saveTicketDraft } from './supportTicketDrafts'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -47,6 +48,8 @@ describe('sidepanelTicketsLogic', () => {
         }
         supportLogic.mount()
         billingLogic.mount()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         // Tickets can be created unless a test drops the plan; set it up front, since the async
         // fixture load lands too late for the intent a test may already have queued
         setSubscriptionLevel('paid')
@@ -127,8 +130,7 @@ describe('sidepanelTicketsLogic', () => {
         expect(JSON.stringify(logic.values.newTicketDraft)).toContain('Half written')
     })
 
-    it('drops the drafts of another user who used this browser', async () => {
-        userLogic.mount()
+    it('keeps the drafts of each user who signs in on this browser apart', async () => {
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'user-a' })
         logic = sidepanelTicketsLogic.build()
         logic.mount()
@@ -137,9 +139,29 @@ describe('sidepanelTicketsLogic', () => {
         logic.actions.setTicketDraft('t1', doc('Reply by user A'))
 
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'user-b' })
-
         expect(logic.values.newTicketDraft).toBeNull()
         expect(logic.values.ticketDrafts).toEqual({})
+        logic.actions.updateNewTicketDraft(doc('Written by user B'))
+
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, uuid: 'user-a' })
+        expect(JSON.stringify(logic.values.newTicketDraft)).toContain('Written by user A')
+        expect(Object.keys(logic.values.ticketDrafts)).toEqual(['t1'])
+    })
+
+    it('keeps typing in memory when the browser refuses to save the draft', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new DOMException('Quota exceeded', 'QuotaExceededError')
+        })
+        try {
+            logic.actions.updateNewTicketDraft(doc('Pasted a long log'))
+        } finally {
+            setItem.mockRestore()
+        }
+
+        expect(JSON.stringify(logic.values.newTicketDraft)).toContain('Pasted a long log')
     })
 
     it('does not attach a CTA context left over from before a reload to a blank ticket', async () => {
@@ -191,7 +213,9 @@ describe('sidepanelTicketsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setTicketDraft('t1', doc('Reply to one'))
-        logic.actions.setTicketDraft('t2', doc('Reply to two'))
+        // Another browser tab saves a reply this tab never loaded
+        saveTicketDraft(MOCK_DEFAULT_USER.uuid, 't2', { content: doc('Reply to two'), updatedAt: Date.now() })
+        logic.actions.setTicketDraft('t1', doc('Reply to one, edited'))
         logic.unmount()
 
         logic = sidepanelTicketsLogic.build()
