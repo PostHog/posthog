@@ -3,8 +3,13 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+
+from posthog.models import Team
 from posthog.test.persons import create_person
 
 from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, WatchedEdit, exposure_by_bucket
@@ -95,8 +100,12 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-1", 1, {"$active_feature_flags": ["new-checkout"], "$feature/new-checkout": True}),
                     ("person-2", 2, {"$active_feature_flags": ["other-flag"], "$feature/other-flag": True}),
                     ("person-3", 3, {}),
+                    # An app whose flags all evaluated to false still loaded flags.
+                    ("person-4", 4, {"$active_feature_flags": [], "$feature/other-flag": False}),
+                    # Server SDKs send the flag without `$active_feature_flags`.
+                    ("person-5", 5, {"$feature/new-checkout": True}),
                 ],
-                [(0, 2, 1, {})],
+                [(0, 4, 2, {})],
             ),
             (
                 "each_bucket_counts_its_own_events_and_a_bucket_without_the_flag_has_no_entry",
@@ -114,9 +123,11 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 BOOLEAN,
                 [
                     ("person-1", 4, {"$feature/new-checkout": False}),
+                    ("person-1", 14, {"$feature/new-checkout": False}),
+                    ("person-1", 24, {"$feature/new-checkout": False}),
                     ("person-2", 34, {"$feature/new-checkout": True}),
                 ],
-                [(3, 1, 0, {}), (33, 1, 1, {})],
+                [(3, 1, 0, {}), (13, 1, 0, {}), (23, 1, 0, {}), (33, 1, 1, {})],
                 (3, 35),
             ),
         ]
@@ -156,18 +167,42 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 ("person-1", 1, {"$feature/new-checkout": True, "$feature/pricing-test": "control"}),
                 ("person-2", 2, {"$feature/new-checkout": False}),
                 ("person-3", 3, {"$feature/pricing-test": "test"}),
-                ("person-4", 40, {"$feature/new-checkout": True}),
+                ("person-4", 15, {"$feature/new-checkout": True}),
+                ("person-5", 40, {"$feature/new-checkout": True}),
             ]
         )
 
-        exposure = exposure_by_bucket(self.team, [BOOLEAN, MULTIVARIATE], START, START + timedelta(minutes=30), BUCKET)
+        exposure = exposure_by_bucket(self.team, [MULTIVARIATE, BOOLEAN], START, START + timedelta(minutes=30), BUCKET)
 
         self.assertEqual(
             exposure,
             {
-                "boolean": [ExposureBucket(start=START, with_flag=2, exposed=1, by_variant={})],
+                "boolean": [
+                    ExposureBucket(start=START, with_flag=2, exposed=1, by_variant={}),
+                    ExposureBucket(start=START + timedelta(minutes=10), with_flag=1, exposed=1, by_variant={}),
+                ],
                 "multivariate": [
                     ExposureBucket(start=START, with_flag=2, exposed=2, by_variant={"control": 1, "test": 1})
                 ],
             },
         )
+
+
+class TestExposureByBucketInput(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fractional_bucket", START + timedelta(minutes=30), timedelta(seconds=1.5), [BOOLEAN]),
+            (
+                "more_buckets_than_hogql_returns",
+                START + timedelta(seconds=MAX_SELECT_RETURNED_ROWS + 1),
+                timedelta(seconds=1),
+                [BOOLEAN],
+            ),
+            ("duplicate_edit_ids", START + timedelta(minutes=30), BUCKET, [BOOLEAN, BOOLEAN]),
+        ]
+    )
+    def test_refuses_input_that_would_lose_or_mix_counts(
+        self, _name: str, end: datetime, bucket: timedelta, edits: list[WatchedEdit]
+    ) -> None:
+        with self.assertRaises(ValueError):
+            exposure_by_bucket(Team(), edits, START, end, bucket)

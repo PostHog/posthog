@@ -6,10 +6,11 @@ their app reloads flags, so the share of people with the new value rises over ti
 compares errors against this curve, not against the edit time.
 
 - Only people whose events carry `$feature/<key>` count, because the value of the others is unknown. An edit that
-  enables the flag counts the people whose events carry `$active_feature_flags` instead: a disabled flag is not in the
-  `/flags` response, so no event carried `$feature/<key>` before the edit. The new events schema keeps the active flags
-  as a map, which is empty both when an app loaded no active flag and when it loaded no flags at all, so there the
-  count holds only the people with at least one active flag.
+  enables the flag also counts the people whose events carry `$active_feature_flags`: a disabled flag is not in the
+  `/flags` response, so no event carried `$feature/<key>` before the edit. The new events schema drops
+  `$active_feature_flags` and checks for any `$feature/*` key instead, false values included, so there an app that
+  loaded no flags at all does not count. The legacy events table counts it when the app sent an empty
+  `$active_feature_flags`.
 - A group flag counts groups, because it assigns whole groups at once. One large customer would otherwise meet the
   minimum volume by itself.
 - `$feature/<key>` holds the variant key on a multivariate flag, so the exposed people there are the people with any
@@ -35,6 +36,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+# The health check query settings (posthog/temporal/health_checks/query.py). Nobody waits for the result, so the scan of
+# every event of a team leaves CPU to the queries people wait for.
 QUERY_TIMEOUT_SECONDS = 30
 QUERY_MAX_THREADS = 2
 
@@ -80,6 +83,8 @@ def exposure_by_bucket(
     # HogQL caps the rows of a query, and a capped result would drop the newest buckets without an error.
     if buckets > MAX_SELECT_RETURNED_ROWS:
         raise ValueError(f"The range holds {buckets} buckets, more than {MAX_SELECT_RETURNED_ROWS}")
+    if len({edit.id for edit in edits}) != len(edits):
+        raise ValueError("Each watched edit needs its own id")
     if not edits:
         return {}
     # Buckets start at `start`, not at a multiple of the bucket since the epoch, so a range that starts at an edit
@@ -139,33 +144,48 @@ def exposure_by_bucket(
 
 def _edit_columns(index: int, edit: WatchedEdit) -> list[ast.Expr]:
     """The edit's counts: with the flag, exposed, then one per variant in the order of `edit.variants`."""
-    actor = ast.Field(chain=[f"$group_{edit.group_type_index}" if edit.group_type_index is not None else "person_id"])
-    # The key is a field name, not a value, so it goes in as an AST field: a flag key can hold any character.
-    value = ast.Call(name="toString", args=[ast.Field(chain=["properties", f"$feature/{edit.flag_key}"])])
-    has_actor = (
-        parse_expr("notEmpty({actor})", placeholders={"actor": actor})
-        if edit.group_type_index is not None
-        else ast.Constant(value=True)
-    )
-    if edit.enables:
-        # JSONHas is the presence check that both events schemas translate. See the module docstring for the difference.
-        with_flag = parse_expr("JSONHas(properties, '$active_feature_flags')")
+    if edit.group_type_index is None:
+        actor = ast.Field(chain=["person_id"])
+        has_actor: ast.Expr = ast.Constant(value=True)
     else:
-        with_flag = parse_expr("isNotNull({value})", placeholders={"value": value})
-    # A variant may be named "false", and the plain property read gives it the same 'false' as a flag that evaluated to
-    # false. The JSON functions keep the type on both events schemas, so a variant is a JSON string.
-    key = ast.Constant(value=f"$feature/{edit.flag_key}")
-    variant_value = parse_expr(
-        "if(JSONType(properties, {key}) = 'String', JSONExtractString(properties, {key}), '')",
-        placeholders={"key": key},
-    )
-    if edit.variants:
-        # A split under 100% serves true to a person who matches the condition but draws no variant.
-        exposed = parse_expr(
-            "{variant_value} != '' OR {value} = 'true'", placeholders={"variant_value": variant_value, "value": value}
+        actor = ast.Field(chain=[f"$group_{edit.group_type_index}"])
+        has_actor = parse_expr("notEmpty({actor})", placeholders={"actor": actor})
+    # A flag key can hold any character, so it goes in as an AST node, never as HogQL text.
+    property_name = f"$feature/{edit.flag_key}"
+    flag_value = ast.Call(name="toString", args=[ast.Field(chain=["properties", property_name])])
+    carries_flag = parse_expr("isNotNull({flag_value})", placeholders={"flag_value": flag_value})
+    if edit.enables:
+        # JSONHas is the presence check that both events schemas translate. Server SDKs send `$feature/<key>` without
+        # `$active_feature_flags`, so the people who carry the flag count too.
+        with_flag = parse_expr(
+            "JSONHas(properties, '$active_feature_flags') OR {carries_flag}",
+            placeholders={"carries_flag": carries_flag},
         )
     else:
-        exposed = parse_expr("{value} = 'true'", placeholders={"value": value})
+        with_flag = carries_flag
+    # A split under 100% serves true to a person who matches the condition but draws no variant, so on a multivariate
+    # flag every value but false counts as exposed.
+    variant_key: ast.Expr = flag_value
+    if {"true", "false"} & set(edit.variants):
+        # The plain property read gives a variant named "true" or "false" the same value as a boolean flag. The JSON
+        # functions keep the type on both events schemas, so a variant is a JSON string. On the legacy events table
+        # they parse the whole `properties` column, so only these edits pay for them.
+        variant_key = parse_expr(
+            "if(JSONType(properties, {name}) = 'String', JSONExtractString(properties, {name}), '')",
+            placeholders={"name": ast.Constant(value=property_name)},
+        )
+        exposed = parse_expr(
+            "{variant_key} != '' OR {flag_value} = 'true'",
+            placeholders={"variant_key": variant_key, "flag_value": flag_value},
+        )
+    elif edit.variants:
+        # isNotNull, because HogQL reads a missing flag as not equal to 'false'.
+        exposed = parse_expr(
+            "{carries_flag} AND {flag_value} != 'false'",
+            placeholders={"carries_flag": carries_flag, "flag_value": flag_value},
+        )
+    else:
+        exposed = parse_expr("{flag_value} = 'true'", placeholders={"flag_value": flag_value})
 
     def count(alias: str, condition: ast.Expr) -> ast.Expr:
         return ast.Alias(
@@ -183,8 +203,8 @@ def _edit_columns(index: int, edit: WatchedEdit) -> list[ast.Expr]:
             count(
                 f"variant_{position}",
                 parse_expr(
-                    "{variant_value} = {variant}",
-                    placeholders={"variant_value": variant_value, "variant": ast.Constant(value=variant)},
+                    "{variant_key} = {variant}",
+                    placeholders={"variant_key": variant_key, "variant": ast.Constant(value=variant)},
                 ),
             )
             for position, variant in enumerate(edit.variants)
