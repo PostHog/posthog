@@ -78,6 +78,7 @@ import type {
     LLMJudgeEvaluation,
     JudgeMethod,
     ModelConfiguration,
+    ReasoningLevel,
     SentimentEvaluation,
 } from './types'
 
@@ -366,8 +367,10 @@ export interface llmEvaluationLogicValues {
         successRate: number | null
         total: number
     } | null
+    reasoningLevel: ReasoningLevel | null
     selectedModel: string
     selectedModelName: string | undefined
+    selectedModelSupportsReasoning: boolean
     selectedPickerProviderKeyId: string | null
     sidePanelContext: SidePanelSceneContext | null
     trendInsightUrl: string | null
@@ -535,6 +538,9 @@ export interface llmEvaluationLogicActions {
     setJudgeMethod: (judgeMethod: JudgeMethod) => {
         judgeMethod: JudgeMethod
     }
+    setReasoningLevel: (reasoningLevel: ReasoningLevel | null) => {
+        reasoningLevel: ReasoningLevel | null
+    }
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
@@ -599,6 +605,12 @@ export interface llmEvaluationLogicMeta {
         ) => boolean
         judgeMethod: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => JudgeMethod
         usesDecisionModel: (judgeMethod: JudgeMethod) => boolean
+        reasoningLevel: (evaluation: EvaluationConfig | null) => ReasoningLevel | null
+        selectedModelSupportsReasoning: (
+            evaluation: EvaluationConfig | null,
+            byokModels: ModelOption[],
+            usesDecisionModel: boolean
+        ) => boolean
         selectedModelName: (
             byokModels: ModelOption[],
             selectedModel: string,
@@ -694,6 +706,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setJudgeMethod: (judgeMethod: JudgeMethod) => ({ judgeMethod }),
+        setReasoningLevel: (reasoningLevel: ReasoningLevel | null) => ({ reasoningLevel }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
         setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
         setSettleStrategy: (strategy: EvaluationSettleStrategy) => ({ strategy }),
@@ -1013,6 +1026,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     state && isLLMJudgeEvaluation(state)
                         ? { ...state, model_configuration: modelConfiguration }
                         : state,
+                setReasoningLevel: (state, { reasoningLevel }) =>
+                    state && isLLMJudgeEvaluation(state)
+                        ? {
+                              ...state,
+                              evaluation_config: { ...state.evaluation_config, reasoning_level: reasoningLevel },
+                          }
+                        : state,
                 setJudgeMethod: (state, { judgeMethod }) =>
                     state && isLLMJudgeEvaluation(state)
                         ? {
@@ -1174,6 +1194,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setJudgeMethod: () => true,
+                setReasoningLevel: () => true,
                 setEvaluationType: () => true,
                 setEvaluationTarget: () => true,
                 setSettleStrategy: () => true,
@@ -1595,6 +1616,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             if (!compatible) {
                 actions.setModelConfiguration(null)
             }
+            if (values.reasoningLevel && !values.selectedModelSupportsReasoning) {
+                actions.setReasoningLevel(null)
+            }
+        },
+        setModelConfiguration: () => {
+            if (values.reasoningLevel && !values.selectedModelSupportsReasoning) {
+                actions.setReasoningLevel(null)
+            }
         },
         setEvaluationType: () => {
             if (!values.isReportableEvaluation && values.activeTab === 'reports') {
@@ -1745,6 +1774,28 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
         usesDecisionModel: [(s) => [s.judgeMethod], (judgeMethod: JudgeMethod): boolean => judgeMethod === 'decision'],
+        reasoningLevel: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): ReasoningLevel | null =>
+                (isLLMJudgeEvaluation(evaluation) && evaluation.evaluation_config.reasoning_level) || null,
+        ],
+        selectedModelSupportsReasoning: [
+            (s) => [s.evaluation, s.byokModels, s.usesDecisionModel],
+            (evaluation: EvaluationConfig | null, models: ModelOption[], usesDecisionModel: boolean): boolean => {
+                const config = evaluation?.model_configuration
+                return (
+                    !!config &&
+                    !usesDecisionModel &&
+                    models.some(
+                        (model) =>
+                            model.id === config.model &&
+                            toLLMProvider(model.provider) === config.provider &&
+                            (!config.provider_key_id || model.providerKeyId === config.provider_key_id) &&
+                            !!model.supportsReasoning
+                    )
+                )
+            },
+        ],
         // Evals always run on the team's own provider key, so only BYOK models can be the selected one.
         selectedModelName: [
             (s) => [s.byokModels, s.selectedModel, s.selectedPickerProviderKeyId],
