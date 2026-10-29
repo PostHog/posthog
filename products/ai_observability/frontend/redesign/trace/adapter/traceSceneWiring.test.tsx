@@ -133,6 +133,7 @@ describe('TraceScene', () => {
             if (!input) {
                 throw new Error('expected the header to render the search input')
             }
+            expect(input.getAttribute('maxlength')).toBe('200')
 
             fireEvent.change(input, { target: { value: 'invoice' } })
 

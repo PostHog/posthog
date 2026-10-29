@@ -20,6 +20,9 @@ export interface TraceSearchBoxProps extends TraceSearchBoxData {
     onStep: (direction: MatchDirection) => void
 }
 
+// The search API rejects longer queries.
+const MAX_QUERY_LENGTH = 200
+
 const FAILURES: Record<TraceSearchFailure, { label: string; tooltip: string }> = {
     too_slow: {
         label: 'Too large to search',
@@ -66,6 +69,7 @@ export function TraceSearchBox(props: TraceSearchBoxProps): JSX.Element {
             className="w-80 max-w-full"
             placeholder="Search this trace"
             value={query}
+            maxLength={MAX_QUERY_LENGTH}
             onChange={onQueryChange}
             onPressEnter={(event) => onStep(event.shiftKey ? 'previous' : 'next')}
             data-attr="trace-view-search-input"
