@@ -1323,6 +1323,8 @@ function DangerZoneSection({
                                         type="secondary"
                                         status="danger"
                                         onClick={() => {
+                                            const hasCdcTable =
+                                                schema.cdc_table_mode === 'cdc_only' || schema.cdc_table_mode === 'both'
                                             LemonDialog.open({
                                                 title: 'Full resync — all existing data will be replaced',
                                                 content: (
@@ -1333,12 +1335,15 @@ function DangerZoneSection({
                                                             <strong>{schema.table?.name ?? schema.name}</strong> table
                                                             will be replaced with the new snapshot.
                                                         </p>
-                                                        {schema.history_table_name && (
+                                                        {hasCdcTable && (
                                                             <p>
-                                                                The <strong>{schema.history_table_name}</strong> history
-                                                                table will also be reset — all change history will be
-                                                                lost and replaced with the new snapshot as the starting
-                                                                point.
+                                                                The{' '}
+                                                                <strong>
+                                                                    {(schema.table?.name ?? schema.name) + '_cdc'}
+                                                                </strong>{' '}
+                                                                history table will also be reset — all change history
+                                                                will be lost and replaced with the new snapshot as the
+                                                                starting point.
                                                             </p>
                                                         )}
                                                     </div>

@@ -1,11 +1,8 @@
 import uuid
-from io import StringIO
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
-
-from django.core.management import call_command
 
 from parameterized import parameterized
 
@@ -193,17 +190,3 @@ class TestHistoryNaming(BaseTest):
         )
 
         assert set(history_tables(self.source)) == {legacy, marked}
-
-    @parameterized.expand([("preview", False), ("live_run", True)])
-    def test_backfill_marks_unmarked_legacy_history_tables(self, _name: str, live_run: bool) -> None:
-        legacy = self._table("orders_cdc")
-        ExternalDataSchema.objects.create(name="items", team=self.team, source=self.source)
-        own_table = self._table("items_cdc")
-        ExternalDataSchema.objects.create(name="items_cdc", team=self.team, source=self.source, table=own_table)
-
-        call_command("backfill_history_table_marker", *(["--live-run"] if live_run else []), stdout=StringIO())
-
-        legacy.refresh_from_db()
-        own_table.refresh_from_db()
-        assert legacy.is_history_table is live_run
-        assert not own_table.is_history_table
