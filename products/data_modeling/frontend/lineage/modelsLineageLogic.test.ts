@@ -1,5 +1,8 @@
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -37,6 +40,26 @@ describe('modelsLineageLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('opens a lineage URL with the selected model and its dependencies', async () => {
+        logic.actions.setTypeFilter(['view'])
+
+        await expectLogic(logic, () => {
+            router.actions.push(combineUrl(urls.models('lineage'), { search: '+website_leads+' }).url)
+        }).toMatchValues({
+            searchTerm: '+website_leads+',
+            debouncedSearchTerm: '+website_leads+',
+            visibleNodes: [NODES[0], NODES[3]],
+            visibleEdges: EDGES,
+        })
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.models('lineage'))
+        }).toMatchValues({
+            searchTerm: '',
+            visibleNodes: NODES,
+        })
     })
 
     it('ranks plain search results without moving the graph', async () => {

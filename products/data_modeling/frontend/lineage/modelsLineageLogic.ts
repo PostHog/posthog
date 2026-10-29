@@ -1,6 +1,9 @@
 import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
+
+import { urls } from 'scenes/urls'
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
@@ -82,6 +85,16 @@ export type modelsLineageLogicType = MakeLogicType<modelsLineageLogicValues, mod
 
 export const modelsLineageLogic = kea<modelsLineageLogicType>([
     path(['scenes', 'models', 'modelsLineageLogic']),
+    urlToAction(({ actions }) => ({
+        [urls.models()]: (_, searchParams) => {
+            if (searchParams.tab === 'lineage') {
+                const searchTerm = typeof searchParams.search === 'string' ? searchParams.search : ''
+                actions.resetFilters()
+                actions.setSearchTerm(searchTerm)
+                actions.setDebouncedSearchTerm(searchTerm)
+            }
+        },
+    })),
     connect(() => ({
         values: [lineageDataLogic, ['nodes', 'nodesLoading', 'edges', 'edgesLoading']],
     })),

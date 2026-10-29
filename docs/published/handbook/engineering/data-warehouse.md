@@ -20,6 +20,12 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## View lineage in the SQL editor
+
+The **Lineage** tab in the materialization dialog shows the selected view and its upstream and downstream dependencies.
+Drag nodes to change their positions. Switch tabs to keep those positions, or use **Reset layout** to restore the layout.
+The button to open the full graph opens Models with a `+view_name+` search filter. This filter includes both upstream and downstream dependencies.
+
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
