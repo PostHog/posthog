@@ -340,6 +340,44 @@ describe('inboxReportDetailLogic', () => {
         })
     })
 
+    // A claim from the row menu writes a work-log entry, and a ready report without a running task does not poll
+    // its artefacts, so the open report must load them again or the claim is missing from its activity log.
+    it.each([
+        { name: 'its own report', reportId: REPORT.id, loads: 2 },
+        { name: 'another report', reportId: 'report-2', loads: 1 },
+    ])('reloads the activity log after a list claim on $name', async ({ reportId, loads }) => {
+        let artefactLoads = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': () => {
+                    artefactLoads++
+                    return [200, { results: [] }]
+                },
+                '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+            },
+        })
+        initKeaTests()
+        const bulkLogic = inboxBulkActionsLogic()
+        bulkLogic.mount()
+        const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+        logic.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(artefactLoads).toBe(1)
+
+            bulkLogic.actions.reportClaimChanged(reportId, null)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(artefactLoads).toBe(loads)
+        } finally {
+            logic.unmount()
+            bulkLogic.unmount()
+        }
+    })
+
     describe('reviewer updates', () => {
         const reviewer: EnrichedReviewer = {
             github_login: 'example-reviewer',
