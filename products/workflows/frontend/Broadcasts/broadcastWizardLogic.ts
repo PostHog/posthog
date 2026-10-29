@@ -2322,6 +2322,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // pinned: analytics event name
                 posthog.capture('broadcast launched', {
                     broadcast_id: broadcastId,
+                    channel: values.channel,
                     path: broadcastPath(broadcastId),
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
