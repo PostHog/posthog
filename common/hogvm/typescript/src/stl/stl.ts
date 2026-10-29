@@ -175,13 +175,7 @@ function dateTruncFn([unit, val]: any[]): HogDateTime {
             break
         case 'minute':
             truncated = DateTime.fromObject(
-                {
-                    year: dt.year,
-                    month: dt.month,
-                    day: dt.day,
-                    hour: dt.hour,
-                    minute: dt.minute,
-                },
+                { year: dt.year, month: dt.month, day: dt.day, hour: dt.hour, minute: dt.minute },
                 { zone: dt.zoneName }
             )
             break
@@ -606,16 +600,8 @@ export const STL: Record<string, STLFunction> = {
             if (isHogDateTime(args[0])) {
                 return Math.floor(args[0].dt)
             } else if (isHogDate(args[0])) {
-                const day = DateTime.fromObject({
-                    year: args[0].year,
-                    month: args[0].month,
-                    day: args[0].day,
-                })
-                const epoch = DateTime.fromObject({
-                    year: 1970,
-                    month: 1,
-                    day: 1,
-                })
+                const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
+                const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
                 return Math.floor(day.diff(epoch, 'days').days)
             }
             return !isNaN(parseInt(args[0])) ? parseInt(args[0]) : null
@@ -630,16 +616,8 @@ export const STL: Record<string, STLFunction> = {
             if (isHogDateTime(args[0])) {
                 return args[0].dt
             } else if (isHogDate(args[0])) {
-                const day = DateTime.fromObject({
-                    year: args[0].year,
-                    month: args[0].month,
-                    day: args[0].day,
-                })
-                const epoch = DateTime.fromObject({
-                    year: 1970,
-                    month: 1,
-                    day: 1,
-                })
+                const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
+                const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
                 return Math.floor(day.diff(epoch, 'days').days)
             }
             return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
