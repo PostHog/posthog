@@ -14,7 +14,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -27,6 +27,8 @@ import {
     ExternalDataSource,
     ExternalDataSourceSchema,
 } from '~/types'
+
+import { warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
 
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { DatabaseSchemaQueryResponse } from '../../../../../frontend/src/queries/schema/schema-general'
@@ -293,7 +295,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                     const ids: string[] = []
                     const limit = 1000
                     for (let offset = 0; ; offset += limit) {
-                        const response = await api.dataWarehouseTables.list({
+                        const response = await warehouseTablesList(String(ApiConfig.getCurrentProjectId()), {
                             pending_source: true,
                             include_columns: false,
                             limit,

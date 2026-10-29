@@ -273,6 +273,7 @@ class TestExternalDataSource(APIBaseTest):
                 "sync_frequency",
                 "latest_error",
                 "table",
+                "pending_self_managed_table",
             },
         )
         self.assertEqual(listed_schema["sync_frequency"], "6hour")
@@ -3386,6 +3387,7 @@ class TestExternalDataSource(APIBaseTest):
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
                     "status": schema.status,
+                    "pending_self_managed_table": False,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),

@@ -5379,7 +5379,6 @@ const api = {
             offset?: number
             search?: string
             include_columns?: boolean
-            pending_source?: boolean
         }): Promise<PaginatedResponse<DataWarehouseTable>> {
             return await new ApiRequest()
                 .dataWarehouseTables()

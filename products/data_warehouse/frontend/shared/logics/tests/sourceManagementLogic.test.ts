@@ -8,10 +8,15 @@ import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
+import { warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
+
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
+jest.mock('products/data_warehouse/frontend/generated/api', () => ({
+    warehouseTablesList: jest.fn(),
+}))
 jest.mock('~/queries/query')
 
 describe('sourceManagementLogic', () => {
@@ -33,12 +38,12 @@ describe('sourceManagementLogic', () => {
             results: [],
         } as any)
 
-        jest.spyOn(api.dataWarehouseTables, 'list').mockResolvedValue({
+        ;(warehouseTablesList as jest.Mock).mockResolvedValue({
             results: [],
             count: 0,
             next: null,
             previous: null,
-        } as any)
+        })
 
         ;(performQuery as jest.Mock).mockResolvedValue({
             tables: {},
@@ -215,9 +220,9 @@ describe('sourceManagementLogic', () => {
         ['every self-managed table linked', ['t-orders', 't-users'], ['events']],
         ['id of an unknown table', ['t-missing'], ['orders', 'users', 'events']],
     ])('hides tables a managed source will import from the self-managed list: %s', async (_, linkedIds, expected) => {
-        jest.spyOn(api.dataWarehouseTables, 'list').mockResolvedValue({
+        ;(warehouseTablesList as jest.Mock).mockResolvedValue({
             results: linkedIds.map((id) => ({ id, pending_source_id: 's2' })),
-        } as any)
+        })
         databaseLogic.mount()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPendingSelfManagedTableIdsSuccess'])
@@ -238,7 +243,10 @@ describe('sourceManagementLogic', () => {
             joins: [],
         } as unknown as DatabaseSchemaQueryResponse)
 
-        expect(api.dataWarehouseTables.list).toHaveBeenCalledWith(expect.objectContaining({ pending_source: true }))
+        expect(warehouseTablesList).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ pending_source: true })
+        )
         expect(logic.values.selfManagedTables.map((table) => table.name)).toEqual(expected)
     })
 })
