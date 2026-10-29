@@ -3892,6 +3892,30 @@ describe('featureFlagLogic', () => {
             }
         )
 
+        it.each(['save', 'toggle'] as const)(
+            'a %s retried after the resend fails on the network keeps the answer',
+            async (source) => {
+                withRollbackReasonFlag(true)
+                const update = jest
+                    .spyOn(api, 'update')
+                    .mockRejectedValueOnce(rollbackReasonRequired())
+                    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+                    .mockResolvedValue({ ...MOCK_FEATURE_FLAG, active: source !== 'toggle' })
+
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+                const dialog = openForm.mock.calls[0][0]
+                dialog.onSubmit({ reason: 'errors', note: '' })
+                dialog.onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(3)
+                expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ rollback_reason: 'errors' }))
+                expect(openForm).toHaveBeenCalledTimes(1)
+            }
+        )
+
         it('saves nothing when the question is closed without an answer', async () => {
             withRollbackReasonFlag(true)
             const update = jest.spyOn(api, 'update').mockRejectedValueOnce(rollbackReasonRequired())

@@ -1156,10 +1156,12 @@ function queueInlineSave<T>(cache: Record<string, any>, send: () => Promise<T>):
 // pinned: the `source` property value of the rollback reason events.
 export type RollbackReasonSource = 'save' | 'toggle'
 
-/** The answer from the rollback reason question rides on the next save only. */
-function takeRollbackReasonFields(cache: Record<string, any>, ask: boolean): RollbackReasonRequestFields {
+/**
+ * The answer from the rollback reason question rides on every save until one succeeds, so a retry after a failed
+ * save does not ask again. The success listeners clear it.
+ */
+function rollbackReasonFields(cache: Record<string, any>, ask: boolean): RollbackReasonRequestFields {
     const answer: RollbackReasonAnswer | undefined = cache.rollbackReasonAnswer
-    delete cache.rollbackReasonAnswer
     return rollbackReasonRequestFields(answer, ask)
 }
 
@@ -3694,7 +3696,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             {
                                 ...preparedFlag,
                                 original_flag: values.originalFeatureFlag,
-                                ...takeRollbackReasonFields(cache, values.asksRollbackReason),
+                                ...rollbackReasonFields(cache, values.asksRollbackReason),
                             }
                         )
                     }
@@ -3767,7 +3769,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             active,
                             ...values.rowVersionToken,
                             // Turning a flag on never lowers its exposure, so only turning it off asks.
-                            ...takeRollbackReasonFields(cache, values.asksRollbackReason && !active),
+                            ...rollbackReasonFields(cache, values.asksRollbackReason && !active),
                         }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
@@ -4496,6 +4498,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
+            delete cache.rollbackReasonAnswer
             lemonToast.success(
                 'Feature flag saved',
                 liveFlagToastOptions(
@@ -4646,6 +4649,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
+            delete cache.rollbackReasonAnswer
             if (featureFlagActiveUpdate) {
                 lemonToast.success(
                     `Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`,
