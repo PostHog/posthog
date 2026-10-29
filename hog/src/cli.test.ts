@@ -1,52 +1,94 @@
 import { describe, expect, test } from 'bun:test'
 
-import pkg from '../package.json' with { type: 'json' }
-import { run } from './cli'
-import { COMMANDS } from './commands'
+import { LEGACY_COMMANDS } from '@/commands/legacy'
+import { VERSION } from '@/version'
 
-function capture(argv: readonly string[]): { code: number; stdout: string; stderr: string } {
-    let stdout = ''
-    let stderr = ''
-    const code = run(argv, {
-        stdout: (text) => (stdout += text),
-        stderr: (text) => (stderr += text),
-    })
-    return { code, stdout, stderr }
-}
+import { runHog } from './testing'
 
 describe('hog', () => {
     test.each([
-        ['no arguments prints help', [], 0, 'Usage: hog <command>', ''],
-        ['--version prints the version', ['--version'], 0, pkg.version, ''],
-        ['an unknown command fails', ['nope'], 1, '', 'Unknown command: nope'],
+        ['no arguments prints help', [], 'Usage: hog'],
+        ['--version prints the version', ['--version'], VERSION],
+        ['help for a command prints its usage', ['help', 'query', 'run'], 'Usage: hog query run'],
         [
-            'an unported command passes its arguments to posthog-cli, quoted',
-            ['query', 'run', "select 'a' from events"],
-            1,
-            '',
-            `posthog-cli exp query run 'select '\\''a'\\'' from events'`,
+            'help after a global option still finds the command',
+            ['-o', 'json', 'help', 'query', 'run'],
+            'Usage: hog query run',
         ],
         [
-            'help for an unported command points to its posthog-cli help',
-            ['help', 'dsym', 'upload'],
-            1,
-            '',
-            'posthog-cli dsym upload --help',
+            'command help lists examples and scopes',
+            ['query', 'run', '--help'],
+            'Needs a personal API key with: query:read',
         ],
-    ] as const)('%s', (_name, argv, code, stdout, stderr) => {
-        const result = capture(argv)
-        expect(result.code).toBe(code)
+    ])('%s', async (_name, argv, stdout) => {
+        const result = await runHog(argv)
+        expect(result.exitCode).toBe(0)
         expect(result.stdout).toContain(stdout)
-        expect(result.stderr).toContain(stderr)
     })
 
-    test.each(COMMANDS.map((command) => [command.name, command.legacyCommand]))(
+    test.each(Object.entries(LEGACY_COMMANDS).map(([name, command]) => [name, 'use' in command ? command.use : '']))(
         '%s fails and points to %s',
-        (name, legacyCommand) => {
-            const result = capture([name, '--some-flag'])
-            expect(result.code).toBe(1)
-            expect(result.stdout).toBe('')
-            expect(result.stderr).toContain(`${legacyCommand} --some-flag`)
+        async (name, use) => {
+            const result = await runHog([name, 'sub', "it's", '--flag'])
+            expect(result.exitCode).toBe(1)
+            expect(result.error()).toMatchObject({ code: 'not_ported' })
+            expect(result.error().message).toContain(`${use} sub 'it'\\''s' --flag`)
         }
     )
+
+    test.each([
+        ['help for an unported command', ['help', 'dsym', 'upload'], 'posthog-cli dsym upload --help'],
+        ['an unported subcommand of a ported group', ['query', 'editor'], 'posthog-cli exp query editor'],
+        [
+            'hog globals that posthog-cli takes before the subcommand',
+            ['-o', 'json', '--host', 'https://eu.example.com', 'dsym', 'upload', '--dotenv-file=p.env', '--dir', 'x'],
+            'posthog-cli --host https://eu.example.com --dotenv-file p.env dsym upload --dir x',
+        ],
+        [
+            'an --output that the legacy command owns',
+            ['endpoints', 'pull', 'example', '--output', './queries'],
+            'posthog-cli exp endpoints pull example --output ./queries',
+        ],
+    ])('%s points to posthog-cli', async (_name, argv, invocation) => {
+        const result = await runHog(argv)
+        expect(result.exitCode).toBe(1)
+        expect(result.error().message).toEndWith(`Run this instead:\n  ${invocation}`)
+    })
+
+    test.each([
+        ['an unknown command', ['nope'], 'unknown_command'],
+        ['a missing argument', ['query', 'run'], 'usage_error'],
+        ['an invalid --output', ['query', 'run', 'select 1', '-o', 'yaml'], 'usage_error'],
+    ])('%s is a usage error, reported as JSON to agents', async (_name, argv, code) => {
+        const result = await runHog(argv, { env: { CLAUDECODE: '1' } })
+        expect(result.exitCode).toBe(2)
+        expect(result.error()).toMatchObject({ code })
+    })
+
+    test('a person sees errors as text', async () => {
+        const result = await runHog(['qury'], { stdoutIsTTY: true, env: { NO_COLOR: '1' } })
+        expect(result.stderr).toBe(
+            "Error: Unknown command 'qury'\n(Did you mean query?)\nRun `hog --help` to see the available commands.\n"
+        )
+    })
+
+    test('commands lists every command for agents', async () => {
+        const result = await runHog(['commands'], { env: { CLAUDECODE: '1' } })
+        expect(result.exitCode).toBe(0)
+        const manifest = result.json()
+        expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code' })
+        expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
+        expect(manifest.commands[0]).toMatchObject({
+            name: 'query run',
+            arguments: [{ name: 'query', required: true, stdin: true }],
+            scopes: ['query:read'],
+        })
+        expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
+            'query run',
+            'query check',
+            'query editor',
+            'commands',
+            ...Object.keys(LEGACY_COMMANDS),
+        ])
+    })
 })
