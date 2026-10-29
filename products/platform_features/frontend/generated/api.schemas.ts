@@ -490,6 +490,7 @@ export interface MemberOffboardingRequestApi {
  * * `insight` - Insight
  * * `notebook` - Notebook
  * * `recording` - Session recording
+ * * `subscription` - Subscription
  */
 export type MemberOffboardingResourceKindEnumApi =
     (typeof MemberOffboardingResourceKindEnumApi)[keyof typeof MemberOffboardingResourceKindEnumApi]
@@ -499,6 +500,7 @@ export const MemberOffboardingResourceKindEnumApi = {
     Insight: 'insight',
     Notebook: 'notebook',
     Recording: 'recording',
+    Subscription: 'subscription',
 } as const
 
 export interface MemberOffboardingResourceApi {
@@ -509,7 +511,8 @@ export interface MemberOffboardingResourceApi {
      * * `dashboard` - Dashboard
      * * `insight` - Insight
      * * `notebook` - Notebook
-     * * `recording` - Session recording */
+     * * `recording` - Session recording
+     * * `subscription` - Subscription */
     kind: MemberOffboardingResourceKindEnumApi
     /** The resource's display name. */
     name: string
@@ -517,6 +520,11 @@ export interface MemberOffboardingResourceApi {
     team_id: number
     /** Name of the project containing the resource. */
     project_name: string
+    /**
+     * When the subscription was created, if applicable.
+     * @nullable
+     */
+    created_at: string | null
     /** Whether all active public links require a password. */
     password_required: boolean
     /**

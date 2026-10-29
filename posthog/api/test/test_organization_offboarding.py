@@ -13,6 +13,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.models.subscription import Subscription
 
 
 class TestOrganizationOffboarding(APIBaseTest):
@@ -212,3 +213,60 @@ class TestOrganizationOffboarding(APIBaseTest):
             assert not share.enabled
         unrelated_share.refresh_from_db()
         assert unrelated_share.enabled
+
+    def subscription(self, *, creator: User, recipients: str) -> Subscription:
+        return Subscription.objects.create(
+            team=self.team,
+            created_by=creator,
+            title="Weekly report",
+            target_type="email",
+            target_value=recipients,
+            frequency="daily",
+            interval=1,
+            start_date=timezone.now(),
+        )
+
+    @parameterized.expand([("delete",), ("post",)])
+    def test_removal_disables_created_subscriptions_and_removes_email_recipients(self, method: str) -> None:
+        own = self.subscription(creator=self.departing, recipients="other@example.com")
+        others = self.subscription(creator=self.user, recipients="other@example.com")
+        recipient = self.subscription(creator=self.user, recipients="DEPARTING@example.com,other@example.com")
+        only_recipient = self.subscription(creator=self.user, recipients=self.departing.email)
+        response = self.client.get(self.url + "offboarding/")
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [f"subscription:{own.pk}"]
+        assert response.json()[0]["url"] == f"/project/{self.team.pk}/subscriptions/{own.pk}"
+        assert response.json()[0]["created_at"] is not None
+        response = (
+            self.client.delete(self.url)
+            if method == "delete"
+            else self.client.post(self.url + "offboard/", {}, format="json")
+        )
+        assert response.status_code == 204
+        for subscription in (own, others, recipient, only_recipient):
+            subscription.refresh_from_db()
+        assert not own.enabled
+        assert others.enabled
+        assert recipient.enabled and recipient.target_value == "other@example.com"
+        assert not only_recipient.enabled and only_recipient.target_value == ""
+
+    def test_kept_subscriptions_still_remove_the_departing_recipient(self) -> None:
+        kept = self.subscription(creator=self.departing, recipients=f"{self.departing.email},other@example.com")
+        disabled = self.subscription(creator=self.departing, recipients="other@example.com")
+        response = self.client.post(self.url + "offboard/", {"keep": [f"subscription:{kept.pk}"]}, format="json")
+        assert response.status_code == 204
+        kept.refresh_from_db()
+        disabled.refresh_from_db()
+        assert kept.enabled and kept.target_value == "other@example.com"
+        assert not disabled.enabled
+
+    def test_offboarding_does_not_change_subscriptions_in_another_organization(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other organization"))
+        subscription = self.subscription(creator=self.departing, recipients=self.departing.email)
+        subscription.team = other_team
+        subscription.save(update_fields=["team"])
+        assert self.client.get(self.url + "offboarding/").json() == []
+        assert self.client.delete(self.url).status_code == 204
+        subscription.refresh_from_db()
+        assert subscription.enabled
+        assert subscription.target_value == self.departing.email

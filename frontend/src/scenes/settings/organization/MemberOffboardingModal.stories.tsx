@@ -54,6 +54,16 @@ const resources = [
         team_id: 2,
         project_name: 'App',
     },
+    {
+        id: 'subscription:1',
+        kind: 'subscription',
+        name: 'Weekly product overview',
+        url: '/project/1/subscriptions/1',
+        password_required: false,
+        team_id: 1,
+        project_name: 'Website',
+        created_at: '2026-10-20T10:00:00Z',
+    },
 ]
 
 const meta: Meta<typeof MemberOffboardingModal> = {

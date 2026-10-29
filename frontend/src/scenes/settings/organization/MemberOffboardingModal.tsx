@@ -1,31 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconDashboard, IconGraph, IconLock, IconNotebook, IconRewindPlay } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { fullNameOrEmail } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { memberOffboardingLogic } from './memberOffboardingLogic'
-
-const RESOURCE_ICONS = {
-    dashboard: <IconDashboard />,
-    insight: <IconGraph />,
-    notebook: <IconNotebook />,
-    recording: <IconRewindPlay />,
-}
+import { MemberOffboardingResourceSection } from './MemberOffboardingResourceSection'
 
 export function MemberOffboardingModal(): JSX.Element {
-    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
-    const { member, resources, resourcesLoading, loadError, keep, removedLoading, getSelectionLabel } =
+    const { member, resources, resourcesLoading, loadError, removedLoading, publicResources, subscriptions } =
         useValues(memberOffboardingLogic)
-    const { close, loadResources, setKeep, disableResources, remove } = useActions(memberOffboardingLogic)
+    const { close, loadResources, remove } = useActions(memberOffboardingLogic)
     const { scopedApiKeys, scopedApiKeysLoading } = useValues(membersLogic)
     const { user } = useValues(userLogic)
     const isSelf = member?.user.uuid === user?.uuid
@@ -56,7 +45,7 @@ export function MemberOffboardingModal(): JSX.Element {
                         loading={removedLoading}
                         disabledReason={
                             resourcesLoading
-                                ? 'Checking public resources…'
+                                ? 'Checking shared resources and subscriptions…'
                                 : loadError || resources === null
                                   ? 'Load the resource review before continuing'
                                   : undefined
@@ -78,126 +67,17 @@ export function MemberOffboardingModal(): JSX.Element {
                 <LemonSkeleton className="h-12" />
             ) : loadError ? (
                 <LemonBanner type="error" action={{ children: 'Retry', onClick: loadResources }}>
-                    Couldn't load public resources. Retry before continuing.
+                    Couldn't load shared resources and subscriptions. Retry before continuing.
                 </LemonBanner>
             ) : hasResources ? (
-                <section className="space-y-3">
-                    <h3>Publicly shared resources</h3>
-                    <p>
-                        These resources were shared by this member and are accessible to anyone with the link. You can
-                        disable public sharing. This won't delete them.
-                    </p>
-                    {!isSelf && (
-                        <div className="relative h-9">
-                            <div ref={setBulkBarTarget} className="absolute inset-0 [&:not(:empty)+span]:hidden" />
-                            <span className="flex h-full items-center text-secondary text-sm">
-                                {getSelectionLabel(resources!.map((resource) => resource.id))}
-                            </span>
-                        </div>
+                <div className="space-y-6">
+                    {publicResources.length > 0 && (
+                        <MemberOffboardingResourceSection resources={publicResources} kind="public" />
                     )}
-                    <LemonTable
-                        dataSource={resources ?? []}
-                        rowKey="id"
-                        bulkSelection={
-                            isSelf
-                                ? undefined
-                                : {
-                                      getKey: (resource) => resource.id,
-                                      noun: ['resource', 'resources'],
-                                      rowAriaLabel: (resource) => `Select ${resource.name}`,
-                                      headerAriaLabel: 'Select all resources on this page',
-                                      clearSelectionKey: member?.user.uuid,
-                                      isRowSelectable: () =>
-                                          removedLoading ? { disabledReason: 'Removing member…' } : true,
-                                      barPortalTarget: bulkBarTarget,
-                                      actionsPlacement: 'start',
-                                      barClassName: 'justify-start px-0 [&>span]:min-w-0 [&>span]:truncate',
-                                      getSelectionLabel: ({ selectedKeys }) => getSelectionLabel(selectedKeys),
-                                      renderActions: (ctx) => (
-                                          <LemonButton
-                                              type="secondary"
-                                              status="danger"
-                                              size="small"
-                                              disabledReason={removedLoading ? 'Removing member…' : undefined}
-                                              onClick={() => {
-                                                  disableResources([...ctx.selectedKeys])
-                                                  ctx.clearSelection()
-                                              }}
-                                          >
-                                              Disable selected
-                                          </LemonButton>
-                                      ),
-                                  }
-                        }
-                        pagination={resources!.length > 5 ? { pageSize: 5 } : undefined}
-                        columns={[
-                            {
-                                title: 'Resource name',
-                                key: 'name',
-                                render: (_, resource) => (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                        <span
-                                            className="text-lg text-secondary shrink-0"
-                                            role="img"
-                                            aria-label={resource.kind}
-                                            title={resource.kind}
-                                        >
-                                            {RESOURCE_ICONS[resource.kind]}
-                                        </span>
-                                        <Link
-                                            to={resource.url ?? undefined}
-                                            target="_blank"
-                                            targetBlankIcon={false}
-                                            className="break-words min-w-0"
-                                            data-attr="offboarding-resource-link"
-                                        >
-                                            {resource.name}
-                                        </Link>
-                                    </div>
-                                ),
-                            },
-                            {
-                                title: 'Project',
-                                dataIndex: 'project_name',
-                                key: 'project',
-                                width: 124,
-                                render: (name) => <span className="break-words">{name}</span>,
-                            },
-                            ...(!isSelf
-                                ? [
-                                      {
-                                          title: 'Publicly shared',
-                                          key: 'disable',
-                                          width: 112,
-                                          render: (_: unknown, resource: NonNullable<typeof resources>[number]) => (
-                                              <div className="flex items-center gap-2">
-                                                  <LemonSwitch
-                                                      checked={keep.includes(resource.id)}
-                                                      onChange={(enabled) => setKeep(resource.id, enabled)}
-                                                      disabledReason={removedLoading ? 'Removing member…' : undefined}
-                                                      aria-label={`Public sharing for ${resource.name}`}
-                                                      data-attr="offboarding-disable-dashboard"
-                                                  />
-                                                  {resource.password_required && (
-                                                      <Tooltip title="Password protected">
-                                                          <span
-                                                              className="flex text-secondary"
-                                                              role="img"
-                                                              aria-label="Password protected"
-                                                          >
-                                                              <IconLock />
-                                                          </span>
-                                                      </Tooltip>
-                                                  )}
-                                              </div>
-                                          ),
-                                      },
-                                  ]
-                                : []),
-                        ]}
-                    />
-                    {isSelf && <p>Public sharing will be disabled for these resources when you leave.</p>}
-                </section>
+                    {subscriptions.length > 0 && (
+                        <MemberOffboardingResourceSection resources={subscriptions} kind="subscriptions" />
+                    )}
+                </div>
             ) : null}
             {!scopedApiKeysLoading && !!scopedApiKeys?.keys.length && (
                 <div className="mt-4">

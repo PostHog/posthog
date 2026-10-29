@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from posthog.dataclasses import frozen
 
 
@@ -8,5 +10,6 @@ class OffboardingResource:
     name: str
     team_id: int
     project_name: str
+    created_at: datetime | None = None
     password_required: bool = False
     url: str | None = None

@@ -12,6 +12,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.organization_offboarding_types import OffboardingResource
 
+from products.subscriptions.backend.facade import api as subscriptions
+
 
 @frozen
 class PublicResourceKind:
@@ -102,6 +104,7 @@ class OrganizationOffboarding:
 
     def resources(self) -> list[OffboardingResource]:
         resources = [resource for kind in PUBLIC_RESOURCE_KINDS for resource in self._public_resources(kind)]
+        resources.extend(subscriptions.list_member_offboarding_resources(self.organization_id, self.user_id))
         return sorted(resources, key=lambda resource: (resource.name, resource.id))
 
     def remove(self, keep: set[str]) -> None:
@@ -109,7 +112,7 @@ class OrganizationOffboarding:
             raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
             for resource in self.resources():
-                if resource.id not in keep:
+                if resource.kind != "subscription" and resource.id not in keep:
                     resource_id = resource.id.split(":", 3)[3]
                     configurations = SharingConfiguration.objects.filter(
                         team_id=resource.team_id, **{f"{resource.kind}_id": resource_id}
@@ -120,4 +123,7 @@ class OrganizationOffboarding:
                         if configuration and configuration.dashboard:
                             configuration.dashboard.is_shared = False
                             configuration.dashboard.save(update_fields=["is_shared"])
+            subscriptions.disable_member_offboarding_resources(
+                self.organization_id, self.user_id, keep, self.membership.user.email
+            )
             self.membership.user.leave(organization=self.membership.organization)
