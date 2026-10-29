@@ -6,7 +6,7 @@ that carry its id.
 
 import uuid
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from itertools import batched
 from typing import Any
@@ -88,47 +88,44 @@ def record_memberships(
     _add_theme_days(row_team_id, [(*key, count) for key, count in theme_days.items()])
 
 
-def _add_group_days(team_id: int, rows: list[tuple[uuid.UUID, date, str, int, str, int, float]]) -> None:
-    # Counts add onto the stored day, which an ORM upsert can't express: it only overwrites.
+def add_day_counts(
+    table: str, columns: Sequence[str], conflict: Sequence[str], rows: Iterable[Sequence[Any]], *, also_set: str = ""
+) -> None:
+    """Add each row's `observation_count` onto the stored day, which an ORM upsert can't express: it only overwrites."""
+    placeholders = f"({', '.join(['%s'] * len(columns))})"
     for chunk in batched(rows, _WRITE_CHUNK, strict=False):
-        values = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s)"] * len(chunk))
-        params: list[Any] = []
-        for group_id, day, variant, experiment_id, category, observations, best in chunk:
-            params += [team_id, group_id, day, variant, experiment_id, category, observations, best]
+        params = [value for row in chunk for value in row]
         with connection.cursor() as cursor:
             cursor.execute(
-                # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
+                # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (names come from callers' literals, every value is a parameter)
                 f"""
-                INSERT INTO replay_vision_replayscannerfeedgroupday
-                    (team_id, group_id, day, variant, experiment_id, category, observation_count, best_contrast)
-                VALUES {values}
-                ON CONFLICT (group_id, day, variant, experiment_id, category) DO UPDATE SET
-                    observation_count = replay_vision_replayscannerfeedgroupday.observation_count
-                        + EXCLUDED.observation_count,
-                    best_contrast = GREATEST(replay_vision_replayscannerfeedgroupday.best_contrast, EXCLUDED.best_contrast)
+                INSERT INTO {table} ({", ".join(columns)})
+                VALUES {", ".join([placeholders] * len(chunk))}
+                ON CONFLICT ({", ".join(conflict)}) DO UPDATE SET
+                    observation_count = {table}.observation_count + EXCLUDED.observation_count{also_set}
                 """,
                 params,
             )
+
+
+def _add_group_days(team_id: int, rows: list[tuple[uuid.UUID, date, str, int, str, int, float]]) -> None:
+    table = "replay_vision_replayscannerfeedgroupday"
+    add_day_counts(
+        table,
+        ["team_id", "group_id", "day", "variant", "experiment_id", "category", "observation_count", "best_contrast"],
+        ["group_id", "day", "variant", "experiment_id", "category"],
+        [(team_id, *row) for row in rows],
+        also_set=f", best_contrast = GREATEST({table}.best_contrast, EXCLUDED.best_contrast)",
+    )
 
 
 def _add_theme_days(team_id: int, rows: list[tuple[uuid.UUID, date, int]]) -> None:
-    for chunk in batched(rows, _WRITE_CHUNK, strict=False):
-        values = ", ".join(["(%s, %s, %s, %s)"] * len(chunk))
-        params: list[Any] = []
-        for theme_id, day, observations in chunk:
-            params += [team_id, theme_id, day, observations]
-        with connection.cursor() as cursor:
-            cursor.execute(
-                # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
-                f"""
-                INSERT INTO replay_vision_replayscannersearchthemeday (team_id, theme_id, day, observation_count)
-                VALUES {values}
-                ON CONFLICT (theme_id, day) DO UPDATE SET
-                    observation_count = replay_vision_replayscannersearchthemeday.observation_count
-                        + EXCLUDED.observation_count
-                """,
-                params,
-            )
+    add_day_counts(
+        "replay_vision_replayscannersearchthemeday",
+        ["team_id", "theme_id", "day", "observation_count"],
+        ["theme_id", "day"],
+        [(team_id, *row) for row in rows],
+    )
 
 
 @frozen

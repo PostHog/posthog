@@ -12,7 +12,6 @@ from collections import defaultdict
 from datetime import datetime
 from itertools import batched
 from typing import Any
-from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Count
@@ -186,22 +185,18 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
                         .exclude(watch_rank__anchor_version=ANCHOR_VERSION)
                         .values_list("id", flat=True)
                     )
+                    unranked = [row for row in batch if row["id"] in still_unranked]
                     ReplayObservation.objects.bulk_update(
                         [
-                            ReplayObservation(id=observation_id, watch_rank=reading.rank.to_json())
-                            for observation_id, reading in written.items()
-                            if UUID(observation_id) in still_unranked
+                            ReplayObservation(id=row["id"], watch_rank=written[str(row["id"])].rank.to_json())
+                            for row in unranked
                         ],
                         ["watch_rank"],
                     )
                     add_rank_days(
                         team_id,
                         ANCHOR_VERSION,
-                        [
-                            RankedRow(scanner_id=row["scanner_id"], created_at=row["created_at"])
-                            for row in batch
-                            if row["id"] in still_unranked
-                        ],
+                        [RankedRow(scanner_id=row["scanner_id"], created_at=row["created_at"]) for row in unranked],
                     )
     without_embedding = len(rows) - embedded
     logger.info(

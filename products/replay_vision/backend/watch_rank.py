@@ -264,15 +264,11 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
 def _save_rank(team_id: int, observation_id: str, rank: WatchRank) -> bool:
     """Save the rank and count it in its scanner's day, unless a concurrent delivery ranked the row first."""
     with transaction.atomic():
-        row = (
-            ReplayObservation.objects.select_for_update()
-            .filter(team_id=team_id, id=observation_id)
-            .values("scanner_id", "created_at", "status", "watch_rank")
-            .first()
-        )
+        observation = ReplayObservation.objects.filter(team_id=team_id, id=observation_id)
+        row = observation.select_for_update().values("scanner_id", "created_at", "status", "watch_rank").first()
         if row is None or current_rank({"watch_rank": row["watch_rank"]}) is not None:
             return False
-        ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(watch_rank=rank.to_json())
+        observation.update(watch_rank=rank.to_json())
         if row["status"] == ObservationStatus.SUCCEEDED:
             add_rank_days(
                 team_id, ANCHOR_VERSION, [RankedRow(scanner_id=row["scanner_id"], created_at=row["created_at"])]
@@ -334,26 +330,26 @@ def _pick_window_rows(
         # Django compiles a filter that can match nothing, such as an empty scanner list, to this.
         return []
     top_fifth = max(math.floor(rows * (1 - HIGHLIGHT_PICK_MIN_PERCENTILE)) + 1 for rows in counted.values())
-    # Picks go round-robin by place, so the first `limit` picks seldom reach deeper than a few rounds past an even share.
-    depth = 2 * math.ceil(limit / len(counted))
-    while True:
-        # Only fragments written here join the compiled ORM SQL; every value travels as a parameter.
-        sql = f"""
-            SELECT id, created_at, watch_percentile, watch_group_root FROM (
-                SELECT scanner_top.*,
-                    ((scanner_counts.scanner_rows - scanner_top.scanner_rank + 1) - 0.5)
-                        / scanner_counts.scanner_rows::double precision AS watch_percentile
-                FROM (VALUES {", ".join(["(%s::uuid, %s::int)"] * len(counted))}) AS scanner_counts(scanner_id, scanner_rows)
-                CROSS JOIN LATERAL (
-                    {top_sql} LIMIT least(floor(scanner_counts.scanner_rows * %s)::int + 1, %s)
-                ) scanner_top
-            ) picks
-            WHERE pick_category = ANY(%s) AND watch_percentile >= %s
-            ORDER BY scanner_rank, watch_percentile DESC, created_at DESC, id DESC
-            LIMIT %s
-        """
+    # Only fragments written here join the compiled ORM SQL; every value travels as a parameter.
+    sql = f"""
+        SELECT id, created_at, watch_percentile, watch_group_root FROM (
+            SELECT scanner_top.*,
+                ((scanner_counts.scanner_rows - scanner_top.scanner_rank + 1) - 0.5)
+                    / scanner_counts.scanner_rows::double precision AS watch_percentile
+            FROM (VALUES {", ".join(["(%s::uuid, %s::int)"] * len(counted))}) AS scanner_counts(scanner_id, scanner_rows)
+            CROSS JOIN LATERAL (
+                {top_sql} LIMIT least(floor(scanner_counts.scanner_rows * %s)::int + 1, %s)
+            ) scanner_top
+        ) picks
+        WHERE pick_category = ANY(%s) AND watch_percentile >= %s
+        ORDER BY scanner_rank, watch_percentile DESC, created_at DESC, id DESC
+        LIMIT %s
+    """
+    scanner_params = [value for scanner_id, rows in counted.items() for value in (str(scanner_id), rows)]
+
+    def read(depth: int) -> list[dict[str, Any]]:
         params = (
-            *(value for scanner_id, rows in counted.items() for value in (str(scanner_id), rows)),
+            *scanner_params,
             *top_params,
             1 - HIGHLIGHT_PICK_MIN_PERCENTILE,
             depth,
@@ -363,11 +359,16 @@ def _pick_window_rows(
         )
         with connections[current_ranks.db].cursor() as cursor:
             cursor.execute(sql, params)
-            rows = dict_from_cursor_fetchall(cursor)
-        # A full page holds only places the read reached, since deeper rows sort after every one of them.
-        if len(rows) == limit or depth >= top_fifth:
-            return rows
-        depth *= 2
+            return dict_from_cursor_fetchall(cursor)
+
+    # Picks go round-robin by place, so the first `limit` picks seldom reach deeper than a few rounds past an even share.
+    depth = 2 * math.ceil(limit / len(counted))
+    rows = read(depth)
+    # A full page holds only places the read reached, since deeper rows sort after every one of them. A short page
+    # means the categories filter out most rows, so the second read goes straight to the full top fifth.
+    if len(rows) == limit or depth >= top_fifth:
+        return rows
+    return read(top_fifth)
 
 
 def select_embedding_picks(

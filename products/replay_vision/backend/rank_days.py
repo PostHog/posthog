@@ -7,16 +7,15 @@ import uuid
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime, time, timedelta
-from itertools import batched
 from typing import Any
 
-from django.db import connection
-from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models import Count, QuerySet, Sum
 from django.db.models.functions import TruncDate
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
+from products.replay_vision.backend.cluster_membership import add_day_counts
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner_rank_day import ReplayScannerRankDay
 
@@ -39,22 +38,12 @@ def add_rank_days(team_id: int, anchor_version: int, rows: Iterable[RankedRow]) 
     if not days:
         return
     row_team_id = resolve_effective_team_id(team_id)
-    for chunk in batched(days.items(), _WRITE_CHUNK, strict=False):
-        values = ", ".join(["(%s, %s, %s, %s, %s)"] * len(chunk))
-        params: list[Any] = []
-        for (scanner_id, day), count in chunk:
-            params += [row_team_id, scanner_id, anchor_version, day, count]
-        with connection.cursor() as cursor:
-            cursor.execute(
-                # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
-                f"""
-                INSERT INTO replay_vision_replayscannerrankday (team_id, scanner_id, anchor_version, day, observation_count)
-                VALUES {values}
-                ON CONFLICT (scanner_id, anchor_version, day) DO UPDATE SET
-                    observation_count = replay_vision_replayscannerrankday.observation_count + EXCLUDED.observation_count
-                """,
-                params,
-            )
+    add_day_counts(
+        "replay_vision_replayscannerrankday",
+        ["team_id", "scanner_id", "anchor_version", "day", "observation_count"],
+        ["scanner_id", "anchor_version", "day"],
+        [(row_team_id, scanner_id, anchor_version, day, count) for (scanner_id, day), count in days.items()],
+    )
 
 
 def scanner_rank_counts(
@@ -86,12 +75,17 @@ def scanner_rank_counts(
             .values_list("scanner_id", "rows")
         )
         counts.update(dict(inner))
-    # Ranges on created_at, not a day function, so the count reads the ranked rows' scanner index.
-    edges = ranked.filter(
-        Q(created_at__lt=_midnight(first_day + timedelta(days=1))) | Q(created_at__gte=_midnight(last_day))
-    )
-    edge_rows = edges.values("scanner_id").annotate(rows=Count("id")).values_list("scanner_id", "rows")
-    counts.update(dict(edge_rows))
+    # Each edge is its own created_at range, so both counts read the ranked rows' scanner index in one statement.
+    first_edge = ranked.filter(created_at__lt=_midnight(first_day + timedelta(days=1)))
+    edges = [first_edge]
+    if last_day > first_day:
+        edges.append(ranked.filter(created_at__gte=_midnight(last_day)))
+    by_scanner = [
+        edge.order_by().values("scanner_id").annotate(rows=Count("id")).values_list("scanner_id", "rows")
+        for edge in edges
+    ]
+    for scanner_id, rows in by_scanner[0].union(*by_scanner[1:], all=True):
+        counts[scanner_id] += rows
     return dict(counts)
 
 

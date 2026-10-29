@@ -21,8 +21,8 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         since = timezone.now() - timedelta(days=options["days"])
+        dry_run = bool(options["dry_run"])
         for team_id in options["team_id"] or teams_with_observations(since):
-            dry_run = bool(options["dry_run"])
             rank_days = backfill_team_rank_days(team_id, since, ANCHOR_VERSION, dry_run=dry_run)
             result = backfill_team_memberships(team_id, since, dry_run=dry_run)
             self.stdout.write(
