@@ -144,8 +144,8 @@ class QueryReferences:
 class _HogQLReferences(TraversingVisitor):
     """The actions and cohorts a HogQL filter names, through `matchesAction(id)` and `IN COHORT id`.
 
-    Refuses what it cannot read: a subquery, which can select from cohort tables directly, and a
-    reference that is not a constant id. A name is refused too, since resolving it here would tell the
+    Refuses what it cannot read: a subquery or a HogQLX tag, which can select from cohort tables
+    directly or expand into a query after this check, and a reference that is not a constant id. A name is refused too, since resolving it here would tell the
     caller which id it belongs to before any access check.
     """
 
@@ -175,6 +175,9 @@ class _HogQLReferences(TraversingVisitor):
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         raise ScannerQueryError("A HogQL expression in a scanner filter can't use a subquery.")
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+        raise ScannerQueryError("A HogQL expression in a scanner filter can't use a HogQLX tag.")
 
 
 def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
@@ -217,7 +220,9 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
         elif item.get("type") == "hogql":
             try:
                 expression = parse_expr(str(item.get("key") or ""))
-            except BaseHogQLError:
+            # The parser raises Python's own errors too: SyntaxError for an empty expression,
+            # RecursionError for one nested too deeply.
+            except (BaseHogQLError, SyntaxError, RecursionError):
                 raise ScannerQueryError("Recording filter has a HogQL expression that doesn't parse.")
             embedded = _HogQLReferences()
             embedded.visit(expression)

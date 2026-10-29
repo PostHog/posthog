@@ -135,17 +135,33 @@ class TestUnresolvedReferences(BaseTest):
 
     @parameterized.expand(
         [
-            ("a non-numeric action id", {"actions": [{"id": float("inf")}]}),
+            ("a non-numeric action id", {"actions": [{"id": float("inf")}]}, "invalid"),
             # Resolving a name here would tell the caller which id it has before any access check.
-            ("an action named in HogQL", {"properties": [{"type": "hogql", "key": "matchesAction('Signed up')"}]}),
-            ("a cohort named in HogQL", {"properties": [{"type": "hogql", "key": "person_id IN COHORT 'Paying'"}]}),
+            (
+                "an action named in HogQL",
+                {"properties": [{"type": "hogql", "key": "matchesAction('Signed up')"}]},
+                "numeric id",
+            ),
+            (
+                "a cohort named in HogQL",
+                {"properties": [{"type": "hogql", "key": "person_id IN COHORT 'Paying'"}]},
+                "numeric id",
+            ),
             # A subquery can select from the cohort tables directly, where no reference is visible.
             (
                 "a HogQL subquery",
                 {"properties": [{"type": "hogql", "key": "person_id IN (SELECT person_id FROM cohort_people)"}]},
+                "subquery",
             ),
+            # A tag expands into a query after this check runs.
+            (
+                "a HogQLX tag",
+                {"properties": [{"type": "hogql", "key": "properties.$session_id IN <ActorsQuery />"}]},
+                "HogQLX tag",
+            ),
+            ("an empty HogQL expression", {"properties": [{"type": "hogql", "key": ""}]}, "doesn't parse"),
         ]
     )
-    def test_refuses_references_it_cannot_read(self, _name, filters):
-        with self.assertRaises(ScannerQueryError):
+    def test_refuses_references_it_cannot_read(self, _name, filters, reason):
+        with self.assertRaisesRegex(ScannerQueryError, reason):
             query_references({"kind": "RecordingsQuery", **filters}, self.team)
