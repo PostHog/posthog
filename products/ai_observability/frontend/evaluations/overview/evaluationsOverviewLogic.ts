@@ -873,7 +873,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             (rows: EvaluationResultApi[], nothingGraded: boolean): EvaluationResultApi[] => {
                 const listed = nothingGraded
                     ? rows
-                    : rows.filter((row) => row.attentionReasons.length > 0 || (row.enabled && row.gradedCount > 0))
+                    : rows.filter((row) => row.attentionReasons.length > 0 || row.gradedCount > 0)
                 // Rows with a line to draw come first, so evaluations that never ran do not push them down.
                 return [
                     ...attentionFirst(listed.filter(isChartable)),

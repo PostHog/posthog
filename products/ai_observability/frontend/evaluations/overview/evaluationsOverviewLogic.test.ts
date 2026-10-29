@@ -112,6 +112,7 @@ const ATTENTION_ROWS = [
     attentionRow('worse-12', 'worse', PASS_RATE, -12),
     attentionRow('worse-8', 'worse', PASS_RATE, -8),
     attentionRow('errored', 'errored', PASS_RATE, null),
+    { ...attentionRow('paused', null, PASS_RATE, 1), enabled: false },
 ]
 
 const HISTOGRAM = { scale: SCALE, buckets: [{ label: '7', count: 10 }] }
@@ -575,9 +576,13 @@ describe('evaluationsOverviewLogic', () => {
     test.each([
         {
             selector: 'tableRows' as const,
-            expected: ['errored', 'worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'silent', 'healthy'],
+            expected: ['errored', 'worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'silent', 'healthy', 'paused'],
         },
         { selector: 'chartedIds' as const, expected: ['worse-sentiment', 'worse-12', 'worse-8'] },
+        {
+            selector: 'compareListRows' as const,
+            expected: ['worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'healthy', 'paused', 'errored', 'silent'],
+        },
     ])('puts the worst regression first in $selector', async ({ selector, expected }) => {
         useMocks({
             get: {
