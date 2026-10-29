@@ -433,9 +433,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
             )
         persons_on_events = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        assert "UNION ALL" not in self._sql(query, persons_on_events=persons_on_events)
+        # The native events schema reads every property from JSON, so only the legacy schema reads a typed column.
+        new_events_schema = False if typed_column else None
+        assert "UNION ALL" not in self._sql(
+            query, persons_on_events=persons_on_events, new_events_schema=new_events_schema
+        )
         with pytest.raises(QueryError, match=reason):
-            self._sql(query, mode=ONLY, persons_on_events=persons_on_events)
+            self._sql(query, mode=ONLY, persons_on_events=persons_on_events, new_events_schema=new_events_schema)
 
     @parameterized.expand([("dotted", UNION), ("quoted", f"`{UNION}`")])
     def test_query_cannot_name_the_union_table(self, _name: str, table: str):
