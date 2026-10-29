@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
@@ -311,9 +311,13 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     // A free-only scanner without its own cap can never bill, so it gets a credit count and a note instead of a cost.
     const freeCreditsOnly = !!scanner.free_only && scanner.credit_limit == null
 
-    const saveDisabledReason =
-        getReplayVisionEditDisabledReason(scanner.user_access_level) ??
-        (zeroMatches ? 'No recordings are eligible. Change the filter first.' : undefined)
+    // Zero recent matches only warns: a new project can have no recordings yet, and the scanner scans
+    // the matching recordings that arrive after it is created.
+    const saveDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
+    const zeroMatchesWarning =
+        zeroMatches && !saveDisabledReason
+            ? `No recordings matched in the last ${pluralize(scannerEstimate.window_days, 'day')}. The scanner scans new matching recordings when they arrive.`
+            : undefined
 
     return (
         <div className="flex flex-col gap-3">
@@ -374,7 +378,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : zeroMatches ? (
                     <LemonBanner type="warning">
                         No recordings match these filters for the last {pluralize(scannerEstimate.window_days, 'day')}.
-                        Change the filter, or the scanner may never run.
+                        You can still create the scanner. It scans new matching recordings when they arrive. If you
+                        expected matches, change the filter.
                     </LemonBanner>
                 ) : scannerEstimate ? (
                     <div className="text-sm text-muted">
@@ -472,6 +477,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     onClick={() => submitScanner()}
                     loading={isScannerSubmitting}
                     disabledReason={saveDisabledReason}
+                    icon={zeroMatchesWarning ? <IconWarning /> : undefined}
+                    tooltip={zeroMatchesWarning}
                     data-attr="vision-goal-overview-create"
                 >
                     Create scanner
