@@ -2,8 +2,11 @@ import { isAiEventName } from '~/ingestion/common/ai-event-types'
 
 export const EVENTS_USAGE_KEY = 'events'
 export const AI_EVENTS_USAGE_KEY = 'ai_events'
+export const MCP_EVENTS_USAGE_KEY = 'mcp_events'
 export const EXCEPTIONS_USAGE_KEY = 'exceptions'
 export const SURVEY_RESPONSES_USAGE_KEY = 'survey_responses'
+
+const MCP_EVENT_NAME_PREFIX = '$mcp_'
 
 /** Null means the event is not billed at all. */
 export type UsageKeyResolver = (event: string) => string | null
@@ -30,12 +33,15 @@ const NON_BILLABLE_EVENTS = new Set([
 
 /**
  * Bills each event under the key its own product owns, wherever the event turns up.
- * Every `$ai_*` event bills as an AI event, matching the nightly report's
- * `startsWith(event, '$ai_')` split between the two meters.
+ * Every `$ai_*` event bills as an AI event and every `$mcp_*` event as an MCP event,
+ * matching the nightly report's `startsWith` splits between the meters.
  */
 export const resolveAnalyticsUsageKey: UsageKeyResolver = (event) => {
     if (isAiEventName(event)) {
         return AI_EVENTS_USAGE_KEY
+    }
+    if (event.startsWith(MCP_EVENT_NAME_PREFIX)) {
+        return MCP_EVENTS_USAGE_KEY
     }
     if (event === 'survey sent') {
         return SURVEY_RESPONSES_USAGE_KEY
