@@ -185,7 +185,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     # mentioner could.
     source_task = (
         SlackThreadTaskMapping.objects.filter(
-            integration=integration,
+            integration_id=integration.id,
             channel=source_channel,
             thread_ts=source_thread_ts,
         )

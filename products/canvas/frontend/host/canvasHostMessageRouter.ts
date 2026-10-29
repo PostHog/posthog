@@ -48,10 +48,10 @@ const REPLAYABLE_SHORTCUT_KEYS = new Set([
 ])
 
 // These write or start work, so the canvas must not fire them just by loading.
-const GESTURE_GATED_METHODS = new Set(['actionInvoke', 'agentRequest'])
+const GESTURE_GATED_METHODS = new Set(['actionInvoke', 'toolCall', 'agentRequest'])
 const GESTURE_GATED_NAV_TARGETS = new Set<CanvasNavIntent['target']>(['connect', 'compose-task', 'new-task'])
 // Approval dialogs can stay open longer than the I/O timeout, so these wait unbounded.
-const UNTIMED_METHODS = new Set(['agentRequest', 'actionInvoke', 'connectorCall'])
+const UNTIMED_METHODS = new Set(['agentRequest', 'actionInvoke', 'toolCall', 'connectorCall'])
 
 function isBoundedPayload(payload: unknown): boolean {
     try {

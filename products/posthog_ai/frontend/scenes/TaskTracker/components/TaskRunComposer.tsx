@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type MutableRefObject, type RefObject, useEffect, useMemo, useRef } from 'react'
+import { type MutableRefObject, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { projectLogic } from 'scenes/projectLogic'
@@ -45,21 +45,27 @@ import { ComposerModeShortcut } from '../../../components/composer/ComposerModeS
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { ContextUsageChip } from '../../../components/ContextUsageChip'
 import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
-import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
+import { QuillContextUsage } from '../../../components/quill/QuillContextUsage'
 import { isPiTaskRuntime } from '../../../types/taskTypes'
+import { QuillRunRepositoryChip } from './QuillRunRepositoryChip'
+import { TaskComposerAddMenu } from './TaskComposerAddMenu'
 
 export function TaskRunComposer({
     logicProps,
     textAreaRef,
     autoFocus,
     flushDraftRef,
+    repository,
+    branch,
 }: {
     logicProps: RunInteractionLogicProps
     textAreaRef: RefObject<HTMLTextAreaElement>
     autoFocus?: boolean
     flushDraftRef: MutableRefObject<() => void>
+    repository?: string | null
+    branch?: string | null
 }): JSX.Element {
     const {
         composerForm,
@@ -125,6 +131,7 @@ export function TaskRunComposer({
     // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
     const labelRef = useRef<HTMLLabelElement>(null)
     const groupRef = useRef<HTMLDivElement>(null)
+    const [contextPickerOpen, setContextPickerOpen] = useState(false)
     const skin = useThreadSkin()
     const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
 
@@ -163,14 +170,12 @@ export function TaskRunComposer({
             : () => router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
         phoneSheet: todayRailEnabled && phoneLayout,
     }
+    const lockedCodexModelAccess = isTerminal
+        ? null
+        : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
     const modelPicker =
         codexBillingEnabled && !isPiTask ? (
-            <ComposerCodexBillingPickers
-                {...modelPickerProps}
-                lockedCodexModelAccess={
-                    isTerminal ? null : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
-                }
-            />
+            <ComposerCodexBillingPickers {...modelPickerProps} lockedCodexModelAccess={lockedCodexModelAccess} />
         ) : (
             <ComposerModelEffortPickers {...modelPickerProps} />
         )
@@ -275,6 +280,7 @@ export function TaskRunComposer({
                         textAreaRef={textAreaRef}
                         chips={
                             <>
+                                {repository && <QuillRunRepositoryChip repository={repository} branch={branch} />}
                                 {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
                                 <AttachedContextChips />
                                 <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
@@ -284,12 +290,28 @@ export function TaskRunComposer({
                         send={withConsent(<QuillComposerSendButton data-attr="sandbox-composer-send" />)}
                         controls={
                             <>
-                                <QuillComposerAttachButton attachmentsKey={attachmentsKey} dropTargetRef={groupRef} />
-                                <QuillAttachedContextPicker />
-                                {pickers(modelPicker, modePicker)}
+                                <TaskComposerAddMenu
+                                    attachmentsKey={attachmentsKey}
+                                    dropTargetRef={groupRef}
+                                    onAddContext={() => setContextPickerOpen(true)}
+                                />
+                                <QuillAttachedContextPicker
+                                    open={contextPickerOpen}
+                                    onOpenChange={setContextPickerOpen}
+                                    anchor={groupRef}
+                                />
+                                <div className="shrink-0">{pickers(modePicker, null)}</div>
                             </>
                         }
-                        meta={<ContextUsageChip />}
+                        singleRow
+                        meta={
+                            <div className="flex min-w-0 items-center gap-1 [&>fieldset]:min-w-0 [&>fieldset]:flex-nowrap">
+                                <span className="px-1 empty:hidden">
+                                    <QuillContextUsage />
+                                </span>
+                                {pickers(modelPicker, null)}
+                            </div>
+                        }
                     />
                 ) : (
                     <>

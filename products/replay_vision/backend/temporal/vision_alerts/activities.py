@@ -45,6 +45,7 @@ from products.replay_vision.backend.alert_utils import (
     compute_shard_offset_seconds,
     due_alerts_q,
     next_allowed_check_at,
+    observation_url,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.vision_alert import (
@@ -739,6 +740,7 @@ def _emit_match_event(
     ).values_list("id", "scanner_result", "completed_at")
     by_id = {str(row_id): (scanner_result, completed_at) for row_id, scanner_result, completed_at in summary_rows}
     lines: list[str] = []
+    mrkdwn_lines: list[str] = []
     budget = MATCH_SUMMARY_MAX_CHARS
     for observation_id in observation_ids[:MATCH_SUMMARY_LINES]:
         scanner_result, completed_at = by_id.get(observation_id, (None, None))
@@ -753,28 +755,31 @@ def _emit_match_event(
         stamp = f"({completed_at:%Y-%m-%d %H:%M} UTC) " if completed_at else ""
         body = f"{descriptor}: {explanation}" if explanation else descriptor
         line = f"- {stamp}{body}"
+        # The link is appended after escaping, which would otherwise mangle its <url|label> syntax.
+        mrkdwn_line = f"{escape_slack_mrkdwn(line)} <{observation_url(alert.team_id, observation_id)}|View>"
         # The Slack copy is what has to fit the block, so the budget measures the escaped length.
-        cost = len(escape_slack_mrkdwn(line)) + 1
+        cost = len(mrkdwn_line) + 1
         if cost > budget:
             break
         lines.append(line)
+        mrkdwn_lines.append(mrkdwn_line)
         budget -= cost
     remaining = len(observation_ids) - len(lines)
     if remaining > 0:
         lines.append(f"- and {remaining} more")
+        mrkdwn_lines.append(f"- and {remaining} more")
 
     # Deterministic uuid over the drained row set: an identical-batch retry (crash
     # after ack, before the stamp, with no new rows) dedupes at ingestion.
     event_uuid = uuid5(NAMESPACE_URL, f"vision-alert-match:{alert.id}:{','.join(sorted(str(m) for m, _ in rows))}")
 
-    summary = "\n".join(lines)
     properties = {
         **_base_properties(alert, now),
         "matched_count": len(rows),
         "observation_ids": observation_ids,
-        "summary": escape_slack_mrkdwn(summary),
-        # Webhook consumers parse JSON, so they get the same text without the mrkdwn entities.
-        "summary_text": summary,
+        "summary": "\n".join(mrkdwn_lines),
+        # Webhook consumers parse JSON, so they get the same text without the mrkdwn entities or links.
+        "summary_text": "\n".join(lines),
     }
     return produce_alert_internal_event(
         team_id=alert.team_id,

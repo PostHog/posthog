@@ -180,6 +180,7 @@ Connect the management (payer) account to see spend across every member account.
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (defaults to 12 months ago)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

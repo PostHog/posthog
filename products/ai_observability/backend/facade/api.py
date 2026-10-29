@@ -3,7 +3,16 @@ from datetime import date, datetime
 
 from posthog.schema import HogQLPropertyFilter
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+
+from products.surveys.backend.facade.api import (
+    LinkedSurveyAnswer,
+    LinkedSurveyResponse,
+    LinkedSurveyResponses,
+    SurveyRef,
+    get_survey_responses_linked_to,
+)
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
@@ -16,15 +25,41 @@ from ..logic.evaluations.period import (
 )
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
+from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
+from ..logic.traces.clusters import ClusterMemberships, TraceCluster
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
+from ..logic.traces.evaluation_summary import EvaluationSummary
 from ..logic.traces.events_fallback import fallback_window
+from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
+from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
+from ..logic.traces.summary import (
+    AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
+    FailedSummary,
+    PendingSummary,
+    ReadySummary,
+    SummaryEntry,
+    SummaryItem,
+    TraceSummaryNotFoundError as TraceSummaryNotFoundError,
+    TraceSummaryRetryableError as TraceSummaryRetryableError,
+)
+from ..logic.traces.summary_generation import generate_summary
+from ..logic.traces.summary_store import fail_abandoned_summary, request_summary, viewer_summary
+from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
-from ..logic.traces.trace_queries import load_trace, load_trace_node, load_trace_root
+from ..logic.traces.trace_queries import (
+    load_trace,
+    load_trace_feedback_rows,
+    load_trace_node,
+    load_trace_root,
+    load_trace_search,
+)
+from ..logic.traces.trace_search import TraceSearchResult
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
+from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
 
 
@@ -146,7 +181,12 @@ def _to_trace(trace: Trace) -> contracts.Trace:
         thread_node_ids=trace.thread_node_ids,
         default_node_id=trace.default_node_id,
         node_ids_by_alias=trace.node_ids_by_alias,
+        git=_to_git(trace.git) if trace.git is not None else None,
     )
+
+
+def _to_git(ref: GitRef) -> contracts.TraceGit:
+    return contracts.TraceGit(branch=ref.branch, repo=ref.repo)
 
 
 def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail:
@@ -170,6 +210,20 @@ def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail
             properties=event.row.properties,
             io_keys=contracts.TraceNodeIOKeys(input=keys.input, output=keys.output, tools=keys.tools),
         ),
+    )
+
+
+def search_trace(
+    team: Team, user: User | None, trace_id: str, query: str, timestamp_hint: datetime | None
+) -> contracts.TraceSearchResults:
+    """Raises `TraceNotFoundError`, and `ClickHouseQueryTimeOut` when the search outlasts its time limit."""
+    loaded = load_trace_search(team, user, trace_id, query, timestamp_hint)
+    if not loaded.rows:
+        raise TraceNotFoundError(trace_id)
+    result = TraceSearchResult.of(Trace(trace_id, loaded.rows, None), loaded.counts, query)
+    return contracts.TraceSearchResults(
+        total=result.total,
+        matches=[contracts.TraceSearchMatch(node_id=match.node_id, count=match.count) for match in result.matches],
     )
 
 
@@ -198,15 +252,13 @@ def mentions_evaluation_pass_markers(text: str) -> bool:
 def get_trace_evaluation_results(team: Team, user: User | None, trace_id: str) -> contracts.TraceEvaluationResults:
     rows = load_evaluation_results(team, user, trace_id)
     configs = load_output_configs(team, user, {row.evaluation_id for row in rows if row.evaluation_id})
+    results = [
+        EvaluationResult.from_row(row, trace_id=trace_id, output_config=configs.get(row.evaluation_id or "", {}))
+        for row in rows
+    ]
     return contracts.TraceEvaluationResults(
-        results=[
-            _to_evaluation_result(
-                EvaluationResult.from_row(
-                    row, trace_id=trace_id, output_config=configs.get(row.evaluation_id or "", {})
-                )
-            )
-            for row in rows
-        ]
+        results=[_to_evaluation_result(result) for result in results],
+        summary=_to_evaluation_summary(EvaluationSummary.from_results(results)),
     )
 
 
@@ -218,14 +270,153 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
         target_node_id=result.target_node_id,
         outcome=result.outcome,
         label=result.label,
+        score=result.score,
         reasoning=result.reasoning,
         timestamp=result.timestamp,
         is_backfill=result.is_backfill,
     )
 
 
+def is_usable_trace_start(created_at: datetime) -> bool:
+    try:
+        ClusterRunWindow.for_trace(created_at)
+    except OverflowError:
+        return False
+    return True
+
+
+def get_trace_clusters(team: Team, user: User | None, trace_id: str, created_at: datetime) -> contracts.TraceClusters:
+    if not can_read_clusters(team, user):
+        return contracts.TraceClusters(clusters=[])
+    runs = load_cluster_runs(team, user, trace_id, ClusterRunWindow.for_trace(created_at))
+    return contracts.TraceClusters(
+        clusters=[_to_trace_cluster(cluster) for cluster in ClusterMemberships.of(trace_id, runs).clusters]
+    )
+
+
+def _to_trace_cluster(cluster: TraceCluster) -> contracts.TraceCluster:
+    return contracts.TraceCluster(
+        run_id=cluster.run_id,
+        run_at=cluster.run_at,
+        job_id=cluster.job_id,
+        job_name=cluster.job_name,
+        cluster_id=cluster.cluster_id,
+        title=cluster.title,
+        description=cluster.description,
+        is_outlier=cluster.is_outlier,
+    )
+
+
+NO_LINKED_SURVEYS = LinkedSurveyResponses(responses=(), unanswered=())
+
+
+def get_trace_feedback(
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None, *, include_surveys: bool
+) -> contracts.TraceFeedback:
+    """End-user feedback on a trace, from its feedback events and the survey responses linked to it. An unknown trace
+    has none. Survey responses are read only with `include_surveys`, and a failed survey read leaves them out."""
+    rows = load_trace_feedback_rows(team, user, trace_id, timestamp_hint)
+    feedback = TraceFeedback(trace_id, rows)
+    survey_responses_status: contracts.TraceSurveyResponsesStatus = "ok" if include_surveys else "not_permitted"
+    linked = NO_LINKED_SURVEYS
+    window = survey_window(rows, timestamp_hint)
+    if include_surveys and window is not None:
+        try:
+            linked = get_survey_responses_linked_to(
+                team, user, property_name="$ai_trace_id", property_value=trace_id, since=window.start, until=window.end
+            )
+        except Exception as error:
+            # Survey responses are one feedback source among several, so their failure must not hide the others.
+            capture_exception(error)
+            survey_responses_status = "failed"
+    survey_responses = linked.responses
+    thumbs = count_thumbs(survey_responses)
+    scores = [_to_feedback_score(score) for score in feedback.scores]
+    responses: list[contracts.TraceFeedbackText | contracts.TraceSurveyResponse] = sorted(
+        [
+            *(_to_feedback_text(text) for text in feedback.texts),
+            *(_to_survey_response(response, trace_id) for response in survey_responses),
+        ],
+        key=lambda response: response.timestamp,
+    )
+    return contracts.TraceFeedback(
+        scores=scores,
+        responses=responses,
+        unanswered=[
+            contracts.TraceUnansweredSurvey(survey=_to_survey(survey.survey), timestamp=survey.shown_at)
+            for survey in linked.unanswered
+        ],
+        survey_responses_status=survey_responses_status,
+        summary=contracts.TraceFeedbackSummary(
+            total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
+        ),
+    )
+
+
+def _to_feedback_score(score: Score) -> contracts.TraceFeedbackScore:
+    return contracts.TraceFeedbackScore(
+        id=score.id, name=score.name, value=score.value, node_id=score.node_id, timestamp=score.timestamp
+    )
+
+
+def _to_feedback_text(text: FeedbackText) -> contracts.TraceFeedbackText:
+    return contracts.TraceFeedbackText(
+        kind="text", id=text.id, text=text.text, node_id=text.node_id, timestamp=text.timestamp
+    )
+
+
+def _to_survey(survey: SurveyRef) -> contracts.TraceSurvey:
+    return contracts.TraceSurvey(id=survey.id, name=survey.name)
+
+
+def _to_survey_response(response: LinkedSurveyResponse, trace_id: str) -> contracts.TraceSurveyResponse:
+    return contracts.TraceSurveyResponse(
+        kind="survey",
+        id=response.submission_id,
+        node_id=trace_id,
+        timestamp=response.submitted_at,
+        survey=_to_survey(response.survey),
+        answers=[_to_survey_answer(answer) for answer in response.answers],
+        complete=response.complete,
+        unavailable=response.unavailable,
+    )
+
+
+def _to_survey_answer(answer: LinkedSurveyAnswer) -> contracts.TraceSurveyAnswer:
+    question = answer.question_text
+    values = list(answer.value) if isinstance(answer.value, tuple) else [answer.value]
+    match answer_kind(answer):
+        case "thumbs":
+            return contracts.TraceThumbsAnswer(kind="thumbs", question=question, up=answer.value == THUMBS_UP)
+        case "rating":
+            rating = answer.rating
+            return contracts.TraceRatingAnswer(
+                kind="rating",
+                question=question,
+                value=", ".join(values),
+                scale=rating.scale if rating else None,
+                lower_label=rating.lower_bound_label if rating else None,
+                upper_label=rating.upper_bound_label if rating else None,
+            )
+        case "choice":
+            return contracts.TraceChoiceAnswer(kind="choice", question=question, choices=values)
+        case "text":
+            return contracts.TraceTextAnswer(kind="text", question=question, text=", ".join(values))
+
+
+def _to_evaluation_summary(summary: EvaluationSummary) -> contracts.TraceEvaluationSummary:
+    return contracts.TraceEvaluationSummary(
+        passed=summary.passed,
+        failed=summary.failed,
+        unrated=summary.unrated,
+        nodes=[
+            contracts.TraceNodeEvaluationRollup(node_id=node.node_id, outcome=node.outcome) for node in summary.nodes
+        ],
+    )
+
+
 def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:
-    """Raises `InvalidPeriodError` for a period that is empty, longer than 90 days or out of range."""
+    """Raises `InvalidPeriodError` for a period that is empty, longer than 91 days or out of range."""
     return PeriodBounds.from_request(date_from, date_to, team.timezone_info)
 
 
@@ -289,3 +480,49 @@ def get_evaluation_score_distribution(
     if meta.scale is None or buckets is None:
         raise NoScoreScaleError(evaluation_id)
     return load_score_distribution(team, user, evaluation_id, period, meta.scale, buckets)
+
+
+def get_trace_summary(team: Team, user: User, trace_id: str) -> contracts.TraceSummary:
+    """Raises `AIDataProcessingNotApprovedError`, or `TraceSummaryNotFoundError` when this viewer has no summary."""
+    return _to_trace_summary(viewer_summary(team, user, trace_id))
+
+
+def request_trace_summary(
+    team: Team, user: User, trace_id: str, timestamp_hint: datetime | None, *, regenerate: bool
+) -> contracts.TraceSummary:
+    """A ready summary, or the pending one a job now writes. Raises `AIDataProcessingNotApprovedError`."""
+    return _to_trace_summary(request_summary(team, user, trace_id, timestamp_hint, regenerate, start_trace_summary))
+
+
+def generate_trace_summary(job: contracts.TraceSummaryJob, *, final_attempt: bool) -> contracts.TraceSummaryRun | None:
+    """The trace summary job's body, or None when its entry no longer waits for it. Raises
+    `TraceSummaryRetryableError` when a later attempt can succeed."""
+    return generate_summary(job, final_attempt=final_attempt)
+
+
+def fail_trace_summary(job: contracts.TraceSummaryJob) -> None:
+    """Mark the job's summary failed when the job ended without writing it."""
+    fail_abandoned_summary(job)
+
+
+def _to_summary_items(items: tuple[SummaryItem, ...]) -> list[contracts.TraceSummaryItem]:
+    return [contracts.TraceSummaryItem(text=item.text, node_id=item.node_id) for item in items]
+
+
+def _to_trace_summary(entry: SummaryEntry) -> contracts.TraceSummary:
+    match entry:
+        case PendingSummary():
+            return contracts.TraceSummary(status="pending", content=None, failure=None)
+        case ReadySummary():
+            content = contracts.TraceSummaryContent(
+                title=entry.title,
+                bullets=_to_summary_items(entry.bullets),
+                notes=_to_summary_items(entry.notes),
+                flow=entry.flow,
+                model=entry.model,
+                generated_at=entry.generated_at,
+            )
+            return contracts.TraceSummary(status="ready", content=content, failure=None)
+        case FailedSummary():
+            failure = contracts.TraceSummaryFailure(reason=entry.reason, message=entry.message)
+            return contracts.TraceSummary(status="failed", content=None, failure=failure)

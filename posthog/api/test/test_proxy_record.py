@@ -111,15 +111,16 @@ class TestProxyRecordAPI(APIBaseTest):
             "legacy.example.com": False,
         }
 
+    @parameterized.expand([("lowercase", "test.example.com"), ("mixed_case", "Test.Example.com")])
     @patch("posthog.api.proxy_record.sync_connect")
     @patch("posthoganalytics.capture")
-    def test_create_proxy_record(self, mock_capture, mock_sync_connect):
+    def test_create_proxy_record(self, _name, domain, mock_capture, mock_sync_connect):
         mock_temporal = AsyncMock()
         mock_sync_connect.return_value = mock_temporal
 
         response = self.client.post(
             f"/api/organizations/{self.organization.id}/proxy_records/",
-            {"domain": "test.example.com"},
+            {"domain": domain},
         )
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
@@ -346,6 +347,29 @@ class TestProxyRecordAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not ProxyRecord.objects.filter(organization=self.organization, domain=domain).exists()
+        mock_sync_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("same_case", "surveys.taken.example.com"),
+            ("case_variant", "Surveys.Taken.example.com"),
+        ]
+    )
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_create_rejects_a_domain_another_organization_registered(self, _name, domain, mock_sync_connect):
+        ProxyRecord.objects.create(
+            organization=Organization.objects.create(name="Other organization"),
+            domain="surveys.taken.example.com",
+            target_cname="other.proxy.example.com",
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/",
+            {"domain": domain},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ProxyRecord.objects.filter(organization=self.organization).exists()
         mock_sync_connect.assert_not_called()
 
     @parameterized.expand(

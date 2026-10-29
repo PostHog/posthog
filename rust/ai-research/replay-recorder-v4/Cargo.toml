@@ -26,6 +26,7 @@ aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 aws-sdk-kms = { workspace = true }
 aws-sdk-s3 = { workspace = true }
+aws-smithy-http-client = { workspace = true }
 axum = { workspace = true }
 brotlic = "0.8"
 chrono = { workspace = true }

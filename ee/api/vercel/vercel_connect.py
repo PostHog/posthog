@@ -18,6 +18,7 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.oauth_pending_connection import shared_cookie_domain
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -484,7 +485,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 raise exceptions.ValidationError(f"Project {tid} does not belong to this organization.")
 
         for tid in unique_team_ids:
-            if Integration.objects.filter(team_id=tid, kind=Integration.IntegrationKind.VERCEL).exists():
+            if IntegrationManager.vercel.oauth.exists(tid):
                 raise exceptions.ValidationError(f"Project '{teams_by_id[tid].name}' already has a Vercel integration.")
 
         production_team = teams_by_id[production_team_id]
@@ -518,14 +519,13 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 created_by=user,
             )
 
-            resources: dict[int, Integration] = {}
+            resources: dict[int, IntegrationRecord] = {}
             for tid, team in teams_by_id.items():
-                resources[tid] = Integration.objects.create(
-                    team=team,
-                    kind=Integration.IntegrationKind.VERCEL,
-                    integration_id=str(team.pk),
+                resources[tid] = IntegrationManager.vercel.oauth.create(
+                    team.pk,
+                    external_id=str(team.pk),
                     config={"type": "connectable"},
-                    created_by=user,
+                    created_by_id=user.pk,
                 )
 
         from ee.vercel.integration import VercelIntegration
@@ -536,13 +536,13 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
             integration_config_id=installation_id,
-            resource_id=str(production_resource.pk),
+            resource_id=str(production_resource.id),
             product_id="posthog",
             name=production_team.name,
             secrets=env_secrets,
         )
         if not import_result.success:
-            resource_id = str(production_resource.pk)
+            resource_id = str(production_resource.id)
             logger.error(
                 "Failed to import resource to Vercel",
                 error=import_result.error,
@@ -552,12 +552,15 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 resource_id=resource_id,
                 integration="vercel",
             )
+
             with transaction.atomic():
                 org_integration.delete()
                 for resource in resources.values():
-                    resource.delete()
+                    IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+
             # The rollback leaves nothing behind, so the same session can try the link again.
             release_used_token(jti)
+
             capture_exception(
                 VercelImportError("Vercel did not accept the resource import"),
                 {

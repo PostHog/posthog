@@ -12,7 +12,6 @@ from rest_framework import serializers
 from posthog.hogql import ast
 from posthog.hogql.property_access_types import RestrictedProperty
 
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -23,7 +22,6 @@ from products.batch_exports.backend.presentation.views.batch_export.exports impo
     BatchExportSerializer,
     parse_events_hogql_query,
 )
-from products.batch_exports.backend.presentation.views.utils import HogQLModifiersField
 
 
 class TestBatchExportModelValidation(SimpleTestCase):
@@ -49,23 +47,6 @@ class TestBatchExportModelValidation(SimpleTestCase):
 
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data == {"name": "Renamed"}
-
-    @parameterized.expand(
-        [
-            ("unset", {}, {}),
-            ("false", {"useNewEventsCluster": False}, {"useNewEventsCluster": False}),
-            ("true", {"useNewEventsCluster": True}, None),
-        ]
-    )
-    def test_cluster_opt_ins_are_not_supported_by_exports(
-        self, _name: str, modifiers: dict, expected: dict | None
-    ) -> None:
-        field = HogQLModifiersField()
-        if expected is None:
-            with self.assertRaisesMessage(serializers.ValidationError, "synchronous query API"):
-                field.run_validation(modifiers)
-        else:
-            assert field.run_validation(modifiers) == expected
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
@@ -398,7 +379,4 @@ class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
         own_integration = self._make_integration(self.team)
 
         serializer = BatchExportDestinationSerializer(context={"team_id": self.team.pk})
-        # Field-level queryset filter should include same-team integrations.
-        field = cast(TeamScopedPrimaryKeyRelatedField, serializer.fields[field_name])
-        queryset = field.get_queryset()
-        assert queryset is not None and own_integration in queryset
+        assert serializer.fields[field_name].run_validation(own_integration.pk) == own_integration

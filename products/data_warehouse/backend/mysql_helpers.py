@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.facade.models import (
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -46,7 +47,7 @@ type MySQLSourceLocation = tuple[str, str]
 
 def get_default_mysql_schema(source: ExternalDataSource) -> str | None:
     """The configured MySQL namespace, preserving old rows that predate the explicit `schema` key."""
-    job_inputs = source.job_inputs or {}
+    job_inputs = SourceInputsStore.load(source)
     if "schema" in job_inputs:
         return normalize_namespace(job_inputs.get("schema"))
     return normalize_namespace(job_inputs.get("database"))
