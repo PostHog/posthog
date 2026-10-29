@@ -206,6 +206,24 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
     )
 
 
+def _capture_pick(team_id: int, user_id: int, update: ActivitySummaryUpdate) -> None:
+    team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    ph_background_capture()(
+        distinct_id=PIPELINE_DISTINCT_ID,
+        event="activity summary pick",
+        properties={
+            "team_id": team_id,
+            "user_id": user_id,
+            "deployment": settings.CLOUD_DEPLOYMENT,
+            "status": update.status.value,
+            "duration_ms": update.latency_ms,
+            "cost_usd": update.cost_usd,
+            # series and events not available in activity summary
+        },
+        groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+    )
+
+
 def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> ActivitySummaryPairResult:
     try:
         update = update_activity_summary(
@@ -227,6 +245,12 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             _emit_embedding(input.team_id, input.user_id)
         except Exception:
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
+    if input.capture_events:
+        try:
+            _capture_pick(input.team_id, input.user_id, update)
+        except Exception:
+            logger.exception("activity_summary_pick_failed", team_id=input.team_id, user_id=input.user_id)
+
     if update.status in (UpdateStatus.OK, UpdateStatus.FAILED) and input.capture_events:
         try:
             _capture_generated(input.team_id, input.user_id, update)
@@ -258,6 +282,11 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             "stop_reason": result.stop_reason,
         },
     )
+
+    # Daily per-team census placeholder (to be implemented with proper data queries)
+    # TODO: Implement daily per-team census capturing active_insights, counts per interval,
+    # active_reasons, trained_insights, scored_last_24h.
+    logger.warning("activity_summary_daily_census_not_implemented", team_ids=[pair.team_id for pair in result.pairs])
 
 
 @activity.defn
