@@ -194,13 +194,18 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     #      note ("AI") or a human/team reply ("support"/"team"/"human"). Those are excluded below
     #      for first-draft tickets. Awaiting tickets already have an AI question, so they skip
     #      that gate and re-engage only on a newer settled customer reply with no human after it.
+    #      A team-opened ticket (compose, or a team member starting the thread) has a team comment
+    #      before the first customer comment. That opener is not engagement, so such a ticket is
+    #      engaged only by a non-customer comment newer than the first customer comment.
     #   2. Settle/debounce: the latest customer comment timestamp per ticket.
     by_team: dict[int, list[str]] = {}
     for team_id, ticket_id_str, _created_at, _awaiting, _round in candidates:
         by_team.setdefault(team_id, []).append(ticket_id_str)
 
     engaged: set[str] = set()
+    first_customer_msg: dict[str, datetime] = {}
     latest_customer_msg: dict[str, datetime] = {}
+    earliest_non_customer_msg: dict[str, datetime] = {}
     latest_ai_msg: dict[str, datetime] = {}
     latest_human_msg: dict[str, datetime] = {}
     for team_id, ticket_ids in by_team.items():
@@ -214,8 +219,14 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 prev = latest_customer_msg.get(item_id)
                 if prev is None or comment_created_at > prev:
                     latest_customer_msg[item_id] = comment_created_at
+                first = first_customer_msg.get(item_id)
+                if first is None or comment_created_at < first:
+                    first_customer_msg[item_id] = comment_created_at
                 continue
             engaged.add(item_id)
+            earliest = earliest_non_customer_msg.get(item_id)
+            if earliest is None or comment_created_at < earliest:
+                earliest_non_customer_msg[item_id] = comment_created_at
             if author_type == "AI":
                 prev_ai = latest_ai_msg.get(item_id)
                 if prev_ai is None or comment_created_at > prev_ai:
@@ -243,7 +254,22 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             if last_customer > settle_cutoff:
                 continue
         else:
-            if ticket_id_str in engaged:
+            first_customer = first_customer_msg.get(ticket_id_str)
+            earliest_team = earliest_non_customer_msg.get(ticket_id_str)
+            team_opened = earliest_team is not None and (first_customer is None or earliest_team < first_customer)
+            if team_opened:
+                # Wait for the customer without recording a skip, because no team reply exists yet.
+                if first_customer is None:
+                    continue
+                last_human = latest_human_msg.get(ticket_id_str)
+                if last_human is not None and last_human > first_customer:
+                    if ticket_id_str in untriaged_ticket_ids:
+                        skipped_ticket_ids_by_result[SKIPPED_TEAM_REPLIED].append(ticket_id_str)
+                    continue
+                last_ai = latest_ai_msg.get(ticket_id_str)
+                if last_ai is not None and last_ai > first_customer:
+                    continue
+            elif ticket_id_str in engaged:
                 if ticket_id_str in untriaged_ticket_ids and ticket_id_str in latest_human_msg:
                     skipped_ticket_ids_by_result[SKIPPED_TEAM_REPLIED].append(ticket_id_str)
                 continue
