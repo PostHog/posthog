@@ -1362,23 +1362,37 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
-    def test_saml_flow_carries_next_url_in_relay_state(self):
-        # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST
-        # back to /complete/saml/. The `next` redirect must therefore travel in RelayState
-        # (echoed back by the IdP) rather than the session, or re-auth lands the user on `/`.
-        response = self.client.get(
-            "/login/saml/?email=hellohello@posthog.com&next=/settings/organization/authentication"
+    def _long_oauth_next_url(self) -> str:
+        return "/oauth/authorize/?" + urlencode(
+            {
+                "client_id": "a" * 40,
+                "redirect_uri": "https://connector.example.com/oauth/callback/" + "b" * 200,
+                "response_type": "code",
+                "scope": " ".join(f"scope_{i}:read" for i in range(250)),
+                "state": "s" * 200,
+                "code_challenge": "c" * 43,
+                "code_challenge_method": "S256",
+            }
         )
+
+    def test_saml_flow_keeps_relay_state_short_for_long_next_url(self):
+        next_url = self._long_oauth_next_url()
+        self.assertGreater(len(next_url), 4000)
+
+        response = self.client.get("/login/saml/?" + urlencode({"email": "hellohello@posthog.com", "next": next_url}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
         config.refresh_from_db()
-        relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
+        relay_state_str = parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0]
+        # The SAML bindings spec caps RelayState at 80 bytes; Entra rejects longer values.
+        self.assertLessEqual(len(relay_state_str.encode()), 80)
+        relay_state = json.loads(relay_state_str)
         # The identifier comes off the IdP config. It currently equals the domain's id, so asserting
         # against the domain would pass just as well if this regressed to reading the domain.
         self.assertEqual(relay_state["idp"], config.saml_relay_state)
-        self.assertEqual(relay_state["next"], "/settings/organization/authentication")
+        self.assertNotIn("next", relay_state)
 
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
         """
@@ -1508,6 +1522,40 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.headers["Location"], "/settings/organization/authentication")
+
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
+    def test_saml_login_redirects_to_long_next_url_once(self):
+        # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST back to
+        # /complete/saml/. The `next` redirect must survive via the RelayState the IdP echoes back.
+        User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+        next_url = self._long_oauth_next_url()
+
+        login_response = self.client.get(
+            "/login/saml/?" + urlencode({"email": "engineering@posthog.com", "next": next_url})
+        )
+        relay_state = parse_qs(urlparse(login_response.headers["Location"]).query)["RelayState"][0]
+
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as f:
+            saml_response = f.read()
+
+        def complete() -> HttpResponse:
+            self.client.logout()
+            _session = self.client.session
+            _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+            _session.save()
+            return self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": relay_state},
+                format="multipart",
+            )
+
+        response = complete()
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], next_url)
+
+        replayed = complete()
+        self.assertEqual(replayed.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(replayed.headers["Location"], "/")
 
     @time_machine.travel("2021-08-25T23:37:55.345Z", tick=False)
     def test_saml_jit_provisioning_and_assertion_with_different_attribute_names(self):
