@@ -9,6 +9,7 @@ import { FeedbackChip, FeedbackChipProps } from './FeedbackChip'
 import { GitBranchChip, GitBranchChipProps } from './GitBranchChip'
 import { NodeStatsLine } from './NodeStatsLine'
 import { PersonChip } from './PersonChip'
+import { TraceClustersChip, TraceClustersChipProps } from './TraceClustersChip'
 import { TraceIdChip } from './TraceIdChip'
 
 export interface TraceSummaryBarProps {
@@ -16,6 +17,7 @@ export interface TraceSummaryBarProps {
     timestamp: string
     person: LabeledLink | null
     totals: TraceNodeStatsApi
+    clusters?: TraceClustersChipProps | null
     evals?: EvalsChipProps | null
     feedback?: FeedbackChipProps | null
     git?: GitBranchChipProps | null
@@ -26,6 +28,7 @@ export function TraceSummaryBar({
     timestamp,
     person,
     totals,
+    clusters = null,
     evals = null,
     feedback = null,
     git = null,
@@ -44,6 +47,7 @@ export function TraceSummaryBar({
                         />
                     </LemonTag>
                     {person ? <PersonChip person={person} /> : null}
+                    {clusters ? <TraceClustersChip {...clusters} /> : null}
                     {evals ? <EvalsChip {...evals} /> : null}
                     {feedback ? <FeedbackChip {...feedback} /> : null}
                     {git ? <GitBranchChip {...git} /> : null}

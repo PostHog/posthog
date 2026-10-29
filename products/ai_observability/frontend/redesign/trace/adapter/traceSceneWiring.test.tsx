@@ -10,6 +10,7 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
+import type { TraceClusterApi } from '../../../generated/api.schemas'
 import { TraceScene } from '../TraceScene'
 import {
     decodeIdSegment,
@@ -21,6 +22,7 @@ import {
     makeFeedbackText,
     makeNodeDetail,
     makeTrace,
+    makeTraceCluster,
     makeTraceResource,
 } from './testFixtures'
 
@@ -36,6 +38,7 @@ jest.mock('../../../utils', () => ({
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
 const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
@@ -63,6 +66,8 @@ const nodeMock = {
     },
 }
 const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
+let clusters: TraceClusterApi[] = []
+const clustersMock = { [CLUSTERS_URL]: () => [200, { clusters }] }
 const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
 
 const generation = makeEvent({
@@ -93,6 +98,10 @@ function renderNewView(flags: Record<string, boolean> = {}): ReturnType<typeof r
 }
 
 describe('TraceScene', () => {
+    beforeEach(() => {
+        clusters = []
+    })
+
     afterEach(cleanup)
 
     describe('the new view', () => {
@@ -104,6 +113,7 @@ describe('TraceScene', () => {
                     [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
                     ...evaluationsMock,
+                    ...clustersMock,
                     ...feedbackMock,
                 },
             })
@@ -128,6 +138,19 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('links the clusters chip to the cluster page', async () => {
+            clusters = [
+                makeTraceCluster({ runId: '1_trace_20260902_030000', clusterId: 3, title: 'Billing questions' }),
+            ]
+            const { findByText } = renderNewView()
+
+            const chip = (await findByText('Billing questions')).closest('a')
+
+            expect(
+                chip?.getAttribute('href')?.endsWith(urls.aiObservabilityCluster('1_trace_20260902_030000', 3))
+            ).toBe(true)
         })
 
         it('searches from the header, fades the steps without a match and steps to the match in view', async () => {
@@ -290,6 +313,7 @@ describe('TraceScene', () => {
                     [TRACE_URL]: () => [200, makeTraceResource()],
                     ...nodeMock,
                     ...evaluationsMock,
+                    ...clustersMock,
                     ...feedbackMock,
                 },
             })
