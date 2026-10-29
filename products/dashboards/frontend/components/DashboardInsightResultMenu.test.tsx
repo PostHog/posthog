@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 
 import api from 'lib/api'
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
@@ -23,6 +24,10 @@ jest.mock('scenes/trends/persons-modal/PersonsModal', () => ({
         }
     },
 }))
+
+// Every dashboard tile renders the menu trigger, so a closed menu must not mount its result logic.
+const resultLogicMounted = (): boolean =>
+    Object.keys(getContext().mount.mounted).some((path) => path.includes('dashboardInsightResultMenuLogic'))
 
 afterEach(() => {
     cleanup()
@@ -59,8 +64,10 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Lifecycle point</button>
             </DashboardInsightResultMenu>
         )
+        expect(resultLogicMounted()).toBe(false)
         fireEvent.contextMenu(screen.getByText('Lifecycle point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
+        expect(resultLogicMounted()).toBe(true)
         expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
         expect(queryRunner.performQuery).toHaveBeenCalledWith(
             expect.objectContaining({ source: request.query, select: ['actor'] }),
