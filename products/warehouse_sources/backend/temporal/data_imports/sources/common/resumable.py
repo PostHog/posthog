@@ -14,6 +14,7 @@ import redis.exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
     SourceAbandonedError,
@@ -26,6 +27,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 )
 
 RESUMABLE_STATE_TTL_SECONDS = 60 * 60 * 24
+
+# A key in a namespace of the job, so `continue_from_job` sees that the job has state of its own.
+_RESTARTED_NAMESPACE = "__restarted_from_first_row__"
+
+
+class ResumeStateDiscarded(NonReportableError):
+    """Raised by a source after `restart_from_first_row`, so the retry reads from the first row.
+
+    The import retries it even when no attempt has a cursor, because the source cleared that cursor.
+    """
 
 
 class _WriteFence:
@@ -268,6 +279,22 @@ class ResumableSourceManager(Generic[ResumableData]):
         with self._write_fence.writing(), self._get_redis() as redis_client:
             self._logger.debug(f"Clearing resumable source state. key={self._key}")
             self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
+
+    def restart_from_first_row(self) -> None:
+        """Drop this resume state, and keep a later execution of the job from continuing another job.
+
+        For a source that finds its cursor unusable. `clear_state` alone would let `continue_from_job`
+        copy the same cursor back from the job this one continued.
+        """
+        self._pending.pop(self._key, None)
+        self._staged.pop(self._key, None)
+        marker = f"{self._job_key(self._inputs.job_id)}:{_RESTARTED_NAMESPACE}"
+        with self._write_fence.writing(), self._get_redis() as redis_client:
+            self._logger.debug(f"Restarting the resumable source from the first row. key={self._key}")
+            self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
+            self._write_with_stale_replica_retry(
+                redis_client, functools.partial(redis_client.set, marker, "1", ex=RESUMABLE_STATE_TTL_SECONDS)
+            )
 
     def clear_job_state(self) -> None:
         """Drop the resume state of this job in every namespace, so the next read starts from the first row."""

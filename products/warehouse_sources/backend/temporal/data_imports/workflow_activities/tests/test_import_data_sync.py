@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientNonRetryableError,
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumeStateDiscarded
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     UNKNOWN_RESOURCE_PREFIX,
     UnknownResourceError,
@@ -2340,6 +2341,40 @@ async def test_a_spent_progressless_cap_stops_retrying_but_keeps_the_real_error(
             )
 
     assert exc_info.value.__cause__ is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discarded_resume_state_is_retried_past_the_progressless_cap():
+    # The source cleared the cursor itself so the next attempt reads from the first row, so an
+    # empty checkpoint here is not a run without progress.
+    error = ResumeStateDiscarded("The listing reached a cursor the API no longer has.")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    logger = mock.MagicMock()
+    logger.ainfo = mock.AsyncMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "current_import_attempt", return_value=PROGRESSLESS_RESUMABLE_ATTEMPTS + 1),
+    ):
+        with pytest.raises(ResumeStateDiscarded):
+            await module._handle_import_error(
+                mock.MagicMock(),
+                logger,
+                error,
+                resumable_source_manager=manager,
+                on_resumable_retry_budget=True,
+            )
+
     logger.aexception.assert_not_awaited()
 
 

@@ -120,7 +120,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientNonRetryableError,
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
+    ResumableSourceManager,
+    ResumeStateDiscarded,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     RowFilterValidationError,
@@ -1317,6 +1320,12 @@ async def _handle_import_error(
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
+
+    # The source cleared its own cursor so the next attempt reads from the first row. The guard
+    # below would read that empty checkpoint as a run that never made progress.
+    if isinstance(error, ResumeStateDiscarded):
+        await logger.awarning(error_msg)
+        raise error
 
     # Below the classified branches, which are PostHog-side or vendor-side blips that another
     # attempt does clear. Raised `from error` so the finalizer still classifies the real failure

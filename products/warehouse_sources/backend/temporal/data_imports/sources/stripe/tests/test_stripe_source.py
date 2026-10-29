@@ -20,8 +20,6 @@ from parameterized import parameterized
 from stripe import ListObject
 from structlog.types import FilteringBoundLogger
 
-from posthog.temporal.common.errors import NonReportableError
-
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -31,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumeStateDiscarded
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     RecordedRequest,
@@ -397,7 +396,7 @@ class _PipelineAroundTheListing:
     def save_state(self, state: stripe_module.StripeResumeConfig) -> None:
         self._staged = state
 
-    def clear_state(self) -> None:
+    def restart_from_first_row(self) -> None:
         self.committed = None
         self._staged = None
 
@@ -505,14 +504,14 @@ class TestStripeFlatResourceResumeCursor:
                 )
 
         assert listing.cursors == ["inpay_gone"]
-        resumable_source_manager.clear_state.assert_called_once_with()
+        resumable_source_manager.restart_from_first_row.assert_called_once_with()
         resumable_source_manager.save_state.assert_not_called()
 
     def test_a_missing_cursor_is_retried(self):
         message = str(stripe_module.StripeResumeCursorGone(INVOICE_PAYMENT_RESOURCE_NAME, "inpay_gone"))
 
         assert not error_message_matches(message, {**Any_Source_Errors, **StripeSource().get_non_retryable_errors()})
-        assert issubclass(stripe_module.StripeResumeCursorGone, NonReportableError)
+        assert issubclass(stripe_module.StripeResumeCursorGone, ResumeStateDiscarded)
 
     def test_other_invalid_request_errors_still_raise(self):
         def method(params=None):

@@ -19,7 +19,6 @@ from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
-from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.models.external_table_definitions import (
@@ -39,7 +38,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
     log_fanout_parent_rows_consumed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
+    ResumableSourceManager,
+    ResumeStateDiscarded,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
@@ -1195,7 +1197,7 @@ def get_rows(
                 # build time that this attempt appends. The retry finds no state and overwrites.
                 if not (resume_params and _is_stripe_resource_missing_error(e)):
                     raise
-                resumable_source_manager.clear_state()
+                resumable_source_manager.restart_from_first_row()
                 raise StripeResumeCursorGone(endpoint, resume_params["starting_after"]) from e
 
         def trailing_state(py_table: pa.Table) -> StripeResumeConfig:
@@ -1579,7 +1581,7 @@ def stripe_source(
     )
 
 
-class StripeResumeCursorGone(NonReportableError):
+class StripeResumeCursorGone(ResumeStateDiscarded):
     """Raised when a resumed listing pages from a cursor that names an object Stripe no longer has.
 
     The resume state is cleared first, so the retry lists from the first object and overwrites
