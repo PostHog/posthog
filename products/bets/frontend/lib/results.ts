@@ -62,7 +62,7 @@ export function pullRequestNumber(url: string): string {
 }
 
 export const PLOT_WIDTHS = { wide: 200, narrow: 144 }
-export const PLOT_GUTTER = 96
+const PLOT_GUTTER = 96
 
 const LABEL_GLYPHS: Record<string, number> = { '%': 10.8, ' ': 3.5, t: 4.6, o: 7.4, '+': 7.6, '−': 7.6 }
 
@@ -70,7 +70,7 @@ export function labelWidth(text: string): number {
     return [...text].reduce((total, glyph) => total + (LABEL_GLYPHS[glyph] ?? 7.5), 0)
 }
 
-export interface LabelPlacement {
+interface LabelPlacement {
     side: 'after' | 'before'
     crossesZero: boolean
 }

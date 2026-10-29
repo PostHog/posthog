@@ -1,7 +1,7 @@
 import type { BetsPlanApi, BetsPlanInputApi } from '../generated/api.schemas'
 
-export const MIN_DAYS = 2
-export const MAX_DAYS = 28
+const MIN_DAYS = 2
+const MAX_DAYS = 28
 const LIMIT_DAYS = 365
 const MIN_MDE = 0.1
 const MAX_MDE = 100
@@ -26,7 +26,7 @@ export function plannable(plan: Spread): boolean {
     return !!plan.mean && plan.mean > 0 && !!plan.variance && plan.variance > 0
 }
 
-export function planDays(plan: Spread, mde: number, audience: number): number {
+function planDays(plan: Spread, mde: number, audience: number): number {
     const effect = (plan.mean ?? 0) * (mde / 100)
     const total = Math.ceil((Z_FACTOR * (plan.variance ?? 0)) / effect ** 2) * GROUPS
     const days = Math.max(Math.ceil(total / Math.max(audience, 1)), MIN_DAYS)

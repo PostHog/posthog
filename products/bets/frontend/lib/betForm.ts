@@ -69,7 +69,7 @@ export const MAX_OWNER_IDEAS = 5
 export const MAX_GUARDRAILS = 5
 
 export const TARGET_PATTERN = /^-?\d{0,16}(?:\.\d{0,4})?$/
-export const REPOSITORY_PATTERN = /^[\w.-]+\/[\w.-]+$/
+const REPOSITORY_PATTERN = /^[\w.-]+\/[\w.-]+$/
 
 export type BetFormField = 'statement' | 'title' | 'goal_insight' | 'target' | 'guardrails' | 'budget' | 'repository'
 
@@ -91,7 +91,7 @@ export interface GithubRepositories {
 
 export type RepositorySource = 'last' | 'only' | null
 
-export interface FormProblemsInput {
+interface FormProblemsInput {
     form: BetsWriteApi
     title: string
     ineligibleReason: string | null

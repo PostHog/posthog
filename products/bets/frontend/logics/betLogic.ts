@@ -16,16 +16,17 @@ import { tasksPullRequestTitlesCreate, tasksRetrieve } from 'products/tasks/fron
 
 import { betsActivityList, betsIdeasCreate, betsRetrieve, betsStatusCreate, betsWorkCreate } from '../generated/api'
 import type {
+    BetStatusChangeEnumApi,
     BetsActivityApi,
     BetsDetailApi,
-    BetsStateActionApi,
     BetsEntryApi,
+    BetsOverviewApi,
+    BetsPlanApi,
+    BetsStateActionApi,
     BetsStatusApi,
     BetsWorkActionApi,
     BetsWorkApi,
 } from '../generated/api.schemas'
-import type { BetStatusChangeEnumApi, BetsPlanApi } from '../generated/api.schemas'
-import type { BetsOverviewApi } from '../generated/api.schemas'
 import { errorMessage } from '../lib/format'
 import {
     dismissedIdeas as currentDismissedIdeas,
@@ -591,10 +592,8 @@ export const betLogic = kea<betLogicType>([
                     actions.resetIdeas()
                 }
             },
-            extendWork: async ({ workId }) => {
-                await perform(`work:${workId}:extend`, () =>
-                    betsWorkCreate(String(values.currentProjectId), props.id, { work_id: workId, action: 'extend' })
-                )
+            extendWork: ({ workId }) => {
+                actions.work({ work_id: workId, action: 'extend' })
             },
             stopWork: async ({ workId }) => {
                 const done = await perform(`work:${workId}:drop`, () =>
@@ -610,8 +609,6 @@ export const betLogic = kea<betLogicType>([
                     actions.setAddingIdea(!values.bet?.state.ready_ideas)
                 } else if (!action.work_id) {
                     return
-                } else if (action.work_action === 'extend') {
-                    actions.extendWork(action.work_id)
                 } else if (action.work_action === 'drop') {
                     actions.setExpandedWork(action.work_id)
                     actions.openStop(action.work_id)
@@ -648,15 +645,11 @@ export const betLogic = kea<betLogicType>([
             },
         }
     }),
-    afterMount(({ actions, values, cache, props }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadBet()
         let lastReadAt = Date.now()
         cache.disposables.add(() => {
             const timer = window.setInterval(() => {
-                if (!betLogic.findMounted(props)) {
-                    window.clearInterval(timer)
-                    return
-                }
                 if (!document.hidden && !values.betLoading && !values.busy) {
                     const running = values.bet?.work.some((item) =>
                         ['queued', 'in_progress'].includes(item.task_status)

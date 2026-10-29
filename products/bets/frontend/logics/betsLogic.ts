@@ -8,12 +8,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import type { Breadcrumb } from '~/types'
+import type { Breadcrumb, UserType } from '~/types'
 
-import type { UserType } from '../../../../frontend/src/types'
 import { betsList } from '../generated/api'
 import type { BetsEntryApi, BetsOverviewApi } from '../generated/api.schemas'
-import type { BetsMetricApi, BetsNextActionApi, BetsSettingsApi } from '../generated/api.schemas'
 import { betsBreadcrumbs } from '../lib/navigation'
 
 const REFRESH_INTERVAL_MS = 15000
@@ -93,28 +91,12 @@ export interface betsLogicActions {
         errorObject?: any
     }
     updateBetEntrySuccess: (
-        overview: {
-            allocated_cents: number
-            bets: BetsEntryApi[]
-            can_edit: boolean
-            next_actions: BetsNextActionApi[]
-            north_star: BetsMetricApi
-            settings: BetsSettingsApi
-            unallocated_cents: number
-        } | null,
+        overview: BetsOverviewApi | null,
         payload?: {
             bet: BetsEntryApi
         }
     ) => {
-        overview: {
-            allocated_cents: number
-            bets: BetsEntryApi[]
-            can_edit: boolean
-            next_actions: BetsNextActionApi[]
-            north_star: BetsMetricApi
-            settings: BetsSettingsApi
-            unallocated_cents: number
-        } | null
+        overview: BetsOverviewApi | null
         payload?: {
             bet: BetsEntryApi
         }

@@ -1,16 +1,11 @@
 import type { BetsDetailApi, BetsEvidenceApi, BetsWorkApi, EvidenceKindEnumApi } from '../generated/api.schemas'
 import { isOpen } from './workStatus'
 
-export interface IdeaBadge {
-    label: string
-    variant: 'success' | 'default' | 'info'
-}
-
-const ASSESSMENT_BADGES: Record<string, IdeaBadge> = {
-    supported: { label: 'Supported', variant: 'success' },
-    not_supported: { label: 'Not supported', variant: 'default' },
-    pending: { label: 'Checking', variant: 'info' },
-    no_verdict: { label: 'No verdict', variant: 'default' },
+const ASSESSMENT_LABELS: Record<string, string> = {
+    supported: 'Supported',
+    not_supported: 'Not supported',
+    pending: 'Checking',
+    no_verdict: 'No verdict',
 }
 
 const EVIDENCE_ORDER: Partial<Record<EvidenceKindEnumApi, number>> = {
@@ -31,13 +26,8 @@ export function ideaAssessment(item: BetsWorkApi): string {
     return item.assessment === 'pending' && item.report_id ? 'no_verdict' : item.assessment
 }
 
-function ideaBadge(item: BetsWorkApi): IdeaBadge | null {
-    return ASSESSMENT_BADGES[ideaAssessment(item)] ?? null
-}
-
 export function ideaStatus(item: BetsWorkApi): string[] {
-    const badge = ideaBadge(item)
-    return [item.source === 'owner' ? 'Your idea' : 'Scout idea', badge?.label ?? '']
+    return [item.source === 'owner' ? 'Your idea' : 'Scout idea', ASSESSMENT_LABELS[ideaAssessment(item)] ?? '']
 }
 
 export function ideaEvidence(item: BetsWorkApi): BetsEvidenceApi[] {

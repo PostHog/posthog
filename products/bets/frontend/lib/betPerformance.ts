@@ -2,7 +2,7 @@ import type { BetsEntryApi } from '../generated/api.schemas'
 
 export type BetRating = 'bad' | 'meh' | 'good' | 'amazing'
 
-export interface BetPerformance {
+interface BetPerformance {
     progress: number
     rating: BetRating
 }

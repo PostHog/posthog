@@ -156,26 +156,10 @@ export interface betFormLogicActions {
         errorObject?: any
     }
     loadGithubSuccess: (
-        github:
-            | {
-                  integrationId: number
-                  only: string | null
-              }
-            | {
-                  integrationId: null
-                  only: null
-              },
+        github: GithubRepositories,
         payload?: any
     ) => {
-        github:
-            | {
-                  integrationId: number
-                  only: string | null
-              }
-            | {
-                  integrationId: null
-                  only: null
-              }
+        github: GithubRepositories
         payload?: any
     }
     loadInsights: () => any
