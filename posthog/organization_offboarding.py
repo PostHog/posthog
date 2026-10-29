@@ -56,11 +56,20 @@ class OrganizationOffboarding:
                 ),
             )
             .select_related(kind, "team")
+            .only(
+                "id",
+                "team_id",
+                "team__name",
+                kind,
+                f"{kind}__{resource_kind.name_field}",
+                f"{kind}__{resource_kind.identifier_field}",
+                *([f"{kind}__short_id"] if kind in ("insight", "notebook") else []),
+                *(["insight__derived_name"] if kind == "insight" else []),
+            )
             .order_by("-created_at")
-            .distinct()
         )
         resources: dict[str, OffboardingResource] = {}
-        for configuration in configurations:
+        for configuration in configurations.iterator(chunk_size=200):
             resource = cast(models.Model, getattr(configuration, kind))
             resource_id = f"public_link:{kind}:{configuration.team_id}:{getattr(configuration, f'{kind}_id')}"
             name = cast(str | None, getattr(resource, resource_kind.name_field))
