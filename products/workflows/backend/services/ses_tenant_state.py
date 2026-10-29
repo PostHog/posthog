@@ -169,8 +169,6 @@ def apply_ses_tenant_state(
             sending_status=previous_status, reputation_impact=previous_impact
         ).is_verified_clean
         if is_verified_clean and not was_verified_clean:
-            # A trusted account qualifies for its floor once AWS confirms the tenant, so raise it now
-            # rather than at the next daily sweep, before the team's first send meets the tier 0 cap.
             transaction.on_commit(lambda: _recompute_tier(team_id))
 
         notify = _pick_notification(
