@@ -868,12 +868,16 @@ def call_llm_judge(
                 provider=provider,
                 response_format=response_format,
             )
+            status: int | None = None
             try:
                 response = client.complete(request)
             except Exception as e:
                 status = _image_rejection_status(e) if sent_images else None
                 if status is None:
                     raise
+            # Handle the rejection outside the except: the provider's error can quote a presigned link, and
+            # an active exception reaches the logs through capture_exception and chains onto a retry failure.
+            if status is not None:
                 # A model without image input, or an image link the provider could not download.
                 # Grade the plain transcript rather than skip the run.
                 context = {

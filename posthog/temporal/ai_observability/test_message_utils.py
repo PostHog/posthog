@@ -135,9 +135,17 @@ class TestExtractTextFromMessages:
                 "parts": [{"type": "blob", "modality": "image", "mime_type": "image/png", "content": pointer}],
             },
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image]}]},
+            {
+                "type": "function_call_output",
+                "call_id": "c1",
+                "output": [{"type": "input_image", "image_url": pointer}],
+            },
         ]
 
-        assert extract_text_from_messages(messages, JudgeImages(team_id=7).marker) == "user: [image 1]\nuser: [image 1]"
+        assert (
+            extract_text_from_messages(messages, JudgeImages(team_id=7).marker)
+            == "user: [image 1]\nuser: [image 1]\ntool[c1]: [image 1]"
+        )
         assert extract_text_from_messages(messages).startswith("user: [image]\n")
 
     def test_media_blocks_keep_their_text_without_judge_images(self):

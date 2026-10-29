@@ -84,6 +84,9 @@ def _render_message(msg: dict, media_marker: MediaMarker | None) -> str | None:
     Returns None when the message has neither a role nor any body to render
     (so the caller can skip it).
     """
+    if media_marker is not None and msg.get("type") in ("function_call_output", "custom_tool_call_output"):
+        # A Responses API tool output has no role or content, so render it as a tool message to reach its images.
+        msg = {"role": "tool", "tool_call_id": msg.get("call_id"), "content": msg.get("output")}
     role = msg.get("role", "")
     content = msg.get("content", "")
     part = msg.get(MEDIA_PART_KEY)

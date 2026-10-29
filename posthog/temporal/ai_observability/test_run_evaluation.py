@@ -1,3 +1,4 @@
+import sys
 import json
 import uuid
 import dataclasses
@@ -1182,6 +1183,9 @@ def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rej
         spec.return_value.resolve.return_value = MagicMock(
             provider="openai", model="gpt-5.5", provider_key=MagicMock(), is_byok=not retries
         )
+        # The provider error can quote the link, so nothing may log or chain it while the fallback runs.
+        active_errors: list[BaseException | None] = []
+        capture.side_effect = lambda *_: active_errors.append(sys.exc_info()[1])
         client = client_class.return_value
         client.complete.side_effect = [
             error,
@@ -1199,6 +1203,7 @@ def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rej
         assert result["verdict"] is True
         assert client.complete.call_args_list[1].args[0].messages == [{"role": "user", "content": "user: Polite?"}]
         assert "https://signed" not in str(capture.call_args)
+        assert active_errors == [None]
     else:
         assert client.complete.call_count == 1
 
