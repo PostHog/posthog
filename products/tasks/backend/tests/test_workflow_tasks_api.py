@@ -173,6 +173,15 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["model"] == model
         assert run.state["reasoning_effort"] == "high"
 
+    @parameterized.expand([("zai-org/glm-5.3-flash",), ("deepseek-ai/deepseek-v4-flash-0731",)])
+    def test_drops_a_model_outside_the_workflows_gateway_pin(self, model: str) -> None:
+        response = self._post({"model": model})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("model") is None
+        assert run.state.get("runtime_adapter") is None
+
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
