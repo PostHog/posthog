@@ -582,7 +582,7 @@ export interface pagePerformanceLogicActions {
 
 export interface pagePerformanceLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        showPagesSection: (featureFlags: FeatureFlagsSet, context: WebAnalyticsLogicProps['context']) => boolean
+        showPagesSection: (featureFlags: FeatureFlagsSet) => boolean
         window: (
             dateFilter: DateFilterState,
             compareFilter: CompareFilter,
@@ -773,9 +773,9 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
     }),
     selectors(() => ({
         showPagesSection: [
-            (s) => [s.featureFlags, (_, props) => props.context],
-            (featureFlags: FeatureFlagsSet, context: WebAnalyticsLogicProps['context']): boolean =>
-                context === 'page-visibility' || !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS_DIRECTORY],
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS_DIRECTORY],
         ],
         window: [
             (s) => [s.dateFilter, s.compareFilter, s.currentTeam],
