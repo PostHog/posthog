@@ -928,7 +928,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     def test_query_flag_evaluations_cannot_answer_reads_events_until_events_gets_no_flag_calls(
         self,
         _name: str,
-        query: str | ast.SelectQuery,
+        query: str,
         error: str,
         persons_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
     ):

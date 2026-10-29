@@ -607,7 +607,7 @@ def _unwrap_field_alias_type(expr_type: Optional[ast.Type]) -> Optional[ast.Type
     return expr_type
 
 
-def _unwrap_table_alias_type(table_type: Optional[ast.Type]) -> Optional[ast.Type]:
+def unwrap_table_alias_type(table_type: Optional[ast.Type]) -> Optional[ast.Type]:
     while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         table_type = table_type.table_type
     return table_type
@@ -639,7 +639,7 @@ def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableTy
     else:
         return None
 
-    unwrapped = _unwrap_table_alias_type(table_type)
+    unwrapped = unwrap_table_alias_type(table_type)
     if isinstance(unwrapped, ast.TableType) and isinstance(unwrapped.table, EventsTable):
         return cast(ast.BaseTableType, table_type)
     return None
@@ -683,7 +683,7 @@ def build_session_id_literal_pushdown_predicate(
     if events_join is None or not isinstance(events_join.table, ast.Field):
         return None
 
-    events_table_type = _unwrap_table_alias_type(events_join.table.type)
+    events_table_type = unwrap_table_alias_type(events_join.table.type)
     if events_table_type is None:
         return None
 
@@ -697,7 +697,7 @@ def build_session_id_literal_pushdown_predicate(
             continue
         # only push filters owned by the events occurrence this lazy join hangs off
         owner = get_events_session_id_table_type(term.left)
-        if owner is None or _unwrap_table_alias_type(owner) is not events_table_type:
+        if owner is None or unwrap_table_alias_type(owner) is not events_table_type:
             continue
         constants = extract_uuid_constants(term.right)
         if not constants or len(constants) > SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS:

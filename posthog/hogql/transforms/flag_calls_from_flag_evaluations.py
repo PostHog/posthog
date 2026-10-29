@@ -25,8 +25,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import ELEMENT_STAND_INS, FlagEvaluationsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts, unwrap_table_alias_type
 from posthog.hogql.errors import BaseHogQLError, QueryError
+from posthog.hogql.flag_called_warnings import event_field_type
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.resolver import JoinSources
@@ -835,15 +836,13 @@ class _EventsScanSwapper(ScanVisitor):
                 continue
             source = sources.source_of(join)
             clone = clones.get(id(source)) if source is not None else None
-            if clone is None:
-                return "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
-            _, clone_select, clone_join = clone
-            chain = _table_chain(clone_join)
+            chain = _table_chain(clone[2]) if clone is not None else None
             if chain == ["posthog", "flag_evaluations"]:
                 # The syntactic rules, or an earlier resolved join from the same source, already swapped it.
                 continue
-            if chain != ["events"]:
+            if clone is None or chain != ["events"]:
                 return "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
+            _, clone_select, clone_join = clone
             events_scan = EventsScan(
                 join=clone_join,
                 alias=clone_join.alias or "events",
@@ -895,23 +894,14 @@ class _JoinCollector(SyntaxVisitor):
 
 
 def _is_events_scan(table_type: ast.Type | None) -> bool:
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
+    table_type = unwrap_table_alias_type(table_type)
     return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
 
 
 def _reads_event_of(table_type: ast.Type | None, expr: ast.Expr) -> bool:
     """Whether resolved `expr` reads the `event` column of the scan whose type is `table_type`."""
-    # The resolver wraps a field without a table prefix in an alias when the query has several tables.
-    while isinstance(expr, ast.Alias):
-        expr = expr.expr
-    if not isinstance(expr, ast.Field):
-        return False
-    # A select alias used in WHERE wraps the column in one FieldAliasType per alias.
-    field_type = expr.type
-    while isinstance(field_type, ast.FieldAliasType):
-        field_type = field_type.type
-    return isinstance(field_type, ast.FieldType) and field_type.name == "event" and field_type.table_type is table_type
+    field_type = event_field_type(expr)
+    return field_type is not None and field_type.table_type is table_type
 
 
 def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicates: int) -> bool:

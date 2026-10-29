@@ -299,7 +299,7 @@ class JoinSources:
     def is_added(self, node: ast.JoinExpr) -> bool:
         """Whether the resolver added the join that `node` came from."""
         source = self.source_of(node)
-        return source is not None and self._added.get(id(source)) is source
+        return source is not None and id(source) in self._added
 
 
 def _all_joins(tree: ast.AST) -> list[ast.JoinExpr]:
@@ -318,7 +318,7 @@ class _JoinExprCollector(TraversingVisitor):
         super().visit_join_expr(node)
 
     def visit_field(self, node: ast.Field) -> None:
-        # The inherited visit follows the field's type, and a field holds no join.
+        # The inherited visit follows the field's type. A field holds no join.
         pass
 
 
