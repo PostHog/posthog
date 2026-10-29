@@ -23,7 +23,6 @@ from posthog.models.person.util import (
     _flush_person_producers,
     _person_row,
     create_person_distinct_id,
-    get_person_by_distinct_id,
     get_persons_by_uuids,
 )
 from posthog.models.team import Team
@@ -67,7 +66,6 @@ _TRANSIENT_RPC_CODES = frozenset(
     }
 )
 
-_DB_TIMEOUT_METADATA_KEY = "x-db-timeout"
 
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
 
@@ -216,30 +214,6 @@ def _is_transient(exc: BaseException) -> bool:
     )
 
 
-def is_retryable(exc: BaseException) -> bool:
-    """Whether a repair failed on a transient error that a later attempt can get past: a busy person, or
-    personhog or ClickHouse briefly unavailable."""
-    return _is_transient(exc)
-
-
-def is_person_busy(exc: BaseException) -> bool:
-    """Whether another operation, such as a merge or delete, held the person: its lifecycle mark was claimed, or
-    a wait for its row lock timed out. Other transient errors mean a service was unavailable."""
-    if is_transient_rpc_error(exc, codes=frozenset({grpc.StatusCode.FAILED_PRECONDITION})):
-        return True
-    current: BaseException | None = exc
-    while current is not None:
-        if isinstance(current, grpc.RpcError):
-            code = getattr(current, "code", None)
-            trailing = getattr(current, "trailing_metadata", None)
-            if not callable(code) or code() != grpc.StatusCode.DEADLINE_EXCEEDED or not callable(trailing):
-                return False
-            # personhog-replica names the timeout that ended the call; only a lock wait means the person was busy.
-            return any(key == _DB_TIMEOUT_METADATA_KEY and value == "lock_timeout" for key, value in trailing() or ())
-        current = current.__cause__
-    return False
-
-
 def _retry_transient(fn: Callable[[], _T], *, what: str, log: Callable[[str], None]) -> _T:
     """Run ``fn`` again after a transient ClickHouse or personhog error, then re-raise once the retries run out.
 
@@ -275,7 +249,7 @@ def _execute_plan(
         )
         if apply and stale_merge_distinct_id is not None:
             missing = stale_merge._clickhouse_only_properties(plan)
-            # A later reset that finds nothing missing raises Postgres. Capture accepting the $set does not mean
+            # A later repair that finds nothing missing raises Postgres. Capture accepting the $set does not mean
             # ingestion applies it, and a raise without the merged properties lets the next update overwrite them.
             if missing:
                 # The $set_once event lands on ingestion like any write, so it is paced like one.
@@ -549,35 +523,3 @@ def repair_persons(
             if undelivered:
                 log(f"{undelivered} ClickHouse messages were not delivered; rerun the repair for the same input")
     return outcomes.summary(applied=apply, persons=processed, undelivered=undelivered)
-
-
-def repair_distinct_id(
-    team_id: int, distinct_id: str, *, delivery_timeout_seconds: float
-) -> datatypes.RepairSummary | None:
-    """Repair the live person that owns ``distinct_id``, and that one mapping, where ClickHouse disagrees.
-
-    It always applies. For a stale person whose ClickHouse winner holds properties Postgres lacks, it sends them
-    to ingestion as $set_once, so newer Postgres values win, and writes nothing else. A later reset, once
-    ingestion applied them, raises Postgres above ClickHouse and republishes. It leaves the person stale when the
-    team has property access rules.
-    """
-    owner = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
-    if owner is None:
-        return None
-    outcomes = _OutcomeCounts()
-    deliveries = _Deliveries()
-    undelivered = 0
-    try:
-        for plan in repair_plan._plan_chunk(team_id, [str(owner.uuid)], only_distinct_id=distinct_id):
-            for action in _execute_plan(
-                plan,
-                apply=True,
-                include_stale=False,
-                before_write=lambda: None,
-                published=deliveries.track,
-                stale_merge_distinct_id=distinct_id,
-            ):
-                outcomes.add(action)
-    finally:
-        undelivered = deliveries.undelivered(delivery_timeout_seconds)
-    return outcomes.summary(applied=True, persons=1, undelivered=undelivered)

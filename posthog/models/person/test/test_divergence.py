@@ -41,7 +41,7 @@ from posthog.models.person.divergence.fleet_scans import (
     scan_stale_persons,
     scan_swept_persons,
 )
-from posthog.models.person.divergence.repairs import _WritePacer, repair_distinct_id, repair_persons
+from posthog.models.person.divergence.repairs import _WritePacer, repair_persons
 from posthog.models.person.divergence.team_check import _team_check_modulus, check_team
 from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2
 from posthog.models.person.test.divergence_fixtures import rpc_error
@@ -833,51 +833,6 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert self._pg_mapping_versions(person)["divergent"] == 106
         assert self._ch_mapping("divergent") == (str(person.uuid), 0, 106)
 
-    @parameterized.expand(
-        [
-            ("within_the_cap", ["target", "other"], 1_000, {"repaired": 1}, (0, 101)),
-            (
-                "over_the_cap_with_the_target_in_the_capped_read",
-                ["target", "other", "another"],
-                1,
-                {"repaired": 1},
-                (0, 101),
-            ),
-            (
-                "beyond_the_capped_read",
-                ["other", "another", "target"],
-                1,
-                {"skipped_too_many_distinct_ids": 1},
-                (1, 100),
-            ),
-        ]
-    )
-    def test_repairing_one_distinct_id_repairs_its_owner_and_leaves_its_other_mappings(
-        self,
-        _name: str,
-        distinct_ids: list[str],
-        cap: int,
-        mapping_outcomes: dict[str, int],
-        target_deleted_and_version: tuple[int, int],
-    ) -> None:
-        person = self._pg_person(version=3, distinct_ids=dict.fromkeys(distinct_ids, 2))
-        self._ch_person_row(person.uuid, 103, deleted=True)
-        for distinct_id in distinct_ids:
-            self._ch_mapping_row(distinct_id, person.uuid, 100, deleted=True)
-
-        with patch("posthog.models.person.divergence.repair_plan._MAX_REPAIR_DISTINCT_IDS_PER_PERSON", cap):
-            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
-
-        assert summary is not None
-        assert (summary.person_outcomes, summary.mapping_outcomes, summary.undelivered) == (
-            {"repaired": 1},
-            mapping_outcomes,
-            0,
-        )
-        assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
-        assert self._ch_mapping("target") == (str(person.uuid), *target_deleted_and_version)
-        assert self._ch_mapping("other") == (str(person.uuid), 1, 100)
-
     def _restrict_person_property_for_another_member(self, name: str) -> None:
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
@@ -899,15 +854,23 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self._ch_mapping_row("target", person.uuid, 100, deleted=True)
         return person
 
-    def test_reset_raises_a_stale_person_only_after_ingestion_applied_its_clickhouse_only_properties(self) -> None:
+    def _repair_with_stale_merge(self, person: Person) -> RepairSummary:
+        return repair_persons(
+            [PersonRef(team_id=self.team.pk, person_uuid=str(person.uuid))],
+            apply=True,
+            on_action=lambda _: None,
+            log=lambda _: None,
+            stale_merge_distinct_ids={str(person.uuid): "target"},
+        )
+
+    def test_a_stale_merge_raises_the_person_only_after_ingestion_applied_its_clickhouse_only_properties(self) -> None:
         person = self._stale_person_with_target({**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
         stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
         assert stored is not None
 
         with patch("posthog.models.person.divergence.stale_merge.capture_internal") as capture:
-            first = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+            first = self._repair_with_stale_merge(person)
 
-        assert first is not None
         assert (first.person_outcomes, first.mapping_outcomes) == ({"merge_queued": 1}, {"skipped_stale": 1})
         capture.assert_called_once()
         sent = dict(capture.call_args.kwargs)
@@ -927,22 +890,20 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
         stored.properties = json.dumps({**CH_ONLY_PROPERTIES, **PG_PROPERTIES}).encode()
         with patch("posthog.models.person.divergence.stale_merge.capture_internal") as capture:
-            second = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+            second = self._repair_with_stale_merge(person)
 
-        assert second is not None
         assert (second.person_outcomes, second.mapping_outcomes) == ({"repaired": 1}, {"repaired": 1})
         capture.assert_not_called()
         assert self._pg_version(person) == 11
         assert self._ch_person(person.uuid) == (0, 11, {**CH_ONLY_PROPERTIES, **PG_PROPERTIES})
         assert self._ch_mapping("target") == (str(person.uuid), 0, 101)
 
-    def test_reset_republishes_a_stale_person_whose_clickhouse_properties_postgres_already_holds(self) -> None:
+    def test_a_stale_merge_republishes_a_person_whose_clickhouse_properties_postgres_already_holds(self) -> None:
         person = self._stale_person_with_target(CH_PROPERTIES)
 
         with patch("posthog.models.person.divergence.stale_merge.capture_internal") as capture:
-            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+            summary = self._repair_with_stale_merge(person)
 
-        assert summary is not None
         assert (summary.person_outcomes, summary.mapping_outcomes) == ({"repaired": 1}, {"repaired": 1})
         capture.assert_not_called()
         assert self._ch_person(person.uuid) == (0, 11, PG_PROPERTIES)
@@ -954,7 +915,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("property_restricted_for_another_member", 256 * 1024, True, "skipped_stale_merge_restricted", False),
         ]
     )
-    def test_reset_leaves_a_stale_person_alone_when_its_merge_cannot_be_sent(
+    def test_a_stale_merge_leaves_the_person_alone_when_its_merge_cannot_be_sent(
         self, _name: str, max_bytes: int, restricted: bool, person_outcome: str, capture_called: bool
     ) -> None:
         person = self._stale_person_with_target({**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
@@ -967,9 +928,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             patch("posthog.models.person.divergence.stale_merge._STALE_MERGE_MAX_BYTES", max_bytes),
             patch("posthog.models.person.divergence.stale_merge.capture_internal", return_value=failing) as capture,
         ):
-            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+            summary = self._repair_with_stale_merge(person)
 
-        assert summary is not None
         assert (summary.person_outcomes, summary.mapping_outcomes) == ({person_outcome: 1}, {"skipped_stale": 1})
         assert capture.called == capture_called
         get_active_fake().assert_not_called("raise_person_version_floors")
