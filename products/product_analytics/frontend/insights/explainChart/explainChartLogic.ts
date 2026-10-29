@@ -57,6 +57,8 @@ import type { ChartMoment } from './chartMoments'
 import { buildEvidenceQueries, evidenceForMoment } from './momentEvidence'
 import type { EvidenceQueries, EvidenceResults, EvidenceRow, MomentEvidence } from './momentEvidence'
 
+const EVIDENCE_QUERY_TIMEOUT_MS = 30_000
+
 export interface ExplainedSeries {
     /** The series' position in the chart's results, which is also its key on the chart. */
     index: number
@@ -353,15 +355,21 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                     cache.disposables.add(() => () => abortController.abort(), 'explainEvidence', {
                         pauseOnPageHidden: false,
                     })
-                    const options = { signal: abortController.signal }
-                    // A split that fails leaves the others to explain the change.
+                    // Each query gets its own deadline, so one slow split cannot hold back the others.
+                    const options = (): { signal: AbortSignal } => ({
+                        signal: AbortSignal.any([
+                            abortController.signal,
+                            AbortSignal.timeout(EVIDENCE_QUERY_TIMEOUT_MS),
+                        ]),
+                    })
+                    // A split that fails or runs out of time leaves the others to explain the change.
                     const [breakdowns, people] = await Promise.all([
                         Promise.all(
                             queries.breakdowns.map(async ({ property, query }) => {
                                 try {
                                     const response = await performQuery(
                                         query,
-                                        options,
+                                        options(),
                                         undefined,
                                         undefined,
                                         undefined,
@@ -378,7 +386,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                         queries.people && values.moments.some((moment) => moment.kind === 'peak')
                             ? performQuery(
                                   queries.people,
-                                  options,
+                                  options(),
                                   undefined,
                                   undefined,
                                   undefined,
