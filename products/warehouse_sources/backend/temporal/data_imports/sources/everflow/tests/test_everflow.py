@@ -80,6 +80,42 @@ class TestTables:
         assert result.raised is None
         assert result.rows == [{"network_advertiser_id": 135, "name": "Brand"}]
 
+    @pytest.mark.parametrize(
+        ("endpoint", "row", "expected_types"),
+        [
+            (
+                "conversions",
+                {"conversion_id": "c1", "payout": 30, "revenue": None, "sale_amount": 0},
+                {"conversion_id": str, "payout": float, "revenue": type(None), "sale_amount": float},
+            ),
+            (
+                "offers",
+                {
+                    "network_offer_id": 1,
+                    "payout_amount": 30,
+                    "revenue_amount": 4.5,
+                    "today_payout_amount": 0,
+                    "today_revenue_amount": None,
+                },
+                {
+                    "network_offer_id": int,
+                    "payout_amount": float,
+                    "revenue_amount": float,
+                    "today_payout_amount": float,
+                    "today_revenue_amount": type(None),
+                },
+            ),
+        ],
+    )
+    def test_whole_amounts_arrive_as_floats(
+        self, endpoint: str, row: dict[str, Any], expected_types: dict[str, type]
+    ) -> None:
+        result = _run(endpoint, [_table_page(endpoint, [row], total=1)])
+
+        assert result.raised is None
+        assert result.rows == [row]
+        assert [{column: type(value) for column, value in mapped.items()} for mapped in result.rows] == [expected_types]
+
     def test_a_rejected_key_fails_the_run_with_the_status_the_error_map_matches(self) -> None:
         result = _run(
             "affiliates", always(ScriptedResponse(status=401, json={"Error": "Unable to authenticate request"}))
@@ -191,6 +227,24 @@ class TestDailyPerformance:
 
         assert result.raised is None
         assert [request.json()["from"] for request in result.requests] == ["2026-10-15"]
+
+    @time_machine.travel(NOW, tick=False)
+    def test_whole_amounts_arrive_as_floats(self) -> None:
+        row = _entity_row("882", "102", 7) | {
+            "reporting": {"total_click": 7, "cv": 1, "payout": 30, "cpm": 2, "rpm": None}
+        }
+        result = _run(
+            "daily_performance",
+            [ScriptedResponse(json={"table": [row]})],
+            incremental_field="date",
+            db_incremental_field_last_value=date(2026, 10, 15),
+        )
+
+        assert result.raised is None
+        assert [
+            {column: type(value) for column, value in flat.items() if column in row["reporting"]}
+            for flat in result.rows
+        ] == [{"total_click": int, "cv": int, "payout": float, "cpm": float, "rpm": type(None)}]
 
 
 class TestFlattenEntityRow:

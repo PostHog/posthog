@@ -380,6 +380,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
     # (e.g. BadConfig) to surface.
     "could not get connection from the pool - allserversdown",
+    # PgBouncer's own pool-checkout timeout: a client already holds its PgBouncer-facing socket but
+    # waits past `query_wait_timeout` for a backend to free up in transaction/statement-pooling mode.
+    # PgBouncer reports this as a bare, SQLSTATE-less "query_wait_timeout" over a raw error packet
+    # that doesn't follow the normal error-message framing, which psycopg surfaces as ProtocolViolation
+    # rather than OperationalError. Same transient pool-capacity class as pgcat's AllServersDown and
+    # Supavisor's ECHECKOUT* above — a slot frees the moment another transaction returns its backend —
+    # so a fresh reconnect recovers.
+    "query_wait_timeout",
     # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
     # ever begins and libpq has no server-reported error text to attach (see
     # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
