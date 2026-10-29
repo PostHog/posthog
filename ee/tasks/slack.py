@@ -4,7 +4,8 @@ from urllib.parse import urlparse
 
 import structlog
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.subscriptions.backend.facade.api import render_shared_insight_image
@@ -45,13 +46,19 @@ def _handle_slack_event(event_payload: Any) -> None:
             team_id = sharing_config.team_id
 
             # Now we try and get the SlackIntegration for the specificed PostHog team and Slack Team
-            try:
-                integration = Integration.objects.get(kind="slack", team=team_id, config__team__id=slack_team_id)
-                slack_integration = SlackIntegration(integration)
-
-            except Integration.DoesNotExist:
+            # `where` compares top-level config keys only, so match the nested Slack team id here.
+            integration = next(
+                (
+                    row
+                    for row in IntegrationManager.slack.oauth.list(team_id)
+                    if ((row.config or {}).get("team") or {}).get("id") == slack_team_id
+                ),
+                None,
+            )
+            if integration is None:
                 logger.info("No SlackIntegration found for this team")
                 continue
+            slack_integration = SlackIntegration(integration)
 
             # With both the integration and the resource we are good to go!!
 

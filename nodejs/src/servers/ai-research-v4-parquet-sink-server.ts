@@ -1,16 +1,14 @@
-import { Message } from 'node-rdkafka'
-
 import { KAFKA_AI_RESEARCH_V4_INDEX } from '~/common/config/kafka-topics'
-import { KafkaConsumer, KafkaConsumerConfig, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { logger } from '~/common/utils/logger'
 import { AiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 import { IndexBatcher } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-batcher'
-import { INDEX_HEADER } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-message'
+import { indexCapturedData } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-message'
 import { IndexParquetStore } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-parquet-store'
+import { IndexWatermarkFiles } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-watermark-files'
 import { AiResearchV4ConsumerServer } from '~/ingestion/pipelines/sessionreplay/ai-research/server/v4-consumer-server'
 import {
     CaptureWatermark,
-    CapturedData,
     capturedRecords,
     releasingOffsetStore,
 } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
@@ -43,12 +41,6 @@ export function buildV4SinkConsumerConfig(config: AiResearchV4ServerConfig): Kaf
     }
 }
 
-/** Block rows feed the event metadata watermark and image rows the inline image one, as in v3. */
-function indexData(message: Message): CapturedData | undefined {
-    const index = parseKafkaHeaders(message.headers)[INDEX_HEADER]
-    return index === 'blocks' ? 'event_metadata' : index === 'images' ? 'inline_images' : undefined
-}
-
 export class AiResearchV4ParquetSinkServer extends AiResearchV4ConsumerServer {
     protected async startServices(): Promise<void> {
         const consumerConfig = buildV4SinkConsumerConfig(this.config)
@@ -70,6 +62,7 @@ export class AiResearchV4ParquetSinkServer extends AiResearchV4ConsumerServer {
         const batcher = new IndexBatcher(
             new IndexParquetStore(s3Client, bucket, rowGroupRows),
             releasingOffsetStore(consumer, watermark),
+            new IndexWatermarkFiles(s3Client, bucket, watermark),
             {
                 flushIntervalMs: this.config.AI_RESEARCH_V4_PARQUET_FLUSH_INTERVAL_MS,
                 maxRows: this.config.AI_RESEARCH_V4_PARQUET_MAX_ROWS,
@@ -81,7 +74,7 @@ export class AiResearchV4ParquetSinkServer extends AiResearchV4ConsumerServer {
         await consumer.connect(
             (messages) => {
                 consumer.heartbeat()
-                watermark.hold(capturedRecords(messages, indexData))
+                watermark.hold(capturedRecords(messages, indexCapturedData))
                 return batcher.handleBatch(messages, Date.now())
             },
             (partitions) => {
