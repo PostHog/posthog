@@ -10,7 +10,7 @@ import posthog.helpers.encrypted_fields
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1413_event_filter_pipeline_override"),
-        ("warehouse_sources", "0187_repin_teamtailor_api_version"),
+        ("warehouse_sources", "0188_reset_trunkio_v2_failing_tests"),
     ]
 
     operations = [
