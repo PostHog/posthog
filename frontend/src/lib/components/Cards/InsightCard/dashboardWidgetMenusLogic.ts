@@ -33,7 +33,7 @@ export interface dashboardWidgetMenusLogicValues {
 export interface dashboardWidgetMenusLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        dashboardIdsWithThisWidget: (liveIds: string, dashboardId: number | null | undefined) => Set<number>
+        dashboardIdsWithThisWidget: (arg: string, dashboardId: number | null | undefined) => Set<number>
         copyToDestinations: (
             nameSortedDashboards: (DashboardBasicType | DashboardType)[],
             dashboardIdsWithThisWidget: Set<number>,
