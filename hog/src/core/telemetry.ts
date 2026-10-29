@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
 
+import { posthogFile } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
@@ -123,15 +123,15 @@ export class Telemetry {
         }
     }
 
-    // A random ID kept in ~/.posthog, so usage counts machines instead of runs. It says nothing
-    // about the person. Without a home folder, each run counts on its own.
+    // A random ID kept next to the credentials, so usage counts machines instead of runs. It says
+    // nothing about the person. Without a home folder, each run counts on its own.
     private async installId(): Promise<string> {
-        const home =
-            this.runtime.env.POSTHOG_HOME ?? (this.runtime.homeDir() && join(this.runtime.homeDir()!, '.posthog'))
-        if (!home) {
+        let path: string
+        try {
+            path = posthogFile(this.runtime, ID_FILE)
+        } catch {
             return this.invocationId
         }
-        const path = join(home, ID_FILE)
         try {
             const stored = (await this.runtime.readFile(path)).trim()
             if (stored) {
