@@ -81,10 +81,9 @@ export interface MetricCardProps {
 }
 
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
-    const { onError, ...rest } = props
     return (
-        <ChartErrorBoundary onError={onError}>
-            <MetricCardInner {...rest} />
+        <ChartErrorBoundary onError={props.onError}>
+            <MetricCardInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -120,7 +119,8 @@ function MetricCardInner({
     hoverIntentMs = 60,
     className,
     dataAttr,
-}: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {
+    onError,
+}: MetricCardProps): React.ReactElement | null {
     const sparklineData = data != null && data.length > 0 && theme != null ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
@@ -228,6 +228,7 @@ function MetricCardInner({
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
                     dataAttr="metric-card-sparkline"
+                    onError={onError}
                 />
             )}
         </div>

@@ -2815,6 +2815,7 @@ dependencies = [
  "common-kafka",
  "common-liveness",
  "common-types",
+ "dashmap 6.1.0",
  "envconfig",
  "futures",
  "governor",
@@ -6517,6 +6518,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assignment-coordination",
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "axum 0.7.9",
  "chrono",
  "common-alloc",

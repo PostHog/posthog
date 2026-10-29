@@ -282,6 +282,35 @@ const workflowsDiscardDraft = (): ToolBase<ReturnType<typeof WorkflowsDiscardDra
         },
     })
 
+const WorkflowsEmailDraftsCreateSchema = () => {
+    const WorkflowDataSuggestionsBuildForEventsBody = orvalSchemas.WorkflowDataSuggestionsBuildForEventsBody()
+    return WorkflowDataSuggestionsBuildForEventsBody
+}
+
+const workflowsEmailDraftsCreate = (): ToolBase<
+    ReturnType<typeof WorkflowsEmailDraftsCreateSchema>,
+    Schemas.EventWorkflowsBuildResponse
+> => ({
+    name: 'workflows-email-drafts-create',
+    schema: WorkflowsEmailDraftsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEmailDraftsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.events !== undefined) {
+            body['events'] = params.events
+        }
+        if (params.retry !== undefined) {
+            body['retry'] = params.retry
+        }
+        const result = await context.api.request<Schemas.EventWorkflowsBuildResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_data_suggestions/build_for_events/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsGetSchema = () => {
     const HogFlowsRetrieveParams = orvalSchemas.HogFlowsRetrieveParams()
     return HogFlowsRetrieveParams.omit({ project_id: true })
@@ -365,6 +394,77 @@ const workflowsGlobalStats = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
+const WorkflowsImportCustomerioSchema = () => {
+    const WorkflowImportsCreateBody = orvalSchemas.WorkflowImportsCreateBody()
+    return WorkflowImportsCreateBody
+}
+
+const workflowsImportCustomerio = (): ToolBase<
+    ReturnType<typeof WorkflowsImportCustomerioSchema>,
+    Schemas.WorkflowImportResponse
+> => ({
+    name: 'workflows-import-customerio',
+    schema: WorkflowsImportCustomerioSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsImportCustomerioSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        if (params.campaigns !== undefined) {
+            body['campaigns'] = params.campaigns
+        }
+        if (params.snippets !== undefined) {
+            body['snippets'] = params.snippets
+        }
+        if (params.segment_cohorts !== undefined) {
+            body['segment_cohorts'] = params.segment_cohorts
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        if (params.sender_identities !== undefined) {
+            body['sender_identities'] = params.sender_identities
+        }
+        if (params.segments !== undefined) {
+            body['segments'] = params.segments
+        }
+        if (params.dry_run !== undefined) {
+            body['dry_run'] = params.dry_run
+        }
+        const result = await context.api.request<Schemas.WorkflowImportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_imports/`,
+            body,
+        })
+        return result
+    },
+})
+
+const WorkflowsImportNotesSchema = () => {
+    const WorkflowImportsForWorkflowRetrieveQueryParams = orvalSchemas.WorkflowImportsForWorkflowRetrieveQueryParams()
+    return WorkflowImportsForWorkflowRetrieveQueryParams
+}
+
+const workflowsImportNotes = (): ToolBase<
+    ReturnType<typeof WorkflowsImportNotesSchema>,
+    Schemas.WorkflowImportRecord
+> => ({
+    name: 'workflows-import-notes',
+    schema: WorkflowsImportNotesSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsImportNotesSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WorkflowImportRecord>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_imports/for_workflow/`,
+            query: {
+                hog_flow_id: params.hog_flow_id,
+            },
+        })
+        return result
     },
 })
 
@@ -1031,10 +1131,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-data-suggestions-get': workflowsDataSuggestionsGet,
     'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
+    'workflows-email-drafts-create': workflowsEmailDraftsCreate,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
     'workflows-global-stats': workflowsGlobalStats,
+    'workflows-import-customerio': workflowsImportCustomerio,
+    'workflows-import-notes': workflowsImportNotes,
     'workflows-list': workflowsList,
     'workflows-list-batch-jobs': workflowsListBatchJobs,
     'workflows-list-invocations': workflowsListInvocations,
