@@ -82,6 +82,10 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHAREPOINT
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "sharepoint"
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             INVALID_SITE_URL_ERROR: None,
@@ -259,6 +263,7 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
                     ),
                     SourceFieldInputConfig(
                         name="site_urls",
+                        sync_setting=True,
                         label="Site URLs (optional)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -268,6 +273,7 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="import_files",
+                        sync_setting=True,
                         label="Import CSV and Excel file contents?",
                         default=False,
                         caption=(

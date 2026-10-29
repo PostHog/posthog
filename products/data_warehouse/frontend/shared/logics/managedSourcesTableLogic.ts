@@ -11,7 +11,8 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ExternalDataJobStatus, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { SourceConfigResponseApi } from '../../../../warehouse_sources/frontend/generated/api.schemas'
-import { sourceLabel, sourceManagementLogic } from './sourceManagementLogic'
+import { isFileUploadSource, sourceTypeLabel } from '../fileUploadSources'
+import { sourceManagementLogic } from './sourceManagementLogic'
 
 const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
     ExternalDataSchemaStatus.Failed,
@@ -39,7 +40,10 @@ export const totalRowsSynced = (source: ExternalDataSource): number =>
 export const syncingSchemasByStatus = (
     source: ExternalDataSource
 ): { status: ExternalDataSchemaStatus; schemas: ExternalDataSourceSchema[] }[] => {
-    const syncingSchemas = source.schemas.filter((schema) => schema.should_sync)
+    // A file upload schema never syncs on a schedule, so its imports still count.
+    const syncingSchemas = isFileUploadSource(source)
+        ? source.schemas
+        : source.schemas.filter((schema) => schema.should_sync)
     return SCHEMA_STATUS_ORDER.map((status) => ({
         status,
         schemas: syncingSchemas.filter((schema) => schema.status === status),
@@ -77,12 +81,11 @@ const compareSortKeys = (a: SortKey[], b: SortKey[]): number => {
     return 0
 }
 
-// The selector computes these once per source, because the rows synced and status keys walk every schema.
 const MANAGED_SOURCE_SORT_KEYS: Record<
     string,
     (source: ExternalDataSource, availableSources: Record<string, SourceConfigResponseApi> | null) => SortKey[]
 > = {
-    name: (source, availableSources) => [sourceLabel(source, availableSources), source.prefix ?? ''],
+    name: (source, availableSources) => [sourceTypeLabel(source.source_type, availableSources), source.prefix ?? ''],
     prefix: (source) => [source.prefix ?? ''],
     last_run_at: (source) => [lastRunTime(source)],
     rows_synced: (source) => [totalRowsSynced(source)],
@@ -203,7 +206,6 @@ export const managedSourcesTableLogic = kea<managedSourcesTableLogicType>([
                           .sort((a, b) => order * compareSortKeys(a.key, b.key))
                           .map(({ source }) => source)
                     : filteredManagedSources
-                // While searching, starred sources do not float above better matches.
                 if (managedSearchTerm?.trim()) {
                     return sorted
                 }
@@ -221,7 +223,7 @@ export const managedSourcesTableLogic = kea<managedSourcesTableLogicType>([
                 actions.deleteShortcut(shortcut.id)
                 return
             }
-            const label = sourceLabel(source, values.availableSources)
+            const label = sourceTypeLabel(source.source_type, values.availableSources)
             actions.addShortcutItem({
                 id: source.id,
                 path: escapePath(source.prefix ? `${label} (${source.prefix})` : label),

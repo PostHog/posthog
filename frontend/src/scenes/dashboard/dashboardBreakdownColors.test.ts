@@ -152,10 +152,10 @@ describe('dashboardBreakdownColors', () => {
         it('handles trends insights', () => {
             const tiles = [
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Chrome'], compare_label: 'previous' },
-                    { action: { order: 0 }, breakdown_value: ['Firefox'], compare_label: 'previous' },
+                    { order: 0, breakdown_value: ['Chrome'], compare_label: 'previous' },
+                    { order: 0, breakdown_value: ['Firefox'], compare_label: 'previous' },
                 ]),
-                trendsTile([{ action: { order: 0 }, breakdown_value: 'Safari' }]),
+                trendsTile([{ order: 0, breakdown_value: 'Safari' }]),
             ]
 
             expect(extractBreakdownValues(tiles)).toEqual([
@@ -168,10 +168,10 @@ describe('dashboardBreakdownColors', () => {
         it('orders values by assignment rank, most re-used first', () => {
             const tiles = [
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Apple'] },
-                    { action: { order: 0 }, breakdown_value: ['Zebra'] },
+                    { order: 0, breakdown_value: ['Apple'] },
+                    { order: 0, breakdown_value: ['Zebra'] },
                 ]),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Zebra'] }]),
+                trendsTile([{ order: 0, breakdown_value: ['Zebra'] }]),
             ]
 
             // Zebra is on two charts vs Apple's one, so the modal lists it first even
@@ -185,12 +185,12 @@ describe('dashboardBreakdownColors', () => {
         it('deduplicates repeated breakdown values across tiles', () => {
             const tiles = [
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                    { action: { order: 1 }, breakdown_value: ['Firefox'] },
+                    { order: 0, breakdown_value: ['Chrome'] },
+                    { order: 1, breakdown_value: ['Firefox'] },
                 ]),
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                    { action: { order: 1 }, breakdown_value: ['Safari'] },
+                    { order: 0, breakdown_value: ['Chrome'] },
+                    { order: 1, breakdown_value: ['Safari'] },
                 ]),
             ]
 
@@ -204,7 +204,7 @@ describe('dashboardBreakdownColors', () => {
         it('stringifies numeric values so trends and funnels tiles share one entry', () => {
             const tiles = [
                 // trends keys wrap scalars in an array; funnels keep them bare
-                trendsTile([{ action: { order: 0 }, breakdown_value: [123] }]),
+                trendsTile([{ order: 0, breakdown_value: [123] }]),
                 createTestTile({
                     result: [{ breakdown_value: 123 }],
                     query: {
@@ -317,7 +317,7 @@ describe('dashboardBreakdownColors', () => {
         it('handles cohort breakdowns, keying them all to the shared cohort property', () => {
             const cohortTile = (values: number[][]): DashboardTile =>
                 createTestTile({
-                    result: values.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value })),
+                    result: values.map((breakdown_value) => ({ order: 0, breakdown_value })),
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
@@ -340,14 +340,14 @@ describe('dashboardBreakdownColors', () => {
 
         it('unifies single and multi form of one property into one scoped entry', () => {
             const tiles = [
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], {
+                trendsTile([{ order: 0, breakdown_value: ['Chrome'] }], {
                     breakdown: '$browser',
                     breakdown_type: 'event',
                 }),
                 trendsTile(
                     [
-                        { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                        { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                        { order: 0, breakdown_value: ['Chrome'] },
+                        { order: 0, breakdown_value: ['Firefox'] },
                     ],
                     { breakdowns: [{ property: '$browser' }] }
                 ),
@@ -361,11 +361,11 @@ describe('dashboardBreakdownColors', () => {
 
         it('clusters values by property in tile order before ranking within each property', () => {
             const tiles = [
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
-                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+                trendsTile([{ order: 0, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
+                trendsTile([{ order: 0, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
+                trendsTile([{ order: 0, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+                trendsTile([{ order: 0, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+                trendsTile([{ order: 0, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
             ]
 
             // Chrome is on more tiles, but $os tiles come first on the dashboard
@@ -380,12 +380,12 @@ describe('dashboardBreakdownColors', () => {
         it('keeps values grouped by tile and deduplicates within a tile', () => {
             const tiles = [
                 trendsTile([
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                    { order: 0, breakdown_value: ['Chrome'] },
                     // second series over the same breakdown repeats the value within the tile
-                    { action: { order: 1 }, breakdown_value: ['Chrome'] },
-                    { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                    { order: 1, breakdown_value: ['Chrome'] },
+                    { order: 0, breakdown_value: ['Firefox'] },
                 ]),
-                trendsTile([{ action: { order: 0 }, breakdown_value: 'Chrome' }]),
+                trendsTile([{ order: 0, breakdown_value: 'Chrome' }]),
                 trendsTile([]),
             ]
 

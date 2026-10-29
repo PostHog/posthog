@@ -25,6 +25,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 
 import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { dashboardsCopyGroupCreate } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
@@ -46,19 +47,23 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
-import {
-    DashboardEventSource,
-    DashboardFilterChangeType,
-    dashboardViewedProperties,
-    eventUsageLogic,
-    sanitizeDashboard,
-    filtersForAnalytics,
-    sanitizeQuery,
-} from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import {
+    DashboardFilterChangeType,
+    dashboardViewedProperties,
+    reportDashboardEditModeDiscardPrompt,
+    reportDashboardFiltersChanged,
+    reportDashboardInsightDeleteAfterRemovalClicked,
+    reportDashboardLayoutEditModeEntered,
+    reportDashboardModeToggled,
+    reportDashboardTileDensityConfigured,
+    sanitizeDashboard,
+    tileGroupProperties,
+} from 'scenes/dashboard/dashboardEvents'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
@@ -71,8 +76,6 @@ import {
 } from 'scenes/dashboard/widgetFetchUtils'
 import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -149,6 +152,8 @@ import {
     getTileGroupMoveOptions,
     UNGROUPED_TILES_TAB_KEY,
 } from 'products/dashboards/frontend/dashboardTileSections'
+import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
+import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -198,6 +203,14 @@ import { tileLogic } from './tileLogic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
+}
+
+function tileGroupLoadProperties(
+    groupDisplay: TileGroupDisplay,
+    tiles: DashboardTile[],
+    collapsedTileGroupKeys: string[]
+): Record<string, any> {
+    return { ...tileGroupProperties(groupDisplay, tiles), collapsed_group_count: collapsedTileGroupKeys.length }
 }
 
 function reportDashboardTileRefreshed(
@@ -685,6 +698,7 @@ export interface dashboardLogicValues {
     collapsedTileIds: Set<number>
     columns: number | null
     containerWidth: number | null
+    copyGroupToDashboardLoading: boolean
     currentDashboardSettings: DashboardSettings
     currentDashboardVariables: Record<string, HogQLVariable>
     currentLayoutSize: 'sm' | 'xs'
@@ -694,6 +708,7 @@ export interface dashboardLogicValues {
     dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
+    dashboardGridCompactionSaving: boolean
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
         dashboardQueryId: string
@@ -757,6 +772,7 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
+    queryLoadQueue: TaskQueue
     readOnly: boolean
     refreshEligibilityTick: number
     refreshMetrics: {
@@ -891,6 +907,18 @@ export interface dashboardLogicActions {
         tileIds: number[]
     }
     closeTileModal: () => {
+        value: true
+    }
+    copyGroupToDashboard: (
+        groupKey: string,
+        toDashboard: number,
+        toDashboardName: string
+    ) => {
+        groupKey: string
+        toDashboard: number
+        toDashboardName: string
+    }
+    copyGroupToDashboardFinished: () => {
         value: true
     }
     copyToDashboard: (
@@ -1293,6 +1321,9 @@ export interface dashboardLogicActions {
     }
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
+    }
+    setDashboardGridCompactionSaving: (saving: boolean) => {
+        saving: boolean
     }
     setDashboardMode: (
         mode: DashboardMode | null,
@@ -2173,6 +2204,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             toDashboard,
             toDashboardName,
         }),
+        copyGroupToDashboard: (groupKey: string, toDashboard: number, toDashboardName: string) => ({
+            groupKey,
+            toDashboard,
+            toDashboardName,
+        }),
+        copyGroupToDashboardFinished: true,
         setTextTileId: (textTileId: DashboardTileIdOrNew) => ({ textTileId }),
         setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => ({ buttonTileId }),
         openAddInsightModal: true,
@@ -2201,6 +2238,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
         setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
+        setDashboardGridCompactionSaving: (saving: boolean) => ({ saving }),
         setDashboardTileSpacingSaving: (saving: boolean) => ({ saving }),
         restoreTemporaryColorState: (colors: BreakdownColorConfig[], themeId: { themeId: number | null } | null) => ({
             colors,
@@ -2647,6 +2685,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        copyGroupToDashboardLoading: [
+            false,
+            {
+                copyGroupToDashboard: () => true,
+                copyGroupToDashboardFinished: () => false,
+            },
+        ],
         dashboardLoading: [
             false,
             {
@@ -2669,6 +2714,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardStreaming: () => true,
                 tileStreamingComplete: () => false,
                 tileStreamingFailure: () => false,
+            },
+        ],
+        dashboardGridCompactionSaving: [
+            false,
+            {
+                setDashboardGridCompactionSaving: (_, { saving }) => saving,
             },
         ],
         dashboardTileSpacingSaving: [
@@ -3424,7 +3475,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ cache }) => ({
+        queryLoadQueue: [() => [], (): TaskQueue => tileLoadQueue(cache)],
         filterEditModeActive: [
             (s) => [s.dashboardEditing],
             (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,
@@ -3635,8 +3687,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const draftByTile = draftLayouts ? layoutsByTile(draftLayouts) : null
                 return (dashboard.tiles || []).some((tile: DashboardTile) => {
                     const saved = savedTilePlacements[tile.id]
+                    const savedSm = saved?.layouts?.sm
                     const currentSm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
-                    return !equal(saved?.layouts?.sm || {}, currentSm || {}) || tileGroupChanged(tile, saved)
+                    // The grid adds its own fields (moved, static, min sizes) when it re-lays out, so compare the cell only.
+                    const cellChanged =
+                        savedSm && currentSm
+                            ? !sameGridCell(savedSm, currentSm)
+                            : Boolean(savedSm) !== Boolean(currentSm)
+                    return cellChanged || tileGroupChanged(tile, saved)
                 })
             },
         ],
@@ -4473,6 +4531,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        copyGroupToDashboard: async ({ groupKey, toDashboard, toDashboardName }) => {
+            try {
+                await dashboardsCopyGroupCreate(String(teamLogic.values.currentTeamId), toDashboard, {
+                    fromDashboardId: props.id,
+                    groupKey,
+                })
+                posthog.capture('dashboard tile group copied to other dashboard', {
+                    from_dashboard_id: props.id,
+                    to_dashboard_id: toDashboard,
+                    tile_count: values.tiles.filter((tile) => tile.group_key === groupKey).length,
+                })
+                lemonToast.success(
+                    <>
+                        Group copied to <Link to={urls.dashboard(toDashboard)}>{toDashboardName}</Link>
+                    </>
+                )
+            } catch (error) {
+                lemonToast.error(`Could not copy group to dashboard: ${String(error)}`)
+            } finally {
+                actions.copyGroupToDashboardFinished()
+            }
+        },
         revealHighlightedInsight: () => {
             const insightId = values.highlightedInsightId
             const tile = values.tiles.find((tile) => insightId && tile.insight?.short_id === insightId)
@@ -4691,6 +4771,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 action,
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                ...tileGroupLoadProperties(values.tileGroupDisplay, values.tiles, values.collapsedTileGroupKeys),
             })
             if (cache.onlineRecoveryPending || (cache.connectionRecoveryPending && !values.internetConnectionIssue)) {
                 cache.onlineRecoveryPending = false
@@ -4975,9 +5056,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     data-attr="delete-removed-insight"
                                     className="!m-0"
                                     onClick={() => {
-                                        eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
-                                            otherDashboardIds.size
-                                        )
+                                        reportDashboardInsightDeleteAfterRemovalClicked(otherDashboardIds.size)
                                         deleteInsight()
                                     }}
                                 >
@@ -5116,7 +5195,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboardSuccess(dashboard, {
                     layoutsPersisted: true,
                 })
-                eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
+                reportDashboardTileDensityConfigured(tileSpacing)
             } catch {
                 if (!cache.pendingDashboardTileSpacing) {
                     actions.setDashboardTileSpacing(persistedTileSpacing)
@@ -5135,20 +5214,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
         },
-        saveDashboardGridCompaction: async ({ layoutCompaction }, breakpoint) => {
-            await breakpoint(750)
-
-            if (cache.dashboardGridCompactionSaveInFlight) {
-                cache.pendingDashboardGridCompaction = layoutCompaction
-                return
-            }
-
+        saveDashboardGridCompaction: async ({ layoutCompaction }) => {
             const persistedDashboard = dashboardsModel.values.rawDashboards[props.id]
             const persistedLayoutCompaction =
                 persistedDashboard && 'customization' in persistedDashboard
                     ? (persistedDashboard.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
                     : DashboardGridCompaction.Vertical
-            cache.dashboardGridCompactionSaveInFlight = true
+            actions.setDashboardGridCompactionSaving(true)
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 const dashboard = await api.update<DashboardType>(
@@ -5163,21 +5235,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             } catch (error) {
                 posthog.captureException(error)
-                if (!cache.pendingDashboardGridCompaction) {
-                    actions.setDashboardGridCompaction(persistedLayoutCompaction)
-                    actions.loadDashboard({ action: DashboardLoadAction.Update })
-                }
+                actions.setDashboardGridCompaction(persistedLayoutCompaction)
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error("Couldn't update tile movement. Try again.")
             } finally {
-                cache.dashboardGridCompactionSaveInFlight = false
-                const pendingLayoutCompaction = cache.pendingDashboardGridCompaction as
-                    | DashboardGridCompaction
-                    | undefined
-                cache.pendingDashboardGridCompaction = undefined
-                if (pendingLayoutCompaction) {
-                    actions.setDashboardGridCompaction(pendingLayoutCompaction)
-                    actions.saveDashboardGridCompaction(pendingLayoutCompaction)
-                }
+                actions.setDashboardGridCompactionSaving(false)
             }
         },
         forceRefreshIfStale: () => {
@@ -5319,6 +5381,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const dashboardId: number = props.id
             const { collapsedTileIds } = values
+            const tileGroupProps = tileGroupLoadProperties(
+                values.tileGroupDisplay,
+                values.tiles,
+                values.collapsedTileGroupKeys
+            )
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
             if (filterChange) {
@@ -5457,6 +5524,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         api_response_bytes: responseBytes,
                         insights_fetched: sortedTilesToRefresh.length,
                         insights_fetched_cached: tilesRefreshedCachedCount,
+                        ...tileGroupProps,
                         ...getJSHeapMemory(),
                     })
                 }
@@ -5484,6 +5552,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
+                    ...tileGroupProps,
                     ...(filterChangeIsCurrent
                         ? {
                               filter_change_id: filterChange.id,
@@ -5540,6 +5609,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (!section) {
                 return
             }
+            posthog.capture('dashboard tile group tab selected', {
+                dashboard_id: props.id,
+                tile_count: section.tiles.length,
+            })
             // This listener runs before the URL changes, so the active tab is still the one the viewer leaves.
             const leftTab = values.activeTileGroupTab
             const leftTiles =
@@ -5902,7 +5975,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 discard()
                 return
             }
-            eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
+            reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
             LemonDialog.open({
                 title: 'Discard unsaved changes?',
                 description:
@@ -5911,7 +5984,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     children: 'Discard changes',
                     status: 'danger',
                     onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
+                        reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
                         discard()
                     },
                     'data-attr': 'dashboard-edit-mode-discard-confirm',
@@ -5919,7 +5992,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 secondaryButton: {
                     children: 'Keep editing',
                     onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
+                        reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
                     },
                 },
             })
@@ -5932,9 +6005,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.saveDashboardTileSpacing(tileSpacing)
         },
         changeDashboardGridCompaction: ({ layoutCompaction }) => {
+            // The options are disabled while a save is in flight, so a save response never carries an older choice.
             if (
+                values.dashboardGridCompactionSaving ||
                 layoutCompaction ===
-                (values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
+                    (values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
             ) {
                 return
             }
@@ -5996,7 +6071,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (editing?.layout) {
-                eventUsageLogic.actions.reportDashboardLayoutEditModeEntered(
+                reportDashboardLayoutEditModeEntered(
                     values.dashboard,
                     source,
                     values.layoutEditMode ? values.layoutZoom : null
@@ -6005,7 +6080,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(
+                reportDashboardModeToggled(
                     values.dashboard,
                     mode,
                     source,
@@ -6162,7 +6237,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 remainingInsightIds: new Set(values.insightTiles.map((tile) => tile.insight!.short_id)),
             }
             cache.pendingFilterChange = filterChange
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, changeType, {
+            reportDashboardFiltersChanged(values.dashboard, changeType, {
                 ...properties,
                 filter_change_id: filterChange.id,
                 supersedes_filter_change_id: previousChange?.id,
@@ -6664,84 +6739,96 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    urlToAction(({ values, actions }) => ({
-        '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
-            const id = subscriptionId
-                ? subscriptionId == 'new'
-                    ? subscriptionId
-                    : parseInt(subscriptionId, 10)
-                : undefined
-            actions.setSubscriptionMode(true, id)
-            actions.setTextTileId(null)
-            actions.setButtonTileId(null)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
-            actions.setDashboardEditing(null, DashboardEventSource.Browser)
-        },
+    urlToAction(({ values, actions }) => {
+        const restoreSettingsFromHistory = (searchParams: Record<string, any>): void => {
+            const current = values.currentDashboardSettings
+            const settings: DashboardSettings = {
+                filters: combineSavedAndUrlFilters(
+                    values.savedDashboardSettings.filters,
+                    parseURLFilters(searchParams)
+                ),
+                // Browser history carries SQL variables as well as filters. Until the variable
+                // definitions load there is nothing to map the URL values onto, so the current
+                // values stay.
+                variables: values.initialVariablesLoaded
+                    ? { ...values.savedDashboardSettings.variables, ...values.urlVariables }
+                    : current.variables,
+            }
 
-        '/dashboard/:id': (_params, searchParams, _hashParams, { method }) => {
-            actions.revealHighlightedInsight()
-            actions.setSubscriptionMode(false, undefined)
-            actions.setTextTileId(null)
-            actions.setButtonTileId(null)
-            if (method === 'POP' && values.dashboard) {
-                const current = values.currentDashboardSettings
-                const settings: DashboardSettings = {
-                    filters: combineSavedAndUrlFilters(
-                        values.savedDashboardSettings.filters,
-                        parseURLFilters(searchParams)
-                    ),
-                    // Browser history carries SQL variables as well as filters. Until the variable
-                    // definitions load there is nothing to map the URL values onto, so the current
-                    // values stay.
-                    variables: values.initialVariablesLoaded
-                        ? { ...values.savedDashboardSettings.variables, ...values.urlVariables }
-                        : current.variables,
-                }
-
-                // Back and Forward also arrive from routes that leave the settings alone, such as the
-                // sharing page. Rebuilding the settings there would re-query every tile and cancel a
-                // refresh in flight for values the dashboard already holds.
-                if (
-                    !dashboardFiltersEqual(current.filters, settings.filters) ||
-                    !equal(current.variables, settings.variables)
-                ) {
-                    actions.setDashboardSettingsDraft(settings)
-                    if (values.canAutoPreview) {
-                        actions.refreshDashboardItems({
-                            action: RefreshDashboardItemsAction.Preview,
-                            forceRefresh: false,
-                        })
-                    }
+            // Back and Forward also arrive from routes that leave the settings alone, such as the
+            // sharing page. Rebuilding the settings there would re-query every tile and cancel a
+            // refresh in flight for values the dashboard already holds.
+            if (
+                !dashboardFiltersEqual(current.filters, settings.filters) ||
+                !equal(current.variables, settings.variables)
+            ) {
+                actions.setDashboardSettingsDraft(settings)
+                if (values.canAutoPreview) {
+                    actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Preview,
+                        forceRefresh: false,
+                    })
                 }
             }
-            if (values.dashboardMode === DashboardMode.Sharing) {
+        }
+
+        return {
+            '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
+                const id = subscriptionId
+                    ? subscriptionId == 'new'
+                        ? subscriptionId
+                        : parseInt(subscriptionId, 10)
+                    : undefined
+                actions.setSubscriptionMode(true, id)
+                actions.setTextTileId(null)
+                actions.setButtonTileId(null)
                 actions.setDashboardMode(null, DashboardEventSource.Browser)
-            }
-            switch (searchParams.tileType) {
-                case 'text':
-                    actions.openTextTileModal()
-                    break
-                case 'image':
-                    actions.openImageTileModal()
-                    break
-                case 'button':
-                    actions.openButtonTileModal()
-                    break
-            }
-        },
-        '/dashboard/:id/sharing': () => {
-            actions.setSubscriptionMode(false, undefined)
-            actions.setTextTileId(null)
-            actions.setButtonTileId(null)
-            actions.setDashboardMode(DashboardMode.Sharing, DashboardEventSource.Browser)
-        },
-        '/dashboard/:id/tiles/:tileId': ({ tileId }) => {
-            actions.setSubscriptionMode(false, undefined)
-            actions.setDashboardMode(null, DashboardEventSource.Browser)
-            actions.setDashboardEditing(null, DashboardEventSource.Browser)
-            const parsedTileId = parseDashboardTileId(tileId)
-            actions.setTextTileId(parsedTileId)
-            actions.setButtonTileId(parsedTileId)
-        },
-    })),
+                actions.setDashboardEditing(null, DashboardEventSource.Browser)
+            },
+
+            '/dashboard/:id': (_params, searchParams, _hashParams, { method }) => {
+                actions.revealHighlightedInsight()
+                actions.setSubscriptionMode(false, undefined)
+                actions.setTextTileId(null)
+                actions.setButtonTileId(null)
+                if (method === 'POP' && values.dashboard) {
+                    restoreSettingsFromHistory(searchParams)
+                }
+                if (values.dashboardMode === DashboardMode.Sharing) {
+                    actions.setDashboardMode(null, DashboardEventSource.Browser)
+                }
+                switch (searchParams.tileType) {
+                    case 'text':
+                        actions.openTextTileModal()
+                        break
+                    case 'image':
+                        actions.openImageTileModal()
+                        break
+                    case 'button':
+                        actions.openButtonTileModal()
+                        break
+                }
+            },
+            '/dashboard/:id/sharing': () => {
+                actions.setSubscriptionMode(false, undefined)
+                actions.setTextTileId(null)
+                actions.setButtonTileId(null)
+                actions.setDashboardMode(DashboardMode.Sharing, DashboardEventSource.Browser)
+            },
+            '/dashboard/:id/tiles/:tileId': ({ tileId }) => {
+                actions.setSubscriptionMode(false, undefined)
+                actions.setDashboardMode(null, DashboardEventSource.Browser)
+                actions.setDashboardEditing(null, DashboardEventSource.Browser)
+                const parsedTileId = parseDashboardTileId(tileId)
+                actions.setTextTileId(parsedTileId)
+                actions.setButtonTileId(parsedTileId)
+            },
+            // The product analytics page shows a full dashboard at its own URL.
+            [urls.analyticsProductHome()]: (_params, searchParams, _hashParams, { method }) => {
+                if (method === 'POP' && values.dashboard && values.placement === DashboardPlacement.Dashboard) {
+                    restoreSettingsFromHistory(searchParams)
+                }
+            },
+        }
+    }),
 ])

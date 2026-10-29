@@ -318,6 +318,7 @@ class StripeSource(
                     ),
                     SourceFieldInputConfig(
                         name="stripe_account_id",
+                        account_selector=True,
                         label="Account id (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -327,6 +328,7 @@ class StripeSource(
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="balance_history_all_customers",
+                        sync_setting=True,
                         label="Sync balance history for every customer",
                         caption="By default, the CustomerBalanceTransaction table only includes customers whose balance isn't zero. Turn this on to also include customers whose balance went back to zero. The sync then makes one Stripe request per customer, so it takes longer.",
                         default=False,

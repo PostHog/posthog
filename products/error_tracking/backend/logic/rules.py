@@ -80,11 +80,11 @@ _ReorderableRule = TypeVar(
 )
 
 
-def _reorder_rules(model: type[_ReorderableRule], team_id: int, orders: dict[str, int]) -> None:
-    rules = list(model.objects.filter(team_id=team_id, id__in=orders.keys()))
+def _reorder_rules(team_rules: QuerySet[_ReorderableRule], orders: dict[str, int]) -> None:
+    rules = list(team_rules.filter(id__in=orders.keys()))
     for rule in rules:
-        rule.order_key = orders[str(rule.id)]  # ty: ignore[invalid-assignment]
-    model.objects.filter(team_id=team_id).bulk_update(rules, ["order_key"])
+        rule.order_key = orders[str(rule.id)]
+    team_rules.bulk_update(rules, ["order_key"])
 
 
 def has_filter_values(json_filters: dict) -> bool:
@@ -158,7 +158,7 @@ def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
 
 
 def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingAssignmentRule, team_id, orders)
+    _reorder_rules(ErrorTrackingAssignmentRule.objects.filter(team_id=team_id), orders)
 
 
 def list_severity_rules(team_id: int) -> QuerySet[ErrorTrackingSeverityRule]:
@@ -228,7 +228,7 @@ def delete_severity_rule(team_id: int, rule_id: str) -> bool:
 
 
 def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingSeverityRule, team_id, orders)
+    _reorder_rules(ErrorTrackingSeverityRule.objects.filter(team_id=team_id), orders)
 
 
 def list_grouping_rules(team_id: int) -> QuerySet[ErrorTrackingGroupingRule]:
@@ -285,24 +285,38 @@ def delete_grouping_rule(team_id: int, rule_id: str) -> bool:
 
 
 def reorder_grouping_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingGroupingRule, team_id, orders)
+    _reorder_rules(ErrorTrackingGroupingRule.objects.filter(team_id=team_id), orders)
+
+
+def _custom_suppression_rules(team_id: int) -> QuerySet[ErrorTrackingSuppressionRule]:
+    # Built-in filter switches own their rows, so the custom rule functions never see or change them.
+    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, built_in_key__isnull=True)
 
 
 def list_suppression_rules(team_id: int) -> QuerySet[ErrorTrackingSuppressionRule]:
-    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id).order_by("order_key")
+    return _custom_suppression_rules(team_id).order_by("order_key")
 
 
 def get_suppression_rule(team_id: int, rule_id: str) -> ErrorTrackingSuppressionRule | None:
-    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, id=rule_id).first()
+    return _custom_suppression_rules(team_id).filter(id=rule_id).first()
 
 
-def create_suppression_rule(team_id: int, *, filters: dict, sampling_rate: float) -> ErrorTrackingSuppressionRule:
+def create_suppression_rule(
+    team_id: int,
+    *,
+    filters: dict,
+    sampling_rate: float,
+    built_in_key: str | None = None,
+    built_in_hash: str | None = None,
+) -> ErrorTrackingSuppressionRule:
     return ErrorTrackingSuppressionRule.objects.create(
         team_id=team_id,
         filters=filters,
         bytecode=_rule_bytecode(team_id, filters),
         order_key=0,
         sampling_rate=sampling_rate,
+        built_in_key=built_in_key,
+        built_in_hash=built_in_hash,
     )
 
 
@@ -327,12 +341,12 @@ def update_suppression_rule(
 
 
 def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    deleted, _ = _custom_suppression_rules(team_id).filter(id=rule_id).delete()
     return deleted > 0
 
 
 def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingSuppressionRule, team_id, orders)
+    _reorder_rules(_custom_suppression_rules(team_id), orders)
 
 
 def list_bypass_rules(team_id: int) -> QuerySet[ErrorTrackingBypassRule]:
@@ -375,7 +389,7 @@ def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
 
 
 def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
-    _reorder_rules(ErrorTrackingBypassRule, team_id, orders)
+    _reorder_rules(ErrorTrackingBypassRule.objects.filter(team_id=team_id), orders)
 
 
 def get_client_safe_filters(filters: object) -> dict | None:

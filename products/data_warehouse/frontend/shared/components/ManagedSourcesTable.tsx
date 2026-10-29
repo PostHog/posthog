@@ -18,8 +18,9 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { isFileUploadSource, sourceTypeLabel } from '../fileUploadSources'
 import { managedSourcesTableLogic, syncingSchemasByStatus, totalRowsSynced } from '../logics/managedSourcesTableLogic'
-import { sourceLabel, sourceManagementLogic } from '../logics/sourceManagementLogic'
+import { sourceManagementLogic } from '../logics/sourceManagementLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
@@ -102,7 +103,7 @@ export function ManagedSourcesTable(): JSX.Element {
                         render: (_, source) => (
                             <LemonTableLink
                                 to={urls.dataWarehouseSource(`managed-${source.id}`)}
-                                title={sourceLabel(source, availableSources)}
+                                title={sourceTypeLabel(source.source_type, availableSources)}
                                 description={source.description}
                             />
                         ),
@@ -231,27 +232,29 @@ export function ManagedSourcesTable(): JSX.Element {
                                         <More
                                             overlay={
                                                 <>
-                                                    <AccessControlAction
-                                                        resourceType={AccessControlResourceType.ExternalDataSource}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        userAccessLevel={source.user_access_level}
-                                                    >
-                                                        {({ disabledReason }) => (
-                                                            <Tooltip title="Start the data import for this schema again">
-                                                                <LemonButton
-                                                                    type="tertiary"
-                                                                    data-attr={`reload-data-warehouse-${source.source_type}`}
-                                                                    key={`reload-data-warehouse-${source.source_type}`}
-                                                                    onClick={() => {
-                                                                        reloadSource(source)
-                                                                    }}
-                                                                    disabledReason={disabledReason}
-                                                                >
-                                                                    Reload
-                                                                </LemonButton>
-                                                            </Tooltip>
-                                                        )}
-                                                    </AccessControlAction>
+                                                    {!isFileUploadSource(source) && (
+                                                        <AccessControlAction
+                                                            resourceType={AccessControlResourceType.ExternalDataSource}
+                                                            minAccessLevel={AccessControlLevel.Editor}
+                                                            userAccessLevel={source.user_access_level}
+                                                        >
+                                                            {({ disabledReason }) => (
+                                                                <Tooltip title="Start the data import for this schema again">
+                                                                    <LemonButton
+                                                                        type="tertiary"
+                                                                        data-attr={`reload-data-warehouse-${source.source_type}`}
+                                                                        key={`reload-data-warehouse-${source.source_type}`}
+                                                                        onClick={() => {
+                                                                            reloadSource(source)
+                                                                        }}
+                                                                        disabledReason={disabledReason}
+                                                                    >
+                                                                        Reload
+                                                                    </LemonButton>
+                                                                </Tooltip>
+                                                            )}
+                                                        </AccessControlAction>
+                                                    )}
 
                                                     <AccessControlAction
                                                         resourceType={AccessControlResourceType.ExternalDataSource}

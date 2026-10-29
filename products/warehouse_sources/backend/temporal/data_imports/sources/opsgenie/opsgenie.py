@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 import requests
@@ -11,21 +11,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
+    JSONResponseCursorPaginator,
+    JSONResponsePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.settings import OPSGENIE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.opsgenie.settings import (
+    DEFAULT_PAGE_SIZE,
+    OPSGENIE_ENDPOINTS,
+    OpsgenieEndpointConfig,
+)
 
 OPSGENIE_BASE_URLS = {
     "us": "https://api.opsgenie.com",
     "eu": "https://api.eu.opsgenie.com",
 }
 
-# Opsgenie's max page size is 100; the default is 20.
-PAGE_SIZE = 100
+PAGE_SIZE = DEFAULT_PAGE_SIZE
 
 # The alert/incident search endpoints reject requests where `offset + limit` exceeds
 # 20,000. Instead of truncating there, we re-slice the search into a new createdAt
@@ -36,10 +46,13 @@ MAX_SEARCH_RESULTS = 20_000
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OpsgenieResumeConfig:
-    offset: int
+    offset: int = 0
     window_start_ms: Optional[int] = None
+    # Fan-out tables checkpoint the shape `build_dependent_resource` emits: which parents finished
+    # and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _get_base_url(region: str) -> str:
@@ -165,6 +178,14 @@ class OpsgeniePaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _flatten_team_member(row: dict[str, Any]) -> dict[str, Any]:
+    user = row.get("user") or {}
+    return {**row, "user_id": user.get("id"), "username": user.get("username")}
+
+
+_CHILD_ROW_MAPS = {"team_members": _flatten_team_member}
+
+
 def validate_credentials(api_key: str, region: str, endpoint: Optional[str] = None) -> tuple[bool, int, str | None]:
     """Probe Opsgenie with a cheap single-row request.
 
@@ -172,6 +193,9 @@ def validate_credentials(api_key: str, region: str, endpoint: Optional[str] = No
     The caller decides how to treat 403 (valid key, missing access for the probed endpoint).
     """
     config = OPSGENIE_ENDPOINTS.get(endpoint) if endpoint else None
+    if config is not None and config.fanout is not None:
+        # A fan-out path needs a parent id, so probe the parent listing it reads first.
+        config = OPSGENIE_ENDPOINTS[config.fanout.parent_name]
     path = config.path if config else "/v2/users"
     params = {"limit": 1} if config is None or config.paginated else {}
     url = f"{_get_base_url(region)}{path}"
@@ -211,6 +235,22 @@ def opsgenie_source(
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     config = OPSGENIE_ENDPOINTS[endpoint]
+    client_config: ClientConfig = {
+        "base_url": _get_base_url(region),
+        # Framework auth so the key is redacted from logs and error messages; the GenieKey
+        # scheme is Opsgenie's own bearer-style header.
+        "auth": {
+            "type": "api_key",
+            "api_key": f"GenieKey {api_key}",
+            "name": "Authorization",
+            "location": "header",
+        },
+        # Alert logs follow the response's `paging.next` URL; pin it to the regional API host.
+        "allowed_hosts": [],
+    }
+
+    if config.fanout is not None:
+        return _fanout_source(endpoint, config, client_config, team_id, job_id, resumable_source_manager)
 
     params: dict[str, Any] = {}
     paginator: BasePaginator
@@ -233,18 +273,7 @@ def opsgenie_source(
         paginator = SinglePagePaginator()
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _get_base_url(region),
-            # Framework auth so the key is redacted from logs and error messages; the GenieKey
-            # scheme is Opsgenie's own bearer-style header.
-            "auth": {
-                "type": "api_key",
-                "api_key": f"GenieKey {api_key}",
-                "name": "Authorization",
-                "location": "header",
-            },
-            "paginator": paginator,
-        },
+        "client": {**client_config, "paginator": paginator},
         "resource_defaults": {},
         "resources": [
             {
@@ -286,10 +315,79 @@ def opsgenie_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         # Search-window endpoints request createdAt ascending; full-refresh endpoints
         # replace wholesale, so ascending is correct everywhere.
         sort_mode="asc",
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
+
+
+def _fanout_source(
+    endpoint: str,
+    config: OpsgenieEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[OpsgenieResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent_config = OPSGENIE_ENDPOINTS[config.fanout.parent_name]
+    parent_paginator: BasePaginator = (
+        OpsgeniePaginator(limit=parent_config.page_size, supports_search_window=parent_config.supports_search_window)
+        if parent_config.paginated
+        else SinglePagePaginator()
+    )
+    child_paginator: BasePaginator
+    if config.next_cursor_path:
+        child_paginator = JSONResponseCursorPaginator(cursor_path=config.next_cursor_path, cursor_param="offset")
+    elif config.next_url_path:
+        child_paginator = JSONResponsePaginator(next_url_path=config.next_url_path)
+    else:
+        child_paginator = SinglePagePaginator()
+
+    # The shared fan-out checkpoint lists every finished parent, so its size grows with each parent.
+    # Only the small, unpaginated parents (schedules, teams) are resumable; the incident timeline
+    # and alert logs start again from the first parent after an interruption.
+    resumable = not parent_config.paginated
+    resume = resumable_source_manager.load_state() if resumable and resumable_source_manager.can_resume() else None
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(OpsgenieResumeConfig(fanout_state=state))
+
+    resource = cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=OPSGENIE_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # Schedules and teams return their full collection and take no page size.
+            page_size_param="limit" if parent_config.paginated else None,
+            parent_endpoint_extra={"paginator": parent_paginator, "data_selector": parent_config.data_selector},
+            child_endpoint_extra={"paginator": child_paginator, "data_selector": config.data_selector},
+            resume_hook=save_fanout_checkpoint if resumable else None,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        ),
+    )
+    row_map = _CHILD_ROW_MAPS.get(endpoint)
+    if row_map is not None:
+        resource = resource.add_map(row_map)
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

@@ -14,12 +14,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_chained_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -117,19 +122,101 @@ def _client_config(api_key: str) -> ClientConfig:
     }
 
 
-def _make_source_response(endpoint_config: WasabiEndpointConfig, resource: Any) -> SourceResponse:
+def _make_source_response(
+    endpoint_config: WasabiEndpointConfig, resource: Any, supports_resume: bool = True
+) -> SourceResponse:
     return SourceResponse(
         name=endpoint_config.name,
         items=lambda: resource,
         primary_keys=endpoint_config.primary_keys,
         # Date windows walk oldest-first, so the per-batch max of the incremental field
-        # advances monotonically across batches.
-        sort_mode="asc",
+        # advances monotonically across batches. Fan-out rows restart per account.
+        sort_mode="asc" if endpoint_config.date_windowed else None,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        supports_resume=supports_resume,
+    )
+
+
+def _paginator(endpoint_config: WasabiEndpointConfig) -> BasePaginator:
+    if endpoint_config.page_size is not None:
+        # TotalPages is only returned on page 0 (later pages report -1), so stop on an empty page instead.
+        return PageNumberPaginator(base_page=0, page_param="pageNumber")
+    return SinglePagePaginator()
+
+
+def _child_endpoint(
+    endpoint_config: WasabiEndpointConfig,
+    parent_name: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> Endpoint:
+    params: dict[str, Any] = {
+        param: {"type": "resolve", "resource": parent_name, "field": field_name}
+        for param, field_name in endpoint_config.resolve_fields.items()
+    }
+    if endpoint_config.page_size is not None:
+        params["pageSize"] = endpoint_config.page_size
+        params["sortOrder"] = "asc"
+    if endpoint_config.incremental_fields and should_use_incremental_field:
+        params["from"] = _start_date(should_use_incremental_field, db_incremental_field_last_value).isoformat()
+        # `to` is exclusive, so tomorrow keeps jobs that finished today.
+        params["to"] = (datetime.now(UTC).date() + timedelta(days=1)).isoformat()
+    return {
+        "path": endpoint_config.path,
+        "params": params,
+        "data_selector": endpoint_config.data_selector,
+        "paginator": _paginator(endpoint_config),
+    }
+
+
+def _parent_resource(parent_config: WasabiEndpointConfig, endpoint: Endpoint) -> EndpointResource:
+    return {
+        "name": parent_config.name,
+        "table_name": parent_config.name,
+        "write_disposition": "replace",
+        "endpoint": endpoint,
+        "table_format": "delta",
+    }
+
+
+def _chained_resource(
+    endpoint_config: WasabiEndpointConfig,
+    parent_config: WasabiEndpointConfig,
+    api_key: str,
+    team_id: int,
+    job_id: str,
+) -> Any:
+    """Build the accounts -> sub-invoices -> sub-invoice detail chain and return the detail resource."""
+    assert parent_config.parent is not None
+    root_config = WASABI_ENDPOINTS[parent_config.parent]
+    root_resource = _parent_resource(
+        root_config,
+        {"path": root_config.path, "data_selector": "$", "paginator": SinglePagePaginator()},
+    )
+    middle_resource = _parent_resource(parent_config, _child_endpoint(parent_config, root_config.name, False, None))
+    child_endpoint = _child_endpoint(endpoint_config, parent_config.name, False, None)
+    # A sub-invoice or sub-account removed between its listing and this fetch must not sink the run.
+    child_endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+    child_resource: EndpointResource = {
+        "name": endpoint_config.name,
+        "table_name": endpoint_config.name,
+        "write_disposition": "replace",
+        "include_from_parent": endpoint_config.include_from_parent,
+        "endpoint": child_endpoint,
+        "table_format": "delta",
+    }
+    return build_chained_resource(
+        resources=[root_resource, middle_resource, child_resource],
+        child_name=endpoint_config.name,
+        parent_name=parent_config.name,
+        parent_field_renames={field_name: field_name for field_name in endpoint_config.include_from_parent},
+        client_config=_client_config(api_key),
+        team_id=team_id,
+        job_id=job_id,
     )
 
 
@@ -157,32 +244,30 @@ def wasabi_source(
 
     if endpoint_config.parent is not None:
         parent_config = WASABI_ENDPOINTS[endpoint_config.parent]
+        if parent_config.parent is not None:
+            # The chained walk saves no checkpoints, so a restart would repeat it from the start.
+            return _make_source_response(
+                endpoint_config,
+                _chained_resource(endpoint_config, parent_config, api_key, team_id, job_id),
+                supports_resume=False,
+            )
+
         # Fan-out: iterate the sub-account list and fetch the child endpoint per account.
         # Child rows natively carry AcctNum, so no parent-field injection is needed.
         resources: list[str | EndpointResource] = [
-            {
-                "name": parent_config.name,
-                "table_name": parent_config.name,
-                "write_disposition": "replace",
-                "endpoint": {
-                    "path": parent_config.path,
-                    "data_selector": "$",
-                    "paginator": SinglePagePaginator(),
-                },
-                "table_format": "delta",
-            },
+            _parent_resource(
+                parent_config,
+                {"path": parent_config.path, "data_selector": "$", "paginator": SinglePagePaginator()},
+            ),
             {
                 "name": endpoint_config.name,
                 "table_name": endpoint_config.name,
-                "write_disposition": "replace",
-                "endpoint": {
-                    "path": endpoint_config.path,
-                    "params": {
-                        "acct_num": {"type": "resolve", "resource": parent_config.name, "field": "AcctNum"},
-                    },
-                    "data_selector": "$",
-                    "paginator": SinglePagePaginator(),
-                },
+                "write_disposition": {"disposition": "merge", "strategy": "upsert"}
+                if should_use_incremental_field
+                else "replace",
+                "endpoint": _child_endpoint(
+                    endpoint_config, parent_config.name, should_use_incremental_field, db_incremental_field_last_value
+                ),
                 "table_format": "delta",
             },
         ]

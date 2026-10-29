@@ -279,7 +279,7 @@ const TRIPWIRE_RULES = [
     // the cd-*-image rule below.
     ['.github/workflows/ci-e2e-playwright.yml', FULLSTACK],
     ['.github/workflows/ci-e2e-playwright-audit.yml', FULLSTACK],
-    ['.github/workflows/ci-hog.yml', FULLSTACK],
+    ['.github/workflows/ci-hoglang.yml', FULLSTACK],
     ['.github/workflows/container-images-ci.yml', FULLSTACK],
     ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
@@ -718,12 +718,11 @@ const TRIPWIRE_RULES = [
     ['bin/lint-feature-flag-sorting.mjs', JAVASCRIPT],
     ['bin/fix-rdkafka-paths', JAVASCRIPT],
     ['bin/create-notebook-node.sh', JAVASCRIPT],
-    // The Hog CLI backs the Hog suite, the jest-timing helpers feed
+    // bin/hoglang backs the HogLang suite, the jest-timing helpers feed
     // report_test_timings, the dockerignore check runs in container-images-ci,
     // and the sandbox scripts are baked into the sandbox image; all of those
     // sit on the fullstack lanes already.
-    ['bin/hog', FULLSTACK],
-    ['bin/hoge', FULLSTACK],
+    ['bin/hoglang', FULLSTACK],
     ['bin/report-jest-timings', FULLSTACK],
     ['bin/render-jest-timings-example', FULLSTACK],
     ['bin/dockerignore-drop-check', FULLSTACK],
@@ -842,8 +841,10 @@ const STANDALONE_TREES = new Map([
     // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
     // so the two trees have to share a lane.
     ['cli', ['cli', 'svc:mcp']],
-    // Go service with its own CI. ci-hog.yml ignores livestream/** explicitly,
-    // so its Hog implementation is not covered by the shared hog suite either.
+    // The TypeScript successor to cli/. Nothing outside it builds or imports it.
+    ['hog', ['hog']],
+    // Go service with its own CI. ci-hoglang.yml ignores livestream/** explicitly,
+    // so its Hog implementation is not covered by the shared HogLang suite either.
     ['livestream', ['livestream']],
     // Another standalone cargo workspace, and nothing in the dev or CI stack
     // builds it: the UDF binary reaches ClickHouse through its image.
