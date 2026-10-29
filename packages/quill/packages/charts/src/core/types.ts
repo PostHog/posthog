@@ -87,6 +87,9 @@ export interface Series<Meta = unknown> {
     }
     /** Line stroke configuration. */
     stroke?: {
+        /** Line width in CSS pixels. Defaults to 2. `0` draws no line, for an area fill or points
+         *  without a stroke. */
+        width?: number
         /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit for solid. */
         pattern?: number[]
         /** A range of indices that should be drawn with a different (typically dashed) pattern. */

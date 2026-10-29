@@ -175,6 +175,19 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawLine — stroke width', () => {
+        it.each([
+            { name: 'defaults to the standard width', stroke: undefined, lineWidth: 2, strokes: 1 },
+            { name: 'uses stroke.width', stroke: { width: 5 }, lineWidth: 5, strokes: 1 },
+            { name: 'draws nothing for a zero width', stroke: { width: 0 }, lineWidth: 0, strokes: 0 },
+        ])('$name', ({ stroke, lineWidth, strokes }) => {
+            const ctx = mockCanvasContext()
+            drawLine(makeDrawContext(ctx, ['a', 'b']), makeSeries({ key: 's1', data: [10, 90], stroke }))
+            expect(ctx.lineWidth).toBe(lineWidth)
+            expect(ctx.stroke).toHaveBeenCalledTimes(strokes)
+        })
+    })
+
     describe('drawLine — monotone smoothing and yFloor', () => {
         it('emits one bezier segment per point pair and no interior lineTo when smooth', () => {
             const ctx = mockCanvasContext()
