@@ -16,10 +16,9 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
-from posthog.models import Organization, OrganizationMembership, Project, PropertyDefinition, Team, User
+from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.api.evaluations import (
     EvaluationSerializer,
     EvaluationsOverviewPeriodSerializer,
@@ -2559,37 +2558,6 @@ class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
             "evaluation_config": {"source": "return true"},
             "output_type": "boolean",
         }
-
-    @parameterized.expand(
-        [
-            ("list", "get", ""),
-            ("read", "get", "{id}/"),
-            ("runs", "get", "{id}/runs/"),
-            ("overview", "get", "overview/"),
-            ("create", "post", ""),
-            ("edit", "patch", "{id}/"),
-        ]
-    )
-    def test_source_property_denial_limits_evaluation_access(self, _name: str, method: str, path: str) -> None:
-        self.organization.available_product_features.append({"key": AvailableFeature.PROPERTY_ACCESS_CONTROL})
-        self.organization.save()
-        evaluation = self._create_evaluation()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="evaluation_context", type=PropertyDefinition.Type.EVENT
-        )
-        restriction = PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=definition,
-            access_level="none",
-            organization_member=self.editor_user.organization_memberships.get(organization=self.organization),
-        )
-        self.client.force_login(self.editor_user)
-        url = f"/api/projects/{self.team.id}/evaluations/{path.format(id=evaluation.id)}"
-        response = getattr(self.client, method)(url, self._create_payload(), format="json")
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-
-        restriction.delete()
-        assert self.client.get(f"/api/projects/{self.team.id}/evaluations/{evaluation.id}/").status_code == 200
 
     def test_no_access_user_cannot_list_or_create_evaluations(self):
         self.client.force_login(self.no_access_user)

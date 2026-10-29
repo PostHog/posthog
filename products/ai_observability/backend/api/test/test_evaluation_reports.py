@@ -14,14 +14,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.api.evaluation_reports import EvaluationReportRunSerializer
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
@@ -955,33 +953,6 @@ class TestEvaluationReportAccessControl(APIBaseTest):
 
         generate_response = self.client.post(f"{self.base_url}{self.report.id}/generate/")
         assert generate_response.status_code == status.HTTP_403_FORBIDDEN
-
-    @parameterized.expand([("source", "$ai_input"), ("reasoning", "$ai_evaluation_reasoning")])
-    @time_machine.travel("2026-03-09T12:00:00Z", tick=False)
-    def test_stored_reports_require_access_to_their_inputs(self, _name: str, property_name: str) -> None:
-        self.organization.available_product_features.append({"key": AvailableFeature.PROPERTY_ACCESS_CONTROL})
-        self.organization.save()
-        self._grant("evaluation", "editor")
-        self.client.force_login(self.other_user)
-        now = timezone.now()
-        EvaluationReportRun.objects.create(
-            report=self.report,
-            content={"title": "Synthetic report", "sections": [{"title": "Summary", "content": "Synthetic message"}]},
-            period_start=now - dt.timedelta(hours=1),
-            period_end=now,
-        )
-        url = f"{self.base_url}{self.report.id}/runs/"
-        assert self.client.get(url).status_code == 200
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name=property_name, type=PropertyDefinition.Type.EVENT
-        )
-        restriction = PropertyAccessControl.objects.create(
-            team=self.team, property_definition=definition, access_level="none"
-        )
-        assert self.client.get(url).status_code == 403
-        assert self.client.post(f"{self.base_url}{self.report.id}/generate/").status_code == 403
-        restriction.delete()
-        assert self.client.get(url).status_code == 200
 
     def test_llm_analytics_grant_alone_does_not_reach_reports(self):
         self._grant("evaluation", "none")

@@ -32,7 +32,6 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.access_control.backend.facade.api import team_has_event_property_restrictions
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.llm import call_llm
@@ -171,8 +170,6 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
     """
 
     def _is_eval_report_source_enabled() -> Team | None:
-        if team_has_event_property_restrictions(team_id=inputs.team_id):
-            return None
         if not SignalSourceConfig.is_source_enabled(
             inputs.team_id,
             SignalSourceConfig.SourceProduct.LLM_ANALYTICS,

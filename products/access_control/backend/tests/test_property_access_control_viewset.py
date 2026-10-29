@@ -14,7 +14,6 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.serializers import PropertyAccessControlUpdateSerializer
 from products.access_control.backend.property_access_control import PropertyAccessLevel, get_restricted_property_names
-from products.ai_observability.backend.facade.property_access import EVALUATION_OUTPUT_PROPERTIES
 
 
 class TestPropertyAccessControlViewSet(APIBaseTest):
@@ -77,10 +76,9 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         definition = PropertyDefinition.objects.get(team=self.team, name=property_name)
         assert definition.type == PropertyDefinition.Type.EVENT
         assert definition.project_id == self.team.project_id
-        assert (
-            get_restricted_property_names(team_id=self.team.id, user=None, property_type=PropertyDefinition.Type.EVENT)
-            == {property_name} | EVALUATION_OUTPUT_PROPERTIES
-        )
+        assert get_restricted_property_names(
+            team_id=self.team.id, user=None, property_type=PropertyDefinition.Type.EVENT
+        ) == {property_name}
 
         repeated = self.client.post(self.url, {"ai_property": property_name, "access_level": "read"}, format="json")
         assert repeated.status_code == status.HTTP_200_OK
@@ -119,10 +117,9 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
             self.client.get(f"{self.url}?property_definition_id={definition.id}").json()["default_access_level"]
             == "none"
         )
-        assert (
-            get_restricted_property_names(team_id=self.team.id, user=None, property_type=PropertyDefinition.Type.EVENT)
-            == {"$ai_input"} | EVALUATION_OUTPUT_PROPERTIES
-        )
+        assert get_restricted_property_names(
+            team_id=self.team.id, user=None, property_type=PropertyDefinition.Type.EVENT
+        ) == {"$ai_input"}
 
         updated = self.client.post(
             self.url, {"property_definition_id": str(definition.id), "access_level": "read"}, format="json"

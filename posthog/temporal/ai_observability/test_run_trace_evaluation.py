@@ -460,6 +460,21 @@ class TestBackgroundEvaluationPropertyAccess:
         response = execute_hogql_query(
             query, team=team, user=user, placeholders={"trace_id": ast.Constant(value=unit_id)}
         )
+        assert response.results[0][0] == "arithmetic"
+
+        if property_type == PropertyDefinition.Type.EVENT and access_level == PropertyAccessLevel.NONE:
+            for name in ("$ai_evaluation_reasoning", "$ai_evaluation_result"):
+                definition = PropertyDefinition.objects.create(team=team, name=name, type=PropertyDefinition.Type.EVENT)
+                PropertyAccessControl.objects.create(
+                    team=team,
+                    property_definition=definition,
+                    organization_member=member if member_only else None,
+                    access_level=PropertyAccessLevel.NONE.value,
+                )
+
+        response = execute_hogql_query(
+            query, team=team, user=user, placeholders={"trace_id": ast.Constant(value=unit_id)}
+        )
         reasoning, verdict, blob = response.results[0]
         assert _execute_hogql(team.id, query, {"trace_id": ast.Constant(value=unit_id)})[0][0] == "arithmetic"
         if property_type == PropertyDefinition.Type.EVENT and access_level == PropertyAccessLevel.NONE:

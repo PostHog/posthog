@@ -97,7 +97,6 @@ from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..presentation.query_concurrency import query_concurrency_slots
 from .condition_sets import ConditionSetSerializer
-from .evaluation_permissions import EvaluationSourceAccessPermission
 from .metrics import llma_track_latency
 
 if TYPE_CHECKING:
@@ -1371,7 +1370,7 @@ def _test_hog_over_traces(
 
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
-    permission_classes = [IsAuthenticated, AccessControlPermission, EvaluationSourceAccessPermission]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = EvaluationSerializer
     queryset = Evaluation.objects.all()
     filter_backends = [DjangoFilterBackend]

@@ -343,7 +343,7 @@ class TestTraceEvaluationsView(ClickhouseTestMixin, APIBaseTest):
 
         result = self.client.get(self._url(_encode("trace-1"))).json()["results"][0]
 
-        assert (result["reasoning"], result["outcome"]) == (None, "inconclusive")
+        assert (result["reasoning"], result["outcome"]) == (None, "pass")
 
 
 class TestTraceClustersView(ClickhouseTestMixin, APIBaseTest):

@@ -249,15 +249,13 @@ Interactive AI reads retain the requesting user's property permissions. Online t
 as project workflows, using an explicit property-access bypass and separate query cache keys. Generation evaluations keep
 using the original Kafka event payload. Report result queries also run as project workflows.
 
-Evaluation management, run, backfill, and report APIs require access to all event properties. For a viewer with any event-property
-denial, `get_restricted_properties_with_group_type_index_for_team()` also restricts the generated properties declared in
-`products/ai_observability/backend/facade/property_access.py`. This masks explanations, verdicts, scores, sentiment, and report
-content in event APIs and HogQL queries, including whole-property-blob reads. Hog scripts can read arbitrary event properties,
-so the rule includes custom properties and separately denied outputs. Person and group restrictions alone do not trigger it.
-
-Projects with any event-property denial, including member and role rules, send report links rather than content to email and
-Slack, and stop publishing new evaluation-report summaries into Inbox. Stored reports check the viewer's current access when
-opened. Previously delivered messages and existing Inbox findings are not removed.
+Evaluation editors are trusted to configure project workflows with full inputs, even when their own property rules hide
+some of those inputs. Evaluation RBAC controls authoring and access to stored reports; it is separate from AI Observability
+RBAC. Source-property restrictions do not propagate to generated outputs. Configure separate property rules for evaluation
+reasoning, report event content, and any sensitive outcomes. Event queries apply those rules to the generated properties,
+while background report result queries explicitly bypass them. Stored report narratives and report delivery do not inherit
+event-property rules, so configure report access, recipients, channels, and Inbox sharing for the intended audience.
+See [evaluation access configuration](../../docs/internal/ai-observability-judge-inputs.md#run-history-and-reports).
 
 Summary caches use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
 When the caller has event-property restrictions, summaries generated from client-supplied data refetch the source with the caller's permissions.

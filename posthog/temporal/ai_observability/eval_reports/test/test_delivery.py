@@ -1,5 +1,3 @@
-import json
-
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -17,7 +15,6 @@ from posthog.temporal.ai_observability.eval_reports.delivery import (
     _render_section_html,
     _render_section_mrkdwn,
     _strip_redundant_leading_heading,
-    deliver_email_report,
     deliver_report,
     deliver_slack_report,
 )
@@ -392,15 +389,6 @@ class TestMetricsBlockHtml(SimpleTestCase):
 class TestDeliverReport(SimpleTestCase):
     """End-to-end tests for deliver_report — mocks the email+slack sub-functions."""
 
-    def setUp(self) -> None:
-        super().setUp()
-        self.restrictions = self.enterContext(
-            patch(
-                "posthog.temporal.ai_observability.eval_reports.delivery.team_has_event_property_restrictions",
-                return_value=False,
-            )
-        )
-
     def _make_v2_content_dict(self, title: str = "A nice punchline") -> dict:
         """Build an EvalReportContent dict in v2 shape."""
         return EvalReportContent(
@@ -428,13 +416,11 @@ class TestDeliverReport(SimpleTestCase):
         report.delivery_targets = targets
         return report
 
-    @parameterized.expand([("unrestricted", False), ("restricted", True)])
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
-    def test_deliver_report_calls_email(self, _name, restricted, mock_report_qs, mock_run_qs, _mock_slack, mock_email):
-        self.restrictions.return_value = restricted
+    def test_deliver_report_calls_email(self, mock_report_qs, mock_run_qs, _mock_slack, mock_email):
         targets = [{"type": "email", "value": "test@example.com"}]
         report = self._make_report(targets)
         run = self._make_report_run()
@@ -446,27 +432,7 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         mock_email.assert_called_once()
-        assert mock_email.call_args.kwargs["include_content"] is not restricted
         self.assertEqual(run.delivery_status, "delivered")
-
-    @patch("posthog.email.EmailMessage")
-    def test_email_without_content_only_links_to_the_report(self, email_message: MagicMock) -> None:
-        run = self._make_report_run()
-        errors = deliver_email_report(
-            run,
-            [{"type": "email", "value": "reader@example.com"}],
-            "Test Eval",
-            "eval-id",
-            1,
-            "2026-03-01T00:00:00+00:00",
-            "2026-03-02T00:00:00+00:00",
-            include_content=False,
-        )
-        assert errors == []
-        payload = json.dumps(email_message.call_args.kwargs)
-        assert "A nice punchline" not in payload
-        assert "All good." not in payload
-        assert "/ai-evals/evaluations/eval-id" in payload
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -568,35 +534,6 @@ class TestDeliverReport(SimpleTestCase):
 
 class TestDeliverSlackReport(SimpleTestCase):
     """Tests for the Slack delivery path, with the Slack client mocked."""
-
-    @patch("posthog.models.integration.SlackIntegration")
-    @patch("posthog.models.integration.Integration")
-    def test_slack_without_content_only_links_to_the_report(self, integration: MagicMock, slack: MagicMock) -> None:
-        run = self._make_report_run(
-            sections=[
-                ReportSection(title="Private section", content="Synthetic message"),
-                ReportSection(title="Another section", content="Synthetic detail"),
-            ]
-        )
-        run.report.evaluation_id = "eval-id"
-        client = slack.return_value.client
-        client.chat_postMessage.return_value = {"ts": "123.456"}
-        errors = deliver_slack_report(
-            run,
-            [{"type": "slack", "integration_id": 1, "channel": "C123|#reports"}],
-            "Test Eval",
-            1,
-            1,
-            "2026-03-01T00:00:00+00:00",
-            "2026-03-02T00:00:00+00:00",
-            include_content=False,
-        )
-        assert errors == []
-        client.chat_postMessage.assert_called_once()
-        payload = json.dumps(client.chat_postMessage.call_args.kwargs)
-        assert "Synthetic" not in payload
-        assert "Private section" not in payload
-        assert "/ai-evals/evaluations/eval-id" in payload
 
     def _make_report_run(self, sections=None):
         if sections is None:

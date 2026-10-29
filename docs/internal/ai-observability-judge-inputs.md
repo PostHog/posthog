@@ -279,16 +279,23 @@ Deploy all evaluation workers before enabling the flag.
 
 ## Run history and reports
 
-Online evaluations run as project workflows and can read complete event properties. Viewers with any event-property
-denial cannot access evaluation management, runs, backfills, or reports. Their event queries and event API responses also
-hide derived evaluation values, including explanations, verdicts, scores, sentiment, and report content. This conservative
-rule applies to custom properties and evaluation outputs too: Hog source and judge prompts can depend on arbitrary event
-properties. Restricting an output property also hides the other derived outputs, since a later evaluation or report could
-copy it. Permission changes take effect on subsequent reads, including cached reads.
+Online evaluations and report result queries run as project workflows with complete event properties. Evaluation editors
+are trusted to configure workflows that read properties hidden from ordinary users. Grant Evaluations editor access only
+to people authorized to process the full inputs. AI Observability and Evaluations have separate RBAC settings.
 
-When any event-property denial exists for a project, including member or role rules, report email and Slack notifications
-contain a link instead of report content. Opening the link checks the viewer's current permissions. Evaluation reports are
-not copied into Inbox while those restrictions exist. Previously delivered messages and existing Inbox findings are not removed.
+Source-property rules do not automatically apply to evaluation outputs. To keep message content private:
+
+- Keep the source-property rules and separately restrict `$ai_evaluation_reasoning`.
+- For report events, restrict `$ai_report_content`, `$ai_report_title`, and `$ai_report_citations`.
+- If outcomes are also sensitive, restrict `$ai_evaluation_result`, `$ai_evaluation_numeric_result`, and
+  `$ai_evaluation_categorical_result`. Apply separate rules to sentiment properties when using sentiment evaluations.
+- Restrict Evaluations viewer access to the intended report audience. Stored report API responses follow evaluation RBAC;
+  property rules on report events protect the event copy, not the stored report narrative.
+- Choose report email recipients and Slack channels with the same audience in mind. Deliveries contain report text and do
+  not check each recipient's PostHog property permissions. Disable evaluation-report Inbox sharing if its audience is broader.
+
+User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
+results even when the project's default rules hide those result properties from users.
 
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
