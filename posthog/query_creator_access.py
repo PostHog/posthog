@@ -71,10 +71,10 @@ def describe_owner_unavailable(user: Optional[User], error: Exception) -> str:
     `error` is what `assert_creator_can_run` raised for them.
     """
     if user is None:
-        return "Its owner's account was deleted."
+        return "It runs with the access of its creator, whose account was deleted."
     if isinstance(error, CreatorLeftOrganizationError):
-        return f"{user.email} is no longer in the organization."
-    return f"{user.email} no longer has access to the data it reads."
+        return f"It runs with the access of its creator, {user.email}, who is no longer in the organization."
+    return f"It runs with the access of its creator, {user.email}, who no longer has access to the data it reads."
 
 
 def report_creator_access_revoked(
