@@ -16,7 +16,7 @@ Skip any change that saves less than about $10 a month, unless the user asked ab
 - **Spend limit.** Compare the current limit with the expected monthly spend.
   If the limit is lower, put this first and say on which day of the period the limit would be reached.
   Otherwise put it last, and suggest about 1.2 times the expected monthly spend after the other changes.
-  Explain that Self-driving pauses for the rest of the period when the limit is reached.
+  Explain that once the limit is reached, new signals are dropped for the rest of the period, not held until it resets.
 - **Parts of a large source.** For each source over 10% of signal spend, run "Breakdown inside a source".
   Recommend turning down the specific parts with a low settled rate: a scanner's inbox findings or sampling rate, an error tracking signal type, an evaluation report, an alert's investigation.
   Prefer this to turning off the whole source.
@@ -32,6 +32,7 @@ Skip any change that saves less than about $10 a month, unless the user asked ab
   When a source opens many and few merge, suggest a higher priority threshold.
   Say that the saving is not measured.
 - **Daily report limit.** Look at reports shown per day. Recommend a limit only when a few days hold much more than the rest, near the 75th percentile of daily reports.
+  Say that signals past the limit are dropped, so a real incident on a spike day can be missed.
 
 ## How to present them
 

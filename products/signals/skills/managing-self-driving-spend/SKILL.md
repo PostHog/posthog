@@ -54,7 +54,8 @@ Present the result with [references/report-template.md](references/report-templa
   Each signal is stored once per model, so reading every row counts its spend twice.
 - Take the latest version of each signal with `argMax(..., inserted_at)` grouped by `document_id`.
   A signal's spend grows as its report is researched, and each update writes a new row.
-- Leave out the `health_checks` and `engineering_analytics` sources. They have no spend.
+- Leave out the `health_checks` and `engineering_analytics` sources, and the `signals-scout-health-checks` scout.
+  The user does not pay for them, even when their rows record spend.
 - Spend from the last day or two can still grow. Say that the latest days are provisional.
 - Reports need about 14 days to resolve, so measure yield on settled reports: reports first shown at least 14 days ago.
   Take them from the last 60 days, even when the spend period is shorter.

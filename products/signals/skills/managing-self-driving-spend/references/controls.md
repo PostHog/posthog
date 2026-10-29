@@ -20,10 +20,12 @@ There are two kinds of control:
 
 ## Limits
 
-| Control            | How it works                                                                                                                                                                                        | How to change it                                                     | What the user loses                              |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------ |
-| Spend limit        | A monthly cap on Self-driving spend. When spend reaches it, Self-driving pauses until the next billing period. It caps the bill but does not make spend more useful.                                | Read with `billing-limits-get`. Set it on the billing page. No tool. | Useful work stops for the rest of the period     |
-| Daily report limit | Caps how many new reports become visible each day, in the project timezone. When the cap is reached, ingestion, scouts, and research pause until midnight. It only saves money on days with spikes. | "Daily report limit" setting. No tool.                               | Issues found late in the day wait until tomorrow |
+| Control            | How it works                                                                                                                                                                                                                                 | How to change it                                                     | What the user loses                                                                       |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Spend limit        | A monthly cap on Self-driving spend. When spend reaches it, new signals are dropped, scheduled scout runs are skipped, and research pauses until the next billing period. It caps the bill but does not make spend more useful.              | Read with `billing-limits-get`. Set it on the billing page. No tool. | Signals that arrive after the limit are lost for good. They do not come back next period. |
+| Daily report limit | Caps how many new reports become visible each day, in the project timezone. When the cap is reached, new signals are dropped, scheduled scout runs are skipped, and research pauses until midnight. It only saves money on days with spikes. | "Daily report limit" setting. No tool.                               | Signals that arrive after the cap are lost for good. They are not held for the next day.  |
+
+Both limits drop signals rather than queue them. When you recommend one, say that issues found after it is reached never reach the inbox.
 
 ## Sources
 
