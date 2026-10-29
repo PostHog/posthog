@@ -204,7 +204,7 @@ export const alertsDestinationsDeleteCreate = async (
 }
 
 export const getAlertsTakeOwnershipCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/alerts/${id}/take-ownership/`
+    return `/api/projects/${projectId}/alerts/${id}/take_ownership/`
 }
 
 /**

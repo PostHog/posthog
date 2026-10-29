@@ -149,7 +149,7 @@ export const subscriptionsDestroy = async (projectId: string, id: number, option
 }
 
 export const getSubscriptionsTakeOwnershipCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/subscriptions/${id}/take-ownership/`
+    return `/api/projects/${projectId}/subscriptions/${id}/take_ownership/`
 }
 
 /**
