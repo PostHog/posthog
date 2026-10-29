@@ -349,9 +349,9 @@ export async function upload(
         }
     }
 
-    const read = injected
-        ? { pairs: injected.pairs, artifacts: injected.owners }
-        : readPairs(selection, options, skipped)
+    // Metro bundles upload through their composed maps, so upload never reads their own pairs.
+    const jsOnly = { ...selection, artifacts: selection.artifacts.filter((artifact) => artifact.kind === 'js') }
+    const read = injected ? { pairs: injected.pairs, artifacts: injected.owners } : readPairs(jsOnly, options, skipped)
     read.pairs = read.pairs.filter((pair) => read.artifacts.get(pair)?.kind === 'js')
     let targets: { pair: SourcePair; target: CleanupTarget }[] = []
     const chunkIds = new Map<SourcePair, string>()
@@ -571,13 +571,16 @@ export async function upload(
     let deletedMaps: string[] = []
     if (options.deleteAfter && jsUploadable) {
         const rootPaths = selection.roots.map((root) => resolve(selection.cwd, root.path))
-        const cleanup = cleanUp([
-            // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
-            ...targets
-                .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
-                .map(({ target }) => target),
-            ...cssTargets(listFiles(selection.roots, selection.cwd), rootPaths, options.publicPathPrefix, warnings),
-        ])
+        const cleanup = cleanUp(
+            [
+                // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
+                ...targets
+                    .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
+                    .map(({ target }) => target),
+                ...cssTargets(listFiles(selection.roots, selection.cwd), options.publicPathPrefix, warnings),
+            ],
+            rootPaths
+        )
         deletedMaps = cleanup.deletedMaps.map((path) => relative(realpathSync(selection.cwd), path))
         warnings.push(...cleanup.warnings)
     }
