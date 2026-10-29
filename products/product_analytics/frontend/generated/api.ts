@@ -885,7 +885,7 @@ export const getInsightsExplainCreateUrl = (projectId: string, params?: Insights
 }
 
 /**
- * Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. Without a decision model on the instance, the list is empty.
+ * Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. Without a decision model on the instance, the list is empty. The organization must approve AI data processing.
  */
 export const insightsExplainCreate = async (
     projectId: string,

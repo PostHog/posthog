@@ -42,6 +42,8 @@ def _patch_client(outcome: dict | Exception):
 class TestInsightExplain(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         self.url = f"/api/projects/{self.team.id}/insights/explain/"
 
     @parameterized.expand(
@@ -82,4 +84,14 @@ class TestInsightExplain(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"chapters": []}
+        build_client.assert_not_called()
+
+    def test_an_organization_without_ai_approval_sends_nothing_to_the_model(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        with patch(CLIENT_PATH) as build_client:
+            response = self.client.post(self.url, FACTS, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         build_client.assert_not_called()

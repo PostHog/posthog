@@ -2704,11 +2704,14 @@ When set, the specified dashboard's filters and date range override will be appl
             "Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it "
             "computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a "
             "confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. "
-            "Without a decision model on the instance, the list is empty."
+            "Without a decision model on the instance, the list is empty. "
+            "The organization must approve AI data processing."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
     def explain(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        self._validate_ai_feature_access()
+
         try:
             causes = explain_chart(ExplainFacts.model_validate(request.validated_data), team_id=self.team.pk)
         except SystemOneNotConfigured:
