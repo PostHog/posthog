@@ -72,6 +72,10 @@ export function subscribeToSharedTickets(onChange: (tickets: ConversationTicket[
     return () => channel.close()
 }
 
+export async function clearSharedTickets(): Promise<void> {
+    await runRequest('readwrite', (store) => store.clear())
+}
+
 function browserDeps(): AcrossTabsDeps {
     // Tickets belong to one person, so a different person on the same browser must not see them.
     const key = posthog.get_distinct_id?.() ?? ''
@@ -79,7 +83,11 @@ function browserDeps(): AcrossTabsDeps {
         now: () => Date.now(),
         read: async () => (await runRequest('readonly', (store) => store.get(key))) as TicketsSnapshot | null,
         write: async (snapshot) => {
-            await runRequest('readwrite', (store) => store.put(snapshot, key))
+            // Only the latest snapshot stays, so a person who used this browser earlier leaves nothing behind.
+            await runRequest('readwrite', (store) => {
+                store.clear()
+                return store.put(snapshot, key)
+            })
         },
         announce: () => {
             if (typeof BroadcastChannel !== 'undefined') {
@@ -104,7 +112,7 @@ async function withBrowserLock<T>(name: string, fn: () => Promise<T>): Promise<T
         })
     } catch (e) {
         // A tab that holds the lock for too long must not block the others for good.
-        if (!started && e instanceof DOMException && e.name === 'AbortError') {
+        if (!started && e instanceof DOMException && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
             return fn()
         }
         throw e
@@ -116,10 +124,14 @@ function openDb(): Promise<IDBDatabase | null> {
         return Promise.resolve(null)
     }
     return new Promise((resolve) => {
-        const request = indexedDB.open(DB_NAME, 1)
-        request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAME)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => resolve(null)
+        try {
+            const request = indexedDB.open(DB_NAME, 1)
+            request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAME)
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => resolve(null)
+        } catch {
+            resolve(null)
+        }
     })
 }
 

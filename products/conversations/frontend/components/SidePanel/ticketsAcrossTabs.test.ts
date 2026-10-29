@@ -1,5 +1,12 @@
+import { IDBFactory } from 'fake-indexeddb'
+
 import type { ConversationTicket } from '../../types'
-import { loadTicketsAcrossTabs, type AcrossTabsDeps, type TicketsSnapshot } from './ticketsAcrossTabs'
+import {
+    clearSharedTickets,
+    loadTicketsAcrossTabs,
+    type AcrossTabsDeps,
+    type TicketsSnapshot,
+} from './ticketsAcrossTabs'
 
 const NOW = 1_000_000
 const MAX_AGE_MS = 10_000
@@ -67,5 +74,55 @@ describe('loadTicketsAcrossTabs', () => {
         expect(tickets).toBeNull()
         expect(stored?.tickets).toEqual([ticket('stored')])
         expect(announce).not.toHaveBeenCalled()
+    })
+
+    describe('with the browser storage', () => {
+        beforeEach(() => {
+            globalThis.indexedDB = new IDBFactory()
+        })
+
+        afterEach(() => {
+            Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+        })
+
+        test.each([
+            {
+                name: 'the lock wait times out',
+                breakStorage: () =>
+                    Object.defineProperty(navigator, 'locks', {
+                        value: { request: jest.fn().mockRejectedValue(new DOMException('timeout', 'TimeoutError')) },
+                        configurable: true,
+                    }),
+            },
+            {
+                name: 'IndexedDB throws on open',
+                breakStorage: () => {
+                    globalThis.indexedDB = {
+                        open: () => {
+                            throw new DOMException('denied', 'SecurityError')
+                        },
+                    } as unknown as IDBFactory
+                },
+            },
+        ])('still fetches from the network when $name', async ({ breakStorage }) => {
+            breakStorage()
+            const fetchTickets = jest.fn().mockResolvedValue([ticket('fetched')])
+
+            const tickets = await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
+
+            expect(tickets).toEqual([ticket('fetched')])
+        })
+
+        it('leaves no stored tickets behind after they are cleared', async () => {
+            const fetchTickets = jest.fn().mockResolvedValue([ticket('fetched')])
+
+            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
+            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
+            expect(fetchTickets).toHaveBeenCalledTimes(1)
+
+            await clearSharedTickets()
+            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
+            expect(fetchTickets).toHaveBeenCalledTimes(2)
+        })
     })
 })

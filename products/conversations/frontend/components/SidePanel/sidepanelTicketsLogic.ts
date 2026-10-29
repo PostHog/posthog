@@ -31,6 +31,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { type BillingType, SidePanelTab } from '~/types'
@@ -44,7 +45,7 @@ import type {
     SidePanelTicketFilter,
     SidePanelViewState,
 } from '../../types'
-import { loadTicketsAcrossTabs, subscribeToSharedTickets } from './ticketsAcrossTabs'
+import { clearSharedTickets, loadTicketsAcrossTabs, subscribeToSharedTickets } from './ticketsAcrossTabs'
 
 function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
     switch (filter) {
@@ -162,6 +163,15 @@ export interface sidepanelTicketsLogicActions {
     resetSendSupportRequest: (values?: SupportFormFields | undefined) => {
         values?: SupportFormFields
     } // supportLogic
+    logout: (
+        preserveLocation?: any,
+        nextUrl?: string | undefined,
+        reason?: string | undefined
+    ) => {
+        nextUrl: string | undefined
+        preserveLocation: any
+        reason: string | undefined
+    } // userLogic
     grantSupportExemption: () => {
         value: true
     }
@@ -302,6 +312,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             ['closeEmailForm', 'closeSupportForm', 'clearPendingViewTicket', 'resetSendSupportRequest'],
             sidePanelStateLogic,
             ['closeSidePanel', 'setSidePanelOptions'],
+            userLogic,
+            ['logout'],
         ],
     })),
     actions({
@@ -543,6 +555,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        logout: () => {
+            void clearSharedTickets()
+        },
         initTickets: () => {
             if (cache.initialized) {
                 return

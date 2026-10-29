@@ -20,6 +20,7 @@ import { loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 jest.mock('./ticketsAcrossTabs', () => ({
     loadTicketsAcrossTabs: jest.fn((fetchTickets) => fetchTickets()),
     subscribeToSharedTickets: jest.fn(() => () => {}),
+    clearSharedTickets: jest.fn(),
 }))
 
 describe('sidepanelTicketsLogic', () => {
