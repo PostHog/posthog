@@ -42,12 +42,13 @@ Look for the `workflows-make-email-template-transactional` tool before you promi
 Work through these in order, and skip the steps that are already done.
 
 1. **Verified sender.** Call `integrations-list` with `kind` `email`. The project needs a sender whose domain is verified. If there is none, set one up with the `building-workflows` skill, which covers the email channel and the sending domain. A domain the user already sends from with another provider still needs PostHog's DNS records.
-2. **Template.** Create or update the email with the `designing-email-templates` skill. The template can't read person properties, so every value the email shows comes from the send as `{{ variables.<name> }}`. Agree on the variable names with the user, because their code sends them.
-3. **No marketing category.** A transactional template can't be in a marketing message category. Check with `message-categories-list` if the template has a category.
-4. **Make it transactional.** Call `workflows-make-email-template-transactional`. It asks the user to confirm, because this can't be undone. If the template is also used for other emails, duplicate it first and make the copy transactional. For sign-in codes, reset links and other secrets, tell the user to turn on **Protect sensitive data** on the template's **API** tab.
-5. **API key.** The user creates a project secret API key in project settings, under **Project secret API keys**, with **Workflow** set to **Write**. You can't create it. Tell them to keep it in an environment variable on the server, and never to paste it into the chat or into client-side code.
-6. **Code.** Send from their backend. See below.
-7. **Test.** Have them send one email to their own address. Check its status, and share the template's link so they can see the send on its **Sends** tab.
+2. **Branding.** Before you design anything, find out what the user's emails look like, so the first version already matches their brand. Ask for their website, or an email they send today, such as the current provider's template, its HTML, or a screenshot. Pull the logo, colors, fonts, and tone of voice from it. If you can't open the website, ask the user for the logo and the main brand color. Check `media-images-list` for a logo they already uploaded before you upload one.
+3. **Template.** Create or update the email with the `designing-email-templates` skill, using the branding from the last step. The template can't read person properties, so every value the email shows comes from the send as `{{ variables.<name> }}`. Agree on the variable names with the user, because their code sends them.
+4. **No marketing category.** A transactional template can't be in a marketing message category. Check with `message-categories-list` if the template has a category.
+5. **Make it transactional.** Call `workflows-make-email-template-transactional`. It asks the user to confirm, because this can't be undone. If the template is also used for other emails, duplicate it first and make the copy transactional. For sign-in codes, reset links and other secrets, tell the user to turn on **Protect sensitive data** on the template's **API** tab.
+6. **API key.** The user creates a project secret API key in project settings, under **Project secret API keys**, with **Workflow** set to **Write**. You can't create it. Tell them to keep it in an environment variable on the server, and never to paste it into the chat or into client-side code.
+7. **Code.** Send from their backend. See below.
+8. **Test.** Have them send one email to their own address. Check its status, and share the template's link so they can see the send on its **Sends** tab.
 
 ## Send from code
 
@@ -61,17 +62,20 @@ Install the latest SDK release. If the installed SDK has no `emails` API, upgrad
 
 Get these right in the code you write:
 
+- **Client:** Reuse the PostHog client the app already creates, and set the secret key on it. Don't create a client for each send, and shut it down when the app exits.
 - **Distinct ID:** Always pass the recipient's distinct ID, the same one their product events use. Without it, the send lands on a person whose distinct ID is the email address.
 - **Idempotency key:** Derive it from what the email is for, such as `password-reset:<reset request id>`, so a retry from a job queue never sends twice.
 - **Host:** On PostHog Cloud the SDK finds the app host itself. Behind a reverse proxy or on a self-hosted instance, set `appHost` (Node.js) or `app_host` (Python) to the PostHog app URL.
-- **Local evaluation:** The SDK client also uses the secret key to poll feature flag definitions. A send-only key can't do that, so in Node.js set `enableLocalEvaluation: false` on a client that only sends email, or give the key the feature flag read scope too.
-- **Errors:** Branch on the error `code`, such as `recipient_suppressed` or `quota_limited`, not on the message. The docs list every code.
+- **Local evaluation:** The posthog-node client starts polling feature flag definitions with the secret key when it starts, and a send-only key can't do that. Set `enableLocalEvaluation: false` on a Node.js client that only sends email, or give the key the feature flag read scope too. The Python client loads flag definitions only when it evaluates a flag.
+- **Errors:** Let the SDK's error reach the caller, or branch on its `code`, such as `recipient_suppressed` or `quota_limited`. Don't wrap it in a generic error or match on the message. The docs list every code.
+- **Uncertain outcomes:** After a `network_error` or a `503`, PostHog might have queued the email. Retry with the same idempotency key. Never fall back to another provider for that email, because the recipient can get it twice.
 
 ## Check what happened to an email
 
 A send returns a message ID. Read its status with `posthog.emails.get(id)` in the SDKs, or `GET /api/projects/@current/messaging/emails/<message_id>/`. The status is `queued`, `sent`, `failed`, `delivered`, `bounced`, or `complained`, with a `reason` for a failed or bounced email.
 
-- A status takes a few seconds to appear after the send, and it is kept for 30 days. A `404` in between those cases means the ID is wrong.
+- A status takes a few seconds to appear after the send, and it is kept for 30 days. The SDKs don't retry a `not_found`, so code that reads a status right after the send retries a few times with a wait. A missing status doesn't mean the email failed.
+- Handle the read's error before you look at the status, so an auth, permission or rate limit error doesn't disappear.
 - Only a project secret API key can read a status, so you can't read it over MCP. Read it from the user's code, or ask them to run it.
 
 ## Moving from another provider
