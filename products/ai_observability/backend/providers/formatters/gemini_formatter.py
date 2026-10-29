@@ -88,7 +88,7 @@ def _tool_response_payload(content: Any, *, is_error: bool = False) -> dict[str,
 def _gemini_image_part(image: ImagePart) -> Part:
     if image.url is not None:
         return Part(file_data=FileData(file_uri=image.url, mime_type=image.mime_type))
-    return Part(inline_data=Blob(data=base64.b64decode(image.base64_data or ""), mime_type=image.mime_type))
+    return Part(inline_data=Blob(data=image.data or b"", mime_type=image.mime_type))
 
 
 def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> ContentListUnion:

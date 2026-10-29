@@ -1,7 +1,6 @@
 """Images an LLM judge sees next to the transcript that refers to them as `[image N]`."""
 
 import base64
-import binascii
 from collections import Counter
 from collections.abc import Callable
 from functools import lru_cache
@@ -12,10 +11,11 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.ai_observability.backend.facade.api import BlobPointer
-from products.ai_observability.backend.llm.images import IMAGE_MIME_TYPES, ImagePart, image_transport
-from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
+from products.ai_observability.backend.llm.images import IMAGE_MIME_TYPES, MAX_IMAGE_BYTES, ImagePart, image_transport
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, MediaMarker
 
 logger = structlog.get_logger(__name__)
 
@@ -23,7 +23,7 @@ JUDGE_IMAGES_FLAG = "llm-analytics-judge-images"
 
 # Each image costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image size limit.
 MAX_IMAGES = 20
-# Bytes sent inline in one judge request. A link has no cap here: the provider downloads it and applies its own limits.
+# Bytes sent inline in one judge request. Links don't count: the provider downloads them.
 MAX_INLINE_BYTES = 15_000_000
 # Covers the judge call and its retries. Sign right before the call: a link signed with temporary
 # AWS credentials stops working when the credentials expire.
@@ -72,7 +72,7 @@ class JudgeImages:
 
     def marker(self, media: MediaBlock) -> str:
         pointer = BlobPointer.parse(media.url) if media.url else None
-        mime_type = media.mime_type or (pointer.mime_type if pointer else None)
+        mime_type = _normalize_mime_type(media.mime_type or (pointer.mime_type if pointer else None))
         # Links from the customer's app keep a plain marker: we never fetch them.
         key = pointer.sha256 if pointer else media.base64_data
         if media.modality != "image" or mime_type not in IMAGE_MIME_TYPES or key is None:
@@ -93,17 +93,17 @@ class JudgeImages:
 
         # Keep the images referenced last: the newest input and the graded output, even when it repeats an old image.
         ranked = sorted(images, key=lambda image: user_prompt.rfind(f"[image {image.number}]"))
-        attachable = {image.number for image in ranked[-MAX_IMAGES:]}
+        attachments = {image.number: _Attachment(outcome="over_limit") for image in ranked[:-MAX_IMAGES]}
+        inline_bytes = 0
+        for image in reversed(ranked[-MAX_IMAGES:]):
+            attachment = self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
+            inline_bytes += attachment.inline_bytes
+            attachments[image.number] = attachment
+
         parts: list[Any] = [{"type": "text", "text": "The transcript refers to these images as [image N]."}]
         outcomes: Counter[str] = Counter()
-        inline_bytes = 0
         for image in images:
-            attachment = (
-                self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
-                if image.number in attachable
-                else _Attachment(outcome="over_limit")
-            )
-            inline_bytes += attachment.inline_bytes
+            attachment = attachments[image.number]
             outcomes[attachment.outcome] += 1
             if attachment.part is None:
                 label = _NOT_ATTACHED_LABELS[attachment.outcome]
@@ -118,34 +118,55 @@ class JudgeImages:
         transport = image_transport(provider, model, image.mime_type)
         if transport is None:
             return _Attachment(outcome="unavailable")
+        provider_limit = MAX_IMAGE_BYTES.get(provider)
         if image.pointer is None:
-            size = len(image.base64_data or "") * 3 // 4
-            if size > inline_budget:
+            if len(image.base64_data or "") * 3 // 4 > min(inline_budget, provider_limit or inline_budget):
                 return _Attachment(outcome="too_large")
             try:
-                # Event data can hold invalid base64, and some adapters decode it before the request.
-                base64.b64decode(image.base64_data or "", validate=True)
-            except binascii.Error:
+                data = base64.b64decode(image.base64_data or "", validate=True)
+            except ValueError:  # binascii.Error, or a non-ASCII string
                 return _Attachment(outcome="unavailable")
-            part = ImagePart(mime_type=image.mime_type, base64_data=image.base64_data)
-            return _Attachment(outcome="inline", part=part, inline_bytes=size)
+            return _Attachment(
+                outcome="inline", part=ImagePart(mime_type=image.mime_type, data=data), inline_bytes=len(data)
+            )
+        limits = [
+            limit for limit in (inline_budget if transport == "inline" else None, provider_limit) if limit is not None
+        ]
+        try:
+            return self._attach_blob(image, image.pointer, transport, min(limits, default=None))
+        except ObjectStorageError:
+            return _Attachment(outcome="unavailable")
+
+    def _attach_blob(
+        self, image: _Image, pointer: BlobPointer, transport: Literal["url", "inline"], max_bytes: int | None
+    ) -> _Attachment:
+        stored_size = 0
+        if max_bytes is not None:
+            # Check the stored size first, so an oversized blob is never downloaded or sent.
+            size = pointer.stored_size(self._team_id)
+            if size is None:
+                return _Attachment(outcome="unavailable")
+            if size > max_bytes:
+                return _Attachment(outcome="too_large")
+            stored_size = size
         if transport == "url":
-            url = image.pointer.presigned_url(self._team_id, PRESIGNED_URL_SECONDS)
+            url = pointer.presigned_url(self._team_id, PRESIGNED_URL_SECONDS)
             if url is None:
                 return _Attachment(outcome="unavailable")
             return _Attachment(outcome="link", part=ImagePart(mime_type=image.mime_type, url=url))
-        # Check the stored size before downloading, so an oversized blob never reaches worker memory.
-        stored_size = image.pointer.stored_size(self._team_id)
-        if stored_size is None:
-            return _Attachment(outcome="unavailable")
-        if stored_size > inline_budget:
-            return _Attachment(outcome="too_large")
         # ponytail: sequential reads, a thread pool if traces with many images get slow
-        data = image.pointer.read(self._team_id)
+        data = pointer.read(self._team_id)
         if data is None:
             return _Attachment(outcome="unavailable")
-        part = ImagePart(mime_type=image.mime_type, base64_data=base64.b64encode(data).decode())
+        part = ImagePart(mime_type=image.mime_type, data=data)
         return _Attachment(outcome="inline", part=part, inline_bytes=stored_size)
+
+
+def _normalize_mime_type(mime_type: str | None) -> str | None:
+    if mime_type is None:
+        return None
+    normalized = mime_type.strip().lower()
+    return "image/jpeg" if normalized == "image/jpg" else normalized
 
 
 @lru_cache(maxsize=4096)
@@ -178,14 +199,14 @@ def judge_sees_images(evaluation: dict[str, Any]) -> bool:
 
 
 def build_image_prompt(
-    evaluation: dict[str, Any], plain_prompt: str | None, render: Callable[[JudgeImages], str | None]
+    evaluation: dict[str, Any], plain_prompt: str | None, render: Callable[[MediaMarker], str | None]
 ) -> ImagePrompt | None:
     """The marked prompt and its images, or None when this judge run gets the plain prompt only.
 
-    `render` builds the same transcript as the plain prompt, with images as `[image N]` markers.
+    `render` builds the same transcript as the plain prompt, with media blocks rendered by the marker it gets.
     """
     if not judge_sees_images(evaluation):
         return None
     images = JudgeImages(evaluation["team_id"])
-    marked = render(images)
+    marked = render(images.marker)
     return ImagePrompt(text=marked, images=images) if marked is not None and marked != plain_prompt else None

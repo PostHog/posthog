@@ -122,7 +122,8 @@ class TestExtractTextFromMessages:
         messages = [{"role": "user", "content": [block, {"type": "text", "text": "What does this chart show?"}]}]
 
         assert (
-            extract_text_from_messages(messages, JudgeImages(team_id=7)) == f"user: {marker} What does this chart show?"
+            extract_text_from_messages(messages, JudgeImages(team_id=7).marker)
+            == f"user: {marker} What does this chart show?"
         )
 
     def test_judge_images_number_otel_parts_and_tool_result_images(self):
@@ -136,7 +137,7 @@ class TestExtractTextFromMessages:
             {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image]}]},
         ]
 
-        assert extract_text_from_messages(messages, JudgeImages(team_id=7)) == "user: [image 1]\nuser: [image 1]"
+        assert extract_text_from_messages(messages, JudgeImages(team_id=7).marker) == "user: [image 1]\nuser: [image 1]"
         assert extract_text_from_messages(messages).startswith("user: [image]\n")
 
     def test_media_blocks_keep_their_text_without_judge_images(self):

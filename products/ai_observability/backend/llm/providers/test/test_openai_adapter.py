@@ -187,9 +187,7 @@ class TestOpenAIImageParts:
                 "https://example.com/a.png",
                 id="link",
             ),
-            pytest.param(
-                ImagePart(mime_type="image/png", base64_data="aGk="), "data:image/png;base64,aGk=", id="inline"
-            ),
+            pytest.param(ImagePart(mime_type="image/png", data=b"hi"), "data:image/png;base64,aGk=", id="inline"),
         ],
     )
     @pytest.mark.parametrize("json_fallback", [False, True], ids=["plain", "json_fallback"])

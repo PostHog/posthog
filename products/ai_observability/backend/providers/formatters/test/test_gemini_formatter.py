@@ -102,7 +102,7 @@ class TestConvertAnthropicMessagesToGemini:
             ),
             (
                 "inline",
-                ImagePart(mime_type="image/png", base64_data="aGk="),
+                ImagePart(mime_type="image/png", data=b"hi"),
                 Part(inline_data=Blob(data=b"hi", mime_type="image/png")),
             ),
         ]

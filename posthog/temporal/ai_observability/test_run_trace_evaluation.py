@@ -177,7 +177,7 @@ class TestFormatTraceForJudge:
         )
 
         plain = format_trace_for_judge(trace)
-        marked = format_trace_for_judge(trace, JudgeImages(team_id=1))
+        marked = format_trace_for_judge(trace, JudgeImages(team_id=1).marker)
 
         assert "[image 1]" not in plain
         # The message and the tool result repeat one image, and the OTel part adds a second.

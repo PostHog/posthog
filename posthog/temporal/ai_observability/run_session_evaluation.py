@@ -42,7 +42,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     should_skip_for_payload,
 )
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
-from posthog.temporal.ai_observability.judge_images import JudgeImages, build_image_prompt
+from posthog.temporal.ai_observability.judge_images import build_image_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
@@ -61,6 +61,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 
 # Sessions run ~3.5x a trace at p90 (222 events against a trace's typical handful) and the shared
 # formatter uniformly samples lines rather than truncating, so the trace's 150k budget would hand
@@ -372,7 +373,7 @@ user's conversation, in order — according to this criteria:
 {config.instructions}"""
 
 
-def format_session_for_judge(traces: list[LLMTrace], images: JudgeImages | None = None) -> str | None:
+def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker | None = None) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
     Preserve generation outputs across the full session before truncating them, including
@@ -400,9 +401,9 @@ def format_session_for_judge(traces: list[LLMTrace], images: JudgeImages | None 
             "include_line_numbers": True,
             "max_length": None if preserve_generation_output else per_trace_budget,
         }
-        if images is not None:
-            # One registry for the whole session, so an image repeated across traces is attached once.
-            options["media_marker"] = images.marker
+        if media_marker is not None:
+            # One marker for the whole session, so an image repeated across traces is attached once.
+            options["media_marker"] = media_marker
         sections: list[str] = []
         rendered_length = 0
         for index, trace in enumerate(traces, start=1):
@@ -505,7 +506,9 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
 
     traces = outcome.traces
     transcript = format_session_for_judge(traces)
-    image_prompt = build_image_prompt(evaluation, transcript, lambda images: format_session_for_judge(traces, images))
+    image_prompt = build_image_prompt(
+        evaluation, transcript, lambda media_marker: format_session_for_judge(traces, media_marker)
+    )
     if transcript is None and image_prompt is not None:
         # Inline base64 can push the plain transcript over the limit when the marked one still fits.
         transcript = image_prompt.text

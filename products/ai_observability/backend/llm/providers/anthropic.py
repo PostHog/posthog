@@ -610,4 +610,4 @@ class AnthropicAdapter:
 def _anthropic_image_block(part: ImagePart) -> dict[str, Any]:
     if part.url is not None:
         return {"type": "image", "source": {"type": "url", "url": part.url}}
-    return {"type": "image", "source": {"type": "base64", "media_type": part.mime_type, "data": part.base64_data}}
+    return {"type": "image", "source": {"type": "base64", "media_type": part.mime_type, "data": part.base64()}}

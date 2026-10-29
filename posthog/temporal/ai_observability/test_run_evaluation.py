@@ -1156,9 +1156,10 @@ def _adapter_rejection(cause: Exception | None) -> ProviderRequestRejectedError:
             id="adapter_wrapped_400",
         ),
         pytest.param(
-            _openai_status_error(400, "Error while downloading the image."), "https://signed", True, id="raw_400"
+            _openai_status_error(400, "Error while downloading https://signed."), "https://signed", True, id="raw_400"
         ),
         pytest.param(_adapter_rejection(None), "https://signed", False, id="unreadable_response"),
+        pytest.param(_openai_status_error(401, "Invalid API key."), "https://signed", False, id="auth_error"),
         pytest.param(_openai_status_error(400, "Bad request."), None, False, id="no_image_attached"),
     ],
 )
@@ -1175,9 +1176,11 @@ def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rej
         patch(
             "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url", return_value=presigned_url
         ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.capture_exception") as capture,
     ):
+        # Only a PostHog key reports the fallback. On BYOK a rejection ends as a skip instead of raising.
         spec.return_value.resolve.return_value = MagicMock(
-            provider="openai", model="gpt-5.5", provider_key=MagicMock(), is_byok=True
+            provider="openai", model="gpt-5.5", provider_key=MagicMock(), is_byok=not retries
         )
         client = client_class.return_value
         client.complete.side_effect = [
@@ -1195,6 +1198,7 @@ def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rej
     if retries:
         assert result["verdict"] is True
         assert client.complete.call_args_list[1].args[0].messages == [{"role": "user", "content": "user: Polite?"}]
+        assert "https://signed" not in str(capture.call_args)
     else:
         assert client.complete.call_count == 1
 
@@ -1598,7 +1602,15 @@ class TestRunEvaluationWorkflow:
                         ],
                     }
                 ],
-                "$ai_output_choices": [{"role": "assistant", "content": "Sales rose in March."}],
+                "$ai_output_choices": [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": pointer.replace("a" * 64, "b" * 64)}},
+                            {"type": "text", "text": "Sales rose in March."},
+                        ],
+                    }
+                ],
             },
         )
 
@@ -1627,6 +1639,7 @@ class TestRunEvaluationWorkflow:
         if attaches_image:
             assert ImagePart(mime_type="image/jpeg", url="https://signed") in content
             assert "user: [image 1] What does this chart show?" in content[-1]["text"]
+            assert "assistant: [image 2] Sales rose in March." in content[-1]["text"]
         else:
             assert isinstance(content, str)
             assert "[image" not in content

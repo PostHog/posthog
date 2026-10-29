@@ -183,7 +183,7 @@ class TestAnthropicImageParts:
             ),
             (
                 "inline",
-                ImagePart(mime_type="image/png", base64_data="aGk="),
+                ImagePart(mime_type="image/png", data=b"hi"),
                 {"type": "base64", "media_type": "image/png", "data": "aGk="},
             ),
         ]

@@ -149,7 +149,7 @@ class TestFormatSessionForJudge:
         for trace in traces:
             trace.events[0].properties["$ai_input"] = [{"role": "user", "content": [image]}]
 
-        rendered = format_session_for_judge(traces, JudgeImages(team_id=1))
+        rendered = format_session_for_judge(traces, JudgeImages(team_id=1).marker)
 
         assert rendered is not None
         assert rendered.count("[image 1]") == 2

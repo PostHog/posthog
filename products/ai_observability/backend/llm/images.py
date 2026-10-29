@@ -1,4 +1,6 @@
+import base64
 from collections.abc import Callable
+from dataclasses import field
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
@@ -6,21 +8,25 @@ from posthog.dataclasses import frozen
 IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
 # Providers whose image blocks take a link that they download themselves.
 _URL_PROVIDERS = frozenset({"openai", "azure_openai", "anthropic", "openrouter", "gemini"})
+MAX_IMAGE_BYTES = {"anthropic": 5 * 1024 * 1024}
 
 
 @frozen
 class ImagePart:
     """An image in a message's content list. Each adapter converts it to its provider's image block.
 
-    Set `url` for a link the provider downloads, or `base64_data` for inline bytes.
+    Set `url` for a link the provider downloads, or `data` for inline bytes.
     """
 
     mime_type: str
     url: str | None = None
-    base64_data: str | None = None
+    data: bytes | None = field(default=None, repr=False)
+
+    def base64(self) -> str:
+        return base64.b64encode(self.data or b"").decode()
 
     def data_uri(self) -> str:
-        return f"data:{self.mime_type};base64,{self.base64_data}"
+        return f"data:{self.mime_type};base64,{self.base64()}"
 
 
 def image_transport(provider: str, model: str, mime_type: str) -> Literal["url", "inline"] | None:
