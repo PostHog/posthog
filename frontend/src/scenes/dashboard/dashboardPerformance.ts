@@ -232,9 +232,7 @@ export class DashboardPerformanceMonitor {
                 if (properties) {
                     posthog.capture(DASHBOARD_PERFORMANCE_EVENT, properties, options)
                 }
-            } catch {
-                // Dropping one view's event is better than an error during unmount.
-            }
+            } catch {}
         }
     }
 
