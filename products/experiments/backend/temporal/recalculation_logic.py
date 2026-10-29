@@ -32,7 +32,6 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
-from posthog.temporal.common.utils import on_asyncify_pool
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -609,7 +608,6 @@ def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: 
         cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
 
 
-@on_asyncify_pool
 def _calculate_experiment_metric_for_recalculation_sync(
     experiment_id: int,
     metric_uuid: str,

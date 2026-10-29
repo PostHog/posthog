@@ -59,7 +59,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defined]
 _update_raw = _update_recalculation_progress_sync.func  # type: ignore[attr-defined]
-_calculate_raw = _calculate_experiment_metric_for_recalculation_sync.__wrapped__  # type: ignore[attr-defined]
 _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
 _record_out_of_time_raw = _record_metric_out_of_time_failure_sync.func  # type: ignore[attr-defined]
 
@@ -95,7 +94,9 @@ def _calculate(
     attempt: int = 1,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt)
+        return _calculate_experiment_metric_for_recalculation_sync(
+            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+        )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1446,6 +1447,7 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
                 body,
             ),
+            patch("products.experiments.backend.temporal.recalculation_activities.on_asyncify_pool", lambda fn: fn),
             patch(
                 "products.experiments.backend.temporal.recalculation_activities._cancel_metric_query_sync", cancel_query
             ),
@@ -1606,11 +1608,22 @@ class TestCalculateActivityCancellation:
             with (
                 restored_asyncify_executor() as configure_asyncify_executor,
                 patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_activities._cancel_metric_query_sync",
+                    AsyncMock(),
+                ),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS",
+                    0,
+                ),
             ):
                 configure_asyncify_executor(1)
                 with pytest.raises(ApplicationError, match="not a valid ISO datetime"):
                     await asyncio.wait_for(
-                        _calculate_experiment_metric_for_recalculation_sync(1, "m1", "r1", "not-a-date"), timeout=5
+                        ActivityEnvironment().run(
+                            calculate_experiment_metric_for_recalculation, 1, "m1", "r1", "not-a-date"
+                        ),
+                        timeout=5,
                     )
         finally:
             default_executor_full.set()
