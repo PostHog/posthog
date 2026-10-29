@@ -1043,6 +1043,15 @@ export function IconSlackExternal(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconEnvelope(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
+            <path d="m4 6 8 6 8-6" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        </LemonIconBase>
+    )
+}
+
 export function IconMicrosoftTeams(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 24 24" {...props}>

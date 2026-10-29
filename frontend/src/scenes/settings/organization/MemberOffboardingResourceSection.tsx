@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconDashboard, IconGraph, IconLock, IconNotebook, IconRewindPlay, IconBell, IconLetter } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconLock, IconNotebook, IconRewindPlay, IconBell } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconSlack, IconMicrosoftTeams } from 'lib/lemon-ui/icons'
+import { IconSlack, IconMicrosoftTeams, IconEnvelope } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { userLogic } from 'scenes/userLogic'
@@ -16,7 +16,7 @@ import { subscriptionDestination } from 'products/subscriptions/frontend/scenes/
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 
 const DESTINATION_ICONS: Record<string, JSX.Element> = {
-    email: <IconLetter />,
+    email: <IconEnvelope />,
     slack: <IconSlack />,
     teams: <IconMicrosoftTeams />,
 }
@@ -102,12 +102,18 @@ export function MemberOffboardingResourceSection({
                             <div className="flex items-center gap-2 min-w-0">
                                 <Tooltip
                                     title={
-                                        resource.destination_type
-                                            ? subscriptionDestination(
-                                                  resource.destination_type,
-                                                  resource.destination ?? ''
-                                              ).title
-                                            : resource.kind
+                                        resource.destination_type ? (
+                                            <div className="text-left">
+                                                {subscriptionDestination(
+                                                    resource.destination_type,
+                                                    resource.destination ?? ''
+                                                ).parts.map((recipient, index) => (
+                                                    <div key={index}>{recipient}</div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            resource.kind
+                                        )
                                     }
                                 >
                                     <span
