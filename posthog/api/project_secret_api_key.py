@@ -16,8 +16,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.event_usage import report_user_action
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import (
@@ -214,11 +215,28 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
                 scopes=validated_data["scopes"],
             )
             project_secret_api_key._value = key_value  # type: ignore
-            return project_secret_api_key
         except IntegrityError as e:
             if "unique_team_label" in str(e):
                 raise ValidationError(f"Project secret API key with label '{validated_data['label']}' already exists.")
             raise
+        self._report_created(project_secret_api_key, team)
+        return project_secret_api_key
+
+    def _report_created(self, project_secret_api_key: ProjectSecretAPIKey, team: Team) -> None:
+        # The label is free text, so only the scopes go on the event.
+        try:
+            report_user_action(
+                self.context["request"].user,
+                "project secret api key created",
+                {
+                    "project_secret_api_key_id": project_secret_api_key.id,
+                    "scopes": list(project_secret_api_key.scopes or []),
+                },
+                team=team,
+                request=self.context["request"],
+            )
+        except Exception as e:
+            logger.warning("Failed to capture project secret API key usage event", error=str(e))
 
     def roll(self, project_secret_api_key: ProjectSecretAPIKey) -> ProjectSecretAPIKey:
         key_value = generate_random_token_secret()

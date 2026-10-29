@@ -65,13 +65,19 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    def test_create_project_secret_api_key(self):
+    @patch("posthog.api.project_secret_api_key.report_user_action")
+    def test_create_project_secret_api_key(self, report_user_action):
         label = "the key to rule them all"
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys", {"label": label, "scopes": ["endpoint:read"]}
         )
         assert response.status_code == 201
         data = response.json()
+        report_user_action.assert_called_once()
+        assert report_user_action.call_args.args[1:] == (
+            "project secret api key created",
+            {"project_secret_api_key_id": data["id"], "scopes": ["endpoint:read"]},
+        )
 
         key = ProjectSecretAPIKey.objects.get(id=data["id"])
         assert data["id"] == key.id
