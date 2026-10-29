@@ -174,7 +174,9 @@ describe('sourceManagementLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadSourcesSuccess'])
 
         logic.actions.deleteSource(source)
-        await expectLogic(logic).toDispatchActions(['sourceLoadingFinished'])
+        await expectLogic(logic)
+            .toDispatchActions(['sourceLoadingFinished'])
+            .toNotHaveDispatchedActions(['sourceDeleted'])
 
         expect(logic.values.sourceReloadingById['source-1']).toBe(false)
         // A transient list failure resolves to an empty page, so reloading after a failed delete
