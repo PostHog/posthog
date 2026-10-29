@@ -18,6 +18,7 @@ import {
   serializeError,
   type TaskRunArtifact,
 } from "@posthog/agent-contracts";
+import type { StartupFailure } from "@posthog/agent-contracts/startup-failure";
 import type { TaskContext } from "@posthog/agent-contracts/task-context";
 import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
 import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
@@ -179,6 +180,7 @@ export class PiAgentServer {
   private server: ServerType | null = null;
   private session: PiCloudSession | null = null;
   private initializationPromise: Promise<void> | null = null;
+  private startupFailure: StartupFailure | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
@@ -287,7 +289,11 @@ export class PiAgentServer {
       distinct_id: "pi-agent-server",
       mode: this.config.mode,
     };
-    await this.initializeSession(payload, null);
+    try {
+      await this.initializeSession(payload, null);
+    } catch (error) {
+      if (!this.startupFailure) throw error;
+    }
   }
 
   async stop(): Promise<void> {
@@ -364,10 +370,12 @@ export class PiAgentServer {
     );
     await this.posthogAPI
       .updateTaskRun(this.config.taskId, this.config.runId, {
-        status: "failed",
+        ...(this.startupFailure ? {} : { status: "failed" as const }),
         error_message: `Pi agent server crashed: ${message}`,
         error_type: "agent_server_crash",
-        state: { agent_version: this.agentVersion },
+        state: {
+          agent_version: this.agentVersion,
+        },
       })
       .catch((updateError) =>
         this.logger.error(
@@ -409,6 +417,13 @@ export class PiAgentServer {
       context.json({
         status: "ok",
         hasSession: this.session !== null,
+        readiness: this.startupFailure
+          ? "failed"
+          : this.session
+            ? "ready"
+            : "initializing",
+        startupFailure: this.startupFailure,
+        runId: this.config.runId,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
         boot: {
@@ -558,12 +573,20 @@ export class PiAgentServer {
       return;
     }
 
+    this.startupFailure = undefined;
     const initializationPromise = this.createSession(payload);
     this.initializationPromise = initializationPromise;
     const initStartedAt = Date.now();
     try {
       await initializationPromise;
     } catch (error) {
+      const startupFailure: StartupFailure = {
+        provider: "pi",
+        phase: "session_setup",
+        reason: null,
+        retryability: "unknown",
+      };
+      this.startupFailure = startupFailure;
       const telemetry = this.createRunTelemetry(payload);
       telemetry?.append(payload.run_id, {
         type: "notification",
@@ -573,6 +596,7 @@ export class PiAgentServer {
           method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
           params: {
             runtimeAdapter: "pi",
+            startupFailure,
             initializationPhase: "session_setup",
             initMs: Date.now() - initStartedAt,
             requestedModel: this.config.model,
@@ -777,18 +801,6 @@ export class PiAgentServer {
     const unsubscribeMcpPermissions = client.onMcpToolPermissionRequest(
       (request) => this.handleMcpToolPermissionRequest(request),
     );
-    await client.start();
-    if (this.config.reasoningEffort) {
-      // Pi's ThinkingLevel has no ultracode notch; run it at its xhigh equivalent.
-      await client.setThinkingLevel(
-        this.config.reasoningEffort === "ultracode"
-          ? "xhigh"
-          : this.config.reasoningEffort,
-      );
-    }
-    const runtimeState = await client.getState();
-    this.applyModelContextWindow(runtimeState);
-    this.sessionFile = runtimeState.sessionFile ?? restoredSessionFile ?? null;
     const unsubscribe = () => {
       unsubscribeConversation();
       unsubscribeRuntime();
@@ -796,19 +808,57 @@ export class PiAgentServer {
       unsubscribeMcpPermissions();
     };
 
-    this.session = {
-      payload,
-      runtime,
-      sseController: null,
-      unsubscribe,
-      providerRoute,
-    };
+    try {
+      await client.start();
+      if (this.config.reasoningEffort) {
+        // Pi's ThinkingLevel has no ultracode notch; run it at its xhigh equivalent.
+        await client.setThinkingLevel(
+          this.config.reasoningEffort === "ultracode"
+            ? "xhigh"
+            : this.config.reasoningEffort,
+        );
+      }
+      const runtimeState = await client.getState();
+      this.applyModelContextWindow(runtimeState);
+      this.sessionFile =
+        runtimeState.sessionFile ?? restoredSessionFile ?? null;
+      this.session = {
+        payload,
+        runtime,
+        sseController: null,
+        unsubscribe,
+        providerRoute,
+      };
+    } catch (error) {
+      unsubscribe();
+      await client
+        .stop()
+        .catch((stopError) =>
+          this.logger.error(
+            "Failed to stop Pi client after setup failure",
+            stopError,
+          ),
+        );
+      throw error;
+    }
     this.sessionReadyBootMs = Math.round(process.uptime() * 1000);
     this.sessionInitMs = Date.now() - startedAt;
-    await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
-      status: "in_progress",
-      state: { agent_version: this.agentVersion },
-    });
+    await this.posthogAPI
+      .updateTaskRun(
+        payload.task_id,
+        payload.run_id,
+        {
+          status: "in_progress",
+          error_message: null,
+          state: {
+            agent_version: this.agentVersion,
+          },
+        },
+        AbortSignal.timeout(2_000),
+      )
+      .catch((error) =>
+        this.logger.error("Failed to persist agent startup success", error),
+      );
     this.broadcast({
       type: "pi_run_started",
       timestamp: new Date().toISOString(),

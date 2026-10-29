@@ -1,11 +1,11 @@
 import { getIconForItem, getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
 import { SearchItem } from 'lib/components/Search/searchItems'
-import { formatRelativeTimeShort } from 'lib/components/Search/utils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { highlightSegments } from './commandKRanking'
+import { CommandKSearchTime } from './CommandKSearchTime'
 import { CommandKRow } from './commandKSections'
 
 const userFolder = (item: SearchItem): string | null => {
@@ -13,18 +13,21 @@ const userFolder = (item: SearchItem): string | null => {
     return segments.length === 0 || segments[0] === 'Unfiled' ? null : segments.join(' › ')
 }
 
-function rankedContext(item: SearchItem, showCreator: boolean): { detail: string | null; tail: string | null } {
+function rankedContext(
+    item: SearchItem,
+    showCreator: boolean
+): { detail: string | null; tail: JSX.Element | string | null } {
     if (item.category !== 'results') {
         return {
             detail: item.parentName ? `in ${item.parentName}` : null,
             tail: item.matchedSearchKeyword ? `Matches "${item.matchedSearchKeyword}"` : null,
         }
     }
-    const age = item.lastViewedAt
-        ? `viewed ${formatRelativeTimeShort(item.lastViewedAt)}`
-        : item.record?.created_at
-          ? `created ${formatRelativeTimeShort(String(item.record.created_at))}`
-          : null
+    const age = item.lastViewedAt ? (
+        <CommandKSearchTime time={item.lastViewedAt} prefix="viewed" tooltipLabel="Last used" />
+    ) : item.record?.created_at ? (
+        <CommandKSearchTime time={String(item.record.created_at)} prefix="created" tooltipLabel="Created" />
+    ) : null
     const detail = [userFolder(item), showCreator ? item.createdByName : null].filter(Boolean).join(' · ')
     return { detail: detail || null, tail: age }
 }
@@ -39,7 +42,9 @@ export function CommandKSearchRankedItem({ row }: { row: Extract<CommandKRow, { 
             ? 'Person'
             : item.category === 'settings'
               ? 'Setting'
-              : 'Product'
+              : item.category === 'accounts'
+                ? 'Account'
+                : 'Product'
     const context = rankedContext(item, !!row.showCreator)
     return (
         <>

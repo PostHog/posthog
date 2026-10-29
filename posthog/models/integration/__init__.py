@@ -16,6 +16,15 @@ from .anthropic import (
     AnthropicIntegrationError,
 )
 from .assignees import Assignee, AssigneeLookupFailed, ReconnectRequired
+from .auth_types import (
+    ANY,
+    DEFAULT,
+    AuthRequirement,
+    AuthTypeSelector,
+    IntegrationAuthType,
+    KindAuthTypes,
+    register_kind_auth_types,
+)
 from .aws import (
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
@@ -73,7 +82,7 @@ from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
     Integration,
-    IntegrationManager,
+    IntegrationModelManager,
     IntegrationQuerySet,
     UndecryptedIntegrationSecretError,
     aget_integration_by_id,
@@ -150,10 +159,17 @@ from .stripe import STRIPE_POSTHOG_SECRET_NAMES, StripeIntegration
 from .twilio import TwilioIntegration
 
 __all__ = [
+    "ANY",
+    "DEFAULT",
+    "AuthRequirement",
+    "AuthTypeSelector",
+    "IntegrationAuthType",
+    "KindAuthTypes",
+    "register_kind_auth_types",
     "UndecryptedIntegrationSecretError",
     "integration_secret_decrypt_counter",
     "IntegrationQuerySet",
-    "IntegrationManager",
+    "IntegrationModelManager",
     "Integration",
     "defer_repository_cache_fields",
     "aget_integration_by_id",

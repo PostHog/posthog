@@ -7,6 +7,7 @@ describe('reportActions', () => {
         [SignalReportStatus.PENDING_INPUT, true],
         [SignalReportStatus.FAILED, true],
         [SignalReportStatus.MONITORING, true],
+        [SignalReportStatus.CLOSED, true],
         [SignalReportStatus.POTENTIAL, false],
         [SignalReportStatus.CANDIDATE, false],
         [SignalReportStatus.IN_PROGRESS, false],
@@ -22,6 +23,7 @@ describe('reportActions', () => {
         [SignalReportStatus.PENDING_INPUT, true, true],
         [SignalReportStatus.FAILED, true, true],
         [SignalReportStatus.MONITORING, true, false],
+        [SignalReportStatus.CLOSED, true, false],
         [SignalReportStatus.RESOLVED, true, false],
         [SignalReportStatus.SUPPRESSED, true, false],
     ] as const)('gates manual Monitoring for %s with server capability %s: %s', (status, enabled, expected) => {
