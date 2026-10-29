@@ -26,6 +26,7 @@ PUSH_TO_CHECKED_OUT_BRANCH = (
     "This branch already backs an open docs pull request. "
     "Commit your docs change on top of it and push to the same branch. Do not open a pull request."
 )
+NO_STORE_CONNECTORS_RUN_STATE = {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
 
 
 def build_writer_prompt(request: DocsRequest, routing: SectionRouting, *, is_joining: bool) -> str:
@@ -79,6 +80,7 @@ def start_writer(
             create_pr=False,
             internal=True,
             posthog_mcp_scopes=[],
+            extra_run_state=NO_STORE_CONNECTORS_RUN_STATE,
             origin_key=request.dedupe_id,
             branch=joining.head_branch if joining is not None else None,
             start_workflow=start_workflow,
