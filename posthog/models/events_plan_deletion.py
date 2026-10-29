@@ -21,6 +21,10 @@ class TeamEventsPlanDeletion(models.Model):
         help_text="The cleanup on or after this date deletes the team's events older than the plan's window."
     )
 
+    @property
+    def state(self) -> "PlanDeletionState":
+        return PlanDeletionState(months=self.months, next_deletion_on=self.next_deletion_on)
+
 
 @frozen
 class PlanDeletionState:
