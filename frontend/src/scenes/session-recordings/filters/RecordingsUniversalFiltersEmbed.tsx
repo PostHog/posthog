@@ -702,7 +702,7 @@ export const ReplayFiltersTab = ({
                                 size="small"
                                 icon={<IconTrash />}
                                 onClick={() =>
-                                    setFilters(
+                                    applyFilters(
                                         stripSessionIds(
                                             appliedSavedFilter.filters as Partial<RecordingUniversalFilters>
                                         )

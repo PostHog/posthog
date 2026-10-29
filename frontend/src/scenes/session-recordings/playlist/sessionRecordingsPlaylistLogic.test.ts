@@ -1426,6 +1426,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         it('replaces the filters with the defaults plus the saved keys in one load', async () => {
             logic.actions.setFilters({ filter_test_accounts: true, date_from: '-30d' })
+            logic.actions.filterByPerson('p')
             await expectLogic(logic, () => {
                 logic.actions.applySavedFilter({ date_from: '-7d' })
             })
