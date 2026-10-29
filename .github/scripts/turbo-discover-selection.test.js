@@ -69,6 +69,16 @@ test('each distrusted input has its own reason, so telemetry can tell them apart
         [{ selection: null }, 'selector_error'],
         [{ selection: selectionFixture({ ast: { full_run_reasons: ['posthog/settings/base.py'] } }) }, 'full_run_requested'],
         [{ selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }) }, 'empty_selection'],
+        [
+            {
+                dagsterOnlyLegacyEdit: true,
+                selection: selectionFixture({
+                    snob: { status: 'error' },
+                    combined: { count: 0, products: [], segments: segments() },
+                }),
+            },
+            'empty_selection',
+        ],
         [{ selection: selectionFixture({ durations: { total_seconds: 0, selected_seconds: 0, skipped_seconds: 0 } }) }, 'no_durations'],
         [{ selection: selectionFixture({ durations: undefined }) }, 'no_durations'],
     ]
@@ -137,7 +147,10 @@ test('a selection with no temporal file does not start the temporal leg', () => 
 test('a Dagster-only legacy edit that selects no Django test runs no Django leg', () => {
     const decision = decide({
         dagsterOnlyLegacyEdit: true,
-        selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }),
+        selection: selectionFixture({
+            snob: { status: 'ok' },
+            combined: { count: 0, products: [], segments: segments() },
+        }),
     })
     assert.equal(decision.mode, 'selected')
     assert.equal(decision.narrowed, true)

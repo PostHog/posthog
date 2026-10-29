@@ -1280,7 +1280,10 @@ function decideSelection({
     const poe = segments.poe ?? []
     const temporal = segments.temporal ?? []
     const compat = segments.compat ?? []
-    if (legacyChanged && !dagsterOnlyLegacyEdit && core.length === 0 && temporal.length === 0) {
+    // The Dagster exemption trusts the import graph. A failed Snob run still exits cleanly, with
+    // segments that the graph never filled, so it cannot claim the exemption.
+    const dagsterExempt = dagsterOnlyLegacyEdit && selection.snob?.status === 'ok'
+    if (legacyChanged && !dagsterExempt && core.length === 0 && temporal.length === 0) {
         // A diff that touched legacy code but selected no Django test at all means the
         // selector had no rule for it, not that there is nothing to run — a non-Python
         // legacy file (C++ parser sources, a JSON config) reaches no import edge.
