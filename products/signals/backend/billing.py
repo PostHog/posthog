@@ -37,7 +37,7 @@ would otherwise be repeatable free work.
 
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -66,7 +66,7 @@ SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 SIGNALS_CREDITS_PER_REPORT_WITH_PR = 15 * SIGNALS_CREDITS_PER_DOLLAR  # 1500
 
 
-def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTask]:
+def _bridges_with_pr_run(*, include_manual: bool = False, **run_created_at: datetime) -> QuerySet[SignalReportTask]:
     """Implementation bridges whose task shipped a billable PR run matching `run_created_at`.
 
     Rooted on the signals-owned `SignalReportTask` bridge and traversing to runs via the
@@ -86,6 +86,7 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
     against the same `TaskRun` row.
     """
     return SignalReportTask.objects.filter(
+        **({} if include_manual else {"task__runs__state__billing_product__isnull": True}),
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
         # Fail closed on team disagreement across run / task / bridge / report.
@@ -121,7 +122,7 @@ BILLING_EXEMPT_SOURCE_PRODUCTS: dict[str, str] = {
 }
 
 
-def _scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
+def _scout_skill_is_canonical(team_id: int, skill_name: str, *, version: int | None = None) -> bool:
     """Whether the team's row for `skill_name` is still the PostHog-shipped scout, byte for byte.
 
     `skill_name` alone doesn't attest PostHog-system origin: a team can edit a seeded scout in
@@ -129,7 +130,8 @@ def _scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
     permanent exemptions. `scout_skill_row_is_proven_canonical` settles it by content hash against
     the fingerprint stamped at seed time. Fails closed — no row, no hash, no match → billable.
     """
-    skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False, is_latest=True).first()
+    skills = LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False)
+    skill = (skills.filter(is_latest=True) if version is None else skills.filter(version=version)).first()
     return skill is not None and scout_skill_row_is_proven_canonical(skill)
 
 
@@ -167,7 +169,7 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
         raise ValueError(f"Unknown billing exemption reason: {reason!r}")
     if report.billing_exempt_reason:
         return False
-    if first_billable_pr_run_at(report.id) is not None:
+    if first_billable_pr_run_at(report.id, team_id=report.team_id) is not None:
         raise BillingExemptionError(
             f"Report {report.id} already has a billable PR run; use a refund instead of a billing exemption."
         )
@@ -176,12 +178,16 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
     return True
 
 
+def report_has_implementation_pr(report_id: str | uuid.UUID, *, team_id: int) -> bool:
+    return _bridges_with_pr_run(include_manual=True).filter(report_id=report_id, team_id=team_id).exists()
+
+
 class FirstBillablePrRun(NamedTuple):
     created_at: datetime
     pr_url: str
 
 
-def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | None:
+def first_billable_pr_run(report_id: str | uuid.UUID, *, team_id: int) -> FirstBillablePrRun | None:
     """The report's billable moment: its first implementation run with a GitHub PR URL (with that
     run's `created_at` and `pr_url`), or None if it has never shipped one.
 
@@ -192,7 +198,7 @@ def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | No
     """
     row = (
         _bridges_with_pr_run()
-        .filter(report_id=report_id)
+        .filter(report_id=report_id, team_id=team_id)
         # Both columns resolve against the TaskRun join the filter established, so the earliest
         # billable run's timestamp and URL come from the same row.
         .order_by("task__runs__created_at")
@@ -204,9 +210,9 @@ def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | No
     return FirstBillablePrRun(created_at=row[0], pr_url=row[1])
 
 
-def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
+def first_billable_pr_run_at(report_id: str | uuid.UUID, *, team_id: int) -> datetime | None:
     """`first_billable_pr_run`, timestamp only."""
-    run = first_billable_pr_run(report_id)
+    run = first_billable_pr_run(report_id, team_id=team_id)
     return run.created_at if run else None
 
 
@@ -242,7 +248,7 @@ def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> Query
     return queryset.annotate(first_billable_pr_run_at=Subquery(earliest))
 
 
-def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) -> dict[str, datetime]:
+def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID], *, team_id: int) -> dict[str, datetime]:
     """`annotate_first_billable_pr_run_at` for a known set of reports, in one grouped query.
 
     The annotation is a correlated subquery, so it costs one bridge-and-run walk per row the
@@ -251,7 +257,7 @@ def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) ->
     """
     rows = (
         _bridges_with_pr_run()
-        .filter(report_id__in=report_ids)
+        .filter(report_id__in=report_ids, team_id=team_id)
         .values("report_id")
         .annotate(first_run_at=Min("task__runs__created_at"))
     )
@@ -327,7 +333,10 @@ def current_billing_period_bounds(organization: "Organization") -> BillingPeriod
 
 
 def get_signals_billing_credits_by_team(
-    begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
+    begin: datetime,
+    end: datetime,
+    organization_id: str | uuid.UUID | None = None,
+    organization_ids: Collection[str | uuid.UUID] | None = None,
 ) -> list[tuple[int, int]]:
     """Signals credits used per team in `[begin, end)`.
 
@@ -336,7 +345,8 @@ def get_signals_billing_credits_by_team(
     such run exists before `begin`. Each billable report is charged a flat
     `SIGNALS_CREDITS_PER_REPORT_WITH_PR`. Returns `[(team_id, credits), ...]` for teams with
     non-zero usage only. `organization_id` narrows the scan to one org (the widget's live-count
-    path); usage reporting passes nothing and stays fleet-wide.
+    path), and `organization_ids` to a set of orgs (the quota run's recount). Usage reporting passes
+    neither and stays fleet-wide.
 
     The entry scan is bounded by PRs shipped in the period (via the `created_at` +
     `output__pr_url` indexes), not by the total number of reports, task runs, or teams.
@@ -350,6 +360,8 @@ def get_signals_billing_credits_by_team(
     )
     if organization_id is not None:
         bridges = bridges.filter(team__organization_id=organization_id)
+    if organization_ids is not None:
+        bridges = bridges.filter(team__organization_id__in=organization_ids)
     report_team: dict[uuid.UUID, int] = {}
     for report_id, team_id in bridges.values_list("report_id", "team_id"):
         report_team.setdefault(report_id, team_id)

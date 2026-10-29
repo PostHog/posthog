@@ -230,52 +230,68 @@ describe("GatewayServerDetail", () => {
     });
   });
 
-  it("shows a single scope-aware bulk trio when a member views an agent scope", () => {
-    const serverWithAgent = {
-      ...server,
-      agents: [
-        {
-          service_account_id: "sa-1",
-          user: {
-            id: 7,
-            uuid: "user-7",
-            first_name: "Ada",
-            last_name: "Lovelace",
-            email: "ada@example.com",
-            hedgehog_config: null,
-          },
-          scope: "personal",
-          name: "Deploy bot",
-          handle: "deploy-bot",
-          status: "active",
-          last_active_at: null,
-          granted_by: null,
+  it.each([
+    ["their own share", 7, true],
+    ["only a teammate's share", 8, false],
+  ])(
+    "offers the agent-scope bulk trio to a member viewing %s",
+    (_label, currentUserId, editable) => {
+      mocks.currentUser = { id: currentUserId };
+      const serverWithAgent = {
+        ...server,
+        your_connection: {
+          installation_id: "installation-1",
+          is_enabled: true,
+          pending_oauth: false,
+          needs_reauth: false,
+          last_used_at: null,
         },
-      ],
-    } as McpGatewayServer;
-    mocks.gateway.servers = [serverWithAgent];
+        agents: [
+          {
+            service_account_id: "sa-1",
+            user: {
+              id: 7,
+              uuid: "user-7",
+              first_name: "Ada",
+              last_name: "Lovelace",
+              email: "ada@example.com",
+              hedgehog_config: null,
+            },
+            scope: "personal",
+            name: "Deploy bot",
+            handle: "deploy-bot",
+            status: "active",
+            last_active_at: null,
+            granted_by: null,
+          },
+        ],
+      } as McpGatewayServer;
+      mocks.gateway.servers = [serverWithAgent];
 
-    render(
-      <Theme>
-        <GatewayServerDetail
-          serverId={server.id}
-          initialScope={{
-            scopeType: "agent",
-            scopeServiceAccountId: "sa-1",
-            label: "Deploy bot",
-          }}
-          isAdmin={false}
-          canManageAgentAccess
-          onNavigate={vi.fn()}
-        />
-      </Theme>,
-    );
+      render(
+        <Theme>
+          <GatewayServerDetail
+            serverId={server.id}
+            initialScope={{
+              scopeType: "agent",
+              scopeServiceAccountId: "sa-1",
+              label: "Deploy bot",
+            }}
+            isAdmin={false}
+            canManageAgentAccess
+            onNavigate={vi.fn()}
+          />
+        </Theme>,
+      );
 
-    // The scope switcher carries the only bulk trio; the top-level one
-    // (label "Set all") must not render alongside it.
-    expect(screen.getByText("Set all for Deploy bot")).toBeInTheDocument();
-    expect(screen.queryByText("Set all")).not.toBeInTheDocument();
-  });
+      // The scope switcher carries the only bulk trio; the top-level one
+      // (label "Set all") must not render alongside it.
+      expect(screen.queryByText("Set all for Deploy bot") !== null).toBe(
+        editable,
+      );
+      expect(screen.queryByText("Set all")).not.toBeInTheDocument();
+    },
+  );
 
   it("offers the grant scope toggle only on the caller's own agent share", async () => {
     mocks.currentUser = { id: 7 };

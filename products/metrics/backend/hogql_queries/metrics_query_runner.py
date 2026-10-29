@@ -54,6 +54,7 @@ from products.metrics.backend.facade.enums import (
 )
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
+from products.metrics.backend.query_interval import resolve_query_interval
 from products.metrics.backend.sql_mode import run_metrics_sql
 from products.metrics.backend.variable_options import fill_all_values
 from products.metrics.backend.variables import (
@@ -176,7 +177,9 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             clauses=clauses,
             date_from=date_range.date_from(),
             date_to=date_range.date_to(),
-            interval=self.query.interval,
+            interval=resolve_query_interval(
+                self.query.interval, from_query(self.query.variables), date_range.date_from(), date_range.date_to()
+            ),
             formula=self.query.formula,
         )
 
@@ -196,6 +199,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             return run_metric_query(team=self.team, request=self._to_request())
         date_range = metrics_query_date_range(self.team, self.query.dateRange)
         date_from, date_to = date_range.date_from(), date_range.date_to()
+        interval = resolve_query_interval(self.query.interval, variables, date_from, date_to)
         if language == MetricsQueryLanguage.PROMQL:
             if not (self.query.promql or "").strip():
                 raise ValueError("Write a PromQL query first.")
@@ -204,13 +208,13 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                 raise ValueError(unresolved_message(promql.unresolved))
             # A variable set to All writes `label=~".*"`, which matches every series.
             text = drop_match_all_matchers(promql.text) if promql.text != self.query.promql else promql.text
-            return run_promql_range(self.team, text, date_from, date_to, self.query.interval)
+            return run_promql_range(self.team, text, date_from, date_to, interval)
         if not (self.query.sql or "").strip():
             raise ValueError("Write a SQL query first.")
         sql = substitute_sql(self.query.sql or "", self._load_all_options())
         if sql.unresolved:
             raise ValueError(unresolved_message(sql.unresolved))
-        return run_metrics_sql(self.team, sql.sql, date_from, date_to, self.query.interval, sql.placeholders)
+        return run_metrics_sql(self.team, sql.sql, date_from, date_to, interval, sql.placeholders)
 
     def _call_with_rate_limits(self, *, dashboard_id: int | None) -> tuple[MetricsQueryResponse, float]:
         # Tiles that wait for one shared load of the All options must not hold the runner's concurrency slots.
@@ -262,6 +266,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     metricName=s.metric_name,
                     clause=s.clause,
                     unit=s.unit or None,
+                    histogramBounds=list(s.histogram_bounds) if s.histogram_bounds is not None else None,
                 )
                 for s in series
             ]
@@ -269,19 +274,12 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         # Metric label predicates are not PostHog property filters, so the dashboard's
-        # property filters do not apply. Its date range, variables and label filters do.
-        # Variables reach all three languages. Label filters reach builder clauses only:
-        # PromQL and SQL text is not rewritten for them.
+        # property filters do not apply. Its date range and variables do, in all three languages.
         if dashboard_filter.date_from or dashboard_filter.date_to:
             self.query.dateRange = DateRange(
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
-        if dashboard_filter.metricFilters:
-            self.query.clauses = [
-                clause.model_copy(update={"filters": [*(clause.filters or []), *dashboard_filter.metricFilters]})
-                for clause in self.query.clauses
-            ]
         if dashboard_filter.metricVariables:
             self._apply_variables(dashboard_filter)
 
@@ -299,6 +297,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             )
         names = dict.fromkeys(
             [
+                *referenced_names(self.query.interval),
                 *referenced_names(self.query.promql),
                 *sql_names,
                 *(name for clause in self.query.clauses for name in filter_referenced_names(clause.filters)),

@@ -100,6 +100,7 @@ function FilterSettingsButton({
     type,
     icon,
     disabledReason,
+    loading,
     upsellSideAction,
     label,
     'data-attr': dataAttr,
@@ -107,6 +108,7 @@ function FilterSettingsButton({
     type: FilterableInspectorListItemTypes
     icon: JSX.Element
     disabledReason?: string | undefined
+    loading?: boolean
     upsellSideAction?: SideAction
     label?: string
     'data-attr'?: string
@@ -141,6 +143,7 @@ function FilterSettingsButton({
                 setMiniFilters(filterKeys, !isEnabled)
             }}
             disabledReason={disabledReason}
+            loading={loading}
             active={isEnabled}
         />
     )
@@ -282,7 +285,7 @@ function CommentsFilterSettingsButton(): JSX.Element {
 
 function LogsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allItemsByItemType, logsLoading, logsLoadError, logsInitialLoadRequested } = useValues(
+    const { allItemsByItemType, logsLoading, logsLoadError, logsInitialLoadRequested, logsAccessDenied } = useValues(
         playerInspectorLogic(logicProps)
     )
 
@@ -316,13 +319,15 @@ function LogsFilterSettingsButton(): JSX.Element {
         )
     }
 
-    const disabledReason = logsLoading
-        ? 'Loading logs...'
-        : !logsInitialLoadRequested
-          ? "Logs load after the recording's events load"
-          : logsLoadError
-            ? 'Failed to load logs for this session'
-            : undefined
+    const disabledReason = logsAccessDenied
+        ? "You don't have access to logs in this project"
+        : logsLoading
+          ? 'Loading logs...'
+          : !logsInitialLoadRequested
+            ? "Logs load after the recording's events load"
+            : logsLoadError
+              ? 'Failed to load logs for this session'
+              : undefined
 
     return (
         <FilterSettingsButton
@@ -330,6 +335,7 @@ function LogsFilterSettingsButton(): JSX.Element {
             type="logs"
             icon={<IconLive />}
             disabledReason={disabledReason}
+            loading={logsLoading}
             label="Logs"
         />
     )

@@ -15,8 +15,14 @@ from products.workflows.backend.presentation.views.workflow_data_suggestions imp
     DataSuggestionsStatus as DataSuggestionsStatusChoices,
     DataSuggestionStage,
     DataSuggestionStepKind,
+    EventWorkflowsBuildRequestSerializer,
 )
-from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, missing_inputs
+from products.workflows.backend.services.data_suggestions.builder import (
+    PUSH_SETUP_NOTE,
+    BuildContext,
+    build_workflow,
+    missing_inputs,
+)
 from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
 from products.workflows.backend.services.data_suggestions.llm import invoke_structured, strict_schema
 from products.workflows.backend.services.data_suggestions.planner import (
@@ -25,6 +31,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
     PlannedWorkflow,
     WorkflowIdea,
 )
+from products.workflows.backend.services.data_suggestions.premade import with_push_channels
 from products.workflows.backend.services.data_suggestions.ranking import select_prompt_events, suggestion_score
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed, classify_event_stages
 
@@ -53,6 +60,8 @@ def step(step_id: str = "email_1", **overrides: Any) -> PlannedStep:
         "email_subject": "Your trial started",
         "email_heading": "Welcome to your trial",
         "email_paragraphs": ["Here is how to get started."],
+        "push_title": None,
+        "push_body": None,
         "slack_message": None,
     }
     values.update(overrides)
@@ -63,8 +72,20 @@ def plan(*steps: PlannedStep, first_step: str | None = None) -> PlannedWorkflow:
     return PlannedWorkflow(first_step=first_step or (steps[0].id if steps else "email_1"), steps=list(steps))
 
 
-def branch(label: str, next_id: str | None, percentage: int | None = None) -> PlannedBranch:
-    return PlannedBranch(label=label, percentage=percentage, next=next_id)
+def branch(
+    label: str,
+    next_id: str | None,
+    percentage: int | None = None,
+    person_property: str | None = None,
+    property_value: str | None = None,
+) -> PlannedBranch:
+    return PlannedBranch(
+        label=label,
+        percentage=percentage,
+        next=next_id,
+        person_property=person_property,
+        property_value=property_value,
+    )
 
 
 def context(**overrides: Any) -> BuildContext:
@@ -85,6 +106,12 @@ def edges(built: Any) -> list[tuple]:
 
 
 class TestDataSuggestions(SimpleTestCase):
+    def test_picked_event_names_keep_their_whitespace(self) -> None:
+        payload = EventWorkflowsBuildRequestSerializer(data={"events": [" signed up "]})
+
+        assert payload.is_valid(), payload.errors
+        assert payload.validated_data["events"] == [" signed up "]
+
     def test_email_escapes_copy_and_carries_an_editor_design(self) -> None:
         email = render_email(EmailCopy(subject="Hi", heading="<script>x</script>", paragraphs=("a & b",)))
         assert "<script>" not in email.html
@@ -99,7 +126,7 @@ class TestDataSuggestions(SimpleTestCase):
             ("delay without a duration", {}, plan(step("wait", type="delay"))),
             ("no steps", {}, plan()),
             ("sms without an sms provider", {}, plan(step("text", type="sms"))),
-            ("push without a push provider", {}, plan(step("notify", type="push"))),
+            ("push the project cannot use", {}, plan(step("notify", type="push", push_title="Your trial started"))),
             ("first step that does not exist", {}, plan(step(), first_step="missing")),
             ("next that does not exist", {}, plan(step(next="missing"))),
             ("duplicate step ids", {}, plan(step(), step())),
@@ -204,6 +231,61 @@ class TestDataSuggestions(SimpleTestCase):
             ("action_2_function", "Webhook URL"),
         }
 
+    @parameterized.expand([("provider connected", (7, 9)), ("no provider yet", ())])
+    def test_build_workflow_writes_push_copy_and_asks_for_a_provider_only_when_missing(
+        self, _name: str, integration_ids: tuple[int, ...]
+    ) -> None:
+        built = build_workflow(
+            IDEA,
+            plan(
+                step(
+                    "notify",
+                    type="push",
+                    setup_note="Check the copy",
+                    push_title="your {{ person.name }}trial started",
+                    push_body="See what [[plan|your plan]] includes.",
+                )
+            ),
+            context(
+                channels=frozenset({"push"}),
+                push_integration_ids=integration_ids,
+                event_properties=frozenset({"plan"}),
+            ),
+        )
+        assert built is not None
+        push = built.workflow["actions"][1]
+        assert push["type"] == "function_push"
+        assert push["config"]["inputs"] == {
+            "distinctId": {"value": "{event.distinct_id}", "templating": "hog"},
+            "channels": {"value": list(integration_ids)},
+            "title": {"value": "Your trial started", "templating": "hog"},
+            "body": {
+                "value": "See what {{ event.properties.plan | default: 'your plan' | raw }} includes.",
+                "templating": "liquid",
+            },
+        }
+        push_schema = {
+            "template-native-push": [
+                {"key": "distinctId", "label": "Distinct ID", "required": True},
+                {"key": "channels", "label": "Push channels", "required": True},
+                {"key": "title", "label": "Notification title", "required": True},
+            ]
+        }
+        missing = [item.field for item in missing_inputs(built.workflow, push_schema)]
+        if integration_ids:
+            assert push["description"] == "Check the copy"
+            assert missing == []
+        else:
+            assert push["description"] == f"{PUSH_SETUP_NOTE} Check the copy"
+            assert missing == ["Push channels"]
+            connected_later = with_push_channels(built.workflow, [7])["actions"][1]
+            assert connected_later["config"]["inputs"]["channels"] == {"value": [7]}
+            assert connected_later["description"] == "Check the copy"
+
+    def test_build_workflow_drops_push_without_a_title(self) -> None:
+        planned = plan(step("notify", type="push", push_body="Only a body"))
+        assert build_workflow(IDEA, planned, context(channels=frozenset({"push"}))) is None
+
     @patch("products.workflows.backend.services.data_suggestions.llm.logger")
     @patch("products.workflows.backend.services.data_suggestions.llm.is_privacy_mode_enabled", return_value=True)
     @patch("products.workflows.backend.services.data_suggestions.llm.MaxChatAnthropic")
@@ -269,6 +351,41 @@ class TestDataSuggestions(SimpleTestCase):
             ("action_0_email", "action_1_delay", "continue", None),
             ("action_1_delay", "action_2_email", "continue", None),
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "a sent property and value",
+                "plan",
+                "pro",
+                [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}],
+            ),
+            ("a value the project does not send", "plan", "enterprise", None),
+            ("a property the project does not send", "secret", "pro", None),
+        ]
+    )
+    def test_build_workflow_fills_branch_conditions_from_sent_person_properties(
+        self, _name: str, person_property: str, property_value: str, expected: list | None
+    ) -> None:
+        built = build_workflow(
+            IDEA,
+            plan(
+                step(
+                    "check",
+                    type="conditional_branch",
+                    branches=[
+                        branch("Pro plan", "nudge", person_property=person_property, property_value=property_value)
+                    ],
+                ),
+                step("nudge"),
+            ),
+            context(person_properties={"plan": ("free", "pro")}),
+        )
+        assert built is not None
+        condition = built.workflow["actions"][1]["config"]["conditions"][0]
+        assert condition["filters"] == ({"properties": expected} if expected else {})
+        unset = {item.field for item in missing_inputs(built.workflow, {})}
+        assert ("Condition: Pro plan" in unset) is (expected is None)
 
     @parameterized.expand([("quiet trigger", 50_000, None), ("busy trigger", 1_000_000, 5), ("flood", 9_000_000, 1)])
     def test_build_workflow_starts_a_busy_trigger_on_a_sample(

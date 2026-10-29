@@ -1,3 +1,4 @@
+import datetime as dt
 import tempfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
@@ -45,10 +46,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _file_count_after_write,
     _get_write_type,
     _mark_job_completed,
+    _partial_data_loading_applies,
     _promote_loaded_prefixes,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
     _rebuild_compaction_due,
+    _refuse_incomplete_run,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
@@ -83,10 +86,16 @@ def _no_close_old_connections():
 @pytest.fixture(autouse=True)
 def _unfinished_earlier_batches() -> Iterator[MagicMock]:
     # The completion check reads the queue DB, which these unit tests do not have.
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
-        return_value=_COMPLETE_RUN,
-    ) as check:
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
+            return_value=_COMPLETE_RUN,
+        ) as check,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_batches_of_jobs_sync",
+            return_value=_COMPLETE_RUN,
+        ),
+    ):
         yield check
 
 
@@ -455,10 +464,12 @@ class TestMarkJobCompleted:
             # If the job was cancelled (absorbing Failed) after the final batch passed
             # should_process_batch, the Completed write is rejected and the staged
             # incremental cursor must NOT be promoted.
-            ("completed_write_lands", "Completed", True),
-            ("completed_write_absorbed_by_failed", "Failed", False),
+            ("completed_write_lands", "Completed", True, None),
+            ("completed_write_absorbed_by_failed", "Failed", False, None),
+            ("schedule_resume_fails", "Completed", True, RuntimeError("temporal down")),
         ]
     )
+    @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
@@ -481,13 +492,16 @@ class TestMarkJobCompleted:
         _case: str,
         resulting_status: str,
         expect_promotion: bool,
+        resume_error: Exception | None,
         mock_update: MagicMock,
         mock_schema_objects: MagicMock,
         mock_finish_row_tracking: AsyncMock,
         mock_job_objects: MagicMock,
         mock_release: MagicMock,
         mock_transaction: MagicMock,
+        mock_resume: MagicMock,
     ) -> None:
+        mock_resume.side_effect = resume_error
         model = MagicMock()
         model.status = resulting_status
         mock_update.return_value = model
@@ -502,9 +516,11 @@ class TestMarkJobCompleted:
 
         if expect_promotion:
             schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
+            mock_resume.assert_called_once_with("schema-1", 1, "job-1")
         else:
             schema.promote_staged_incremental_values.assert_not_called()
             mock_finish_row_tracking.assert_not_awaited()
+            mock_resume.assert_not_called()
         # The pipeline lock must be released either way, or the next sync is blocked.
         mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
 
@@ -589,6 +605,32 @@ class TestMarkJobCompleted:
         mock_schema_objects.get.return_value.promote_staged_incremental_values.assert_not_called()
         # The consumer fails the run on this error, and its fail path releases the lock.
         mock_release.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("a_continued_job_batch_failed", ["job-stopped"], 1, True),
+            ("every_continued_job_batch_loaded", ["job-stopped"], 0, False),
+            ("no_continued_job", [], 1, False),
+        ]
+    )
+    def test_a_run_that_continues_a_stopped_job_completes_only_once_that_job_loaded(
+        self, _case: str, continued_job_ids: list[str], unfinished_count: int, refused: bool
+    ) -> None:
+        signal = self._make_signal()
+        signal.continued_job_ids = continued_job_ids
+        unfinished = UnfinishedEarlierBatches(count=unfinished_count, first_batch_index=0, states=("failed",))
+
+        with patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_batches_of_jobs_sync", return_value=unfinished) as check:
+            if refused:
+                with pytest.raises(IncompleteRunError, match=INCOMPLETE_RUN_ERROR):
+                    _refuse_incomplete_run(signal)
+            else:
+                _refuse_incomplete_run(signal)
+
+        if continued_job_ids:
+            assert check.call_args.kwargs == {"team_id": 1, "schema_id": "schema-1", "job_ids": ["job-stopped"]}
+        else:
+            check.assert_not_called()
 
 
 class TestRedeliveredFinalBatchPostLoad:
@@ -686,7 +728,9 @@ class TestPostWriteHandleReads:
         helper.latest_known_version.return_value = 7 + commits_behind
         mock_writer_cls.return_value.write = AsyncMock(return_value=returned)
         mock_writer_cls.return_value.deltalite_file_count_change = deltalite_file_count_change
-        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+        job = MagicMock()
+        job.schema.table = None
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = job
 
         process_message(_message(batch_index=batch_index, is_first_ever_sync=is_first_ever_sync))
 
@@ -2442,11 +2486,44 @@ class TestTableHandleReuse:
             assert rows.schema.names == ["id", "name", "added"]
 
 
+class TestPartialDataLoading:
+    @parameterized.expand(
+        [
+            ("first_sync_of_a_new_table", True, ExternalDataSourceType.STRIPE, None, True),
+            ("table_created_by_this_job", True, ExternalDataSourceType.STRIPE, 1, True),
+            ("rebuild_of_a_served_table", True, ExternalDataSourceType.STRIPE, -1, False),
+            ("other_source", True, ExternalDataSourceType.POSTGRES, None, False),
+            ("not_a_rebuild", False, ExternalDataSourceType.STRIPE, None, False),
+        ]
+    )
+    def test_only_a_new_table_publishes_each_batch(
+        self,
+        _name: str,
+        is_first_ever_sync: bool,
+        source_type: str,
+        table_created_hours_after_job: int | None,
+        expected: bool,
+    ) -> None:
+        job_created_at = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
+        job = MagicMock(created_at=job_created_at)
+        schema = MagicMock()
+        schema.source.source_type = source_type
+        schema.table = (
+            None
+            if table_created_hours_after_job is None
+            else MagicMock(created_at=job_created_at + dt.timedelta(hours=table_created_hours_after_job))
+        )
+        signal = ExportSignalMessage.from_dict(_message(is_first_ever_sync=is_first_ever_sync))
+
+        assert _partial_data_loading_applies(signal, schema, job) is expected
+
+
 class TestCompactionDuringRebuild:
     @staticmethod
     def _schema(source_type: str = "Postgres") -> MagicMock:
         schema = MagicMock()
         schema.source.source_type = source_type
+        schema.table = None
         return schema
 
     @parameterized.expand(
@@ -2481,12 +2558,15 @@ class TestCompactionDuringRebuild:
         signal = ExportSignalMessage.from_dict(_message(**{"batch_index": 10, **overrides}))
         members = members or [(signal.run_uuid, signal.batch_index)]
         with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=True):
-            assert _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), members) is expected
+            assert (
+                _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), MagicMock(), members)
+                is expected
+            )
 
     def test_the_flag_turns_it_off(self) -> None:
         signal = ExportSignalMessage.from_dict(_message(batch_index=10, sync_type="full_refresh"))
         with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=False):
-            assert _rebuild_compaction_due(signal, self._schema(), [(signal.run_uuid, 10)]) is False
+            assert _rebuild_compaction_due(signal, self._schema(), MagicMock(), [(signal.run_uuid, 10)]) is False
 
     def _load(self, table_path: str, sync_type: str, first_index: int, *, enabled: bool) -> None:
         write_deltalake(table_path, TestTableHandleReuse._SEED)

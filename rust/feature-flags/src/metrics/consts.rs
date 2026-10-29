@@ -417,8 +417,16 @@ pub const LEGACY_TOKEN_MIRROR_SHADOW_COUNTER: &str = "flags_legacy_token_mirror_
 // Loki.
 pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
 
+// Requests refused by the team's request blocklist. Labeled only by `reason`
+// (`host` or `ip`). The blocked host and IP are unbounded, so they go to the
+// canonical log line, never to a label.
+pub const FLAG_REQUEST_BLOCKED_COUNTER: &str = "flags_request_blocked_total";
+
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
+
+// One count per /flags request, labeled `outcome` and `needs_persons`.
+pub const FLAG_REQUEST_OUTCOME_COUNTER: &str = "flags_request_outcome_total";
 
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";

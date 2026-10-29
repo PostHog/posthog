@@ -19,6 +19,21 @@ describe('metricVariableEditorLogic', () => {
         initKeaTests()
     })
 
+    it('opens on one new variable after the saved ones when it adds a variable on open', async () => {
+        mockOptions.mockResolvedValue({ results: [] })
+        const logic = metricVariableEditorLogic({
+            dashboardId: 1,
+            variables: [{ name: 'job', source: 'custom', customValues: ['a'] }],
+            options: {},
+            addVariableOnOpen: true,
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.draft.map((variable) => variable.name)).toEqual(['job', expect.any(String)])
+        expect(logic.values.selectedIndex).toBe(1)
+    })
+
     it('previews a query edit after an edit to another field', async () => {
         mockOptions.mockResolvedValue({ results: ['a'] })
         const logic = metricVariableEditorLogic({

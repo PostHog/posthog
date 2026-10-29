@@ -13,9 +13,11 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
+import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
     InboxScope,
@@ -26,6 +28,7 @@ import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
 import { ReportContextMenu } from '../cards/ReportContextMenu'
+import { FirstReportProgress } from '../emptyState/FirstReportProgress'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
@@ -166,11 +169,13 @@ const ReportRow = memo(function ReportRow({
     sectionKey,
     rankingSortField,
     timestampField,
+    hideOwnClaim,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
     timestampField: 'created_at' | 'updated_at'
+    hideOwnClaim: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -179,6 +184,7 @@ const ReportRow = memo(function ReportRow({
                 selectable
                 rankingSortField={rankingSortField}
                 timestampField={timestampField}
+                hideOwnClaim={hideOwnClaim}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -194,6 +200,9 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (scope === INBOX_SCOPE_FOR_YOU) {
         return 'No reports suggested for you yet. Switch the scope to see the entire project.'
     }
+    if (scope === INBOX_SCOPE_CLAIMED_BY_YOU) {
+        return "You haven't claimed any reports. Open a report and select I'm on it to claim it."
+    }
     return 'No reports here yet.'
 }
 
@@ -206,6 +215,7 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  */
 export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
+    const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
@@ -271,15 +281,19 @@ export function ReportsTab(): JSX.Element {
         settledOnceRef.current = true
     }
     const showFirstLoadSkeleton = firstLoadPending && (!settledOnceRef.current || rows.length === 0)
-    const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed && !sections[key].isLoaded)
+    const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed)
     const pageLoading = selectedSections.some((key) => sections[key].reportsResponseLoading)
     const pageLoadFailed = selectedSections.some((key) => sections[key].pageLoadFailed)
     const hasMore = selectedSections.some((key) => sections[key].hasMore)
 
-    // `ensureLoaded` only fetches a state with nothing loaded and nothing in flight, so retrying
-    // after a partial failure refetches the failed states and leaves the loaded ones alone.
     const retryFailedSections = (): void => {
-        selectedSections.forEach((key) => reportListLogic(sectionListLogicProps(key)).actions.ensureLoaded())
+        selectedSections.forEach((key) => {
+            if (sections[key].reportsLoadFailed && !sections[key].reportsResponseLoading) {
+                const { actions } = reportListLogic(sectionListLogicProps(key))
+                actions.loadCount()
+                actions.loadReports()
+            }
+        })
     }
     // `loadMore` self-guards on `hasMore` and in-flight requests, so this only refetches the pages
     // that actually failed.
@@ -350,8 +364,16 @@ export function ReportsTab(): JSX.Element {
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
+            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
+                <div className="min-w-0" data-attr="inbox-first-report-progress">
+                    <FirstReportProgress
+                        result={firstReportProgress}
+                        notificationEmail={savedState?.first_report_notification_email}
+                    />
+                </div>
+            )}
 
-            {inboxIsEmpty ? (
+            {inboxIsEmpty && !anyLoadFailed ? (
                 showActivation ? null : (
                     <InboxWaitingForWork />
                 )
@@ -368,6 +390,7 @@ export function ReportsTab(): JSX.Element {
                         <LemonButton
                             size="small"
                             type="secondary"
+                            loading={pageLoading}
                             onClick={retryFailedSections}
                             data-attr="inbox-report-list-retry"
                         >
@@ -389,6 +412,7 @@ export function ReportsTab(): JSX.Element {
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
                                 timestampField={timestampField}
+                                hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />
                         </Fragment>
                     ))}
@@ -400,6 +424,7 @@ export function ReportsTab(): JSX.Element {
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
+                                loading={pageLoading}
                                 onClick={retryFailedSections}
                                 data-attr="inbox-report-list-retry"
                             >

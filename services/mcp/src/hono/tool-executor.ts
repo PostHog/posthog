@@ -32,6 +32,7 @@ import {
     buildNoDataInstallNotice,
     githubConnectUrl,
     MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+    NoDataInstallNoticeError,
     type NoDataNoticeMode,
     prependNoDataNotice,
     resolveNoDataNoticeMode,
@@ -97,6 +98,7 @@ interface ExecMetricState {
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skillLookupMissKind: SkillLookupMissKind | undefined
     resultEmpty: boolean
+    noDataNotice: { mode: NoDataNoticeMode; text: string } | undefined
 }
 
 /**
@@ -189,7 +191,9 @@ export class ToolExecutor {
 
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
-            const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
+            const renderUiEntry = state.renderUiEnabled
+                ? this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries())
+                : null
             return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
@@ -213,7 +217,7 @@ export class ToolExecutor {
                 return this.instructionsBuilder.buildExecToolEntry(state)
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
-                return this.instructionsBuilder.buildRenderUiToolEntry(state) ?? undefined
+                return this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries()) ?? undefined
             }
             return undefined
         }
@@ -341,12 +345,32 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
+        const tool = preBuilt.build()
+        const rawToolArgs = (callParams.arguments ?? {}) as Record<string, unknown>
+        const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
+        const rewrapped = firstPass.success
+            ? undefined
+            : repairArgumentNesting(firstPass.error, rawToolArgs, tool.schema)
+        const validation = rewrapped ? tool.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
+        if (!validation.success) {
+            return this.callTool(
+                {
+                    name: toolName,
+                    schema: tool.schema,
+                    handler: (ctx, args) => tool.handler(ctx, args),
+                    _meta: tool._meta,
+                },
+                callParams,
+                state,
+                analyticsMeta
+            )
+        }
+
         const noDataNotice = await this.noDataInstallNotice(toolName, state)
         if (noDataNotice?.mode === 'block') {
             return this.returnNoDataNotice(toolName, noDataNotice.text, state, {}, analyticsMeta)
         }
 
-        const tool = preBuilt.build()
         const result = await this.callTool(
             {
                 name: toolName,
@@ -625,25 +649,7 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const innerToolName =
-            typeof toolArgs.command === 'string' ? parseExecCallInnerToolName(toolArgs.command) : undefined
-        const noDataNotice = innerToolName ? await this.noDataInstallNotice(innerToolName, state) : undefined
-        if (!innerToolName || !noDataNotice) {
-            return this.runExecTool(params, state, analyticsMeta)
-        }
-        if (noDataNotice.mode === 'block') {
-            const execShape = execCommandAnalyticsProperties(toolArgs, state)
-            return this.returnNoDataNotice(
-                innerToolName,
-                noDataNotice.text,
-                state,
-                { ...execShape, ...execInputShapeAnalyticsProperties(toolArgs, execShape, state) },
-                analyticsMeta
-            )
-        }
-        const result = await this.runExecTool(params, { ...state, noDataAction: 'warned' }, analyticsMeta)
-        return prependNoDataNotice(result, noDataNotice.text)
+        return this.runExecTool(params, state, analyticsMeta)
     }
 
     private async runExecTool(
@@ -657,6 +663,7 @@ export class ToolExecutor {
             innerFailure: undefined,
             skillLookupMissKind: undefined,
             resultEmpty: false,
+            noDataNotice: undefined,
         }
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
@@ -745,7 +752,7 @@ export class ToolExecutor {
                 execToolName(),
                 duration,
                 failureShape !== undefined,
-                state,
+                execMetrics.noDataNotice ? { ...state, noDataAction: 'warned' } : state,
                 {
                     ...execShape,
                     ...execInputShape,
@@ -763,9 +770,18 @@ export class ToolExecutor {
                 this.servedToolDescription(execToolName())
             )
 
-            return response
+            return execMetrics.noDataNotice ? prependNoDataNotice(response, execMetrics.noDataNotice.text) : response
         } catch (error: unknown) {
             const metricTool = execToolName()
+            if (error instanceof NoDataInstallNoticeError) {
+                return this.returnNoDataNotice(
+                    error.toolName,
+                    error.text,
+                    state,
+                    { ...execShape, ...execInputShape },
+                    analyticsMeta
+                )
+            }
             const classification = classifyToolError(error, metricTool)
             if (!execMetrics.innerToolName) {
                 // Match the inner-tool path, which labels rejected input `validation_error`.
@@ -997,6 +1013,13 @@ export class ToolExecutor {
                 // and counts. Merge so the richer report wins without losing the verb.
                 trackCommand: (meta) => {
                     execMetrics.commandMeta = { ...execMetrics.commandMeta, ...meta }
+                },
+                beforeValidatedCall: async (toolName) => {
+                    const noDataNotice = await this.noDataInstallNotice(toolName, state)
+                    if (noDataNotice?.mode === 'block') {
+                        throw new NoDataInstallNoticeError(toolName, noDataNotice.text)
+                    }
+                    execMetrics.noDataNotice = noDataNotice
                 },
             }
         )

@@ -5,7 +5,6 @@ import socket
 import typing as t
 import asyncio
 import datetime as dt
-import ipaddress
 import contextlib
 import dataclasses
 import collections.abc
@@ -25,15 +24,9 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.cloud_utils import is_cloud
-from posthog.models.integration import DatabricksIntegration, Integration
-from posthog.security.oob_domains import matched_oob_domain
-from posthog.security.url_validation import (
-    INVALID_HOST_MESSAGE,
-    UNREACHABLE_HOST_MESSAGE,
-    ShapeError,
-    validate_external_host,
-)
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import DatabricksIntegration
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -329,41 +322,16 @@ class DatabricksClient:
         leaves no stranded thread — the socket terminates on its own timeout and the SDK call is never
         started.
 
-        We also resolve and validate the hostname again here, and connect only to the validated
-        addresses, to prevent SSRF through DNS rebinding.
+        We also refuse a host outside the Databricks workspace DNS zones, because the SDK and connector
+        send requests to URLs the server returns. Checking here as well as at creation also covers
+        integrations that are already stored.
         """
+        if not is_databricks_workspace_host(self.server_hostname):
+            raise DatabricksConnectionError(NOT_A_DATABRICKS_HOST_MESSAGE, retryable=False)
 
         def probe() -> None:
-            if is_cloud() and (oob_domain := matched_oob_domain(self.server_hostname)) is not None:
-                # Detection only, so a match is logged and never refused. See posthog/security/crosslang/README.md.
-                self.logger.info("security.oob_domain_seen", domain=oob_domain, guard="databricks_probe")
-
-            addresses = [
-                str(sockaddr[0])
-                for *_, sockaddr in socket.getaddrinfo(self.server_hostname, 443, type=socket.SOCK_STREAM)
-            ]
-            try:
-                validate_external_host(
-                    self.server_hostname, resolved_ips={ipaddress.ip_address(address) for address in addresses}
-                )
-            except ShapeError as err:
-                raise DatabricksConnectionError(INVALID_HOST_MESSAGE, retryable=False) from err
-            except ValueError as err:
-                self.logger.warning(
-                    "Refused to connect to a Databricks host that failed the SSRF check",
-                    reason=str(err),
-                    addresses=addresses,
-                )
-                raise DatabricksConnectionError(UNREACHABLE_HOST_MESSAGE, retryable=False) from err
-
-            errors: list[OSError] = []
-            for address in addresses:
-                try:
-                    with socket.create_connection((address, 443), timeout=self.connect_timeout_seconds):
-                        return
-                except OSError as err:
-                    errors.append(err)
-            raise errors[-1]
+            with socket.create_connection((self.server_hostname, 443), timeout=self.connect_timeout_seconds):
+                pass
 
         try:
             await asyncio.to_thread(probe)
@@ -1158,8 +1126,8 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
         DatabricksIntegrationError: If the Databricks integration is not valid.
     """
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.databricks.credentials.aget(inputs.team_id, inputs.integration_id)
+    except IntegrationNotFound:
         raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")
     return DatabricksIntegration(integration)
 

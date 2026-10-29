@@ -24,7 +24,12 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_K
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.network import MultiHeadNetwork, export_onnx
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
-from products.signals.dags.inbox_ranking.nn.model import NetworkHead, TrainedNetwork, network_vector_kinds
+from products.signals.dags.inbox_ranking.nn.model import (
+    NetworkHead,
+    TrainedNetwork,
+    network_user_kinds,
+    network_vector_kinds,
+)
 from products.signals.dags.inbox_ranking.training.heads import Head
 from products.signals.dags.inbox_ranking.training.train import NULL_PERMUTATIONS, head_metrics
 
@@ -38,6 +43,7 @@ def _fit(
         kinds=len(VECTOR_KINDS),
         config=config,
         report_features=inputs.reports.shape[1] - EMBEDDING_DIMENSIONS,
+        user_kinds=inputs.users.vectors.shape[1] if inputs.users is not None else 0,
     )
     network.fit(inputs, labels, rows)
     return network
@@ -134,4 +140,26 @@ def train_network(
         network_train_rows=len(train_rows),
         refit_rows=len(refit_rows),
         vector_kinds=network_vector_kinds(inputs),
+        user_vector_kinds=network_user_kinds(inputs),
     )
+
+
+def seed_scores(
+    table: ExampleTable,
+    inputs: NetworkInputs,
+    heads: Sequence[Head],
+    config: NetworkConfig,
+    seeds: Sequence[int],
+    train_rows: np.ndarray | None = None,
+) -> list[np.ndarray]:
+    """One train-only fit per seed, each scoring every row. Two arms fit with the same seeds on the
+    same rows give the paired scores `vs_baseline_block` grades. `train_rows` defaults to the
+    table's network train rows; the pair lane's report-level reference narrows them to the pair
+    train days."""
+    if train_rows is None:
+        train_rows = table.network_train_rows()
+    all_rows = np.arange(len(inputs))
+    return [
+        _fit(inputs, heads, dataclasses.replace(config, seed=seed), table.labels, train_rows).predict(inputs, all_rows)
+        for seed in seeds
+    ]

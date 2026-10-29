@@ -3,6 +3,7 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import type {
+    SignalReportStatusEnumApi,
     SignalReportCheckApi,
     SignalReportCheckInconclusiveReasonEnumApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -25,6 +26,7 @@ const FALLBACK_LANE_LABEL = 'The follow-up scout'
 
 export interface ReportCheckRowData {
     check: SignalReportCheckApi
+    reportStatus: SignalReportStatusEnumApi
     tag: { label: string; type: LemonTagType }
     /** The line under the title: when it runs, who runs it, or what the verdict said. */
     detail: string
@@ -162,7 +164,16 @@ const MONITORING_CHECK_ROWS: Record<
     },
 }
 
-function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+function openCheckRow(
+    check: SignalReportCheckApi,
+    reportStatus: SignalReportStatusEnumApi
+): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    if (reportStatus !== 'monitoring') {
+        return {
+            tag: { label: 'Paused', type: 'muted' },
+            detail: 'Checks run only while this report is in Monitoring.',
+        }
+    }
     if (check.monitoring_timing) {
         return MONITORING_CHECK_ROWS[check.monitoring_timing.state]
     }
@@ -275,7 +286,8 @@ export function latestCheckExplanations(artefacts: SignalReportArtefact[]): Map<
 
 export function buildReportCheckRows(
     checks: SignalReportCheckApi[],
-    explanations: Map<string, string>
+    explanations: Map<string, string>,
+    reportStatus: SignalReportStatusEnumApi
 ): ReportCheckRowData[] {
     return [...checks]
         .sort((a, b) => {
@@ -287,7 +299,8 @@ export function buildReportCheckRows(
             const open = OPEN_STATUSES.includes(check.status)
             return {
                 check,
-                ...(open ? openCheckRow(check) : terminalCheckRow(check, explanations.get(check.id))),
+                reportStatus,
+                ...(open ? openCheckRow(check, reportStatus) : terminalCheckRow(check, explanations.get(check.id))),
                 cancelled: check.status === 'cancelled',
                 cancellable: open,
             }
@@ -316,7 +329,10 @@ export function splitReportCheckRows(rows: ReportCheckRowData[]): {
 }
 
 /** The section header's right-hand summary: how many checks, and then the next thing that happens. */
-export function reportChecksMeta(checks: SignalReportCheckApi[]): string {
+export function reportChecksMeta(checks: SignalReportCheckApi[], reportStatus: SignalReportStatusEnumApi): string {
+    if (reportStatus !== 'monitoring' && checks.some((check) => OPEN_STATUSES.includes(check.status))) {
+        return `${checks.length} · paused`
+    }
     if (checks.some((check) => check.monitoring_timing)) {
         return String(checks.length)
     }
@@ -352,6 +368,7 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
     replaced_by_research: 'Replaced when research re-ran on this report and wrote a new check',
     replaced_by_request: 'Replaced on request by a revised check',
     no_check_lane: 'Stopped because this project has no scout that can run it',
+    monitoring_completed: 'Stopped because this Monitoring attempt ended',
 }
 
 /**

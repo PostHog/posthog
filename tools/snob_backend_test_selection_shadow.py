@@ -80,7 +80,7 @@ FULL_RUN_PATTERNS = (
     # see that edge. turbo-discover.js documents this as a live invariant.
     ".test_quarantine.json",
     # CI / Docker infrastructure
-    ".github/workflows/ci-backend.yml",
+    ".depot/workflows/ci-backend.yml",
     # A new path in the events_json list has to run on the PR that adds it.
     ".github/new-events-schema-targets.txt",
     ".github/clickhouse-versions.json",

@@ -13,7 +13,12 @@ ENDPOINTS = {
     "memberships": "community/memberships",
     "digital_products": "payment/digital-products",
     "physical_products": "payment/physical-products",
+    "campaigns": "mailing/campaigns",
+    "campaign_steps": "mailing/campaigns/{campaignId}/steps",
 }
+
+# Child endpoint -> parent endpoint whose `id` fills the child path's `{campaignId}`.
+FANOUT_PARENTS = {"campaign_steps": "campaigns"}
 
 INCREMENTAL_FIELDS = {"contacts": [incremental_field("registeredAt")]}
 PARTITION_KEYS = {

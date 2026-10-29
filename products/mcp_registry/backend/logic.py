@@ -10,7 +10,7 @@ task-facing business layer.
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import (
@@ -276,9 +276,12 @@ def score_for_run(run: MCPRankingRun | None, server: MCPRegistryServer) -> MCPRa
 
 def measured_project_rollup() -> list[dict[str, Any]]:
     """Per-project contribution to the measured layer (staff fleet view)."""
-    return list(
-        MCPMeasuredStats.objects.unscoped()
-        .values("team_id")
-        .annotate(servers=Count("server", distinct=True), total_calls=Sum("calls"))
-        .order_by("-total_calls")
+    return cast(
+        list[dict[str, Any]],
+        list(
+            MCPMeasuredStats.objects.unscoped()
+            .values("team_id")
+            .annotate(servers=Count("server", distinct=True), total_calls=Sum("calls"))
+            .order_by("-total_calls")
+        ),
     )

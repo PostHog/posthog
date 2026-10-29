@@ -1,6 +1,9 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, featureFlagLogicValues } from 'lib/logic/featureFlagLogic'
 import { teamLogic, teamLogicActions } from 'scenes/teamLogic'
 import {
@@ -19,16 +22,34 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
+import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
+
 import {
+    CampaignChannelTypes,
     SEARCH_PERFORMANCE_QUERY_KEY,
     SearchBreakdown,
     SearchChannel,
     SearchMetrics,
+    SearchNoticeKind,
     SearchPlatform,
+    campaignChannelTypesQuery,
     selectedSearchSources,
     searchPerformanceSource,
     searchPerformanceSourceNotice,
+    searchSourceName,
+    searchTermTablesToEnable,
 } from './searchPerformance'
+
+export interface SearchSourceNotice {
+    sourceId: string
+    sourceType: string
+    name: string
+    message: string
+    kind: SearchNoticeKind
+    /** Disabled tables the notice offers to enable. Enabling one starts a billed sync of its full history. */
+    enableSchemaIds: string[]
+    enableButtonLabel: string
+}
 
 export interface searchPerformanceLogicValues extends Pick<
     marketingAnalyticsLogicValues,
@@ -60,8 +81,11 @@ export interface searchPerformanceLogicValues extends Pick<
     querySearch: string
     sourcesError: boolean
     sources: ExternalDataSource[]
-    sourceNotices: { sourceId: string; message: string }[]
-    detailSourceNotices: { sourceId: string; message: string }[]
+    campaignChannelTypes: CampaignChannelTypes | null
+    campaignChannelTypesLoading: boolean
+    enablingSourceIds: string[]
+    sourceNotices: SearchSourceNotice[]
+    detailSourceNotices: SearchSourceNotice[]
     detailSources: ExternalDataSource[]
     readySources: MarketingAnalyticsSearchSource[]
     query: MarketingAnalyticsSearchQuery
@@ -82,6 +106,14 @@ export interface searchPerformanceLogicActions
     selectRow: (row: MarketingAnalyticsSearchRow | null) => { row: MarketingAnalyticsSearchRow | null }
     setSearch: (search: string) => { search: string }
     setQuerySearch: (search: string) => { search: string }
+    loadCampaignChannelTypes: () => void
+    loadCampaignChannelTypesSuccess: (
+        campaignChannelTypes: CampaignChannelTypes | null,
+        payload?: any
+    ) => { campaignChannelTypes: CampaignChannelTypes | null; payload?: any }
+    loadCampaignChannelTypesFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
+    enableSearchTermTables: (sourceId: string, schemaIds: string[]) => { sourceId: string; schemaIds: string[] }
+    enableSearchTermTablesFinished: (sourceId: string) => { sourceId: string }
 }
 
 export type searchPerformanceLogicType = MakeLogicType<searchPerformanceLogicValues, searchPerformanceLogicActions>
@@ -119,8 +151,46 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         selectRow: (row: MarketingAnalyticsSearchRow | null) => ({ row }),
         setSearch: (search: string) => ({ search }),
         setQuerySearch: (search: string) => ({ search }),
+        enableSearchTermTables: (sourceId: string, schemaIds: string[]) => ({ sourceId, schemaIds }),
+        enableSearchTermTablesFinished: (sourceId: string) => ({ sourceId }),
     }),
+    loaders(({ values }) => ({
+        campaignChannelTypes: [
+            null as CampaignChannelTypes | null,
+            {
+                loadCampaignChannelTypes: async (_, breakpoint) => {
+                    const entries = await Promise.all(
+                        values.allSearchSources.map(async (source): Promise<[string, string[]] | null> => {
+                            const query = campaignChannelTypesQuery(source)
+                            if (!query) {
+                                return null
+                            }
+                            try {
+                                const response = await api.queryHogQL<[string[]][]>(query, {
+                                    productKey: 'marketing_analytics',
+                                    name: 'marketing_search_campaign_channel_types',
+                                })
+                                return [source.id, response.results[0]?.[0] ?? []]
+                            } catch {
+                                // An unknown campaign mix asks for no tables rather than guessing.
+                                return null
+                            }
+                        })
+                    )
+                    breakpoint()
+                    return Object.fromEntries(entries.filter((entry): entry is [string, string[]] => !!entry))
+                },
+            },
+        ],
+    })),
     reducers({
+        enablingSourceIds: [
+            [] as string[],
+            {
+                enableSearchTermTables: (state, { sourceId }) => [...state, sourceId],
+                enableSearchTermTablesFinished: (state, { sourceId }) => state.filter((id) => id !== sourceId),
+            },
+        ],
         wrapText: [false, { setWrapText: (_, { wrapText }) => wrapText }],
         breakdown: ['keyword' as SearchBreakdown, { setBreakdown: (_, { breakdown }) => breakdown }],
         channel: ['all' as SearchChannel, { setChannel: (_, { channel }) => channel }],
@@ -177,11 +247,32 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 ),
         ],
         sourceNotices: [
-            (s) => [s.sources, s.breakdown],
-            (sources: ExternalDataSource[], breakdown): { sourceId: string; message: string }[] =>
+            (s) => [s.sources, s.breakdown, s.campaignChannelTypes],
+            (
+                sources: ExternalDataSource[],
+                breakdown,
+                campaignChannelTypes: CampaignChannelTypes | null
+            ): SearchSourceNotice[] =>
                 sources.flatMap((source) => {
-                    const message = searchPerformanceSourceNotice(source, breakdown)
-                    return message ? [{ sourceId: source.id, message }] : []
+                    const channelTypes = campaignChannelTypes?.[source.id]
+                    const notice = searchPerformanceSourceNotice(source, breakdown, false, channelTypes)
+                    if (!notice) {
+                        return []
+                    }
+                    const { schemaIds: enableSchemaIds, buttonLabel: enableButtonLabel } =
+                        breakdown === 'search_term' && channelTypes
+                            ? searchTermTablesToEnable(source, channelTypes)
+                            : { schemaIds: [], buttonLabel: '' }
+                    return [
+                        {
+                            sourceId: source.id,
+                            sourceType: source.source_type,
+                            name: searchSourceName(source),
+                            ...notice,
+                            enableSchemaIds,
+                            enableButtonLabel,
+                        },
+                    ]
                 }),
         ],
         readySources: [
@@ -262,6 +353,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 includePostHogConversions:
                     metrics === 'conversions' &&
                     includeConversionGoals &&
+                    breakdown !== 'search_term' &&
                     (breakdown === 'page' || sources.some((source) => source.sourceType !== 'GoogleSearchConsole')),
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 search,
@@ -277,10 +369,21 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         ],
         detailSourceNotices: [
             (s) => [s.detailSources],
-            (sources: ExternalDataSource[]): { sourceId: string; message: string }[] =>
+            (sources: ExternalDataSource[]): SearchSourceNotice[] =>
                 sources.flatMap((source) => {
-                    const message = searchPerformanceSourceNotice(source, 'keyword', true)
-                    return message ? [{ sourceId: source.id, message }] : []
+                    const notice = searchPerformanceSourceNotice(source, 'keyword', true)
+                    return notice
+                        ? [
+                              {
+                                  sourceId: source.id,
+                                  sourceType: source.source_type,
+                                  name: searchSourceName(source),
+                                  ...notice,
+                                  enableSchemaIds: [],
+                                  enableButtonLabel: '',
+                              },
+                          ]
+                        : []
                 }),
         ],
         detailQuery: [
@@ -313,6 +416,33 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             actions.setChannel('all')
             actions.setIntegrationFilter({ ...values.integrationFilter, integrationSourceIds: [] })
             actions.setDates('-7d', null)
+        },
+        setBreakdown: ({ breakdown }) => {
+            if (breakdown === 'search_term') {
+                actions.loadCampaignChannelTypes()
+            }
+        },
+        loadSourcesSuccess: () => {
+            if (values.breakdown === 'search_term') {
+                actions.loadCampaignChannelTypes()
+            }
+        },
+        enableSearchTermTables: async ({ sourceId, schemaIds }) => {
+            try {
+                await externalDataSourcesBulkUpdateSchemasPartialUpdate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    sourceId,
+                    { schemas: schemaIds.map((id) => ({ id, should_sync: true, apply_sync_defaults: true })) }
+                )
+                lemonToast.success('Sync started. Search terms will appear when the first sync finishes.')
+                actions.loadSources()
+            } catch (error: any) {
+                lemonToast.error(
+                    `Could not enable the tables. ${error?.detail ?? 'Try again from the source settings.'}`
+                )
+            } finally {
+                actions.enableSearchTermTablesFinished(sourceId)
+            }
         },
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(300)

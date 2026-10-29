@@ -1,8 +1,8 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Self
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -112,7 +112,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False, hogql_tabl
         raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
     modifiers = create_default_modifiers_for_team(team)
     modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-    # The organization flag that hides posthog.flag_evaluations from queries does not apply here.
+    # The organization mode that hides posthog.flag_evaluations from queries does not apply here.
     # The rows that table holds still have to be deletable.
     database = (
         None if on_events else Database.create_for(team=team, modifiers=modifiers, include_flag_evaluations_table=True)
@@ -666,8 +666,8 @@ class DataDeletionRequest(UUIDModel):
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._loaded_team_id = instance.team_id
         return instance
 

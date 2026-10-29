@@ -6,13 +6,17 @@ matrix. A model records the set it was fit on in its `metadata.json`, so a run c
 sets at once: the examples Parquet, the training matrix and the scoring matrix are all built per
 set, and a model whose declared set this build cannot produce is left unscored.
 
-Two sets live here. `report_embeddings` is the report's combined-text embedding vector, and
+Three sets live here. `report_embeddings` is the report's combined-text embedding vector, and
 `report_embeddings_priority` is that vector plus the report's priority, one column per level. They
 are the served contract: training (`products/signals/dags/inbox_ranking/training/`) and serving
 (the scoring sweep in this package) build features through the same `build_matrix`, so the model's
 `feature_names` match the serving matrix by construction. The sweep reads the vector at scoring
 time, and reads the latest priority judgment only for a model whose set declares the `priority`
-state column.
+state column. `report_embeddings_priority_sources` adds the source products of the report's signals.
+Only an experiment family trains on it, and the sweep cannot build it yet.
+
+The pair sets (`PairUserHistoryFeatureSet`) build one row per (report, user) for the pair-grain
+experiments: the priority set's columns, then the user's history and reviewer columns.
 """
 
 import abc
@@ -47,6 +51,38 @@ EMBEDDING_FEATURE_NAMES = tuple(f"emb_{index}" for index in range(EMBEDDING_DIME
 PRIORITY_COLUMN = "priority"
 PRIORITY_LEVELS = ("P0", "P1", "P2", "P3", "P4")
 
+# The source products of a report's signals, under this key in `extras`: the metadata columns of the
+# dataset dag's `inbox_signal_embeddings` emission log, one row per signal emission, with the moment
+# the emission landed in `SIGNAL_INSERTED_AT_COLUMN`.
+REPORT_SOURCES_EXTRA = "report_sources"
+SIGNAL_INSERTED_AT_COLUMN = "embedding_inserted_at"
+REPORT_SOURCES_COLUMNS = (
+    "team_id",
+    "signal_id",
+    "report_id",
+    "source_product",
+    "is_deleted",
+    SIGNAL_INSERTED_AT_COLUMN,
+)
+# A fixed vocabulary, so a new source product does not change the feature names. A product outside
+# it sets `source_other`.
+SOURCE_PRODUCTS = (
+    "signals_scout",
+    "error_tracking",
+    "session_replay",
+    "replay_vision",
+    "conversations",
+    "zendesk",
+    "github",
+    "linear",
+    "jira",
+    "llm_analytics",
+    "logs",
+    "health_checks",
+    "signals_check",
+)
+SOURCE_FEATURE_NAMES = (*(f"source_{product}" for product in SOURCE_PRODUCTS), "source_other")
+
 # The team's project-vector kinds, in the order a network that reads them takes them. The dataset
 # dag's `inbox_project_vectors` writes one row per (team, kind), and the training and serving
 # inputs both read these names, so the two sides cannot order the kinds differently.
@@ -54,6 +90,29 @@ PROJECT_VECTOR_KINDS = ("typical", "open", "action", "dismiss")
 # Below this many reports, a kind's mean is mostly one report's text, so the row keeps an all-zero
 # vector and the kind has no history.
 MIN_PROJECT_HISTORY_REPORTS = 5
+
+# The user-history kinds a pair network reads, in its input order. The dataset dag builds one user
+# vector per kind (`user_vectors()`), and each kind has a project-vector kind of the same name.
+USER_HISTORY_KINDS = ("open", "dismiss")
+# The pair examples' user-input columns: the reports in each kind's user vector, the capped days
+# since the user's last view, and whether the user had any usable history.
+USER_REPORTS_COLUMNS = tuple(f"user_{kind}_reports" for kind in USER_HISTORY_KINDS)
+DAYS_SINCE_LAST_VIEW_COLUMN = "days_since_last_view"
+USER_HAS_HISTORY_COLUMN = "has_history"
+SUGGESTED_REVIEWER_COLUMN = "is_suggested_reviewer"
+DAYS_SINCE_LAST_VIEW_CAP = 90.0
+PAIR_STATE_COLUMNS = (
+    *USER_REPORTS_COLUMNS,
+    DAYS_SINCE_LAST_VIEW_COLUMN,
+    USER_HAS_HISTORY_COLUMN,
+    SUGGESTED_REVIEWER_COLUMN,
+)
+USER_HISTORY_FEATURE_NAMES = (
+    *(f"user_{kind}_log_reports" for kind in USER_HISTORY_KINDS),
+    "user_days_since_last_view",
+    "has_user_history",
+)
+PAIR_FEATURE_NAMES = (*USER_HISTORY_FEATURE_NAMES, SUGGESTED_REVIEWER_COLUMN)
 
 # How many rows one report contributes to a head's examples. The default is `birth`, one row per
 # report at the snapshot of the day it was created; `examples.py` holds the reasoning.
@@ -232,9 +291,143 @@ class ReportEmbeddingsPriorityFeatureSet(ReportEmbeddingsFeatureSet):
         return matrix
 
 
+class ReportEmbeddingsPrioritySourcesFeatureSet(ReportEmbeddingsPriorityFeatureSet):
+    """The priority set, then the source products of the report's signals as of the moment.
+
+    One column per product in `SOURCE_PRODUCTS`, `source_other` for any other or a missing product,
+    `source_count` for the number of distinct products, and `has_sources`. The signals come from the
+    `REPORT_SOURCES_EXTRA` side input, an emission log with one row per signal emission. A moment
+    reads only the emissions inserted at or before it, takes the latest emission per
+    (team_id, signal_id), and drops a signal whose latest emission is a retraction. A signal can
+    move to another report when it is regrouped, so the report comes from that latest emission.
+
+    The impression labels also carry a `source_products` column, but it holds the value of the
+    latest impression, so it can postdate the moment. This set never reads it.
+
+    A report with no live signal at the moment gets zero in every source column, `has_sources`
+    included. `buildable` is the parent's, so this set keeps the same rows as its baseline.
+    """
+
+    schema_version = 1
+    feature_names = (
+        *ReportEmbeddingsPriorityFeatureSet.feature_names,
+        *SOURCE_FEATURE_NAMES,
+        "source_count",
+        "has_sources",
+    )
+
+    def __init__(self, *, name: str, extras_key: str, sources_key: str) -> None:
+        super().__init__(name=name, extras_key=extras_key)
+        self.extras_keys = (extras_key, sources_key)
+
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
+        if as_of is None:
+            raise ValueError(f"the {self.name} feature set reads its sources only as of a moment")
+        matrix = super().build_matrix(rows, extras, as_of=as_of)
+        sources = self._sources_as_of(extras[self.extras_keys[1]], rows.index, as_of)
+        for column in (*SOURCE_FEATURE_NAMES, "source_count", "has_sources"):
+            matrix[column] = sources[column].to_numpy(dtype=np.float32)
+        return matrix
+
+    @staticmethod
+    def _sources_as_of(signals: pd.DataFrame, report_ids: pd.Index, as_of: datetime.datetime) -> pd.DataFrame:
+        known = signals.loc[signals[SIGNAL_INSERTED_AT_COLUMN] <= as_of]
+        latest = known.sort_values(SIGNAL_INSERTED_AT_COLUMN, kind="stable").drop_duplicates(
+            ["team_id", "signal_id"], keep="last"
+        )
+        live = latest.loc[~latest["is_deleted"].astype(bool) & latest["report_id"].isin(report_ids)]
+        product = live["source_product"].where(live["source_product"].isin(SOURCE_PRODUCTS), "other")
+        one_hot = (
+            pd.crosstab(live["report_id"], "source_" + product.astype(str))
+            .clip(upper=1)
+            .reindex(index=report_ids, columns=list(SOURCE_FEATURE_NAMES), fill_value=0)
+        )
+        # A missing product counts as one source of its own, so `has_sources` implies a count of 1 or more.
+        distinct = live["source_product"].fillna("").groupby(live["report_id"]).nunique()
+        one_hot["source_count"] = distinct.reindex(report_ids, fill_value=0).to_numpy()
+        one_hot["has_sources"] = (one_hot["source_count"] > 0).astype(int).to_numpy()
+        return one_hot
+
+
+class PairUserHistoryFeatureSet(FeatureSet):
+    """The input of one (report, user) pair: a report set's columns, then `PAIR_FEATURE_NAMES`.
+
+    The report part comes from `report_feature_set` and is the same for every pair of a report. The
+    pair part is per pair and comes from the pair examples' `PAIR_STATE_COLUMNS`: `log1p` of the
+    reports in each user vector, the days since the last view over `DAYS_SINCE_LAST_VIEW_CAP`,
+    `has_user_history` and `is_suggested_reviewer`. A network also reads the user's vectors as
+    offsets from the team's project vectors (`user_offsets`), outside this matrix.
+
+    With `user_history` False, every user-history column is zero whatever the rows hold, and the
+    caller holds the user offsets at zero too. Only `is_suggested_reviewer` stays. That set is the
+    pair baseline: the same width and the same reviewer flag, without the user's history.
+
+    A pair set is not a report-state set, so it stays out of `FEATURE_SETS`: the state snapshot has
+    no pair columns, and the scoring sweep cannot build a pair input.
+    """
+
+    schema_version = 1
+
+    def __init__(self, *, name: str, report_feature_set: FeatureSet, user_history: bool) -> None:
+        self.name = name
+        self.report_feature_set = report_feature_set
+        self.user_history = user_history
+        self.feature_names = (*report_feature_set.feature_names, *PAIR_FEATURE_NAMES)
+        self.state_columns = (*report_feature_set.state_columns, *PAIR_STATE_COLUMNS)
+        self.extras_keys = report_feature_set.extras_keys
+        self.example_grain = report_feature_set.example_grain
+        self.max_examples_per_head = report_feature_set.max_examples_per_head
+
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
+        matrix = self.report_feature_set.build_matrix(rows, extras, as_of=as_of)
+        pair = self.pair_matrix(rows)
+        for column, name in enumerate(PAIR_FEATURE_NAMES):
+            matrix[name] = pair[:, column]
+        return matrix
+
+    def buildable(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.Series:
+        return self.report_feature_set.buildable(rows, extras, as_of=as_of)
+
+    def pair_matrix(self, rows: pd.DataFrame) -> np.ndarray:
+        """(rows, `PAIR_FEATURE_NAMES`) float32, one row per pair of `rows`."""
+        missing = [column for column in PAIR_STATE_COLUMNS if column not in rows]
+        if missing:
+            raise ValueError(f"the {self.name} feature set needs the {', '.join(missing)} columns")
+        matrix = np.zeros((len(rows), len(PAIR_FEATURE_NAMES)), dtype=np.float32)
+        matrix[:, PAIR_FEATURE_NAMES.index(SUGGESTED_REVIEWER_COLUMN)] = rows[SUGGESTED_REVIEWER_COLUMN].to_numpy(
+            dtype=np.float32
+        )
+        if self.user_history:
+            kinds = len(USER_HISTORY_KINDS)
+            matrix[:, :kinds] = np.log1p(rows[list(USER_REPORTS_COLUMNS)].to_numpy(dtype=np.float32))
+            days = np.minimum(rows[DAYS_SINCE_LAST_VIEW_COLUMN].to_numpy(dtype=np.float32), DAYS_SINCE_LAST_VIEW_CAP)
+            matrix[:, kinds] = days / DAYS_SINCE_LAST_VIEW_CAP
+            matrix[:, kinds + 1] = rows[USER_HAS_HISTORY_COLUMN].to_numpy(dtype=np.float32)
+        return matrix
+
+
 REPORT_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="report_embeddings", extras_key=REPORT_EMBEDDINGS_EXTRA)
 REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET = ReportEmbeddingsPriorityFeatureSet(
     name="report_embeddings_priority", extras_key=REPORT_EMBEDDINGS_EXTRA
+)
+REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET = ReportEmbeddingsPrioritySourcesFeatureSet(
+    name="report_embeddings_priority_sources", extras_key=REPORT_EMBEDDINGS_EXTRA, sources_key=REPORT_SOURCES_EXTRA
+)
+PAIR_BASE_FEATURE_SET = PairUserHistoryFeatureSet(
+    name="pair_report_embeddings_priority",
+    report_feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    user_history=False,
+)
+PAIR_USER_HISTORY_FEATURE_SET = PairUserHistoryFeatureSet(
+    name="pair_report_embeddings_priority_user_history",
+    report_feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    user_history=True,
 )
 
 # Every set this build can produce, by name. A model that names a set absent from here cannot be
@@ -243,6 +436,7 @@ FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
     {
         REPORT_EMBEDDINGS_FEATURE_SET.name: REPORT_EMBEDDINGS_FEATURE_SET,
         REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+        REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     }
 )
 
@@ -282,6 +476,23 @@ def project_inputs(project_vectors: pd.DataFrame, team_ids: Sequence[int]) -> Pr
         vectors[team, kind_index] = vector
         has_history[team, kind_index] = float(int(n_reports) >= MIN_PROJECT_HISTORY_REPORTS)
     return ProjectInputs(vectors=vectors, has_history=has_history)
+
+
+def user_offsets(
+    user_vectors: np.ndarray, user_reports: np.ndarray, project_vectors: np.ndarray, project_has_history: np.ndarray
+) -> np.ndarray:
+    """(n, `USER_HISTORY_KINDS`, D) float32: each user vector minus the team's project vector of the
+    same kind, zero where the user has no report of the kind or the team's kind has no history.
+
+    `user_vectors` is (n, user kinds, D) and `user_reports` (n, user kinds), in `USER_HISTORY_KINDS`
+    order. `project_vectors` and `project_has_history` are the `ProjectInputs` arrays of each row's
+    team, in `PROJECT_VECTOR_KINDS` order. An offset says how this person's taste differs from the
+    team's, so a user who reads what the team reads gets a small one.
+    """
+    kinds = [PROJECT_VECTOR_KINDS.index(kind) for kind in USER_HISTORY_KINDS]
+    present = (user_reports > 0) & (project_has_history[:, kinds] > 0)
+    offsets = np.where(present[..., None], user_vectors - project_vectors[:, kinds], 0.0)
+    return offsets.astype(np.float32, copy=False)
 
 
 def feature_set_by_name(name: str | None) -> FeatureSet | None:

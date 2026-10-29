@@ -1,5 +1,6 @@
 import json
 from datetime import UTC
+from typing import TYPE_CHECKING
 
 from django.utils.dateparse import parse_datetime
 
@@ -48,11 +49,15 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
+from products.error_tracking.backend.temporal.lifecycle.summary_worker import generate_summary_on_worker
 from products.ml_inference.backend.facade.contracts import (
     DecisionGatewayError,
     DecisionGatewayUnreachableError,
     DecisionsDisabledError,
 )
+
+if TYPE_CHECKING:
+    from products.error_tracking.backend.logic.issue_summaries import IssueSummaryOutcome
 
 logger = structlog.get_logger(__name__)
 
@@ -279,6 +284,31 @@ def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) ->
     return result
 
 
+def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "IssueSummaryOutcome":
+    # issue_summaries imports the lifecycle rendering module, whose package imports this module.
+    from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
+        IssueSummaryTrigger,
+        generate_issue_summary_from_event,
+    )
+
+    return generate_summary_on_worker(
+        inputs.team_id,
+        inputs.issue_id,
+        IssueSummaryTrigger.WRITE,
+        lambda: generate_issue_summary_from_event(
+            inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs)
+        ),
+    )
+
+
+@activity.defn
+@posthoganalytics.scoped(capture_exceptions=False)
+@close_db_connections
+def generate_issue_created_summary_activity(inputs: IssueCreatedWorkflowInputs) -> str:
+    # Model and output failures return an outcome, so an exception here is an infrastructure failure worth a retry.
+    return _generate_issue_created_summary(inputs).value
+
+
 # The three activities below add no properties of their own, so the shared activity interceptor
 # is the better reporter: it knows which failures are expected.
 @activity.defn
@@ -368,4 +398,5 @@ ACTIVITIES = [
     infer_issue_created_severity_activity,
     emit_issue_created_internal_event_activity,
     emit_issue_created_signal_activity,
+    generate_issue_created_summary_activity,
 ]

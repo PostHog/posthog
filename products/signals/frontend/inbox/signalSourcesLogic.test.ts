@@ -99,7 +99,7 @@ describe('signalSourcesLogic', () => {
 
     beforeEach(() => {
         warehouseSources = []
-        onboardingState = { draft: null, completed_at: null, variant: null }
+        onboardingState = { draft: null, completed_at: null }
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/onboarding/': () => [200, onboardingState],
@@ -265,42 +265,64 @@ describe('signalSourcesLogic', () => {
         toastError.mockRestore()
     })
 
-    it('resumes Intercom setup after OAuth and enables signals on completion', async () => {
-        logic.unmount()
-        router.actions.push(
-            '/inbox',
-            { setup: 'signal-sources', signal_source: 'intercom', integration_id: '7', source: 'saved-filter' },
-            { tab: 'details' }
-        )
-        const callbackPath = router.values.location.pathname
-        const createConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
-            ...githubIssuesConfig,
-            source_product: SignalSourceProduct.Intercom,
-            source_type: SignalSourceType.Ticket,
-        })
-        logic = signalSourcesLogic()
-        logic.mount()
-        logic.actions.loadSourceConfigsSuccess([])
+    it.each(['/inbox', '/inbox/sources'])(
+        'resumes Intercom setup after OAuth on %s and enables signals on completion',
+        async (path) => {
+            logic.unmount()
+            router.actions.push(
+                path,
+                { setup: 'signal-sources', signal_source: 'intercom', integration_id: '7', source: 'saved-filter' },
+                { tab: 'details' }
+            )
+            const callbackPath = router.values.location.pathname
+            const intercomConfig = {
+                ...githubIssuesConfig,
+                source_product: SignalSourceProduct.Intercom,
+                source_type: SignalSourceType.Ticket,
+            }
+            let saved = false
+            const createConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockImplementation(async () => {
+                saved = true
+                return intercomConfig
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/source_configs/': () => [
+                        200,
+                        { results: saved ? [intercomConfig] : [] },
+                    ],
+                },
+            })
+            logic = signalSourcesLogic()
+            logic.mount()
+            logic.actions.loadSourceConfigsSuccess([])
 
-        expect(logic.values.dataSourceSetupSource).toBe('intercom')
-        const redirect = new URL(logic.values.dataSourceSetupOAuthRedirectUrl!, 'https://example.com')
-        expect(redirect.pathname).toBe(callbackPath)
-        expect(redirect.searchParams.get('signal_source')).toBe('intercom')
-        expect(redirect.searchParams.get('source')).toBe('saved-filter')
+            expect(logic.values.dataSourceSetupSource).toBe('intercom')
+            const redirect = new URL(logic.values.dataSourceSetupOAuthRedirectUrl!, 'https://example.com')
+            expect(redirect.pathname).toBe(callbackPath)
+            expect(redirect.searchParams.get('signal_source')).toBe('intercom')
+            expect(redirect.searchParams.get('source')).toBe('saved-filter')
 
-        await expectLogic(logic, () => logic.actions.onDataSourceSetupComplete()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.onDataSourceSetupComplete()).toFinishAllListeners()
 
-        expect(createConfig).toHaveBeenCalledWith({
-            source_product: 'intercom',
-            source_type: 'ticket',
-            enabled: true,
-            config: {},
-        })
-        expect(logic.values.dataSourceSetupSource).toBeNull()
-        expect(router.values.searchParams.signal_source).toBeUndefined()
-        expect(router.values.searchParams.source).toBe('saved-filter')
-        createConfig.mockRestore()
-    })
+            expect(createConfig).toHaveBeenCalledWith({
+                source_product: 'intercom',
+                source_type: 'ticket',
+                enabled: true,
+                config: {},
+            })
+            expect(logic.values.dataSourceSetupSource).toBeNull()
+            expect(router.values.searchParams.signal_source).toBeUndefined()
+            expect(router.values.searchParams.source).toBe('saved-filter')
+            expect(
+                logic.values.rosterGroups.find((group) => group.id === 'external')?.agents.map((agent) => agent.source)
+            ).toContain('intercom')
+            expect(
+                logic.values.sourceCatalog.flatMap((group) => group.items.map((item) => item.agent.source))
+            ).not.toContain('intercom')
+            createConfig.mockRestore()
+        }
+    )
 
     it.each([
         { status: 200, reason: 'integration' },
@@ -359,7 +381,6 @@ describe('signalSourcesLogic', () => {
         logic.actions.loadOnboardingStateSuccess({
             draft: declinedJiraDraft,
             completed_at: '2024-03-10T00:00:00Z',
-            variant: 'test-ui',
         })
         sourcesDataLogic.actions.loadSourcesSuccess({
             results: [
@@ -375,10 +396,13 @@ describe('signalSourcesLogic', () => {
         expect(external()).toEqual(['jira', 'gitea'])
         expect(logic.values.externalSourceStates.jira).toMatchObject({ connected: true, requiresSetup: false })
         expect(logic.values.externalSourceStates.sentry).toMatchObject({ connected: false, requiresSetup: true })
-        expect(recommended()).toEqual([
-            ['gitea', 'synced'],
-            ['github', 'integration'],
-        ])
+        expect(recommended()).toEqual([['github', 'integration']])
+        const catalogSources = (): string[] =>
+            logic.values.sourceCatalog.flatMap((group) => group.items.map((item) => item.agent.source))
+        expect(catalogSources()).not.toContain('jira')
+        expect(catalogSources()).not.toContain('gitea')
+        expect(logic.values.sourceCatalog[0].category).toBe('Recommended for you')
+        expect(catalogSources().filter((source) => source === 'github')).toHaveLength(1)
 
         const connectedSources = (['Gitea', 'Bugsnag', 'Honeybadger', 'Raygun'] as const).map((source_type) => ({
             ...githubSource,
@@ -386,7 +410,7 @@ describe('signalSourcesLogic', () => {
             source_type,
         }))
         sourcesDataLogic.actions.loadSourcesSuccess({ results: connectedSources, next: null, previous: null })
-        expect(recommended()).toHaveLength(4)
+        expect(recommended()).toEqual([['github', 'integration']])
         logic.actions.hideSourceRecommendations()
         expect(recommended()).toEqual([])
         sourcesDataLogic.actions.loadSourcesSuccess({
@@ -394,7 +418,8 @@ describe('signalSourcesLogic', () => {
             next: null,
             previous: null,
         })
-        expect(recommended()).toEqual([['rollbar', 'synced']])
+        expect(recommended()).toEqual([])
+        expect(external()).toContain('rollbar')
 
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: true })
         expect(logic.values.sourceCategoryOptions).toContainEqual({ label: 'Engineering', value: 'Engineering' })
@@ -411,30 +436,34 @@ describe('signalSourcesLogic', () => {
         expect(
             logic.values.sourceCatalog.map((group) => [group.category, group.items.map((item) => item.agent.source)])
         ).toEqual([['Error tracking', ['sentry']]])
-        logic.actions.closeSourceCatalog()
+        logic.actions.openDataSourceSetup('sentry')
+        logic.actions.closeDataSourceSetup()
+        expect(logic.values.sourceSearchQuery).toBe('SENTRY')
+        expect(logic.values.sourceCategory).toBe('Error tracking')
+        logic.actions.setSourceSearchQuery('')
+        logic.actions.setSourceCategory('')
         expect(logic.values.sourceCatalog.length).toBeGreaterThan(1)
         expect(logic.values.rosterGroups.find((group) => group.id === 'posthog')?.agents.length).toBeGreaterThan(0)
     })
 
     it.each([
-        { name: 'control completion', variant: 'control' as const, draft: null, expected: ['jira'] },
+        { name: 'completion without a draft', draft: null, expected: ['jira'] },
         {
             name: 'completion without a source choice',
-            variant: 'test-ui' as const,
             draft: { ...declinedJiraDraft, sources: [] },
             expected: ['jira'],
         },
-        { name: 'an explicit source rejection', variant: 'test-ui' as const, draft: declinedJiraDraft, expected: [] },
+        { name: 'an explicit source rejection', draft: declinedJiraDraft, expected: [] },
     ])('refreshes recommendations after $name', async (state) => {
         warehouseSources = [{ ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' }]
-        onboardingState = { variant: state.variant, draft: state.draft, completed_at: null }
+        onboardingState = { draft: state.draft, completed_at: null }
         sourcesDataLogic.actions.loadSourcesSuccess({ results: warehouseSources, next: null, previous: null })
         await expectLogic(logic, () => logic.actions.loadSourceConfigs()).toFinishAllListeners()
-        expect(logic.values.visibleSourceRecommendations.map(({ agent }) => agent.source)).toEqual(['jira'])
+        expect(logic.values.recommendedSources.map(({ agent }) => agent.source)).toEqual(['jira'])
 
         onboardingState = { ...onboardingState, completed_at: '2024-03-10T00:00:00Z' }
         await expectLogic(logic, () => logic.actions.loadSourceConfigs()).toFinishAllListeners()
-        expect(logic.values.visibleSourceRecommendations.map(({ agent }) => agent.source)).toEqual(state.expected)
+        expect(logic.values.recommendedSources.map(({ agent }) => agent.source)).toEqual(state.expected)
     })
 
     it.each(['project', 'user'])('isolates recommendation dismissals by %s across reloads', (scope) => {

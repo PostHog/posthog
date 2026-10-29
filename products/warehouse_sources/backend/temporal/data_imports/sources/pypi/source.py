@@ -42,6 +42,10 @@ class PyPISource(SimpleSource[PyPISourceConfig]):
         return ExternalDataSourceType.PYPI
 
     @property
+    def credential_kind(self) -> str | None:
+        return "pypi"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.PYPI,
@@ -66,6 +70,7 @@ Each sync fetches the current metadata for every configured package. PyPI has no
                 [
                     SourceFieldInputConfig(
                         name="packages",
+                        sync_setting=True,
                         label="Packages",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

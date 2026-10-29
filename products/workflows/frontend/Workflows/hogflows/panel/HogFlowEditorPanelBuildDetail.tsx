@@ -7,6 +7,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
+    LemonDialog,
     LemonDivider,
     LemonInput,
     LemonInputSelect,
@@ -27,7 +28,9 @@ import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySele
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { utmKeysFromDefaultAfterEdit } from '../steps/components/utmDefaults'
 import { UtmTagFields } from '../steps/components/UtmTagFields'
+import { UtmTeamDefaultControls } from '../steps/components/UtmTeamDefaultControls'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
@@ -40,7 +43,7 @@ import { OutputTestResultTree } from './OutputTestResultTree'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
-    const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
+    const { setWorkflowAction, setMode, markUtmSavedAsTeamDefault } = useActions(hogFlowEditorLogic)
     const { logicProps } = useValues(workflowLogic)
     const { mappings, pendingPath, testLoading, testError, testResultData, shakePickButton, pendingSuggestions } =
         useValues(hogFlowOutputMappingLogic(logicProps))
@@ -174,17 +177,29 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             />
                         </div>
                         {action.config.utm_tags_enabled === true && (
-                            <div className="px-2 pb-2">
+                            <div className="px-2 pb-2 flex flex-col gap-2">
                                 <UtmTagFields
                                     value={action.config.utm_params ?? {}}
                                     onChange={(utmParams) => {
                                         setWorkflowAction(action.id, {
                                             ...action,
-                                            config: { ...action.config, utm_params: utmParams },
+                                            config: {
+                                                ...action.config,
+                                                utm_params: utmParams,
+                                                utm_params_from_default: utmKeysFromDefaultAfterEdit(
+                                                    action.config.utm_params_from_default,
+                                                    action.config.utm_params ?? {},
+                                                    utmParams
+                                                ),
+                                            },
                                         })
                                     }}
                                     campaignDefault={workflow.name || 'Workflow name'}
                                     contentDefault={action.name}
+                                />
+                                <UtmTeamDefaultControls
+                                    value={action.config.utm_params ?? {}}
+                                    onSavedAsTeamDefault={(saved) => markUtmSavedAsTeamDefault(action.id, saved)}
                                 />
                             </div>
                         )}
@@ -335,7 +350,19 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                             className={shakePickButton ? 'animate-shake' : ''}
                                                             loading={testLoading}
                                                             tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
-                                                            onClick={runOutputTest}
+                                                            onClick={() =>
+                                                                LemonDialog.open({
+                                                                    title: 'Run this step for real?',
+                                                                    description: `"${action.name}" runs with test event data to get a response. Any message, email or request it sends goes out now.`,
+                                                                    primaryButton: {
+                                                                        children: 'Run step',
+                                                                        'data-attr':
+                                                                            'workflow-pick-from-response-confirm',
+                                                                        onClick: runOutputTest,
+                                                                    },
+                                                                    secondaryButton: { children: 'Cancel' },
+                                                                })
+                                                            }
                                                         >
                                                             Pick from response
                                                         </LemonButton>
@@ -476,11 +503,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 <span className="flex-1">Error handling</span>
                                                 <LemonTag
                                                     size="small"
-                                                    type={action.on_error === 'continue' ? 'success' : 'danger'}
+                                                    type={action.on_error === 'abort' ? 'danger' : 'success'}
                                                 >
-                                                    {action.on_error === 'continue'
-                                                        ? 'Continue on error'
-                                                        : 'Exit on error'}
+                                                    {action.on_error === 'abort'
+                                                        ? 'Exit on error'
+                                                        : 'Continue on error'}
                                                 </LemonTag>
                                             </>
                                         ),

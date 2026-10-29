@@ -5,26 +5,28 @@ from typing import TypedDict
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.health.context import (
     ChangeWindow,
-    ConditionsChange,
     ExposureEvents,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
     HealthContext,
-    ReleaseCondition,
 )
+from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
 
 # Tests set what their check reads with `dataclasses.replace`, so a new field of the context changes only this file.
 RUNNING_CONTEXT = HealthContext(
     is_launched=True,
     is_running=True,
     has_ended=False,
+    ended_at=None,
     is_paused=False,
     archived=False,
+    team_timezone="Europe/Berlin",
     flag=None,
     flag_called=None,
     flag_called_during_run=None,
+    flag_called_after_end=None,
     team_has_active_flag=None,
     baseline_variant_key=None,
     primary_metric_count=1,
@@ -35,11 +37,16 @@ RUNNING_CONTEXT = HealthContext(
         custom_event=None, required_flag_key="flag", variant_property="$feature_flag_response", flag_key_filters=()
     ),
     events_received={},
+    exposure_properties_received={},
+    exposure_cohorts=(),
     exposures=None,
     flag_history=None,
     condition_set_traffic=None,
     pause_history=None,
+    primary_metric=None,
     excluded_variant_keys=frozenset(),
+    metric_compiles=None,
+    latest_calculation=None,
 )
 
 

@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
+    default_credential_kind,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
@@ -518,6 +521,29 @@ class _BaseSource(ABC, Generic[ConfigType]):
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
 
+    @property
+    def credential_kind(self) -> str | None:
+        """The ``Integration`` kind that holds this source's typed-in credentials, or None when the source has none.
+
+        The default is the kind of the source's OAuth field, else the kebab-case source type. Override it when the
+        source has the credential shape of an existing kind (Postgres is ``postgresql``), or when kebab-case splits
+        a brand name (MySQL is ``mysql``). The kind is stored data and `facade/credential_kinds.py` freezes it, so
+        never change the kind of a released source. A subclass inherits an override, so it must set its own kind."""
+        return default_credential_kind(self.source_type, self.get_source_config)
+
+    @property
+    def credential_auth_type(self) -> str:
+        """The default auth type (``oauth``, ``token`` or ``credentials``) of rows of ``credential_kind``.
+
+        The default comes from the connection fields. It is stored data and `facade/credential_auth_types.py`
+        freezes it, so never change it for a released source."""
+        # The derivation module imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_auth_type import (  # noqa: PLC0415
+            derive_credential_auth_type,
+        )
+
+        return derive_credential_auth_type(self.get_source_config)
+
     def is_unreachable_validation_error(self, error: str) -> bool:
         """Whether a ``validate_credentials`` message means only that the host could not be reached
         over the network. The update serializer may then save the change with a warning for a team
@@ -539,6 +565,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
     # not be reachable through the API without the flag sets this as well.
     requires_team_feature_flag: str | None = None
+
+    # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
+    # uploaded file. They are neither credentials nor settings a person picks, so they stay in
+    # ``job_inputs`` when the connection fields move to their own store. Keys that start with
+    # ``cdc_`` are runtime state for every source and need no entry here.
+    runtime_job_input_keys: frozenset[str] = frozenset()
 
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.

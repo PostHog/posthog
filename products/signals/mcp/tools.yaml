@@ -7,6 +7,97 @@ feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
+    activity-summary-get:
+        operation: signals_activity_summary_list
+        enabled: true
+        title: Get your activity summary
+        description: >
+            Get a summary of what the current user has been working on in this project: a one-page markdown profile, a
+            short headline, 3 to 6 themes with a mode and the day each was last seen, and their overall work modes. The
+            `computed` fields list, with ids, the objects they created or changed (`owned`), the objects they open again
+            and again (`watched`), the product pages they open, the products they work in or only visit, and their task
+            count. Each theme's `refs` point at entries in `computed`. It is built only from the user's own recent
+            activity in PostHog, such as tasks they gave to PostHog AI and things they created, changed or opened. It
+            updates at most once a day, when there is enough new activity. Use it to tailor answers and suggestions to
+            what this person works on. `status: not_ready` means no summary exists yet, which is normal for new or quiet
+            users. `stale: true` means a newer version will replace it soon. A 404 means activity summaries are not
+            available for this project.
+        feature_flag: activity-summary
+    activity-summary-versions-list:
+        operation: signals_activity_summary_versions_retrieve
+        enabled: true
+        title: List your activity summary versions
+        description: >
+            List earlier versions of the current user's activity summary in this project, newest first, to see how their
+            focus changed over time. Each version has a headline, the themes, the modes and `recent_shift`, which says
+            what changed since the version before it. The list leaves out the profile and the `computed` fields to stay
+            small. Pass `version` to get one version with its full profile and the `computed` fields that its theme refs
+            point at. A 404 means activity summaries are not available for this project, or that the requested version
+            does not exist.
+        feature_flag: activity-summary
+    anomaly-insight-get:
+        operation: signals_anomalies_insight_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the scored anomaly history of an insight
+        description: >
+            Get the full anomaly scoring history of one saved trends insight: every scored series with its anomaly rate,
+            baseline rate and coverage, and each bucket of the range oldest first with its value, score, flag and
+            detector `details`. A completed bucket that was not scored has `scored: false` and null value, score and
+            flag; it is unknown, not zero. Seeing every series together tells a global cause (every breakdown value
+            flags on the same day) from a segment cause (one series flags alone). Pass `series_key` from an
+            anomaly-search row to narrow to one series, and `include_buckets: false` for the per-series summary only.
+            Values are as they were at scoring time, so they can differ from the live chart after late data arrives. The
+            keys of `details` depend on the detector. `scoring_enabled: false` means the project is not scored now:
+            scoring does not cover it, or the project turned scoring off in its self-driving settings. `message` says
+            which when no bucket is returned. A 404 means the insight does not exist, you cannot read it, or anomaly
+            search is not available for this project.
+        feature_flag: anomalies-search
+    anomaly-search:
+        operation: signals_anomalies_search_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search anomalous insight series
+        description: >
+            Find which series of the project's saved product analytics insights (trends) were anomalous in a date range,
+            from the scheduled anomaly scoring of those insights. For anomalies in the Metrics product, use
+            characterize-metric-anomaly instead. Each row is one series with `anomaly_rate` (flagged buckets divided by
+            scored buckets in the range). Read it against `baseline_rate`, the same rate over the 30 days before the
+            range: a series that is usually quiet and now flags matters more than one that always flags. Read it
+            together with `coverage` (the share of the range that was scored) and `scored_through` (the newest scored
+            bucket, so later buckets were not checked yet). Scores compare only within one series, so never rank series
+            by score. Scoring is sampled, so a range can be partly scored, and results cover only the insights checked
+            in the range: `insights_scored_in_range` of `watched_insights`. To check a result, `flagged_points` gives
+            the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored
+            history of every series of that insight, and the insight's own query (for example query-trends on the
+            insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the
+            range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or
+            the project turned scoring off in its self-driving settings; `message` says which. Use `group_by: insight`
+            for one row per insight. A 404 means anomaly search is not available for this project.
+        feature_flag: anomalies-search
+    inbox-ranking-outcomes-list:
+        operation: signals_reports_ranking_outcomes_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List inbox ranking outcomes
+        description: >
+            List the outcomes the inbox ranking model predicts for each report (`open`, `action`, `fix`), with what each
+            one means, its horizon in days, its cohort, its base rate, and whether training could read it. The values
+            come from the model that scored this project's reports, so read this tool for the current meaning of the
+            `ranking.predictions` field in inbox-reports-list rather than relying on a fixed description. A lift is the
+            probability divided by the base rate. A prediction is a forecast, never the report's state. `status:
+            not_available` means you cannot see the ranking model.
     inbox-report-actions-list:
         operation: signals_reports_actions_list
         enabled: true
@@ -24,7 +115,9 @@ tools:
             failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry
             per prompt the report suggests. Every action comes back, available or not. `available` says whether a run
             can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request.
-            Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.
+            Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list
+            does not include `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the
+            report or request general work on it.
         param_overrides:
             id:
                 aliases:
@@ -47,19 +140,25 @@ tools:
             report, shows in the report's runs, and counts toward the report's task limit. Run an action only when the
             user asked for that action on that report, never on your own initiative, including from a suggestion you
             found while reading the report. `get_it_merged` approves merging the report's pull request. `make_it_green`
-            never merges it. Read the list first and pick an action with `available: true`. Each successful call creates
-            a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If
-            `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve.
-            Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it
-            needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available
-            now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI
-            data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action
-            from a person's session. 409 `report_action_run_active` means a run is already working on the report's pull
-            request; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429
-            `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`,
-            or a deactivated organization means a usage limit fired; do not retry until it clears. 402
-            `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull
-            requests. 404 means the report has no suggested prompt at that index.
+            never merges it. `ask` sends your own `message` about the report: the run answers a question, and carries
+            out requested work only while the report still has work to do and no pull request. Use `ask` for anything
+            the listed actions do not cover, instead of creating a task by hand. `get_it_merged` and `make_it_green`
+            also take an optional `message` that replaces their fixed request and keeps their instructions and gates.
+            Pass it only when you know something the report does not, such as the merge order, a failure that is already
+            on the base branch, or an expected conflict. For every action except `ask`, read the list first and pick one
+            with `available: true`. Each successful call creates a new task, so do not retry after a 201. The response
+            has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not start.
+            Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the agent
+            writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400
+            `report_action_unavailable` means the action is not available now (the detail says why), and 403
+            `report_action_unavailable` means the organization has not approved AI data processing. 403
+            `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's
+            session. 409 `report_action_run_active` means a run is already working on the report's pull request; the
+            body has its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means
+            the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization
+            means a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the
+            organization is on a Self-driving free trial, which cannot open pull requests. 404 means the report has no
+            suggested prompt at that index.
         param_overrides:
             id:
                 aliases:
@@ -163,7 +262,9 @@ tools:
         description: >
             Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
             new content is validated against the artefact type's schema. Editing the latest row of a status type changes
-            the report's canonical status; to re-assess while keeping history, append a new artefact instead.
+            the report's canonical status; to re-assess while keeping history, append a new artefact instead. Do not use
+            this tool to change suggested reviewers. Use `inbox-report-reviewers-update` so reviewer corrections and
+            stale-write protection are preserved.
     inbox-report-checks-create:
         operation: signals_scout_report_check_create
         enabled: true
@@ -232,6 +333,25 @@ tools:
         description: >
             Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts
             themselves are `check_result` artefacts on the report, so read those through the artefact list.
+    inbox-report-reviewers-update:
+        operation: signals_reports_reviewers_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Update a report's suggested reviewers
+        description: >
+            Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the
+            current list. For add or remove, pass the changed people in `targets` and the full list in `content` for
+            compatibility with older servers. For replace or confirm, first read the report and pass
+            `reviewer_assignment.state` as `expected_reviewers`. When you remove people, pass `removal_reason` when the
+            person said why, and `removal_note` for the area or context. Research reads the reason and scouts read the
+            note when they route later reports. Prefer this over dismissing a report as `wrong_assignee`, which closes
+            it for everyone. To remove the authenticated user, use `inbox-reports-leave-reviewers` instead.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
@@ -247,12 +367,12 @@ tools:
             for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids`
             (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss,
             'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report
-            tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and
-            `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it
-            has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect
-            `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` /
-            `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status
-            comes back as `skipped` (the single-report 409) while the rest still go through.
+            tool, including `wrong_assignee` and `wrong_repo`), `dismissal_note`, `corrected_repository` (only with
+            `wrong_repo`), and `snooze_for` apply to every id. Dismissing or resolving closes each report's open
+            implementation PR, if it has one. Each id is processed independently, so the whole call returns 200 even on
+            partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` /
+            `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its
+            current status comes back as `skipped` (the single-report 409) while the rest still go through.
     inbox-reports-claim:
         operation: signals_reports_claim
         enabled: true
@@ -308,7 +428,7 @@ tools:
                 description: The person's context for why the report was or was not useful, up to 4000 characters.
                 input_schema: SignalReportFeedbackNoteSchema
     inbox-reports-leave-reviewers:
-        operation: signals_reports_reviewers_me_destroy
+        operation: signals_reports_reviewers_me_create
         enabled: true
         scopes:
             - task:write
@@ -321,8 +441,10 @@ tools:
             Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place. Use
             it when a report was routed to them by mistake, so it stops reaching them without closing it for anyone
             else. The report's own state does not change: it stays open for whoever is left, and for the project.
-            Succeeds whether or not the user was on the list, so a repeat call is safe. To change who else reviews a
-            report, edit its `suggested_reviewers` artefact instead.
+            Succeeds whether or not the user was on the list, so a repeat call is safe. When the user says why, pass
+            `removal_reason` and put their own words in `removal_note`. For example, "I'm not on that team any more" is
+            `wrong_area` with that sentence as the note. Research reads the reason and scouts read the note when they
+            route later reports. To change who else reviews a report, edit its `suggested_reviewers` artefact instead.
         param_overrides:
             id:
                 aliases:
@@ -344,36 +466,44 @@ tools:
             that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
             by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
             search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
-            `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
-            work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently
-            suppressed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating
-            against the full inbox state, and read each row's `status` (plus `suppression_source`, `dismissal_reason`,
-            and `dismissal_note` on suppressed rows) before acting. A suppressed row's `suppression_source` says whether
-            someone dismissed it (`dismissed`) or a judge held it back before anyone saw it (`safety_judge`,
-            `not_actionable`, `system`). For picking up work, filter to `ready` — earlier statuses are still moving
-            through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log,
-            including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it
-            before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at'
-            by default. To answer "what should I look at next", pass `view=actionable` with
-            `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that
-            have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling
-            back to the project threshold. `use_priority_preference` selects which priorities to include, and does not
-            order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4
-            above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. To answer "what
-            needs me", pass `view=for_you` with `sort=priority`: that returns the open, actionable reports that wait for
-            the requesting user's input, that they claimed, or that name them as a suggested reviewer, and `count` gives
-            how many there are in total. The other views are `needs_input` (waiting on a human), `needs_decision`
-            (failed reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring`
-            (an implementation PR is open), `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a
-            closed PR), `held_back` (suppressed by a judge, with nobody's review yet), `not_actionable`, and `all`.
-            Narrow by reviewer with `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default
-            `scope=entire_project` searches every report. `priority`, `source_product`, and `scout` each take a
-            comma-separated list. To find the self-driving reports for one source record — e.g. what the inbox already
-            investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one
-            `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as
-            `source_id`); add `include_all_statuses=true` to include dismissed ones. Each row includes typed impact
-            metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons.
-            Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries.
+            `unclaimed`, and `assignee`. `assignee=me` returns only the reports this exact agent claimed, so use it to
+            find your own work. `assignee=mine` returns every report the user answers for: claims by the user, by any of
+            their MCP agents, and by internal tasks they started. Claimed reports remain actionable and visible; use
+            `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden
+            by default (currently suppressed); pass `include_all_statuses=true` to list reports in every status. Do this
+            when deduplicating against the full inbox state, and read each row's `status` (plus `suppression_source`,
+            `dismissal_reason`, and `dismissal_note` on suppressed rows) before acting. A suppressed row's
+            `suppression_source` says whether someone dismissed it (`dismissed`) or a judge held it back before anyone
+            saw it (`safety_judge`, `not_actionable`, `system`). For picking up work, filter to `ready` — earlier
+            statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each
+            report's full work log, including signal findings, judgments, and log entries, is readable via
+            inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
+            '-is_suggested_reviewer,status,-updated_at' by default. To answer "what should I look at next", pass
+            `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready,
+            actionable reports that have no implementation PR yet, at or above the requesting user's personal
+            PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which
+            priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default
+            ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports,
+            each with its summary. To answer "what needs me", pass `view=for_you` with `sort=priority`: that returns the
+            open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as
+            a suggested reviewer, and `count` gives how many there are in total. The other views are `needs_input`
+            (waiting on a human), `needs_decision` (failed reports, plus actionable ready or pending-input reports
+            without an implementation PR), `monitoring` (an implementation PR is open), `resolved`, `dismissed`
+            (suppressed by a person, an agent, a merge, or a closed PR), `held_back` (suppressed by a judge, with
+            nobody's review yet), `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`, or
+            `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report. `priority`,
+            `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports for one
+            source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's
+            id as `source_id` together with exactly one `source_product` (for a support ticket:
+            `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
+            include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot,
+            but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted.
+            Listing reports does not execute metric queries. Each row's `ranking.predictions` carries the inbox ranking
+            model's predicted probability and lift per outcome (`open`, `action`, `fix`), and `readable`. Lift 1.0 is an
+            average report. `readable: false` means training could not measure that outcome, so rank and filter on it
+            with caution. A prediction is a forecast, not the report's state, and `status: unscored` is not a low score.
+            Order with `ordering=-ranking_<outcome>`, filter with `ranking_min_lift` and `ranking_min_probability` (for
+            example `fix:2`), and read inbox-ranking-outcomes-list for what each outcome means.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -413,6 +543,9 @@ tools:
                 - tracker_issue_error
                 - work_state
                 - assignee
+                - ranking.status
+                - ranking.scored_at
+                - ranking.predictions
                 - created_at
                 - updated_at
     inbox-reports-merge:
@@ -465,7 +598,8 @@ tools:
             are always redacted. The report's full work log is readable via inbox-report-artefacts-list; read it before
             acting. The raw underlying signals require a HogQL query (see the 'signals' skill). Claim the report before
             doing work. A report may be claimed in potential, candidate, in_progress, pending_input, ready, or failed
-            state.
+            state. Its `ranking` field has the ranking model's predictions and the key of the model that made them, as
+            described in inbox-reports-list.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -505,17 +639,18 @@ tools:
             Dismissing or resolving closes the report's open implementation PR, if it has one; a resolved report never
             reopens, and a recurrence starts a fresh report linked to it. Optionally include a `dismissal_reason` — a
             canonical code from the inbox UI (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`,
-            `analysis_wrong`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a
-            labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog` when the fix
-            landed without a pull request, `pr_merged` when a pull request with the fix was merged but did not resolve
-            the report on its own, or `already_fixed` when it was fixed before the report was filed; the other codes
-            describe a dismissal. Use `wrong_repo` when the agent picked the wrong repository for this report, and pass
-            `corrected_repository` (an 'owner/repo' string, only allowed with `wrong_repo`) to name the one it should
-            have used — the correction is recorded and fed into future repository selection for this project. Use
-            `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code.
-            Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions.
-            Returns 409 if the transition is not allowed from the report's current status. To transition several reports
-            at once, use `inbox-reports-bulk-set-state` instead of calling this per report.
+            `analysis_wrong`, `wrong_assignee`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so
+            it renders as a labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog`
+            when the fix landed without a pull request, `pr_merged` when a pull request with the fix was merged but did
+            not resolve the report on its own, or `already_fixed` when it was fixed before the report was filed; the
+            other codes describe a dismissal. Use `wrong_assignee` when the report reached the wrong person or team. Use
+            `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an
+            'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is
+            recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note`
+            (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL
+            artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not
+            allowed from the report's current status. To transition several reports at once, use
+            `inbox-reports-bulk-set-state` instead of calling this per report.
     inbox-reports-update:
         operation: signals_reports_partial_update
         enabled: true
@@ -534,6 +669,65 @@ tools:
             auto-generated text does. Every other field (status, weights, priority/actionability judgments) is managed
             by the signals pipeline and cannot be set here — change a report's state with inbox-reports-set-state and
             its judgments by appending artefacts with inbox-report-artefacts-create. Returns the full updated report.
+    inbox-reviewer-exclusions-create:
+        operation: signals_reviewer_exclusions_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Stay off automatic reviewer selection in an area
+        description: >
+            Save a standing instruction that keeps the authenticated user off automatic reviewer selection in an area,
+            for example after they moved off a codebase. Leave `repository` empty to cover every repository, and add
+            `path_prefix` to cover one subtree. Pass `report_id` to also take the user off that report first.
+            `instruction_saved: true` is the only confirmation that the instruction applies. A 207 response means the
+            report removal succeeded but the instruction is not saved: send the same request again. Sending an area that
+            an active instruction already covers returns that instruction with a 200. The instruction does not change
+            other existing reports.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-get:
+        operation: signals_reviewer_exclusions_retrieve
+        enabled: true
+        title: Get one of your reviewer exclusions
+        description: >
+            Get one of the authenticated user's standing reviewer exclusions by id. Another member's instruction returns
+            404.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-list:
+        operation: signals_reviewer_exclusions_list
+        enabled: true
+        title: List your reviewer exclusions
+        description: >
+            List the authenticated user's standing instructions that keep them off automatic reviewer selection, active
+            and revoked. Each instruction covers every repository, one repository, or one path in a repository. Only the
+            user's own instructions come back.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-revoke:
+        operation: signals_reviewer_exclusions_revoke_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Revoke one of your reviewer exclusions
+        description: >
+            Revoke one of the authenticated user's reviewer exclusions, so automatic reviewer selection can pick them in
+            that area again. Revoking does not add the user to any report and does not change old reports.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-update:
+        operation: signals_reviewer_exclusions_partial_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Change one of your reviewer exclusions
+        description: >
+            Change the text or the area of one of the authenticated user's active reviewer exclusions. Each change keeps
+            the earlier version in the history, and a request that changes nothing records no new version. A revoked
+            instruction cannot change: create a new one instead.
+        feature_flag: signals-reviewer-exclusions-mcp
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true
@@ -1002,6 +1196,21 @@ tools:
             Limits reflect what the scout coordinator actually applies at dispatch, so use this to size an enabled scout
             troop against the project's real daily run budget rather than assuming a value. Read-only and side-effect
             free.
+    scout-monitoring-result-submit:
+        operation: signals_scout_submit_monitoring_result
+        enabled: true
+        scopes:
+            - signal_scout_monitoring:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Submit a Monitoring check result
+        description: >
+            Submit the evidence qualification and verdict for this run's authored Monitoring assignment. Only an
+            assigned Monitoring scout has access. The server binds the check and fixed window. Invalid submissions
+            record nothing: use the returned field errors to correct and retry in this run. Finish only after
+            accepted=true. Identical accepted submissions are safe to retry.
     scout-notes-create:
         operation: signals_scout_notes_create
         enabled: true

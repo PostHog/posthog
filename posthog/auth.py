@@ -356,9 +356,11 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
             if mode_used:
                 db_span.set_attribute("auth.hash_mode_used", mode_used)
 
+        source_display = cls._SOURCE_DISPLAY.get(source, source)
         if not personal_api_key_object:
-            source_display = cls._SOURCE_DISPLAY.get(source, source)
             raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
+        if personal_api_key_object.is_expired:
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} has expired.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
@@ -1200,6 +1202,8 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             )
         except (KeyError, PersonalAPIKey.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+        if personal_api_key.is_expired:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.")
 
         refuse_blocked_account(request, personal_api_key.user, call_site="personal_api_key", impersonated=False)
         self.personal_api_key = personal_api_key
