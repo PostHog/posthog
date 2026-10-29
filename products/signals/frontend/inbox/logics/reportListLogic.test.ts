@@ -20,6 +20,7 @@ import {
     SignalReportStatus,
 } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { inboxFiltersLogic } from './inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
@@ -360,7 +361,7 @@ describe('reportListLogic', () => {
                     '/api/projects/:team_id/signals/reports/available_reviewers': {},
                     [REPORTS_URL]: async ({ request }) => {
                         const params = new URL(request.url).searchParams
-                        if (params.get('assignee') === 'mine') {
+                        if (params.get('assignee') === 'mine' || params.get('scout') === 'my-custom-scout') {
                             return [200, { count: MINE.length, next: null, previous: null, results: MINE }]
                         }
                         if (params.get('offset') === heldOffset) {
@@ -390,17 +391,26 @@ describe('reportListLogic', () => {
         afterEach(() => logic.unmount())
 
         it.each([
-            { request: 'first page', offset: '0' },
-            { request: 'next page', offset: String(ALL.length) },
-        ])('drops the late $request of the old query', async ({ offset }) => {
+            { request: 'first page', offset: '0', change: 'scope' },
+            { request: 'next page', offset: String(ALL.length), change: 'scope' },
+            { request: 'first page', offset: '0', change: 'source' },
+            { request: 'next page', offset: String(ALL.length), change: 'source' },
+        ])('drops the late $request of the old query after a $change change', async ({ offset, change }) => {
             heldOffset = offset
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
+                [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+            })
             logic.actions.ensureLoaded()
             if (offset !== '0') {
                 await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
                 logic.actions.loadMore()
             }
 
-            logic.actions.setScope(INBOX_SCOPE_CLAIMED_BY_YOU)
+            if (change === 'scope') {
+                logic.actions.setScope(INBOX_SCOPE_CLAIMED_BY_YOU)
+            } else {
+                inboxFiltersLogic.actions.setSourceFilter({ kind: 'scout', value: 'my-custom-scout' })
+            }
             await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
             releaseOldQuery()
             await expectLogic(logic).toFinishAllListeners()
