@@ -110,6 +110,23 @@ def _finish_run(task_id, django_capture_on_commit_callbacks) -> None:
 
 
 @pytest.mark.django_db
+def test_a_writer_run_with_malformed_output_still_saves_completed(team, writer_env) -> None:
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(), team_id=team.id)
+    run = TaskRun.objects.get(task_id=started.task_id)
+    run.status = TaskRun.Status.COMPLETED
+    run.output = "not a dict"
+
+    run.save(update_fields=["status", "output"])
+
+    assert TaskRun.objects.get(id=run.id).status == TaskRun.Status.COMPLETED
+
+
+@pytest.mark.django_db
 def test_no_agent_starts_without_settings(team) -> None:
     with patch(START_WORKFLOW) as start_workflow:
         outcome = intake.submit(_verdict(), team_id=team.id)

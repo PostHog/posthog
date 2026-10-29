@@ -2,6 +2,8 @@ from typing import Any
 
 from django.db import transaction
 
+from posthog.exceptions_capture import capture_exception
+
 from products.tasks.backend.facade.task_run_signals import TaskOriginProduct, connect_task_run_post_save
 
 
@@ -10,11 +12,17 @@ def connect() -> None:
 
 
 def open_docs_pull_request(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    try:
+        schedule_docs_pull_request(instance, created=created, update_fields=kwargs.get("update_fields"))
+    except Exception as error:
+        capture_exception(error)
+
+
+def schedule_docs_pull_request(instance: Any, *, created: bool, update_fields: Any) -> None:
     if created or instance.origin_product != TaskOriginProduct.KNOWLEDGE_WRITER:
         return
     if instance.status != instance.Status.COMPLETED:
         return
-    update_fields = kwargs.get("update_fields")
     if update_fields is not None and "status" not in update_fields and "output" not in update_fields:
         return
     if not (instance.output or {}).get("head_branches"):
