@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
-import { IconClock, IconEye, IconX } from '@posthog/icons'
+import { IconClock, IconEye, IconPerson, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
@@ -10,8 +10,10 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 
 import { PropertyOperator, RecordingDurationFilter, RecordingUniversalFilters } from '~/types'
 
+import { asDisplay } from 'products/persons/frontend/person-utils'
+
 import { filterLeaves, removeFilterLeaf } from './filterChipLeaves'
-import { defaultRecordingDurationFilter } from './sessionRecordingsPlaylistLogic'
+import { defaultRecordingDurationFilter, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const MAX_VISIBLE_CHIPS = 4
 
@@ -44,8 +46,11 @@ export function FilterChips({
 }): JSX.Element | null {
     const { hideViewedRecordings } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
+    const { recordings } = useValues(sessionRecordingsPlaylistLogic)
+    const { filterByPerson } = useActions(sessionRecordingsPlaylistLogic)
     const [expanded, setExpanded] = useState(false)
     const leaves = filterLeaves(filters.filter_group)
+    const filteredPerson = recordings.find((r) => r.person?.uuid === filters.person_uuid)?.person
 
     const chips: ReactNode[] = [
         ...leaves.map(({ path, filter }) => (
@@ -75,6 +80,18 @@ export function FilterChips({
                       </FilterChip>,
                   ]
         ),
+        ...(filters.person_uuid
+            ? [
+                  <FilterChip
+                      key="person"
+                      icon={<IconPerson />}
+                      onClose={() => filterByPerson(null)}
+                      dataAttr="list-filter-chip-person"
+                  >
+                      {filteredPerson ? asDisplay(filteredPerson) : 'One person'}
+                  </FilterChip>,
+              ]
+            : []),
         ...(hideViewedRecordings
             ? [
                   <FilterChip
