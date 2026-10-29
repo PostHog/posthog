@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import type { LegendItem } from '../components/Legend/Legend'
+import type { LegendItem, LegendValue } from '../components/Legend/Legend'
 import type { LegendItemControls } from '../components/Legend/useChartLegend'
 
 /** Visual theme colours consumed by chart rendering. */
@@ -381,6 +381,17 @@ export interface ChartLegendConfig {
      *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
      *  untouched. */
     renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
+    /** Show these per-series summaries as columns (`['mean', 'max', 'last']`), which renders the
+     *  legend as a table. Each is computed over the series' finite values; rows still isolate and
+     *  toggle on click, and a header click sorts by that column. */
+    values?: LegendValue[]
+    /** Formats a value cell. The time-series charts default to the series' axis tick format; the
+     *  others to a locale number with significant decimals. */
+    valueFormatter?: (value: number, item: LegendItem) => string
+    /** Initial table sort column. Omit to keep the series order. */
+    sortBy?: 'label' | LegendValue
+    /** Sort the initial `sortBy` column highest (or Z) first. Defaults to true. */
+    sortDescending?: boolean
 }
 
 export interface TooltipConfig {

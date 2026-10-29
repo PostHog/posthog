@@ -1,5 +1,5 @@
 import type { ChartTheme, Series } from '../../core/types'
-import { legendItemsFromSeries } from './legendItemsFromSeries'
+import { computeLegendValues, legendItemsFromSeries } from './legendItemsFromSeries'
 
 const THEME: ChartTheme = { colors: ['#aaa', '#bbb', '#ccc'], backgroundColor: '#fff' }
 
@@ -23,5 +23,16 @@ describe('legendItemsFromSeries', () => {
         const items = legendItemsFromSeries(series, THEME)
         expect(items.map((i) => i.key)).toEqual(['a', 'c'])
         expect(items.find((i) => i.key === 'c')!.color).toBe('#ccc')
+    })
+
+    it.each([
+        ['skips missing points', [3, NaN, 1, 5], { mean: 3, min: 1, max: 5, first: 3, last: 5, sum: 9 }],
+        [
+            'is null for a series without finite values',
+            [NaN],
+            { mean: null, min: null, max: null, first: null, last: null, sum: null },
+        ],
+    ])('computeLegendValues %s', (_, data, expected) => {
+        expect(computeLegendValues(data, ['mean', 'min', 'max', 'first', 'last', 'sum'])).toEqual(expected)
     })
 })

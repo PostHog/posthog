@@ -8,6 +8,8 @@ export interface ChartLegendLayoutProps {
     gap?: number
     className?: string
     dataAttr?: string
+    /** Give a side legend more width, for a legend with value columns. */
+    wide?: boolean
     children: React.ReactNode
 }
 
@@ -24,6 +26,7 @@ export function ChartLegendLayout({
     gap = 8,
     className,
     dataAttr,
+    wide = false,
     children,
 }: ChartLegendLayoutProps): React.ReactElement {
     const isRow = position === 'left' || position === 'right'
@@ -33,7 +36,7 @@ export function ChartLegendLayout({
     // 240px, so one long label can't squeeze the plot on a wide chart. `justify-center-safe` keeps short
     // side legends centered yet scrollable (plain center would push the top rows past the scroll origin).
     const legendClass = isRow
-        ? 'flex flex-col self-stretch max-w-[min(45%,240px)] overflow-y-auto justify-center-safe'
+        ? `flex flex-col self-stretch ${wide ? 'max-w-[min(60%,480px)]' : 'max-w-[min(45%,240px)]'} overflow-y-auto justify-center-safe`
         : 'self-stretch max-h-[40%] overflow-y-auto'
 
     const legendSlot = legend ? (

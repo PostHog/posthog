@@ -1,7 +1,11 @@
 import type { ChartTheme, ResolvedSeries, Series } from '../../core/types'
-import type { LegendItem } from './Legend'
+import type { LegendItem, LegendValue } from './Legend'
 
-export function legendItemsFromSeries(series: ReadonlyArray<Series | ResolvedSeries>, theme: ChartTheme): LegendItem[] {
+export function legendItemsFromSeries(
+    series: ReadonlyArray<Series | ResolvedSeries>,
+    theme: ChartTheme,
+    values?: readonly LegendValue[]
+): LegendItem[] {
     const palette = theme.colors
     const items: LegendItem[] = []
     for (let i = 0; i < series.length; i++) {
@@ -10,7 +14,40 @@ export function legendItemsFromSeries(series: ReadonlyArray<Series | ResolvedSer
             continue
         }
         const fallback = palette.length > 0 ? palette[i % palette.length] : '#000'
-        items.push({ key: s.key, label: s.label, color: s.color || fallback })
+        const item: LegendItem = { key: s.key, label: s.label, color: s.color || fallback }
+        if (values?.length) {
+            item.values = computeLegendValues(s.data, values)
+        }
+        items.push(item)
     }
     return items
+}
+
+/** Summaries of a series' finite values, `null` for a series without any. */
+export function computeLegendValues(
+    data: readonly number[] | null | undefined,
+    values: readonly LegendValue[]
+): Partial<Record<LegendValue, number | null>> {
+    let count = 0
+    let sum = 0
+    let min = Infinity
+    let max = -Infinity
+    let first: number | null = null
+    let last: number | null = null
+    for (const v of data ?? []) {
+        if (v == null || !isFinite(v)) {
+            continue
+        }
+        count++
+        sum += v
+        min = Math.min(min, v)
+        max = Math.max(max, v)
+        first ??= v
+        last = v
+    }
+    const all: Record<LegendValue, number | null> =
+        count === 0
+            ? { mean: null, min: null, max: null, first: null, last: null, sum: null }
+            : { mean: sum / count, min, max, first, last, sum }
+    return Object.fromEntries(values.map((v) => [v, all[v]]))
 }

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import { useChartLegend, type ChartLegendRenderProps } from '../../components/Legend/useChartLegend'
 import type { ChartLegendConfig, ChartTheme, Series, ValueDomain, YAxis } from '../../core/types'
+import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import type { ReferenceLineProps } from '../../overlays/ReferenceLine'
 import type { ValueLabelFormatter } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
@@ -14,6 +15,7 @@ import {
     type XAxisConfig,
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
+import { buildYTickFormatter } from '../../utils/y-formatters'
 import { resolveValueLabelsConfig, useSeriesWithValueLabelAllowlist, type ValueLabelsConfig } from './use-value-labels'
 
 export interface UseTimeSeriesConfig {
@@ -66,7 +68,8 @@ export function useTimeSeries<Meta>(
     const yAxes = useMemo(() => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined), [yAxis, axisList])
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(primaryYAxis)
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
+    const legendConfig = useLegendAxisFormatter(series, legend, yTickFormatter, yAxes)
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
     const chartSeries = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
@@ -103,4 +106,27 @@ export function useGoalLines<Meta>(
     const referenceLines = useMemo(() => buildGoalLineReferenceLines(goalLines, series), [goalLines, series])
     const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
     return { referenceLines, valueDomain }
+}
+
+/** Defaults a value-column legend's formatter to each series' axis tick format, so a legend value
+ *  reads the same as the axis it is plotted against. */
+function useLegendAxisFormatter(
+    series: Series<unknown>[],
+    legend: ChartLegendConfig | undefined,
+    primaryFormatter: ((value: number) => string) | undefined,
+    yAxes: YAxis[] | undefined
+): ChartLegendConfig | undefined {
+    return useMemo(() => {
+        if (!legend?.values?.length || legend.valueFormatter || (!primaryFormatter && !yAxes)) {
+            return legend
+        }
+        const axisByKey = new Map(series.map((s) => [s.key, s.yAxisId ?? DEFAULT_Y_AXIS_ID]))
+        const formatterByAxis = new Map((yAxes ?? []).map((axis) => [axis.id, axis.tickFormatter]))
+        const fallback = primaryFormatter ?? buildYTickFormatter({})
+        return {
+            ...legend,
+            valueFormatter: (value, item) =>
+                (formatterByAxis.get(axisByKey.get(item.key) ?? DEFAULT_Y_AXIS_ID) ?? fallback)(value),
+        }
+    }, [series, legend, primaryFormatter, yAxes])
 }
