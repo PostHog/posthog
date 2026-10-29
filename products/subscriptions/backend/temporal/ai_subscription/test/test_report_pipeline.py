@@ -26,6 +26,7 @@ from products.subscriptions.backend.temporal.ai_subscription.report_pipeline imp
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
     QUERY_RETURNED_NO_ROWS,
+    WINDOW_TOKEN_HINT,
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,
@@ -463,6 +464,85 @@ async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_s
     mock_hogql_fix.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+    "error,expected_code,expected_message",
+    [
+        pytest.param(
+            MaxToolRetryableError(
+                "Unable to resolve field: plan_name", error_type="validation", error_code="hogql_unresolved_field"
+            ),
+            "hogql_unresolved_field",
+            "Unable to resolve field: plan_name",
+            id="hogql_input_error",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Cannot parse 'jane@example.com' as DateTime",
+                error_type="validation",
+                error_code="cannot_parse_datetime",
+            ),
+            "cannot_parse_datetime",
+            "ClickHouse rejected the query with error CANNOT_PARSE_DATETIME.",
+            id="clickhouse_rejection_uses_curated_text",
+        ),
+        pytest.param(
+            MaxToolRetryableError("Code: 999. boom on host ch-1", error_type="internal", error_code="internal_error"),
+            None,
+            None,
+            id="internal_error",
+        ),
+        pytest.param(MaxToolRetryableError("something failed"), None, None, id="no_error_code"),
+        pytest.param(
+            MaxToolRetryableError(
+                "Code: 6. DB::Exception: Cannot parse 'jane@example.com' on ch-internal-3",
+                error_type="internal",
+                error_code="unhandled_dbexception",
+            ),
+            None,
+            None,
+            id="raw_unhandled_error_stays_generic",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Unable to resolve field: plan_name", error_type="internal", error_code="hogql_unresolved_field"
+            ),
+            None,
+            None,
+            id="input_code_on_an_internal_error_stays_generic",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Unknown table `plans\x00`.", error_type="validation", error_code="hogql_unknown_table"
+            ),
+            "hogql_unknown_table",
+            "Unknown table `plans`.",
+            id="nul_is_stripped",
+        ),
+    ],
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+async def test_run_steps_records_owner_safe_reason_for_an_async_query_failure(
+    mock_hogql_fix: AsyncMock,
+    mock_executor_cls: MagicMock,
+    error: MaxToolRetryableError,
+    expected_code: str | None,
+    expected_message: str | None,
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    cause = "" if expected_message else " (MaxToolRetryableError)"
+    assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._"
+    assert execution.diagnostics[0].error_code == expected_code
+    assert execution.diagnostics[0].human_readable_error == expected_message
+    assert mock_hogql_fix.await_args is not None
+    assert mock_hogql_fix.await_args.kwargs["error_message"] == (expected_message or "MaxToolRetryableError")
+
+
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_forwards_exposed_query_error_message_to_fix(
@@ -513,6 +593,97 @@ async def test_synthesis_prompt_carries_the_failure_marker(
 
 
 @pytest.mark.parametrize(
+    "hogql,error_message",
+    [
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-2}} 00:00:00', 'UTC')",
+            ("The query uses `{{D-2}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="double_brace_in_date",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{D-1} 00:00:00','UTC')",
+            ("The query uses `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="single_brace_in_date",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('<prior_day_start>', 'UTC')",
+            ("The query uses `<prior_day_start>`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="angle_brackets_in_date",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime\n    ('{D-1} 00:00:00', 'UTC')",
+            ("The query uses `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="whitespace_before_parenthesis",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE day = toDate('{{utc_report_yesterday}}') AND {{date_range}}",
+            ("The query uses `{{utc_report_yesterday}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="unknown_next_to_known",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-1}}') AND timestamp < toDate('{D-1}')",
+            ("The query uses `{{D-1}}`, `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="double_and_single_brace_with_one_name",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= {{yesterday_start}}",
+            ("The query uses `{{yesterday_start}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="double_brace_outside_quotes",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= {{date_range}} AND timestamp < {{window_end}}",
+            (
+                "The query compares a value with `{{date_range}}`, which is a whole time filter, not a timestamp. "
+                + WINDOW_TOKEN_HINT
+            ),
+            id="filter_token_used_as_timestamp",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{window_start}}') AND {{date_range}}",
+            (
+                "The query puts `{{window_start}}` inside quotes, where the report can't fill it in. "
+                + WINDOW_TOKEN_HINT
+            ),
+            id="known_token_inside_quotes",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-1}}') AND timestamp < toDateTime('{{window_end}}')",
+            (
+                "The query uses `{{D-1}}`, which the report doesn't fill in. "
+                "The query puts `{{window_end}}` inside quotes, where the report can't fill it in. " + WINDOW_TOKEN_HINT
+            ),
+            id="invented_and_quoted_tokens",
+        ),
+    ],
+)
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_sends_an_invented_placeholder_to_the_fixer_without_running_it(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock, hogql: str, error_message: str
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE)
+    )
+    mock_fix.return_value = "SELECT count() FROM events WHERE {{date_range}}"
+    spec = EnrichedPromptSpec(
+        cleaned_prompt="p",
+        context_blob="c",
+        plan=QueryPlan(overall_intent="i", steps=[QueryPlanStep(description="s", hogql=hogql)]),
+    )
+    window = _test_window()
+
+    execution = await _run_steps(spec, MagicMock(), MagicMock(), window, None, charts_enabled_for_team=True)
+
+    assert mock_fix.await_args is not None
+    assert mock_fix.await_args.kwargs["error_message"] == error_message
+    (executed,) = [
+        call.args[0].query for call in mock_executor_cls.return_value.arun_format_and_capture.await_args_list
+    ]
+    assert executed == f"SELECT count() FROM events WHERE {window.window_filter_sql}"
+    assert execution.failed_count == 0
+
+
+@pytest.mark.parametrize(
     "response,expected_rendered,expected_no_rows",
     [
         pytest.param(_RESPONSE, "### s0\n\nformatted table", 0, id="rows"),
@@ -541,6 +712,57 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
     assert execution.rendered == [expected_rendered]
     assert execution.no_rows_count == expected_no_rows
     assert execution.failed_count == 0
+
+
+@pytest.mark.parametrize(
+    "hogql",
+    [
+        pytest.param(
+            "SELECT count() FROM events WHERE {{date_range}} AND timestamp < {{window_end}} "
+            "AND timestamp >= {{compare_window_start}}",
+            id="known_tokens",
+        ),
+        pytest.param(
+            "SELECT countIf(timestamp >= {{window_start}}) AS current, countIf(timestamp < {{window_start}}) AS previous "
+            "FROM events WHERE {{compare_date_range}}",
+            id="growth_pattern",
+        ),
+        pytest.param(
+            "SELECT JSONExtractString('{\"name\": 1}', 'name') FROM events WHERE {{date_range}}", id="json_literal"
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE match(properties.$current_url, '[a-z]{2,8}') AND {{date_range}}",
+            id="regex_quantifier",
+        ),
+        pytest.param("SELECT toDate('2026{10}20') FROM events WHERE {{date_range}}", id="brace_date_separator"),
+        pytest.param(
+            "SELECT count() FROM events WHERE properties.template = 'Hi {{first_name}}, it''s {{day}}' AND {{date_range}}",
+            id="double_brace_in_string_value",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE {{date_range}} /* {{unused}} */ -- AND timestamp >= toDateTime('{D-1}')",
+            id="tokens_in_comments",
+        ),
+    ],
+)
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_runs_queries_without_invented_placeholders(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock, hogql: str
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE)
+    )
+    spec = EnrichedPromptSpec(
+        cleaned_prompt="p",
+        context_blob="c",
+        plan=QueryPlan(overall_intent="i", steps=[QueryPlanStep(description="s", hogql=hogql)]),
+    )
+
+    execution = await _run_steps(spec, MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True)
+
+    assert execution.failed_count == 0
+    mock_fix.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

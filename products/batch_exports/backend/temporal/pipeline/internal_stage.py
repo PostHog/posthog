@@ -40,6 +40,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseQueryStatus,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
+    ClickHouseUnknownTableError,
     get_client,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -105,6 +106,10 @@ class HogQLQueryResourceLimitExceededError(Exception):
     """
 
 
+class HogQLTableNotSupportedError(Exception):
+    """A user tried to select a table with HogQL that batch exports does not support."""
+
+
 # Staging failures the user has to resolve; retrying them ourselves would achieve nothing.
 # The activity returns these as an `InternalStageResult.error` instead of raising, which fails the
 # run without failing the activity. This mirrors how the destination activities treat their own
@@ -112,6 +117,7 @@ class HogQLQueryResourceLimitExceededError(Exception):
 NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     DataIntervalInFutureError,
     HogQLQueryResourceLimitExceededError,
+    HogQLTableNotSupportedError,
     InvalidFilterError,
     UnsupportedHogQLQueryError,
 )
@@ -461,6 +467,19 @@ async def _stage_query_results(
             num_partitions=num_partitions,
             run_id=run_id,
         )
+    except ClickHouseUnknownTableError as e:
+        if isinstance(record_batch_model, HogQLQueryRecordBatchModel):
+            # With HogQL, users may need to solve this, so we raise a more friendly
+            # but unretryable version.
+            table_names = ", ".join(record_batch_model.hogql_table_names)
+            raise HogQLTableNotSupportedError(
+                "Batch exports could not find a required table. "
+                f"Tables referenced in your query: {table_names}. "
+                "Contact support for help."
+            ) from e
+        # If not HogQL, this should never happen.
+        # Raise retryable so we can figure out what's going on.
+        raise
     except ClickHouseError as e:
         _raise_on_hogql_resource_limit_error(e, model_name)
         raise

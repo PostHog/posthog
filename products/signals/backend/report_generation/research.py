@@ -1883,6 +1883,7 @@ async def run_multi_turn_research(
                 followup_prompt,
                 finding_model,
                 label=f"signal_{i}_of_{total}",
+                json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
             )
             finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
             (new_artefacts if is_new else old_artefacts).append(finding)
@@ -1908,6 +1909,7 @@ async def run_multi_turn_research(
             actionability_prompt,
             actionability_schema,
             label="actionability",
+            json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
         )
         actionability_result, actionability_is_new = _resolve_actionability_response(
             actionability_response, previous_actionability
@@ -1934,6 +1936,7 @@ async def run_multi_turn_research(
                 priority_prompt,
                 priority_schema,
                 label="priority",
+                json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
             )
             priority_result, priority_is_new = _resolve_priority_response(priority_response, previous_priority)
             (new_artefacts if priority_is_new else old_artefacts).append(priority_result)
@@ -1960,6 +1963,7 @@ async def run_multi_turn_research(
             presentation_prompt,
             ReportPresentationOutput,
             label="presentation",
+            json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
         )
         if output_fn:
             output_fn(f"Report title: {presentation_result.title}")
@@ -1986,6 +1990,7 @@ async def run_multi_turn_research(
                     verification_prompt,
                     FixVerificationOutput,
                     label="fix_verification",
+                    json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
                     validation_context={
                         "report_id": signal_report_id,
                         "team_id": context.team_id,
@@ -2035,6 +2040,7 @@ async def run_multi_turn_research(
                     build_supersede_prompt(own_pr_url, previous_report_research.summary),
                     ImplementationAssessment,
                     label="supersede",
+                    json_retry_prompt=RESEARCH_JSON_RETRY_PROMPT,
                 )
                 candidates = {target.pr_url: target for target in implementation_context.candidates}
                 selected = list(dict.fromkeys(assessment.obsolete_pr_urls))
