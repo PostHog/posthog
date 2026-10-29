@@ -146,8 +146,8 @@ export function ScannerGoalFlow(): JSX.Element {
                             ) : null}
                             {goalDraftQuery ? (
                                 <div className="text-xs text-muted">
-                                    This scanner only watches the session recordings that match the replay filters you
-                                    picked.{' '}
+                                    This scanner starts from the replay filters you picked. The agent can narrow them,
+                                    but not widen them.{' '}
                                     <Link
                                         onClick={() => setGoalDraftQuery(null)}
                                         data-attr="vision-goal-flow-clear-query"

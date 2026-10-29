@@ -81,13 +81,13 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                 <div className="text-xs text-secondary">
                     A Replay vision scanner watches new session recordings for you.{' '}
                     {handoff.narrowsSessions
-                        ? 'It only watches recordings that match these filters.'
-                        : 'With no filters, it watches every new recording.'}
+                        ? 'It starts from these filters, and PostHog AI can narrow them to fit what you ask.'
+                        : 'With no filters, it starts from every new recording, and PostHog AI can narrow that to fit what you ask.'}
                 </div>
             </div>
 
             <div className="flex flex-col gap-1.5 rounded border border-dashed border-primary p-2">
-                <div className="text-xxs font-semibold uppercase text-secondary">Session recordings it watches</div>
+                <div className="text-xxs font-semibold uppercase text-secondary">Starts from these recordings</div>
                 <div className="flex flex-wrap gap-1">
                     {filterGroups.length > 0 ? (
                         filterGroups.flatMap((group) =>

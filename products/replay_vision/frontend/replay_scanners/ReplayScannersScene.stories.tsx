@@ -2065,6 +2065,43 @@ export const ScannerEditorGoalOverviewRecordingsFirst: StoryObj = {
     decorators: [seedGoalOverviewDraft],
 }
 
+const addedBillingEvent = { id: 'billing_limit_set', name: 'billing_limit_set', type: 'events', order: 0 }
+
+// A draft started from the replay filters: the person's /checkout filter stays, and the draft ANDs an
+// event onto it, which the eligible-recordings section credits to PostHog AI.
+const goalDraftFromReplayFilters: DraftScannerResponseApi = {
+    ...goalDraft,
+    query: {
+        kind: 'RecordingsQuery',
+        properties: [{ type: 'recording', key: 'visited_page', value: ['/checkout'], operator: 'icontains' }],
+        events: [addedBillingEvent],
+    },
+    query_additions: { kind: 'RecordingsQuery', events: [addedBillingEvent] },
+}
+
+export const ScannerEditorGoalOverviewFromReplayFilters: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.draftScannerFromGoalSuccess(goalDraftFromReplayFilters)
+            logic.actions.setScannerValues({
+                name: goalDraftFromReplayFilters.name,
+                description: goalDraftFromReplayFilters.description,
+                scanner_type: goalDraftFromReplayFilters.scanner_type as ScannerType,
+                scanner_config: goalDraftFromReplayFilters.scanner_config as ScannerConfig,
+                query: goalDraftFromReplayFilters.query as RecordingsQuery,
+                sampling_mode: goalDraftFromReplayFilters.sampling_mode as SamplingMode,
+                sampling_rate: goalDraftFromReplayFilters.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
+    ],
+}
+
 // The same landing step for a goal that named an experiment: the eligible-recordings section
 // leads with the experiment and variant the scan watches, which no page filter can express.
 export const ScannerEditorGoalOverviewExperiment: StoryObj = {
