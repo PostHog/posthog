@@ -41,7 +41,8 @@ const RULES: GuidanceRule[] = [
         trigger: {
             tool: 'execute-sql',
             argPath: 'query',
-            argPattern: /\b(raw_)?session_replay_events\b|\blog_entries\b/i,
+            argPattern:
+                /\b(raw_)?session_replay_(events|features)\b|\bconsole_logs_log_entries\b|\bsystem\.session_recordings\b/i,
             outcome: 'any',
             presets: ['user'],
         },

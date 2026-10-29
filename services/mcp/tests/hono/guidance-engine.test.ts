@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { GuidanceEngine, type GuidanceCall } from '@/hono/guidance/engine'
+import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
 import { GUIDANCE_RULES, type GuidanceRule } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 
@@ -152,6 +152,26 @@ describe('GuidanceEngine', () => {
     it('shows nothing when Redis fails', async () => {
         const engine = new GuidanceEngine(makeGuidanceRedis(true), [{ ...rule, threshold: 1 }])
         await expect(engine.evaluate(makeState(), replayQuery)).resolves.toBeUndefined()
+    })
+
+    it.each([
+        ['session_replay_events', true],
+        ['raw_session_replay_events', true],
+        ['session_replay_features', true],
+        ['console_logs_log_entries', true],
+        ['system.session_recordings', true],
+        ['log_entries', false],
+        ['batch_export_log_entries', false],
+        ['sessions', false],
+        ['events', false],
+    ])('the replay rule matches SQL over %s: %s', (table, expected) => {
+        const replayRule = GUIDANCE_RULES.find((r) => r.id === 'replay-sql-to-vision')!
+        const call: GuidanceCall = {
+            toolName: 'execute-sql',
+            args: { query: `select 1 from ${table}` },
+            isError: false,
+        }
+        expect(triggerMatches(replayRule, call)).toBe(expected)
     })
 
     it('ships every rule with a distinct id and flag', () => {
