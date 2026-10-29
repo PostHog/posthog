@@ -14,6 +14,7 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { clearAgentSignupGoal, readAgentSignupGoal } from 'scenes/authentication/shared/agentSignupGoal'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import {
     clearPendingVerificationEmail,
@@ -469,7 +470,7 @@ export const signupLogic = kea<signupLogicType>([
                 role_at_organization: '',
                 // The partner that started the OAuth connection is where this person heard about PostHog
                 referral_source: readPendingOAuthConnection()?.clientName ?? '',
-                referral_source_ai_prompt: '',
+                referral_source_ai_prompt: readAgentSignupGoal() ?? '',
                 referral_source_influencer: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
@@ -489,7 +490,7 @@ export const signupLogic = kea<signupLogicType>([
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
                     // An answer typed into a follow-up that a later referral source edit hid again must not be sent
-                    const followUp = getReferralFollowUp(payload.referral_source ?? '')
+                    const followUp = getReferralFollowUp(payload.referral_source ?? '', readAgentSignupGoal() !== null)
                     const signupData: Record<string, any> = {
                         email: values.signupEmail,
                         ...splitFullName(payload.name),
@@ -528,6 +529,7 @@ export const signupLogic = kea<signupLogicType>([
                     if (verifyUuid && signupData.email) {
                         setPendingVerificationEmail(verifyUuid, signupData.email)
                     }
+                    clearAgentSignupGoal()
                     // it's ok to trust the url sent from the server
                     // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
                     location.href = res.redirect_url || '/'

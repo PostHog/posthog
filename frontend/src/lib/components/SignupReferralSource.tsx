@@ -1,9 +1,11 @@
 import { Field as KeaField } from 'kea-forms'
+import { useState } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { readAgentSignupGoal } from 'scenes/authentication/shared/agentSignupGoal'
 
 // Used to trigger the AI prompt when the user enters an AI-related referral source. This is a simple heuristic and can be adjusted as needed.
 const AI_REFERRAL_PATTERNS = [
@@ -127,7 +129,11 @@ const AI_TIEBREAK_PATTERN = new RegExp(
 )
 
 // At most one follow-up shows at a time
-export function getReferralFollowUp(referralSource: string): 'ai' | 'influencer' | null {
+export function getReferralFollowUp(referralSource: string, fromAgent = false): 'ai' | 'influencer' | null {
+    // An agent that sent this person to sign up is how they found PostHog, whatever they type here
+    if (fromAgent) {
+        return 'ai'
+    }
     const matchesAi = AI_REFERRAL_PATTERN.test(referralSource)
     const matchesSocial = SOCIAL_REFERRAL_PATTERN.test(referralSource)
     if (matchesAi && matchesSocial) {
@@ -143,6 +149,7 @@ export function getReferralFollowUp(referralSource: string): 'ai' | 'influencer'
 }
 
 export default function SignupReferralSource({ disabled }: { disabled: boolean }): JSX.Element {
+    const [fromAgent] = useState(() => readAgentSignupGoal() !== null)
     return (
         <>
             <LemonField name="referral_source" label="Where did you hear about us?" showOptional>
@@ -161,7 +168,7 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                 whole signup panel. */}
             <KeaField name="referral_source" noStyle>
                 {({ value }) => {
-                    const followUp = getReferralFollowUp(value ?? '')
+                    const followUp = getReferralFollowUp(value ?? '', fromAgent)
                     return (
                         <>
                             <AnimatedCollapsible collapsed={followUp !== 'ai'}>
