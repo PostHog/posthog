@@ -191,7 +191,7 @@ from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_sing
 from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, has_data_warehouse_node
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.utils.properties import has_any_property_filters
-from posthog.hogql_queries.utils.result_series import get_action_names
+from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
@@ -3362,10 +3362,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             | CachedLifecycleQueryResponse,
         ):
             return
-        if response.action_names is not None:
-            return
-        names = get_action_names(self.team, self.query.model_dump(mode="json"))
-        response.action_names = {str(action_id): name for action_id, name in names.items() if name}
+        if response.action_names is None:
+            response.action_names = get_response_action_names(self.team, self.query.model_dump(mode="json"))
 
     def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """Apply custom_name values to TrendsQuery results (nested under action)."""

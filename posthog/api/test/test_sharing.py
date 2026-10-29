@@ -40,6 +40,7 @@ from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_wa
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1647,6 +1648,26 @@ class TestExportCacheKeyFlow(APIBaseTest):
         assert response.status_code == 200
         assert b"warmed-by-the-exporter" in response.content
         mock_query_cache_cls.assert_called_once_with(team_id=self.insight.team_id, cache_key=cache_key)
+        mock_calculate.assert_not_called()
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
+    @mock_exporter_template
+    def test_an_entry_cached_without_action_names_takes_them_from_the_query(self, mock_query_cache_cls, mock_calculate):
+        action = Action.objects.create(team=self.team, name="Completed checkout")
+        self.insight.query = {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "ActionsNode", "id": action.id}]},
+        }
+        self.insight.save(update_fields=["query"])
+        # The entry predates `action_names`, so only the query can name the nameless action series.
+        self._cached_entry(mock_query_cache_cls, "cached-before-action-names")
+
+        cache_keys_param = quote(json.dumps({str(self.insight.id): self._own_team_cache_key()}))
+        response = self.client.get(self._render_url(cache_keys_param))
+
+        assert response.status_code == 200
+        assert b"Completed checkout" in response.content
         mock_calculate.assert_not_called()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")

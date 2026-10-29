@@ -2,6 +2,7 @@ import json
 import builtins
 from collections import defaultdict
 from collections.abc import Sequence
+from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
@@ -83,6 +84,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_queries_budget
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
+from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -1316,6 +1318,11 @@ class InsightSerializer(InsightBasicSerializer):
             entry = QueryCache(team_id=insight.team_id, cache_key=expected_cache_key).lookup().entry
             cached_response = entry.as_full_response() if entry else None
             if cached_response:
+                action_names = cached_response.get("action_names")
+                if action_names is None and isinstance(insight.query, dict):
+                    # An entry cached before responses carried `action_names` lacks the field, and this shortcut
+                    # skips the runner that fills it on a cache hit.
+                    action_names = get_response_action_names(insight.team, upgrade(deepcopy(insight.query)))
                 return InsightResult(
                     result=cached_response.get("results"),
                     has_more=cached_response.get("hasMore"),
@@ -1330,7 +1337,7 @@ class InsightSerializer(InsightBasicSerializer):
                     query_status=cached_response.get("query_status"),
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
-                    action_names=cached_response.get("action_names"),
+                    action_names=action_names,
                     query_scan=cached_response.get("query_scan"),
                     warnings=cached_response.get("warnings"),
                 )
