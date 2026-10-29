@@ -16455,6 +16455,22 @@
         },
         "feature_flag": "warehouse-migration-import"
     },
+    "warehouse-migration-items-skip": {
+        "description": "Skip many Fivetran connections in one call. Pass 'keep_item_ids' to skip every connection except those, for example when the user wants to migrate only one, or 'item_ids' to skip exactly those. Connections that are being created or are already PostHog sources stay as they are and come back in 'not_skipped_item_ids'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Skip many connections in a Fivetran migration",
+        "title": "Skip many connections in a Fivetran migration",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/items/skip/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
     "warehouse-migration-refresh": {
         "description": "Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.",
         "category": "Warehouse sources",

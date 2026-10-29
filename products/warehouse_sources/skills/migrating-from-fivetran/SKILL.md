@@ -27,6 +27,7 @@ surprised halfway through.
 | `data-warehouse-stored-credentials-list` | Find the credential the user just stored                                                         |
 | `warehouse-migration-item-apply`         | Create the planned source from an item and a stored credential                                   |
 | `warehouse-migration-item-skip`          | Mark an item the user does not want to move                                                      |
+| `warehouse-migration-items-skip`         | Skip many items at once, or all but the ones to keep (`keep_item_ids`)                           |
 | `warehouse-migration-refresh`            | Read the Fivetran account again after the user changes it                                        |
 
 Never ask the user to paste a Fivetran key or any source secret into the chat. Every secret goes through a link.
@@ -43,13 +44,21 @@ project yet. Tell the user that and stop.
    read-only key in Fivetran: a system key with read access to connections, destinations, and the account works best.
    When they confirm, find the newest migration with `warehouse-migrations-list` and poll `warehouse-migration-get`
    until `status` is `ready`. A large account takes a few minutes. If it is `failed`, read `latest_error` to the user.
-2. **Report.** List the items with `warehouse-migration-items-list` and group them by verdict:
+2. **Report.** List the items with `warehouse-migration-items-list`. Lead with what is worth moving:
    - `as_is`: PostHog takes the connection over with the same tables and schedule.
    - `caveats`: PostHog takes it over, but read each caveat to the user. Common ones are an alpha PostHog source, a
      Fivetran table PostHog does not have, history mode, hashed columns, or a schedule PostHog rounds.
-   - `unsupported`: PostHog has no source for it yet. Say so plainly and move on.
+   - `unsupported`: PostHog has no source for it yet. Say so plainly.
 
-   Then check the tables of each item's `proposal`:
+   Group the connections by destination, and name each connection under its destination. Read the destination from
+   each item's `proposal.destination` (its type and settings, such as host and database). Never assume all
+   connections write to one place: two Postgres destinations on different hosts are two groups.
+
+   Up front, suggest skipping the connections that are broken or paused in Fivetran (their caveats say so) and the
+   unsupported ones. When the user wants to move only some connections, skip the rest in one call with
+   `warehouse-migration-items-skip`: pass `keep_item_ids` for "migrate only these", or `item_ids` for "skip these".
+
+   For each connection the user keeps, check the tables of its `proposal`:
    - `inferred_tables`: a naming rule paired these Fivetran tables with PostHog tables. List the pairs and ask the user
      to confirm each one.
    - `unmatched_tables`: no PostHog table matched. Compare each one with `unused_posthog_tables` and propose a table
@@ -58,26 +67,36 @@ project yet. Tell the user that and stop.
 
    Pass what the user decides to apply as `table_overrides`: `{vendor_table, posthog_table}` maps a table, and a null
    `posthog_table` leaves it out. `vendor_table` is a planned table's `proposal.schemas[].vendor_table` (a database
-   names it `schema.table`), or a name from `unmatched_tables`. End the report with the credentials the user needs, one line per connection.
+   names it `schema.table`), or a name from `unmatched_tables`. End the report with the credentials the user needs,
+   one line per connection.
 
-3. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user
+3. **Ask one decision at a time.** A decision that changes the result blocks the step it belongs to: where the data
+   goes, which table pairs hold, which connections move. Ask one such question, wait for the answer, then ask the
+   next. Never go ahead on a default for one of these.
+4. **Set up the destination before apply.** When an item's `proposal.destination` is set, settle it as its own step
+   before you apply that item. Recommend writing to the same destination type as Fivetran, into the schema
+   `posthog_<prefix>` (the item's `proposal.prefix`), so the two tools never write into the same tables while both
+   run. Wait for the answer. If the user agrees, share `external-data-destinations-connect-link` with
+   `migration_item_id` set to the item, so the page fills in the host, port, database and user from Fivetran. Then
+   create the destination with `external-data-destinations-create`, and pass its id as `destination_ids` to apply.
+   Attached at creation, the destination gets the full history in the first sync. If those tools are not available,
+   the data lands in the PostHog warehouse only.
+5. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user
    already knows the password. For each item:
    - Get `data-warehouse-source-connect-link` with the item's `proposal.source_type` and `migration_item_id`. The page
      shows the host, port, database, and user from Fivetran, so the user types only the secret or clicks the OAuth
      button.
    - When the user confirms, find the credential with `data-warehouse-stored-credentials-list` and call
-     `warehouse-migration-item-apply` with the item id, the credential id, and the confirmed `table_overrides`.
+     `warehouse-migration-item-apply` with the item id, the credential id, the confirmed `table_overrides`, and the
+     `destination_ids` from step 4.
    - Read back the caveats the response returns. Apply can add some, for example a table the credentials cannot read.
-4. **Wrap up.** Confirm the new sources with `external-data-sources-list`. Suggest the user pauses each Fivetran
+6. **Wrap up.** Confirm the new sources with `external-data-sources-list`. Suggest the user pauses each Fivetran
    connection only after its PostHog source finished a first sync, so they are never without data.
 
 ## Judgment calls
 
-- **Destinations.** If an item's `proposal.destination` names the user's warehouse (Snowflake, BigQuery, and so on),
-  ask whether PostHog should write there too. If yes, set up the destination first: share the link from
-  `external-data-destinations-connect-link`, then create it with `external-data-destinations-create`, and pass its id
-  as `destination_ids` to apply. If those tools are not available, the data lands in the PostHog warehouse only. Use a
-  schema other than the one Fivetran writes to while both run, or the two tools write into the same tables.
+- **A destination added after apply.** It starts empty: it gets only rows synced from then on. Offer this only as a
+  fallback when the user decides late, and say a resync fills it.
 - **Prefix taken.** If apply fails because the prefix is in use, offer a new one and pass it as `prefix`.
 - **Failed apply.** The item stays retryable. Read `error` and fix the cause with the user. A stored credential is used
   up only when a source is created, so apply again with the same `credential_id`. Send a new connect link only when

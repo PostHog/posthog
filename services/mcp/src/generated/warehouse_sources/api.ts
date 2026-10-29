@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 37 enabled ops
+ * PostHog API - MCP 38 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -3974,6 +3974,34 @@ export const WarehouseMigrationsItemsSkipCreateParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+export const warehouseMigrationsItemsBulkSkipCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const WarehouseMigrationsItemsBulkSkipCreateParams = () => zod.object({
+    id: zod.string().regex(warehouseMigrationsItemsBulkSkipCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseMigrationsItemsBulkSkipCreateBody = () => zod.object({
+    item_ids: zod
+        .array(zod.string())
+        .min(1)
+        .optional()
+        .describe('Items to skip. Pass this or `keep_item_ids`, not both.'),
+    keep_item_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
 })
 
 /**
