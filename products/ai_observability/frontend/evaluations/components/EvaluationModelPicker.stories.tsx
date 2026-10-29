@@ -103,7 +103,7 @@ const meta: Meta<{
         })
         return (
             <BindLogic logic={llmEvaluationLogic} props={{ evaluationId: 'example-evaluation' }}>
-                <div className={narrow ? 'max-w-lg' : 'max-w-4xl'}>
+                <div className={narrow ? 'w-[32rem]' : 'max-w-4xl'}>
                     <EvaluationModelPicker />
                 </div>
             </BindLogic>
