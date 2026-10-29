@@ -1,8 +1,8 @@
 import type { BeforeSendFn } from 'posthog-js'
 
 const MARKERS = ['metricVariables', 'bi_filter']
-// The host and path stop at URL delimiters, so a long string of repeated links is scanned in linear time.
-const LOGIN_URL_WITH_PARAMS = /(?:^|[\s"'(])(?:(?:https?:)?\/\/[^/?#\s"'<>]+)?\/login(?:\/[^?#\s"'<>]*)?[?#]/i
+// The host and path stop at every character that can start a match, so a long string of repeated links is scanned in linear time.
+const LOGIN_URL_WITH_PARAMS = /(?:^|[\s"'(])(?:(?:https?:)?\/\/[^/?#\s"'<>(]+)?\/login(?:\/[^?#\s"'<>(]*)?[?#]/i
 // The options requests of dashboard variables carry queries and selected values, and return query results.
 const VARIABLE_OPTIONS_PATH = '/metrics/variable_options'
 const NETWORK_PLUGIN = 'rrweb/network@1'

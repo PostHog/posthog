@@ -110,6 +110,7 @@ describe('redactMetricVariableUrl', () => {
         ['a nested login path', '/api/login?next=visible'],
         ['a login path in a query', 'https://us.posthog.com/dashboard?next=/login?visible'],
         ['many quoted login paths without a query', '"/login/'.repeat(100_000)],
+        ['many bracketed login paths without a query', '(/login/'.repeat(100_000)],
     ])('leaves a non-login URL unchanged: %s', (_name, url) => {
         expect(redactMetricVariableUrl(url)).toBe(url)
     })
