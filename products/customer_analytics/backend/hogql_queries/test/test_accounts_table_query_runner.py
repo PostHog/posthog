@@ -467,6 +467,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             self._run(query)
 
         query.ignoreMissingDefinitions = True
+        assert query.filterGroups is not None
         invalid_filter, valid_filter = query.filterGroups[0]
         for split_groups in (False, True):
             query.filterGroups = (
