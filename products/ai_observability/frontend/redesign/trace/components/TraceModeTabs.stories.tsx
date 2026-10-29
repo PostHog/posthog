@@ -4,9 +4,9 @@ import { useState } from 'react'
 import { TraceMode } from '../types'
 import { TraceModeTabs } from './TraceModeTabs'
 
-function Stateful(): JSX.Element {
+function Stateful({ feedbackCount = null }: { feedbackCount?: number | null }): JSX.Element {
     const [mode, setMode] = useState<TraceMode>('spans')
-    return <TraceModeTabs mode={mode} onModeChange={setMode} />
+    return <TraceModeTabs mode={mode} onModeChange={setMode} feedbackCount={feedbackCount} />
 }
 
 const meta: Meta<typeof Stateful> = {
@@ -16,3 +16,4 @@ const meta: Meta<typeof Stateful> = {
 export default meta
 
 export const Default: StoryObj<typeof Stateful> = {}
+export const WithFeedbackCount: StoryObj<typeof Stateful> = { args: { feedbackCount: 6 } }

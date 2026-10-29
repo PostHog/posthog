@@ -15,6 +15,7 @@ import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetBu
 import type {
     TraceApi,
     TraceEvaluationResultsApi,
+    TraceFeedbackApi,
     TraceNodeApi,
     TraceSearchResultsApi,
     TraceTimelineRowApi,
@@ -23,6 +24,7 @@ import { GitBranchChipProps } from '../components/GitBranchChip'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import type { TraceSearchBoxData } from '../components/TraceSearchBox'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
+import { traceFeedbackLogic } from '../traceFeedbackLogic'
 import { SEARCH_DEBOUNCE_MS, traceSearchLogic } from '../traceSearchLogic'
 import { traceSummaryLogic } from '../traceSummaryLogic'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
@@ -30,10 +32,14 @@ import {
     ConversationState,
     EvalRollupOutcome,
     EvalsChipData,
+    FeedbackChipData,
+    FeedbackEntry,
+    FeedbackModeState,
     LabeledLink,
     MatchDirection,
     NodeDetailTab,
     NodeLoad,
+    StepFeedback,
     SummaryItemKind,
     SummaryModeState,
     SummaryRequestError,
@@ -43,6 +49,7 @@ import {
 } from '../types'
 import { toDatasetItemSource } from './toDatasetItemSource'
 import { firstFailingNodeId, toEvalOutcomesByNode, toEvalsChip } from './toEvalSummary'
+import { stepFeedbackOf, toFeedbackChip, toFeedbackMode, toStepFeedback } from './toFeedback'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
 import { steppedMatchId, toMatchingNodeIds, toSearchBox } from './toSearch'
@@ -73,6 +80,8 @@ export interface traceViewAdapterLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
+    traceFeedback: TraceFeedbackApi | null // traceFeedbackLogic
+    traceFeedbackFailed: boolean // traceFeedbackLogic
     query: string // traceSearchLogic
     searchFailure: TraceSearchFailure | null // traceSearchLogic
     searchResults: TraceSearchResultsApi | null // traceSearchLogic
@@ -107,6 +116,11 @@ export interface traceViewAdapterLogicValues {
     detailTab: NodeDetailTab
     evalOutcomesByNode: Record<string, EvalRollupOutcome>
     evalsChip: EvalsChipData | null
+    feedbackChip: FeedbackChipData | null
+    feedbackCount: number | null
+    feedbackCountByNodeId: Record<string, number>
+    feedbackFocusNodeId: string | null
+    feedbackMode: FeedbackModeState
     gitBranch: GitBranchChipProps | null
     header: TraceHeaderProps
     highlightQuery: string | null
@@ -117,8 +131,10 @@ export interface traceViewAdapterLogicValues {
     searchBox: TraceSearchBoxData
     selectedNodeId: string
     selectedNodeLoad: NodeLoad
+    selectedStepFeedback: StepFeedback | null
     selectedTreeNode: TraceNodeApi | null
     shownSelectedNodeId: string | null
+    stepFeedback: Record<string, StepFeedback>
     thread: ConversationState
     threadNodeLoad: NodeLoad | null
 }
@@ -135,6 +151,9 @@ export interface traceViewAdapterLogicActions {
     setEventId: (eventId: string | null) => {
         eventId: string | null
     } // aiObservabilityTraceLogic
+    retryTraceFeedback: () => {
+        value: true
+    } // traceFeedbackLogic
     setQuery: (query: string) => {
         query: string
     } // traceSearchLogic
@@ -185,6 +204,13 @@ export interface traceViewAdapterLogicActions {
     }
     showFailingEvals: () => {
         value: true
+    }
+    showFeedback: (
+        nodeId: string | null,
+        entry: FeedbackEntry
+    ) => {
+        entry: FeedbackEntry
+        nodeId: string | null
     }
     stepMatch: (direction: MatchDirection) => {
         direction: MatchDirection
@@ -258,6 +284,21 @@ export interface traceViewAdapterLogicMeta {
         evalOutcomesByNode: (evaluationResults: TraceEvaluationResultsApi | null) => Record<string, EvalRollupOutcome>
         gitBranch: (trace: TraceApi | null) => GitBranchChipProps | null
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
+        feedbackChip: (traceFeedback: TraceFeedbackApi | null) => FeedbackChipData | null
+        feedbackCount: (traceFeedback: TraceFeedbackApi | null) => number | null
+        stepFeedback: (traceFeedback: TraceFeedbackApi | null) => Record<string, StepFeedback>
+        feedbackCountByNodeId: (stepFeedback: Record<string, StepFeedback>) => Record<string, number>
+        selectedStepFeedback: (
+            stepFeedback: Record<string, StepFeedback>,
+            selectedNodeId: string
+        ) => StepFeedback | null
+        feedbackMode: (
+            traceFeedback: TraceFeedbackApi | null,
+            traceFeedbackFailed: boolean,
+            tree: TraceNodeApi[],
+            feedbackFocusNodeId: string | null,
+            traceId: string
+        ) => FeedbackModeState
         readySearchResults: (
             searchStatus: TraceSearchStatus,
             searchResults: TraceSearchResultsApi | null
@@ -320,6 +361,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['searchParams'],
             featureFlagLogic,
             ['featureFlags'],
+            traceFeedbackLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
+            ['traceFeedback', 'traceFeedbackFailed'],
             traceSearchLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['query', 'searchResults', 'searchStatus', 'searchFailure'],
             traceSummaryLogic({ traceId: props.traceId }),
@@ -332,6 +375,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['setEventId', 'loadNeighbors'],
             traceViewLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['loadNode', 'loadTraceSuccess'],
+            traceFeedbackLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
+            ['retryTraceFeedback'],
             traceSearchLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['setQuery'],
             traceSummaryLogic({ traceId: props.traceId }),
@@ -346,6 +391,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
         viewInThread: true,
         prefetchNode: (id: string) => ({ id }),
         showFailingEvals: true,
+        showFeedback: (nodeId: string | null, entry: FeedbackEntry) => ({ nodeId, entry }),
         stepMatch: (direction: MatchDirection) => ({ direction }),
         openSummaryFromLink: true,
         summarize: true,
@@ -359,10 +405,20 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 setMode: (_, { mode }) => mode,
                 selectAndShowSpans: () => 'spans',
                 viewInThread: () => 'thread',
+                showFeedback: () => 'feedback',
                 openSummaryFromLink: () => 'summary',
             },
         ],
         detailTab: ['messages' as NodeDetailTab, { setDetailTab: (_, { tab }) => tab }],
+        feedbackFocusNodeId: [
+            null as string | null,
+            {
+                showFeedback: (_, { nodeId }) => nodeId,
+                setMode: (focusNodeId, { mode }) => (mode === 'feedback' ? focusNodeId : null),
+                selectAndShowSpans: () => null,
+                viewInThread: () => null,
+            },
+        ],
         matchStepCount: [0, { stepMatch: (count) => count + 1 }],
     }),
     selectors({
@@ -512,6 +568,47 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (selectedNodeId: string, threadNodeIds: string[], traceId: string): boolean =>
                 selectedNodeId === traceId || threadNodeIds.includes(selectedNodeId),
         ],
+        feedbackChip: [
+            (s) => [s.traceFeedback],
+            (feedback: TraceFeedbackApi | null): FeedbackChipData | null =>
+                feedback ? toFeedbackChip(feedback.summary) : null,
+        ],
+        feedbackCount: [
+            (s) => [s.traceFeedback],
+            (feedback: TraceFeedbackApi | null): number | null => feedback?.summary.total ?? null,
+        ],
+        stepFeedback: [
+            (s) => [s.traceFeedback],
+            (feedback: TraceFeedbackApi | null): Record<string, StepFeedback> =>
+                feedback ? toStepFeedback(feedback) : {},
+        ],
+        feedbackCountByNodeId: [
+            (s) => [s.stepFeedback],
+            (stepFeedback: Record<string, StepFeedback>): Record<string, number> =>
+                Object.fromEntries(
+                    Object.entries(stepFeedback).map(([nodeId, step]) => [nodeId, step.scores.length + step.textCount])
+                ),
+        ],
+        selectedStepFeedback: [
+            (s) => [s.stepFeedback, s.selectedNodeId],
+            (stepFeedback: Record<string, StepFeedback>, selectedNodeId: string): StepFeedback | null =>
+                stepFeedbackOf(stepFeedback, selectedNodeId),
+        ],
+        feedbackMode: [
+            (s, p) => [s.traceFeedback, s.traceFeedbackFailed, s.tree, s.feedbackFocusNodeId, p.traceId],
+            (
+                feedback: TraceFeedbackApi | null,
+                failed: boolean,
+                tree: TraceNodeApi[],
+                focusNodeId: string | null,
+                traceId: string
+            ): FeedbackModeState => {
+                if (failed) {
+                    return { status: 'error' }
+                }
+                return feedback ? toFeedbackMode({ feedback, tree, traceId, focusNodeId }) : { status: 'loading' }
+            },
+        ],
         // Results of an older query stay in the loader while a newer one loads or after it fails.
         readySearchResults: [
             (s) => [s.searchStatus, s.searchResults],
@@ -562,6 +659,13 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 writeUrl(values.query)
             }
         }
+        const captureFeedbackViewed = (entry: FeedbackEntry | 'tab'): void => {
+            posthog.capture('llma trace view feedback viewed', {
+                entry,
+                scores: values.traceFeedback?.scores.length ?? null,
+                responses: values.traceFeedback?.responses.length ?? null,
+            })
+        }
         const syncSummary = (previousMode: TraceMode): void => {
             const wasOpen = previousMode === 'summary'
             if (values.mode === 'summary' && !wasOpen) {
@@ -574,7 +678,6 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             actions.requestSummary({ regenerate, timestampHint: values.createdAt })
         }
         return {
-            setMode: (_, __, ___, previousState) => syncSummary(selectors.mode(previousState)),
             viewInThread: (_, __, ___, previousState) => syncSummary(selectors.mode(previousState)),
             selectNode: select,
             selectAndShowSpans: (payload, __, ___, previousState) => {
@@ -617,6 +720,17 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             showFailingEvals: () => {
                 actions.selectAndShowSpans(firstFailingNodeId(values.tree, values.evalOutcomesByNode) ?? props.traceId)
                 actions.setDetailTab('evals')
+            },
+            showFeedback: ({ entry }, __, ___, previousState) => {
+                captureFeedbackViewed(entry)
+                syncSummary(selectors.mode(previousState))
+            },
+            setMode: ({ mode }, __, ___, previousState) => {
+                const previousMode = selectors.mode(previousState)
+                syncSummary(previousMode)
+                if (mode === 'feedback' && previousMode !== 'feedback') {
+                    captureFeedbackViewed('tab')
+                }
             },
         }
     }),

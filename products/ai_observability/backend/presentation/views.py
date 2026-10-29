@@ -66,7 +66,7 @@ class TraceSummaryRequestSerializer(serializers.Serializer):
 
 class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
-    scope_object_read_actions = ["retrieve", "node", "evaluations", "search", "summary"]
+    scope_object_read_actions = ["retrieve", "node", "evaluations", "feedback", "search", "summary"]
     scope_object_write_actions = ["request_summary"]
     # Traces are project-wide data, so a grant on a single llm_analytics object must not open them.
     requires_resource_level_access = True
@@ -147,6 +147,26 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
         results = self._read(request, lambda user, _hint: api.get_trace_evaluation_results(self.team, user, trace_id))
         return Response(results.model_dump(mode="json", by_alias=True))
+
+    @validated_request(
+        query_serializer=TraceQuerySerializer,
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceFeedback),
+            400: OpenApiResponse(description="The timestamp hint or the encoded trace id is malformed."),
+            429: THROTTLED_RESPONSE,
+        },
+        operation_id="ai_observability_traces_feedback_retrieve",
+    )
+    @action(detail=True, methods=["GET"], url_path="feedback")
+    def feedback(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """End-user feedback on a trace: the scores and the comments its feedback events carry, each with the step it targets."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        feedback = self._read(request, lambda user, hint: api.get_trace_feedback(self.team, user, trace_id, hint))
+        return Response(feedback.model_dump(mode="json", by_alias=True))
 
     @validated_request(
         query_serializer=TraceSearchQuerySerializer,

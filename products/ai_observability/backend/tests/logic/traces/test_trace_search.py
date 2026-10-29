@@ -12,14 +12,13 @@ TRACE = Trace(
         make_row(uuid="span-1", span_id="s1", timestamp=T0 + timedelta(seconds=1)),
         make_row(uuid="gen-1", event="$ai_generation", parent_id="s1", timestamp=T0 + timedelta(seconds=2)),
         make_row(uuid="gen-2", event="$ai_generation", timestamp=T0 + timedelta(seconds=3)),
-        make_row(uuid="fb-1", event="$ai_feedback", timestamp=T0 + timedelta(seconds=4)),
     ],
     None,
 )
 
 
 def test_matches_follow_the_tree_with_the_root_first() -> None:
-    result = TraceSearchResult.of(TRACE, {"gen-2": 1, "gen-1": 4, "root-event": 2, "fb-1": 9, "span-1": 0}, "trace")
+    result = TraceSearchResult.of(TRACE, {"gen-2": 1, "gen-1": 4, "root-event": 2, "span-1": 0}, "trace")
 
     assert result == TraceSearchResult(
         total=7,

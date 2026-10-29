@@ -9,7 +9,14 @@ import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSessi
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
 import { SampleTraceFixture } from '../sampleFixtures/sampleTraceFixture'
-import { FIXTURE_EVAL_OUTCOMES, FIXTURE_EVALS_CHIP, FIXTURE_SUMMARY, FIXTURE_TRACE, withWidth } from '../storyFixtures'
+import {
+    FIXTURE_EVAL_OUTCOMES,
+    FIXTURE_EVALS_CHIP,
+    FIXTURE_FEEDBACK_MODE,
+    FIXTURE_SUMMARY,
+    FIXTURE_TRACE,
+    withWidth,
+} from '../storyFixtures'
 import { EvalRollupOutcome, EvalsChipData, NodeDetailTab, TraceMode } from '../types'
 import { TraceView } from './TraceView'
 
@@ -128,6 +135,9 @@ function Playground({
                 onReload: () => {},
                 onSelectStep: selectAndShowSpans,
             }}
+            feedbackMode={FIXTURE_FEEDBACK_MODE}
+            feedbackCount={FIXTURE_FEEDBACK_MODE.scores.length + FIXTURE_FEEDBACK_MODE.responses.length}
+            feedbackCountByNodeId={{ 'trace-1': 3, 'gen-answer': 3 }}
         />
     )
 }
@@ -148,6 +158,7 @@ export const GenerationSelected: Story = { args: { fixture: FIXTURE_TRACE, initi
 export const ErrorTrace: Story = { args: { fixture: FIXTURE_ERROR_TRACE, initialMode: 'spans' } }
 export const ThreadMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'thread' } }
 export const TimelineMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'timeline' } }
+export const FeedbackMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'feedback' } }
 export const Narrow: Story = {
     args: { fixture: FIXTURE_TRACE, initialMode: 'spans' },
     decorators: [withWidth(520)],

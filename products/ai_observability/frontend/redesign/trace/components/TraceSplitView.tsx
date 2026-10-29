@@ -10,6 +10,7 @@ export interface TraceSplitViewProps {
     onPrefetchNode: (id: string) => void
     detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery' | 'matchStepCount'> | null
     evalOutcomes: Record<string, EvalRollupOutcome>
+    feedbackCountByNodeId?: Record<string, number>
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
     matchStepCount?: number
@@ -22,6 +23,7 @@ export function TraceSplitView({
     onPrefetchNode,
     detail,
     evalOutcomes,
+    feedbackCountByNodeId,
     matchingNodeIds = null,
     highlightQuery = null,
     matchStepCount = 0,
@@ -36,6 +38,7 @@ export function TraceSplitView({
                         onSelectNode={onSelectNode}
                         onPrefetchNode={onPrefetchNode}
                         evalOutcomes={evalOutcomes}
+                        feedbackCountByNodeId={feedbackCountByNodeId}
                         matchingNodeIds={matchingNodeIds}
                         matchStepCount={matchStepCount}
                     />

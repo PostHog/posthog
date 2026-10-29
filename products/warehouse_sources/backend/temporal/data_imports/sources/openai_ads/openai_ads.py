@@ -189,10 +189,14 @@ def _insights_window(db_incremental_field_last_value: Optional[Any]) -> SyncWind
 
     Incremental runs start at the watermark (the pipeline already rewinds it by the configured
     lookback); full refreshes start at the oldest day the API still reports. A watermark older than
-    that day is moved up to it too. `until` is today — the API rejects future dates.
+    that day is moved up to it too. `until` is yesterday: the API reads a `date_range` `until` as
+    inclusive and moves it to the next midnight, and it rejects a bound in the future with a 400. So
+    `until` set to today asks for a range that ends tomorrow, and every request fails. The trailing
+    lookback re-reads the day once it is complete.
     """
-    until = datetime.now(tz=UTC).date()
-    earliest = until - timedelta(days=INSIGHTS_HISTORY_DAYS)
+    today = datetime.now(tz=UTC).date()
+    until = today - timedelta(days=1)
+    earliest = today - timedelta(days=INSIGHTS_HISTORY_DAYS)
     since = earliest
     if db_incremental_field_last_value is not None:
         since = max(_to_utc_date(db_incremental_field_last_value), earliest)

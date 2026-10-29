@@ -917,7 +917,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
                 // Two picks, then each filler kind. Only the first carries a key moment, so the rest show no time on the tile.
-                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
                     results: [
                         {
                             observation: observation({
@@ -1185,7 +1185,7 @@ const checkoutGroupMembers = [
 
 // The home page lands on the Highlights feed. Each pick names its category, and the first stands for seven similar
 // sessions. The viewer created one scanner, so the feed offers the scope tabs.
-export const HomeWatchFeed: StoryObj = {
+export const HomeHighlightFeed: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
@@ -1204,7 +1204,7 @@ export const HomeWatchFeed: StoryObj = {
                     previous: null,
                     results: checkoutGroupMembers,
                 },
-                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
                     has_more: false,
                     results: [
                         {
@@ -1267,11 +1267,11 @@ export const HomeWatchFeed: StoryObj = {
 
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
 // rather than filling the page with them.
-export const HomeWatchFeedOnlyNewest: StoryObj = {
+export const HomeHighlightFeedOnlyNewest: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
                     results: [0, 1, 2].map((i) => ({
                         observation: observation({ id: `00000000-0000-0000-0000-0000000000f${i}` }),
                         reason: { kind: 'unviewed_recent' },
@@ -1282,10 +1282,10 @@ export const HomeWatchFeedOnlyNewest: StoryObj = {
     ],
 }
 
-export const HomeWatchFeedEmpty: StoryObj = {
+export const HomeHighlightFeedEmpty: StoryObj = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
+            get: { '/api/projects/:team_id/vision/scanners/highlight_feed/': { results: [] } },
         }),
     ],
 }

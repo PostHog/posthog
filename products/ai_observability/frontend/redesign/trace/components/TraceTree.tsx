@@ -8,6 +8,7 @@ export interface TraceTreeProps {
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     evalOutcomes: Record<string, EvalRollupOutcome>
+    feedbackCountByNodeId?: Record<string, number>
     matchingNodeIds?: ReadonlySet<string> | null
     matchStepCount?: number
 }
@@ -18,6 +19,7 @@ export function TraceTree({
     onSelectNode,
     onPrefetchNode,
     evalOutcomes,
+    feedbackCountByNodeId,
     matchingNodeIds = null,
     matchStepCount = 0,
 }: TraceTreeProps): JSX.Element {
@@ -32,6 +34,7 @@ export function TraceTree({
                     onSelectNode={onSelectNode}
                     onPrefetchNode={onPrefetchNode}
                     evalOutcomes={evalOutcomes}
+                    feedbackCountByNodeId={feedbackCountByNodeId}
                     matchingNodeIds={matchingNodeIds}
                     matchStepCount={matchStepCount}
                 />
