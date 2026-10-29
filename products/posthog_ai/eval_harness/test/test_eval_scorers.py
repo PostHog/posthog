@@ -7,7 +7,14 @@ from typing import Any
 import pytest
 
 from products.posthog_ai.eval_harness.log_parser import SKILL_TOOL_NAME
-from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot
+from products.posthog_ai.eval_harness.scorers import (
+    AnswerToolCallNot,
+    ServerUsed,
+    SourcesAvoided,
+    SourcesConsulted,
+    ToolMatch,
+    ToolOrder,
+)
 from products.posthog_ai.evals.error_tracking.scorers import (
     ERROR_TRACKING_WRITE_TOOLS,
     QUERY_ISSUE_EVENTS_TOOL,
@@ -303,3 +310,97 @@ def test_answer_tool_call_not_skips_when_nothing_answer_producing_ran(calls: lis
     )
 
     assert score.score is None
+
+
+_METRIC_LIST: tuple[str, dict[str, Any], str] = ("metric-list", {}, "mrr")
+_SQL_ANSWER = ("execute-sql", {"query": "SELECT sum(amount_usd) FROM crm_deals"}, "10")
+
+
+@pytest.mark.parametrize(
+    "calls,expected_score",
+    [
+        ([_METRIC_LIST, _SQL_ANSWER], 1.0),
+        ([_SQL_ANSWER, _METRIC_LIST], 0.0),
+        # A failed lookup is not a lookup.
+        ([("metric-list", {}, "boom", "failed"), _SQL_ANSWER], 0.0),
+        # Schema discovery SQL does not match the guarded data query pattern.
+        ([("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "t"), _METRIC_LIST], None),
+    ],
+)
+def test_tool_order_requires_the_lookup_before_the_guarded_call(
+    calls: list[tuple], expected_score: float | None
+) -> None:
+    scorer = ToolOrder(
+        before=ToolMatch(names=frozenset({"metric-list"})),
+        after=ToolMatch(names=frozenset({"execute-sql"}), query_pattern=r"\bfrom\s+crm_deals\b"),
+        name="catalog_before_sql",
+    )
+
+    assert scorer._run_eval_sync({"raw_log": _raw_tool_log(calls)}).score == expected_score
+
+
+@pytest.mark.parametrize(
+    "calls,spec,expected_score",
+    [
+        ([_SQL_ANSWER], {"tables": ["crm_deals", "slack_messages"]}, 0.5),
+        # A name inside a string literal is a catalog filter, and a longer table name is a different table.
+        (
+            [
+                ("execute-sql", {"query": "SELECT * FROM crm_deals_v3 WHERE note = 'crm_deals'"}, "0"),
+                ("execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "crm_deals"),
+            ],
+            {"tables": ["crm_deals"]},
+            0.0,
+        ),
+        ([("execute-sql", {"query": "SELECT * FROM crm_deals"}, "boom", "failed")], {"tables": ["crm_deals"]}, 0.0),
+        (
+            [("execute-sql", {"query": "SELECT * FROM postgres.crm_deals"}, "1")],
+            {"tables": [["postgres_crm_deals", "postgres.crm_deals"]]},
+            1.0,
+        ),
+    ],
+)
+def test_sources_consulted_counts_successful_data_reads(
+    calls: list[tuple], spec: dict[str, Any], expected_score: float
+) -> None:
+    score = SourcesConsulted()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, {"sources_consulted": spec})
+
+    assert score.score == expected_score
+
+
+_V3_INSPECTION = ("execute-sql", {"query": "SELECT count() FROM crm_deals_v3"}, "0")
+
+
+@pytest.mark.parametrize(
+    "calls,scope,expected_score",
+    [
+        ([_V3_INSPECTION, _SQL_ANSWER], "answer", 1.0),
+        ([_V3_INSPECTION, _SQL_ANSWER], None, 0.0),
+        ([_SQL_ANSWER, _V3_INSPECTION], "answer", 0.0),
+        ([_SQL_ANSWER], None, 1.0),
+    ],
+)
+def test_sources_avoided_scopes_to_the_answer_query(
+    calls: list[tuple], scope: str | None, expected_score: float
+) -> None:
+    spec: dict[str, Any] = {"tables": ["crm_deals_v3"]}
+    if scope:
+        spec["scope"] = scope
+
+    score = SourcesAvoided()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, {"sources_avoided": spec})
+
+    assert score.score == expected_score
+
+
+@pytest.mark.parametrize(
+    "calls,expected_score",
+    [
+        ([("mcp__slack__search_messages", {"query": "tax"}, "ok")], 1.0),
+        ([("mcp__slack__search_messages", {"query": "tax"}, "boom", "failed")], 0.0),
+        ([("mcp__posthog__execute-sql", {"query": "SELECT 1"}, "1")], 0.0),
+    ],
+)
+def test_server_used_requires_a_successful_call_on_that_server(calls: list[tuple], expected_score: float) -> None:
+    score = ServerUsed()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, {"server_used": {"server": "slack"}})
+
+    assert score.score == expected_score
