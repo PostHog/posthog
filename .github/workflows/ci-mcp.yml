@@ -269,8 +269,31 @@ jobs:
             (needs.changes.outputs.mcp == 'true' || needs.changes.outputs.mcp-typescript == 'true')
             && github.event_name != 'push'
         steps:
+            # Root files, every package.json (pnpm resolves the whole workspace), and the
+            # trees MCP imports or reads at runtime. A test that reads a path outside this
+            # list fails with ENOENT: add the path here.
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      package.json
+                      /.github/actions/
+                      /services/mcp/
+                      /packages/
+                      /patches/
+                      /common/
+                      /tools/openapi-codegen/
+                      /products/*/mcp/
+                      /products/*/frontend/
+                      /products/*/skills/
+                      /products/notebooks/
+                      /products/ai_observability/backend/prompts/
+                      /frontend/src/queries/
+                      /frontend/src/taxonomy/
+                      /frontend/src/mocks/fixtures/
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
