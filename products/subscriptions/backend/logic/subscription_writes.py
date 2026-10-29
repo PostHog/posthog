@@ -1060,12 +1060,13 @@ def take_subscription_ownership(
         raise SubscriptionRequestInvalidError("Can't take ownership: you don't have access to this content.") from None
     # The enable below only compiles the queries when it enables a disabled row, so an enabled one is
     # checked here, as the new owner.
-    denied_resources = denied_resources_in_subscription(
-        user=user, team=team, user_access_control=viewer, subscription_id=subscription_id, attrs={}
-    )
-    if denied_resources:
-        denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-        raise SubscriptionRequestInvalidError(f"Can't take ownership: you don't have access to {denied_names}.")
+    if instance.enabled:
+        denied_resources = denied_resources_in_subscription(
+            user=user, team=team, user_access_control=viewer, subscription_id=subscription_id, attrs={}
+        )
+        if denied_resources:
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            raise SubscriptionRequestInvalidError(f"Can't take ownership: you don't have access to {denied_names}.")
     # The new owner is set in memory only: the re-enable check reads it off the instance, and the
     # enable's save persists it with `enabled`.
     previous_owner = instance.created_by
