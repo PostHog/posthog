@@ -76,11 +76,15 @@ def _image_block(block: dict) -> MediaBlock:
 
 
 def _with_source(modality: str, mime_type: str | None, value: object) -> MediaBlock:
-    if not isinstance(value, str) or not value or _REDACTED_RE.match(value):
+    if not isinstance(value, str) or not value:
         return MediaBlock(modality=modality, mime_type=mime_type)
     if value.startswith("data:") and ";base64," in value:
-        header, payload = value[len("data:") :].split(";base64,", 1)
-        return _with_source(modality, header or mime_type, payload)
+        # Unwrap one envelope only. Its payload is bytes or a wrapped pointer, never another data URI,
+        # and unwrapping nested prefixes would copy the payload once per level.
+        header, value = value[len("data:") :].split(";base64,", 1)
+        mime_type = header or mime_type
+    if _REDACTED_RE.match(value) or value.startswith("data:"):
+        return MediaBlock(modality=modality, mime_type=mime_type)
     if value.startswith(_LINK_SCHEMES):
         return MediaBlock(modality=modality, mime_type=mime_type, url=value)
     return MediaBlock(modality=modality, mime_type=mime_type, base64_data=value)

@@ -99,6 +99,11 @@ class TestExtractTextFromMessages:
                 "[image]",
                 id="openai_redacted_data_uri",
             ),
+            pytest.param(
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," * 3 + "aGk="}},
+                "[image]",
+                id="nested_data_uri",
+            ),
             pytest.param({"inline_data": {"mime_type": "image/png", "data": "aGk="}}, "[image 1]", id="gemini_inline"),
             pytest.param(
                 {"type": "image", "inline_data": {"mime_type": "image/png", "data": "aGk="}},
