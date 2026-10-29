@@ -291,8 +291,7 @@ export interface ChartConfig {
     /** Fade-in the hover overlay when the hovered point changes. `true` = ~150ms. */
     animateHover?: boolean | number
     /** Per-side overrides applied on top of the computed chart margins. Useful for sparklines
-     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`).
-     *  Should be referentially stable — pass a module-level constant rather than an inline object. */
+     *  that want the plot area flush with the canvas edges (e.g. `{ left: 0, right: 0, top: 0, bottom: 0 }`). */
     margins?: Partial<ChartMargins>
     /** Max pixel width for category (band) tick labels before they're truncated with an ellipsis,
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long

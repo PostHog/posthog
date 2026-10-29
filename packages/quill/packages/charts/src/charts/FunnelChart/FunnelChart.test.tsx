@@ -126,6 +126,18 @@ describe('FunnelChart', () => {
         expect(chart.xTicks()).toHaveLength(0)
     })
 
+    it('does not repaint the static canvas when a re-render passes equal inline margins', () => {
+        const { chart, rerender } = renderChart(
+            <FunnelChart steps={STEPS} series={SERIES} theme={THEME} config={{ margins: { top: 4 } }} />
+        )
+        let paints = 0
+        const observer = new MutationObserver((records) => (paints += records.length))
+        observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
+        rerender(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} config={{ margins: { top: 4 } }} />)
+        expect(paints + observer.takeRecords().length).toBe(0)
+        observer.disconnect()
+    })
+
     it('never asks for a step footer past the current step count when a shorter funnel replaces a longer one', async () => {
         const THREE_STEPS = ['Exposure', 'Add to cart', 'Purchase']
         const requested: number[] = []

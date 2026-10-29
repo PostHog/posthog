@@ -86,6 +86,13 @@ export function applyMarginOverride(
     return result
 }
 
+/** Rebuilds a margin override from its four sides, so an inline `margins` object with the same values
+ *  keeps one identity and does not re-run the memos that read it. */
+export function useStableMargins(margins: Partial<ChartMargins> | undefined): Partial<ChartMargins> {
+    const { top, right, bottom, left } = margins ?? {}
+    return useMemo(() => ({ top, right, bottom, left }), [top, right, bottom, left])
+}
+
 interface CategoryLabelWidths {
     first: number
     last: number

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
+import { useStableMargins } from '../../core/hooks/useChartMargins'
 import { useResolvedChartTheme } from '../../core/theme'
 import type {
     BarChartConfig,
@@ -210,7 +211,7 @@ export function FunnelChart<Meta = unknown>({
         tooltip: tooltipConfig,
         legend,
         animateHover,
-        margins,
+        margins: marginsOverride,
         showGrid = true,
         barCornerRadius = DEFAULT_CORNER_RADIUS,
         hideStepLabels,
@@ -222,6 +223,7 @@ export function FunnelChart<Meta = unknown>({
         chartMinHeight,
         stepFooterAlign = 'start',
     } = config ?? {}
+    const margins = useStableMargins(marginsOverride)
     const hasStepFooter = stepFooter != null
 
     // Band labels are 1-based step indices so steps sharing a name don't collapse onto one

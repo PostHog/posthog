@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { resolveCssColor } from '../../core/color-utils'
+import { useStableMargins } from '../../core/hooks/useChartMargins'
 import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AreaSelectData,
@@ -105,7 +106,7 @@ export interface HeatmapConfig {
     /** Column indices drawn with a band behind their cells, for a column the consumer selected
      *  or is hovering. */
     highlightedColumns?: number[]
-    /** Per-side margin overrides. Should be referentially stable. */
+    /** Per-side margin overrides. */
     margins?: Partial<ChartMargins>
     tooltip?: {
         /** Show the single-cell tooltip on hover. Defaults to true. */
@@ -440,6 +441,7 @@ function HeatmapInner({
         [resolveColumnLabel, userXTickFormatter]
     )
 
+    const margins = useStableMargins(config?.margins)
     const tooltipLabelFormatter = config?.tooltip?.labelFormatter
     const tooltipValueFormatter = config?.tooltip?.valueFormatter
     const captureTooltip = useTooltipCapture<HeatmapRowMeta>()
@@ -483,7 +485,7 @@ function HeatmapInner({
             yAxisLabel: config?.yAxisLabel,
             hideXAxis: config?.hideXAxis,
             hideYAxis: config?.hideYAxis,
-            margins: config?.margins,
+            margins,
             // 'cursor' placement: a follow-data anchor would pin the tooltip to the column top,
             // far from the hovered cell in a tall grid.
             tooltip: { enabled: config?.tooltip?.enabled, placement: 'cursor' },
@@ -495,7 +497,7 @@ function HeatmapInner({
             config?.yAxisLabel,
             config?.hideXAxis,
             config?.hideYAxis,
-            config?.margins,
+            margins,
             config?.tooltip?.enabled,
         ]
     )
