@@ -26,10 +26,10 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.query_creator_access import (
-    OWNER_UNAVAILABLE_CODE,
     CreatorLeftOrganizationError,
     assert_creator_can_run,
     describe_owner_unavailable,
+    owner_unavailable_code,
 )
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
@@ -439,7 +439,8 @@ class _SubscriptionWrite:
                 assert_creator_can_run(existing.created_by, self.team, existing.dashboard, existing.insight)
             except (CreatorLeftOrganizationError, UserAccessControlError) as error:
                 raise SubscriptionRequestInvalidError(
-                    {"enabled": [owner_unavailable_message(existing.created_by, error)]}, code=OWNER_UNAVAILABLE_CODE
+                    {"enabled": [owner_unavailable_message(existing.created_by, error)]},
+                    code=owner_unavailable_code(error),
                 ) from None
             # AI subs auto-disable on PromptRejectedError (deleted creator, prompt now
             # fails sanitization). The delivery path will just re-disable on the next
