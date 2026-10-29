@@ -44,12 +44,12 @@ class HealthCheck:
 EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_STATE,
-        name="Feature flag rollout",
+        name="Flag state that doesn't match the experiment",
         run=flag_state,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_HISTORY,
-        name="Feature flag history",
+        name="Unreadable flag history",
         run=flag_history_not_readable,
     ),
     HealthCheck(
@@ -59,7 +59,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.BUCKETING_CHANGED_MID_RUN,
-        name="Flag key and bucketing changes since launch",
+        name="Variant assignment changes since launch",
         run=bucketing_changed_mid_run,
     ),
     HealthCheck(
@@ -69,7 +69,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_VARIANTS_MISMATCH,
-        name="Feature flag variants",
+        name="Flag variants not set up",
         run=flag_variants_mismatch,
     ),
     HealthCheck(
@@ -79,42 +79,42 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.NEW_FLAG_NO_TRAFFIC,
-        name="Feature flag traffic",
+        name="Flag calls not received yet",
         run=new_flag_no_traffic,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.NO_METRIC,
-        name="Metrics",
+        name="Metrics not set up",
         run=no_metric,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_EVENT_NOT_INGESTED,
-        name="Metric events",
+        name="Metric events not received yet",
         run=metric_event_not_ingested,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
-        name="Metric queries",
+        name="Invalid metric definitions",
         run=metric_cannot_compile,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_CALCULATION_FAILED,
-        name="Metric results",
+        name="Failed metric calculations",
         run=metric_calculation_failed,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
-        name="Exposure criteria",
+        name="Exposure criteria that can't match",
         run=exposure_criteria_cannot_match,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_FILTERS,
-        name="Cohorts and event filters in the exposure criteria",
+        name="Exposure filters that count unexpected users",
         run=exposure_filters,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EARLY_SIGNIFICANCE,
-        name="Sample size behind significant results",
+        name="Significance on a small sample",
         run=early_significance,
     ),
 )
@@ -125,7 +125,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
-        name="Exposures",
+        name="Exposures not received since launch",
         run=zero_exposures,
     ),
     HealthCheck(
