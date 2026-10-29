@@ -549,9 +549,9 @@ async def _send_to_target(
                 delivery_id=inputs.delivery_id,
             )
 
-        return await deliver_email(subscription, inputs, recipient_results, _send_email)
-    if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
-        return await deliver_slack(
+        result = await deliver_email(subscription, inputs, recipient_results, _send_email)
+    elif subscription.target_type == Subscription.SubscriptionTarget.SLACK:
+        result = await deliver_slack(
             subscription,
             recipient_results,
             lambda integration: send_slack_message_with_integration_async(
@@ -564,7 +564,7 @@ async def _send_to_target(
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
             ),
         )
-    if subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
+    elif subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
         card = build_teams_subscription_card(
             subscription,
             assets,
@@ -573,11 +573,13 @@ async def _send_to_target(
             change_summary=inputs.change_summary,
             summary_skipped_over_budget=inputs.summary_skipped_over_budget,
         )
-        return await deliver_teams_webhook(subscription, recipient_results, body=card)
-    raise ApplicationError(
-        f"Subscription delivery reached an unsupported target {subscription.target_type!r}",
-        non_retryable=True,
-    )
+        result = await deliver_teams_webhook(subscription, recipient_results, body=card)
+    else:
+        raise ApplicationError(
+            f"Subscription delivery reached an unsupported target {subscription.target_type!r}",
+            non_retryable=True,
+        )
+    return result
 
 
 @temporalio.activity.defn

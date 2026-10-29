@@ -2,8 +2,9 @@ from posthog.test.base import BaseTest
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
-from posthog.query_creator_access import creator_access_revoked
+from posthog.query_creator_access import assert_creator_can_run, creator_access_revoked
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 
 
@@ -23,7 +24,7 @@ class TestCreatorAccessRevoked(BaseTest):
         OrganizationMembership.objects.filter(organization=self.organization, user=self.user).delete()
         assert creator_access_revoked(self.user, self.team) is True
 
-    def test_member_without_project_access_is_revoked(self) -> None:
+    def test_member_without_project_access_lost_access_rather_than_left(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -34,4 +35,8 @@ class TestCreatorAccessRevoked(BaseTest):
         AccessControl.objects.create(
             team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
         )
-        assert creator_access_revoked(self.user, self.team) is True
+        # Still in the org, so not "left": the recipients' message must say access, not membership.
+        assert creator_access_revoked(self.user, self.team) is False
+        with self.assertRaises(UserAccessControlError) as raised:
+            assert_creator_can_run(self.user, self.team)
+        assert raised.exception.resource == "project"

@@ -15,38 +15,36 @@ from products.access_control.backend.facade.user_access_control import (
 
 
 class CreatorLeftOrganizationError(Exception):
-    """A background query refused to run because its owner can no longer access the project."""
+    """A background query refused to run because its owner is no longer in the organization."""
 
     def __init__(self) -> None:
-        super().__init__("The owner no longer has access to this project.")
+        super().__init__("The owner is no longer in the organization.")
 
 
 def creator_access_revoked(user: Optional[User], team: Team) -> bool:
     """True when `user` no longer has access to `team`: they were deleted (`user is None`),
-    deactivated, left the team's org, or lost access to the project.
+    deactivated, or are no longer a member of the team's org.
     """
     if user is None:
         return True
     if not user.is_active:
         return True
-    if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists():
-        return True
-    return not team.all_users_with_access(user_uuids=[str(user.uuid)]).filter(id=user.id).exists()
+    return not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists()
 
 
 def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | None) -> None:
     """Raise when `user` can no longer run a background query for `team` as its owner.
 
-    `CreatorLeftOrganizationError` when their access to the project is revoked: they were deleted
-    (`user is None`), deactivated, left the team's org, or lost access to the project.
-    `UserAccessControlError` when they can still open the project but not one of `objects`.
-    Background jobs load their dashboard and insight directly, so nothing else checks object access
-    for them. Organization admins pass the object check, and a `None` object is skipped.
+    `CreatorLeftOrganizationError` when they were deleted (`user is None`), deactivated, or left the
+    team's org. `UserAccessControlError` when they are still in the org but cannot view the project
+    or one of `objects`. Background jobs load their dashboard and insight directly, so nothing else
+    checks object access for them. Organization admins pass, and a `None` object is skipped.
     """
     if user is None or creator_access_revoked(user, team):
         raise CreatorLeftOrganizationError()
     user_access_control = UserAccessControl(user=user, team=team)
-    for obj in objects:
+    # The project first: a member can be in the org but shut out of a private project.
+    for obj in (team, *objects):
         if obj is None or user_access_control.check_access_level_for_object(obj, "viewer"):
             continue
         resource = model_to_resource(obj)

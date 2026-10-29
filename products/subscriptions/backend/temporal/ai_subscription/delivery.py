@@ -18,11 +18,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import is_allowed_link_url, strip_external_links_markdown
 from posthog.models import Team, User
 from posthog.models.integration import Integration
-from posthog.query_creator_access import creator_access_revoked
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.slack.formatting import channel_id_from_target
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.facade.api import slack_followup_invite
 from products.subscriptions.backend.facade.contracts import PromptRejectedError, SubscriptionTriggerType
@@ -442,8 +443,10 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     )(subscription)
     # The report's queries run as the creator, so a creator who was deleted, left the organization or
     # lost access to the project ends the subscription the same way a bad prompt does.
-    if await database_sync_to_async(creator_access_revoked, thread_sensitive=False)(user, team):
-        raise PromptRejectedError("The owner of this subscription no longer has access to this project.")
+    try:
+        await database_sync_to_async(assert_creator_can_run, thread_sensitive=False)(user, team)
+    except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+        raise PromptRejectedError("The owner of this subscription no longer has access to this project.") from error
     assert user is not None
 
     include_images = subscription.includes_delivery_part("include_images")
