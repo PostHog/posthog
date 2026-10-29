@@ -94,6 +94,14 @@ describe('ProportionBar', () => {
         }
     )
 
+    it('fills legend value columns for its own legend rows', () => {
+        const { container } = renderChart(
+            <ProportionBar series={PARTS} theme={THEME} config={{ legend: { values: ['sum'] } }} />
+        )
+        const cells = Array.from(container.querySelectorAll('[data-attr="hog-chart-legend-value"]'))
+        expect(cells.map((c) => c.textContent)).toEqual(['600', '100', '100'])
+    })
+
     it('recomputes the legend shares over the parts left visible', () => {
         const { chart } = renderChart(<ProportionBar series={PARTS} theme={THEME} />)
         expect(chart.legendItems().map((item) => item.secondaryLabel)).toEqual([

@@ -23,6 +23,22 @@ export function legendItemsFromSeries(
     return items
 }
 
+/** Fills value-column summaries into legend rows built elsewhere (a chart's own items), matching
+ *  each row to its series by key. Rows that already carry values keep them. */
+export function withLegendValues(
+    items: LegendItem[],
+    series: ReadonlyArray<Series | ResolvedSeries>,
+    values: readonly LegendValue[] | undefined
+): LegendItem[] {
+    if (!values?.length) {
+        return items
+    }
+    const dataByKey = new Map(series.map((s) => [s.key, s.data]))
+    return items.map((item) =>
+        item.values ? item : { ...item, values: computeLegendValues(dataByKey.get(item.key), values) }
+    )
+}
+
 /** Summaries of a series' finite values, `null` for a series without any. */
 export function computeLegendValues(
     data: readonly number[] | null | undefined,
