@@ -91,7 +91,7 @@ A flag beats the environment variable, which beats `posthog.json`.
 
 `--host`, `HOG_HOST` and `host` in `posthog.json` override the host of every credential source.
 Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
-hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables don't count.
+hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHOG_HOME` and `POSTHOG_RELEASE_MODE` don't count.
 
 ## posthog.json
 
