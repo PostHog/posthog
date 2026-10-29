@@ -17,9 +17,6 @@ if TYPE_CHECKING:
 
 DEFAULT_SEND_RATE = 5_000
 
-# The worker before pending_commit wrote this status message while it sent a chunk.
-LEGACY_COMMIT_IN_FLIGHT_MESSAGE_PREFIX = "Starting commit of part "
-
 
 class CommitInFlightError(ValueError):
     """A worker is sending a chunk of this import, so a resume now could skip that chunk."""
@@ -151,8 +148,9 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         temp-bucket staging, or a source file replaced after a data-error pause), the
         saved offset can land mid-record in the new stream and the job pauses with a
         parse error at the resume point. The fix is to re-import that part from
-        offset 0 - safe for sources with deterministic event UUIDs (Mixpanel
-        $insert_id, Amplitude uuid), which dedupe the overlap.
+        offset 0. The re-imported overlap dedupes only for events with a source ID
+        (Mixpanel $insert_id, an Amplitude or captured uuid); the worker gives other
+        events, including the identify events it generates for Amplitude, a new UUID.
 
         Resets the first unfinished part to offset 0, then resumes as
         `resume_after_pause` does. Returns the key of the reset part. Raises
@@ -190,9 +188,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         sink accepting it, the window in which clearing its lease can lose that chunk."""
         if self.leased_until is None or self.leased_until <= timezone.now():
             return False
-        return self.pending_commit is not None or (self.status_message or "").startswith(
-            LEGACY_COMMIT_IN_FLIGHT_MESSAGE_PREFIX
-        )
+        return self.pending_commit is not None
 
     def raise_if_commit_in_flight(self) -> None:
         if self.commit_in_flight():

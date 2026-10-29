@@ -157,6 +157,7 @@ class BatchImportAdmin(admin.ModelAdmin):
                 ),
                 "description": (
                     "A running job with a future leased_until is actively claimed by a worker. "
+                    "Changing the status from running stops the worker before it sends another chunk. "
                     "Changing the status to running, or using a resume action, clears the lease, backoff "
                     "and pending commit so a worker can claim the job at once. A pending commit on "
                     "a job no worker holds means a worker stopped mid-commit: the chunk it names "
@@ -166,9 +167,10 @@ class BatchImportAdmin(admin.ModelAdmin):
                     "resets the current part to offset 0 first - right when the source bytes "
                     "changed underneath the saved offset (a re-downloaded nondeterministic "
                     "export, or a source file replaced after a data fix), which typically "
-                    "shows up as an 'Invalid JSON syntax' pause. The re-imported overlap "
-                    "dedupes for sources with deterministic event UUIDs (Mixpanel $insert_id, "
-                    "Amplitude uuid)."
+                    "shows up as an 'Invalid JSON syntax' pause. Re-imported events are "
+                    "deduplicated only when they carry a source ID (Mixpanel $insert_id, or an "
+                    "Amplitude or captured event uuid). Other events, including the identify "
+                    "events created for Amplitude imports, are imported again as duplicates."
                 ),
             },
         ),
@@ -257,8 +259,8 @@ class BatchImportAdmin(admin.ModelAdmin):
     def resume_with_inflight_part_reset(self, request, queryset):
         """Recover a paused job whose committed byte offset no longer matches the
         source bytes (re-download of a nondeterministic export, or a source file
-        replaced after a data-error pause). Safe for sources with deterministic
-        event UUIDs, which dedupe the re-imported overlap."""
+        replaced after a data-error pause). The re-imported overlap dedupes only for
+        events with a source ID; see the 'Worker state' section."""
         for batch_import in queryset:
             try:
                 reset_key = batch_import.resume_with_inflight_part_reset()
