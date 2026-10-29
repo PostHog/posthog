@@ -262,6 +262,8 @@ export function OperationsTable({
     )
     return (
         <VirtualizedTable<AggregatedSpanRow>
+            // Remounts on a mode switch, so each mode starts from its own default sort.
+            key={groupedByEndpoint ? 'endpoints' : 'operations'}
             // pinned: identifies stored column widths — renaming resets everyone's widths
             tableKey="operations"
             columns={columns}
@@ -269,7 +271,7 @@ export function OperationsTable({
             loading={loading}
             rowKey={operationRowKey}
             onRowClick={onRowClick}
-            defaultSort={{ columnKey: 'total_time', order: -1 }}
+            defaultSort={{ columnKey: groupedByEndpoint ? 'health' : 'total_time', order: -1 }}
             emptyLabel={
                 groupedByEndpoint
                     ? 'No HTTP server spans found for these filters'
