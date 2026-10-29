@@ -650,11 +650,11 @@ export class HogInvocationResultsService {
             )
         )
         const produced = Promise.all(
-            rows.map((row, i) => {
+            rows.flatMap((row, i) => {
                 const value = encoded[i]
                 return value
-                    ? this.produceEncodedRow(row, value).catch((error) => this.onRowProduceFailed(row, error))
-                    : undefined
+                    ? [this.produceEncodedRow(row, value).catch((error) => this.onRowProduceFailed(row, error))]
+                    : []
             })
         ).then(() => undefined)
         return { produced }
