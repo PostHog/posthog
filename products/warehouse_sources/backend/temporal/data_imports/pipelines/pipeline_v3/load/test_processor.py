@@ -464,10 +464,12 @@ class TestMarkJobCompleted:
             # If the job was cancelled (absorbing Failed) after the final batch passed
             # should_process_batch, the Completed write is rejected and the staged
             # incremental cursor must NOT be promoted.
-            ("completed_write_lands", "Completed", True),
-            ("completed_write_absorbed_by_failed", "Failed", False),
+            ("completed_write_lands", "Completed", True, None),
+            ("completed_write_absorbed_by_failed", "Failed", False, None),
+            ("schedule_resume_fails", "Completed", True, RuntimeError("temporal down")),
         ]
     )
+    @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
@@ -490,13 +492,16 @@ class TestMarkJobCompleted:
         _case: str,
         resulting_status: str,
         expect_promotion: bool,
+        resume_error: Exception | None,
         mock_update: MagicMock,
         mock_schema_objects: MagicMock,
         mock_finish_row_tracking: AsyncMock,
         mock_job_objects: MagicMock,
         mock_release: MagicMock,
         mock_transaction: MagicMock,
+        mock_resume: MagicMock,
     ) -> None:
+        mock_resume.side_effect = resume_error
         model = MagicMock()
         model.status = resulting_status
         mock_update.return_value = model
@@ -511,9 +516,11 @@ class TestMarkJobCompleted:
 
         if expect_promotion:
             schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
+            mock_resume.assert_called_once_with("schema-1", 1, "job-1")
         else:
             schema.promote_staged_incremental_values.assert_not_called()
             mock_finish_row_tracking.assert_not_awaited()
+            mock_resume.assert_not_called()
         # The pipeline lock must be released either way, or the next sync is blocked.
         mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
 
