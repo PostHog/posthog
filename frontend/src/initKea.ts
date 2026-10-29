@@ -110,6 +110,7 @@ whose path is given here handles its own failures, so the same action elsewhere 
 */
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
+    setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the serializer message itself, or offers to take ownership
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
     loadFullReport: 'scenes.project-homepage.today.todayReportLogic',

@@ -1,7 +1,11 @@
+import { isOwnerUnavailableError, openTakeOwnershipDialog } from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { subscriptionsPartialUpdate } from 'products/subscriptions/frontend/generated/api'
+import {
+    subscriptionsPartialUpdate,
+    subscriptionsTakeOwnershipCreate,
+} from 'products/subscriptions/frontend/generated/api'
 
 export async function toggleSubscriptionEnabled(id: number, enabled: boolean): Promise<boolean> {
     try {
@@ -9,6 +13,16 @@ export async function toggleSubscriptionEnabled(id: number, enabled: boolean): P
         lemonToast.success(enabled ? 'Subscription enabled' : 'Subscription disabled')
         return true
     } catch (e: any) {
+        if (enabled && isOwnerUnavailableError(e)) {
+            return await openTakeOwnershipDialog({
+                resourceLabel: 'subscription',
+                resourceId: id,
+                takeOwnership: async () => {
+                    await subscriptionsTakeOwnershipCreate(String(getCurrentTeamId()), String(id))
+                    lemonToast.success('Subscription enabled')
+                },
+            })
+        }
         const detail = typeof e?.detail === 'string' ? e.detail : null
         lemonToast.error(detail ?? 'Could not update subscription')
         return false

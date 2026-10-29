@@ -5,11 +5,15 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isOwnerUnavailableError, openTakeOwnershipDialog } from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectClean } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { AlertState } from '~/queries/schema/schema-general'
+
+import { alertsTakeOwnershipCreate } from 'products/alerts/frontend/generated/api'
 
 import { AlertType } from '../types'
 import { AlertLogicProps } from './alertLogic'
@@ -338,8 +342,24 @@ export const alertsLogic = kea<alertsLogicType>([
             try {
                 const updatedAlert = await api.alerts.update(alert.id, { enabled: !alert.enabled })
                 actions.updateAlertInList(updatedAlert)
-            } catch {
-                lemonToast.error('Failed to update alert')
+            } catch (error) {
+                if (!alert.enabled && isOwnerUnavailableError(error)) {
+                    // Not awaited, so the row's switch stops loading while the dialog is open.
+                    void openTakeOwnershipDialog({
+                        resourceLabel: 'alert',
+                        resourceId: alert.id,
+                        takeOwnership: async () => {
+                            await alertsTakeOwnershipCreate(String(getCurrentTeamId()), alert.id)
+                            lemonToast.success('Alert enabled')
+                        },
+                    }).then((taken) => {
+                        if (taken) {
+                            actions.loadAlerts()
+                        }
+                    })
+                } else {
+                    lemonToast.error('Failed to update alert')
+                }
             } finally {
                 actions.setAlertToggling(alert.id, false)
             }

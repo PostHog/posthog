@@ -1,3 +1,5 @@
+import { ApiError } from 'lib/api-error'
+import * as takeOwnership from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import * as generatedApi from 'products/subscriptions/frontend/generated/api'
@@ -60,6 +62,26 @@ describe('toggleSubscriptionEnabled', () => {
 
         expect(ok).toBe(false)
         expect(errorSpy).toHaveBeenCalledWith('Could not update subscription')
+    })
+
+    it('offers to take ownership instead of toasting when the owner can no longer run it', async () => {
+        patchSpy.mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_unavailable' }))
+        const takeSpy = jest.spyOn(generatedApi, 'subscriptionsTakeOwnershipCreate').mockResolvedValueOnce({} as any)
+        const dialogSpy = jest
+            .spyOn(takeOwnership, 'openTakeOwnershipDialog')
+            .mockImplementation(async ({ takeOwnership: take }) => {
+                await take()
+                return true
+            })
+
+        const ok = await toggleSubscriptionEnabled(42, true)
+
+        expect(ok).toBe(true)
+        expect(dialogSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ resourceLabel: 'subscription', resourceId: 42 })
+        )
+        expect(takeSpy).toHaveBeenCalledWith('1', '42')
+        expect(errorSpy).not.toHaveBeenCalled()
     })
 
     it('treats non-string detail as missing and uses the fallback toast', async () => {
