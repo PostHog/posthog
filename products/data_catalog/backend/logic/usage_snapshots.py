@@ -95,6 +95,17 @@ def usage_reader(team: Team, user: User, user_access_control: UserAccessControl)
     )
 
 
+# A stored query that reaches this length was cut, and the part that was cut can name any table.
+STORED_SQL_CHARS = 5000
+
+
+def stored_sql_hidden(sql: str, denied_tables: frozenset[str], *, cut_at: int = STORED_SQL_CHARS) -> bool:
+    """Whether a reader with denied tables must not see this stored query. A cut query counts as denied."""
+    if not denied_tables:
+        return False
+    return len(sql) >= cut_at or sql_reads_denied_table(sql, denied_tables)
+
+
 def sql_reads_denied_table(sql: str, denied_tables: frozenset[str]) -> bool:
     """Whether the SQL names a table the reader cannot read. SQL that does not parse counts as denied."""
     if not denied_tables:
@@ -122,7 +133,7 @@ def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> Usage
         else [
             run
             for run in payload.adjusted_runs
-            if run.metric_id in reader.visible_metric_ids and not sql_reads_denied_table(run.sql, reader.denied_tables)
+            if run.metric_id in reader.visible_metric_ids and not stored_sql_hidden(run.sql, reader.denied_tables)
         ],
     )
 
