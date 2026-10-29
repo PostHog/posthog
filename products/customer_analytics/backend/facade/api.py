@@ -3196,13 +3196,6 @@ def _account_table_field_values(
     return values
 
 
-LEGACY_ACCOUNT_RELATIONSHIP_NAMES = {
-    "csm": "CSM",
-    "account_executive": "Account executive",
-    "account_owner": "Account owner",
-}
-
-
 @frozen
 class _AccountTableDefinitions:
     selection: contracts.AccountTableColumnSelection
@@ -3249,21 +3242,13 @@ def _validate_account_table_definitions(
         filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableRelationshipFilter)
     )
     if sort and sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
-        if sort.legacy_relationship_role:
-            selection = replace(
-                selection,
-                legacy_relationship_roles=selection.legacy_relationship_roles | {sort.legacy_relationship_role},
-            )
-        elif sort.definition_id is None:
+        if sort.definition_id is None:
             raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
         if sort.definition_id:
             relationship_ids.add(sort.definition_id)
     relationships = AccountRelationshipDefinition.objects.for_team(team_id).order_by("name", "id")
     if not selection.use_default_columns:
-        relationships = relationships.filter(
-            Q(id__in=relationship_ids)
-            | Q(name__in=[LEGACY_ACCOUNT_RELATIONSHIP_NAMES[role] for role in selection.legacy_relationship_roles])
-        )
+        relationships = relationships.filter(id__in=relationship_ids)
     relationship_definitions = {definition.id: definition for definition in relationships}
     invalid_relationship_ids = relationship_ids - relationship_definitions.keys()
     if invalid_relationship_ids and not ignore_missing_definitions:
@@ -3272,13 +3257,6 @@ def _validate_account_table_definitions(
     selected_relationship_ids = set(selection.relationship_definition_ids) & relationship_definitions.keys()
     if selection.use_default_columns:
         selected_relationship_ids.update(relationship_definitions)
-    else:
-        selected_relationship_ids.update(
-            definition.id
-            for definition in relationship_definitions.values()
-            if definition.name
-            in [LEGACY_ACCOUNT_RELATIONSHIP_NAMES[role] for role in selection.legacy_relationship_roles]
-        )
     selection = replace(
         selection,
         relationship_definition_ids=frozenset(selected_relationship_ids),
@@ -3302,16 +3280,6 @@ def _validate_account_table_definitions(
         .filter(id__in=custom_property_ids, target_type=TargetType.ACCOUNT)
         .select_related("source")
     }
-    if sort and sort.legacy_relationship_role:
-        relationship = next(
-            (
-                definition
-                for definition in relationship_definitions.values()
-                if definition.name == LEGACY_ACCOUNT_RELATIONSHIP_NAMES[sort.legacy_relationship_role]
-            ),
-            None,
-        )
-        sort = replace(sort, definition_id=relationship.id) if relationship else None
     custom_property_display_types = {
         id_: DisplayType(definition.display_type) for id_, definition in custom_properties.items()
     }

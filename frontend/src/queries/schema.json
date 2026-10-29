@@ -430,9 +430,6 @@
                     "$ref": "#/definitions/AccountsTableRelationshipColumn"
                 },
                 {
-                    "$ref": "#/definitions/AccountsTableLegacyRelationshipColumn"
-                },
-                {
                     "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
                 },
                 {
@@ -686,24 +683,6 @@
             ],
             "required": ["kind"],
             "type": "object"
-        },
-        "AccountsTableLegacyRelationshipColumn": {
-            "additionalProperties": false,
-            "properties": {
-                "kind": {
-                    "const": "legacy_relationship",
-                    "type": "string"
-                },
-                "role": {
-                    "$ref": "#/definitions/AccountsTableLegacyRole"
-                }
-            },
-            "required": ["kind", "role"],
-            "type": "object"
-        },
-        "AccountsTableLegacyRole": {
-            "enum": ["csm", "account_executive", "account_owner"],
-            "type": "string"
         },
         "AccountsTableMetric": {
             "description": "A typed aggregate evaluated against the filtered account set.",
@@ -1134,9 +1113,6 @@
                 },
                 {
                     "$ref": "#/definitions/AccountsTableRelationshipColumn"
-                },
-                {
-                    "$ref": "#/definitions/AccountsTableLegacyRelationshipColumn"
                 },
                 {
                     "$ref": "#/definitions/AccountsTableCustomPropertyColumn"

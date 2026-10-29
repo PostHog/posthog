@@ -13,6 +13,7 @@ import type {
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { relationshipAlias } from './accountsColumnConfigLogic'
 import type { AccountPropertyFilter, AccountRelationshipFilter } from './accountsPropertyFilters'
 import {
     AccountsTableQueryPlan,
@@ -67,9 +68,9 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
             'name',
             'accounts.tags.names AS tag_names',
             'accounts.notebooks.count AS notebook_count',
-            `accounts.relationships.values.\`${RELATIONSHIP_ID}\` AS csm`,
+            `accounts.relationships.values.\`${RELATIONSHIP_ID}\` AS ${relationshipAlias(RELATIONSHIP_ID)}`,
         ],
-        visibleColumnNames: ['name', 'tag_names', 'notebook_count', 'csm'],
+        visibleColumnNames: ['name', 'tag_names', 'notebook_count', relationshipAlias(RELATIONSHIP_ID)],
         searchQuery: '',
         tagsFilter: [],
         assignmentStatus: 'all',
@@ -97,7 +98,7 @@ describe('accountsTableQuery', () => {
                 assignmentStatus: 'assigned',
                 assignedToFilter: [7, 9],
                 accountFilters: [relationshipFilter(), customFilter()],
-                serverSortOrder: { column: 'csm', direction: 'desc' },
+                serverSortOrder: { column: relationshipAlias(RELATIONSHIP_ID), direction: 'desc' },
             })
         )
 

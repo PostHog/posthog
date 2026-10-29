@@ -18,7 +18,6 @@ from posthog.schema_enums import (
     AccountsTableAggregation as AccountsTableAggregation,
     AccountsTableCustomPropertyDisplayType as AccountsTableCustomPropertyDisplayType,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
-    AccountsTableLegacyRole as AccountsTableLegacyRole,
     AccountsTableRelationshipOperator as AccountsTableRelationshipOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
     AccountsTableThresholdOperator as AccountsTableThresholdOperator,
@@ -3767,14 +3766,6 @@ class AccountsTableCustomPropertyFilter(BaseModel):
         default=None,
         description=("Values interpreted according to the custom property definition's display type."),
     )
-
-
-class AccountsTableLegacyRelationshipColumn(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["legacy_relationship"] = "legacy_relationship"
-    role: AccountsTableLegacyRole
 
 
 class AccountsTableRelationshipFilter(BaseModel):
@@ -10223,7 +10214,6 @@ class AccountsTableSort(BaseModel):
         | AccountsTableTagsColumn
         | AccountsTableNoteCountColumn
         | AccountsTableRelationshipColumn
-        | AccountsTableLegacyRelationshipColumn
         | AccountsTableCustomPropertyColumn
     ) = Field(
         ...,
@@ -27302,7 +27292,6 @@ class AccountsTableQuery(BaseModel):
             | AccountsTableTagsColumn
             | AccountsTableNoteCountColumn
             | AccountsTableRelationshipColumn
-            | AccountsTableLegacyRelationshipColumn
             | AccountsTableCustomPropertyColumn
             | AccountsTableCustomPropertyHistoryColumn,
             Field(discriminator="kind"),

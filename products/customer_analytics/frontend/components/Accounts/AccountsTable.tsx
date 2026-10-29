@@ -45,7 +45,7 @@ import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountPinnedPropertiesExpansion } from './AccountPinnedPropertiesExpansion'
-import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { AccountColumnDisplayConfig, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
@@ -909,16 +909,6 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
         width: COLUMN_WIDTHS.notebook_count,
         render: () => <LemonSkeleton className="h-4 w-4" />,
     },
-    ...Object.values(LEGACY_ROLE_COLUMNS).map((label) => ({
-        title: label,
-        width: COLUMN_WIDTHS.relationship,
-        render: () => (
-            <div className="flex items-center gap-2">
-                <LemonSkeleton.Circle className="h-5 w-5" />
-                <LemonSkeleton className="h-4 w-24" />
-            </div>
-        ),
-    })),
 ]
 
 function AccountsTableSkeleton(): JSX.Element {

@@ -22,7 +22,6 @@ from posthog.schema import (
     AccountsTableCustomPropertyHistoryPoint,
     AccountsTableCustomPropertyOption,
     AccountsTableCustomPropertySource,
-    AccountsTableLegacyRelationshipColumn,
     AccountsTableNoteCountColumn,
     AccountsTableQuery,
     AccountsTableQueryResponse,
@@ -114,7 +113,6 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         include_tags = False
         include_note_count = False
         relationship_definition_ids: set[UUID] = set()
-        legacy_relationship_roles: set[str] = set()
         custom_property_definition_ids: set[UUID] = set()
         custom_property_history_windows: dict[UUID, int] = {}
 
@@ -126,8 +124,6 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     include_tags = True
                 elif isinstance(column, AccountsTableNoteCountColumn):
                     include_note_count = True
-                elif isinstance(column, AccountsTableLegacyRelationshipColumn):
-                    legacy_relationship_roles.add(column.role.value)
                 elif isinstance(column, AccountsTableRelationshipColumn):
                     relationship_definition_ids.add(UUID(column.definitionId))
                 elif isinstance(column, AccountsTableCustomPropertyColumn):
@@ -144,7 +140,6 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
 
         return contracts.AccountTableColumnSelection(
             use_default_columns=bool(self.query.useDefaultColumns),
-            legacy_relationship_roles=frozenset(legacy_relationship_roles),
             account_fields=frozenset(account_fields),
             include_tags=include_tags,
             include_note_count=include_note_count,
@@ -251,12 +246,6 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
 
         column = self.query.sort.column
         direction = contracts.AccountTableSortDirection(self.query.sort.direction.value)
-        if isinstance(column, AccountsTableLegacyRelationshipColumn):
-            return contracts.AccountTableSort(
-                kind=contracts.AccountTableSortKind.RELATIONSHIP,
-                direction=direction,
-                legacy_relationship_role=column.role.value,
-            )
         if isinstance(column, AccountsTableAccountFieldColumn):
             return contracts.AccountTableSort(
                 kind=contracts.AccountTableSortKind.ACCOUNT_FIELD,
@@ -327,18 +316,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         else:
             resolved_columns: list[AccountsTableResolvedQueryColumn] = []
             for column in self.query.columns:
-                if isinstance(column, AccountsTableLegacyRelationshipColumn):
-                    definition = next(
-                        (
-                            definition
-                            for definition in page.relationship_definitions
-                            if definition.name == api.LEGACY_ACCOUNT_RELATIONSHIP_NAMES[column.role.value]
-                        ),
-                        None,
-                    )
-                    if definition is not None:
-                        resolved_columns.append(AccountsTableRelationshipColumn(definitionId=str(definition.id)))
-                elif isinstance(column, AccountsTableRelationshipColumn):
+                if isinstance(column, AccountsTableRelationshipColumn):
                     if any(str(definition.id) == column.definitionId for definition in page.relationship_definitions):
                         resolved_columns.append(column)
                 elif isinstance(column, AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn):

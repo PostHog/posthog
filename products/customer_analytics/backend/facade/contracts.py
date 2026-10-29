@@ -270,7 +270,6 @@ class AccountTableField(str, Enum):
 @dataclass(frozen=True, kw_only=True)
 class AccountTableColumnSelection:
     use_default_columns: bool = False
-    legacy_relationship_roles: frozenset[str] = frozenset()
     account_fields: frozenset[AccountTableField] = frozenset()
     include_tags: bool = False
     include_note_count: bool = False
@@ -468,7 +467,6 @@ class AccountTableSortDirection(str, Enum):
 
 @dataclass(frozen=True, kw_only=True)
 class AccountTableSort:
-    legacy_relationship_role: str | None = None
     kind: AccountTableSortKind
     direction: AccountTableSortDirection
     account_field: AccountTableField | None = None

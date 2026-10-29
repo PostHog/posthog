@@ -29,20 +29,6 @@ export const ACCOUNTS_TAGS_COLUMN = 'accounts.tags.names AS tag_names'
 const LEGACY_ACCOUNTS_TAGS_NAME_COLUMN = 'accounts.tags.names AS names'
 const LEGACY_ACCOUNTS_TAGS_ACCOUNT_ID_COLUMN = 'accounts.tags.account_id AS account_id'
 
-// Legacy role names remain serialized for saved views and shared URLs.
-// Query planning maps them to seeded relationship definitions.
-export const LEGACY_ROLE_COLUMNS = {
-    csm: 'CSM',
-    account_executive: 'Account executive',
-    account_owner: 'Account owner',
-} as const
-
-export type AccountRoleKey = keyof typeof LEGACY_ROLE_COLUMNS
-
-export function isLegacyRoleColumn(column: string): column is AccountRoleKey {
-    return column in LEGACY_ROLE_COLUMNS
-}
-
 export const ACCOUNTS_DEFAULT_COLUMNS: string[] = [
     ACCOUNTS_NAME_COLUMN,
     ACCOUNTS_TAGS_COLUMN,
@@ -127,36 +113,8 @@ export function applyColumnDisplayToSelect(columns: string[], columnDisplay: Acc
     })
 }
 
-function relationshipExpression(definition: AccountsTableRelationshipDefinition, alias: string): string {
-    return `accounts.relationships.values.\`${definition.id}\` AS ${alias}`
-}
-
-export const ROLE_KEY_BY_NAME: Record<string, AccountRoleKey> = Object.fromEntries(
-    Object.entries(LEGACY_ROLE_COLUMNS).map(([key, name]) => [name, key as AccountRoleKey])
-)
-
-export function roleKeyToDefinitionMap(
-    definitions: AccountsTableRelationshipDefinition[]
-): Partial<Record<AccountRoleKey, AccountsTableRelationshipDefinition>> {
-    return Object.fromEntries(
-        definitions
-            .filter((definition) => ROLE_KEY_BY_NAME[definition.name])
-            .map((definition) => [ROLE_KEY_BY_NAME[definition.name], definition])
-    )
-}
-
-// Keep legacy role names stable in persisted state. Omit roles without a matching definition.
-export function translateSelectColumns(
-    columns: string[],
-    roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountsTableRelationshipDefinition>>
-): string[] {
-    return columns.flatMap((column) => {
-        if (!isLegacyRoleColumn(column)) {
-            return [column]
-        }
-        const definition = roleKeyToDefinition[column]
-        return definition ? [relationshipExpression(definition, column)] : []
-    })
+function getRelationshipColumn(definitionId: string): string {
+    return `accounts.relationships.values.\`${definitionId}\` AS ${relationshipAlias(definitionId)}`
 }
 
 export type AccountColumnOption = {
@@ -237,12 +195,10 @@ function customPropertyOptions(definitions: AccountsTableCustomPropertyDefinitio
     }))
 }
 
-// Keep seeded role names compatible with default columns and persisted selections.
 function relationshipOptions(definitions: AccountsTableRelationshipDefinition[]): AccountColumnOption[] {
     return definitions.map((definition) => ({
         name: definition.name,
-        expression:
-            ROLE_KEY_BY_NAME[definition.name] ?? relationshipExpression(definition, relationshipAlias(definition.id)),
+        expression: getRelationshipColumn(definition.id),
     }))
 }
 
@@ -374,7 +330,6 @@ export interface accountsColumnConfigLogicValues {
         property_type: PropertyType
     })[]
     renderSelectColumns: string[]
-    roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountsTableRelationshipDefinition>>
     selectColumns: string[]
     tableColumnResponse: {
         definitionIds: string[]
@@ -513,48 +468,45 @@ export interface accountsColumnConfigLogicActions {
 export interface accountsColumnConfigLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         customPropertyDefinitions: (
-            customPropertyCatalog: any,
-            customPropertyCatalogProjectId: any,
+            customPropertyCatalog: AccountsTableCustomPropertyDefinition[],
+            customPropertyCatalogProjectId: number | null,
             currentProjectId: number | null
         ) => AccountsTableCustomPropertyDefinition[]
         customPropertyDefinitionsLoaded: (
-            customPropertyCatalogLoaded: any,
-            customPropertyCatalogProjectId: any,
+            customPropertyCatalogLoaded: boolean,
+            customPropertyCatalogProjectId: number | null,
             currentProjectId: number | null
         ) => boolean
         customPropertyDefinitionsLoading: (
-            customPropertyCatalogLoading: any,
-            customPropertyCatalogProjectId: any,
+            customPropertyCatalogLoading: boolean,
+            customPropertyCatalogProjectId: number | null,
             currentProjectId: number | null
         ) => boolean
         relationshipDefinitions: (
-            relationshipCatalog: any,
-            relationshipCatalogProjectId: any,
+            relationshipCatalog: AccountsTableRelationshipDefinition[],
+            relationshipCatalogProjectId: number | null,
             currentProjectId: number | null
         ) => AccountsTableRelationshipDefinition[]
         relationshipDefinitionsLoaded: (
-            relationshipCatalogLoaded: any,
-            relationshipCatalogProjectId: any,
+            relationshipCatalogLoaded: boolean,
+            relationshipCatalogProjectId: number | null,
             currentProjectId: number | null
         ) => boolean
         relationshipDefinitionsLoading: (
-            relationshipCatalogLoading: any,
-            relationshipCatalogProjectId: any,
+            relationshipCatalogLoading: boolean,
+            relationshipCatalogProjectId: number | null,
             currentProjectId: number | null
         ) => boolean
         defaultSelectColumns: (
             relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
         ) => string[]
-        roleKeyToDefinition: (
-            relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
-        ) => Partial<Record<AccountRoleKey, AccountsTableRelationshipDefinition>>
         querySelectColumns: (selectColumns: string[], columnDisplay: AccountColumnDisplayState) => string[]
         renderSelectColumns: (
             querySelectColumns: string[],
-            roleKeyToDefinition: Partial<
-                Record<'account_executive' | 'account_owner' | 'csm', AccountsTableRelationshipDefinition>
-            >,
-            tableColumnResponse: any,
+            tableColumnResponse: {
+                definitionIds: string[]
+                requested: string[] | undefined
+            } | null,
             useDefaultColumns: boolean
         ) => string[]
         visibleColumnNames: (renderSelectColumns: string[]) => string[]
@@ -602,10 +554,7 @@ export interface accountsColumnConfigLogicMeta {
             property_type: PropertyType
         })[]
         aliasToRelationshipDefinition: (
-            relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>,
-            roleKeyToDefinition: Partial<
-                Record<'account_executive' | 'account_owner' | 'csm', AccountsTableRelationshipDefinition>
-            >
+            relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
         ) => Record<string, AccountsTableRelationshipDefinition>
     }
 }
@@ -894,19 +843,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             (s) => [s.relationshipDefinitionsById],
             (definitions: Record<string, AccountsTableRelationshipDefinition>): string[] => [
                 ...ACCOUNTS_DEFAULT_COLUMNS,
-                ...Object.values(definitions).map(
-                    (definition) =>
-                        ROLE_KEY_BY_NAME[definition.name] ??
-                        relationshipExpression(definition, relationshipAlias(definition.id))
-                ),
+                ...Object.values(definitions).map((definition) => getRelationshipColumn(definition.id)),
             ],
-        ],
-        roleKeyToDefinition: [
-            (s) => [s.relationshipDefinitionsById],
-            (
-                definitionsById: Record<string, AccountsTableRelationshipDefinition>
-            ): Partial<Record<AccountRoleKey, AccountsTableRelationshipDefinition>> =>
-                roleKeyToDefinitionMap(Object.values(definitionsById)),
         ],
         querySelectColumns: [
             (s) => [s.selectColumns, s.columnDisplay],
@@ -914,14 +852,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 applyColumnDisplayToSelect(selectColumns, columnDisplay),
         ],
         renderSelectColumns: [
-            (s) => [s.querySelectColumns, s.roleKeyToDefinition, s.tableColumnResponse, s.useDefaultColumns],
+            (s) => [s.querySelectColumns, s.tableColumnResponse, s.useDefaultColumns],
             (
                 columns: string[],
-                roles: Partial<Record<AccountRoleKey, AccountsTableRelationshipDefinition>>,
                 response: { requested: string[] | undefined; definitionIds: string[] } | null,
                 useDefaults: boolean
             ): string[] =>
-                translateSelectColumns(columns, roles).filter((column) => {
+                columns.filter((column) => {
                     const id = column.match(
                         /^accounts\.(?:custom_properties(?:_history)?|relationships)\.values\.`([^`]+)`/
                     )?.[1]
@@ -1045,19 +982,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 })),
         ],
         aliasToRelationshipDefinition: [
-            (s) => [s.relationshipDefinitionsById, s.roleKeyToDefinition],
+            (s) => [s.relationshipDefinitionsById],
             (
-                relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>,
-                roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountsTableRelationshipDefinition>>
-            ): Record<string, AccountsTableRelationshipDefinition> => ({
-                ...Object.fromEntries(
-                    Object.values(relationshipDefinitionsById).map((definition) => [
-                        relationshipAlias(definition.id),
-                        definition,
-                    ])
+                definitions: Record<string, AccountsTableRelationshipDefinition>
+            ): Record<string, AccountsTableRelationshipDefinition> =>
+                Object.fromEntries(
+                    Object.values(definitions).map((definition) => [relationshipAlias(definition.id), definition])
                 ),
-                ...roleKeyToDefinition,
-            }),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -1101,23 +1032,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         showColumnConfigurator: () => actions.ensureDefinitionsLoaded(),
         hydrateTableDefinitions: ({ response }) => {
             if (values.useDefaultColumns && response.columns) {
-                const roles = roleKeyToDefinitionMap(response.relationshipDefinitions ?? [])
                 actions.setDefaultSelectColumns([
                     ...ACCOUNTS_DEFAULT_COLUMNS,
                     ...response.columns.flatMap((column) => {
                         if (column.kind !== 'relationship') {
                             return []
                         }
-                        const role = Object.entries(roles).find(
-                            ([, definition]) => definition?.id === column.definitionId
-                        )?.[0]
-                        return [
-                            role ??
-                                relationshipExpression(
-                                    { id: column.definitionId, name: '', is_controlled: false },
-                                    relationshipAlias(column.definitionId)
-                                ),
-                        ]
+                        return [getRelationshipColumn(column.definitionId)]
                     }),
                 ])
             }

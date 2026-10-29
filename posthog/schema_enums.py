@@ -101,12 +101,6 @@ class AccountsTableCustomPropertyOperator(StrEnum):
     IS_DATE_AFTER = "is_date_after"
 
 
-class AccountsTableLegacyRole(StrEnum):
-    CSM = "csm"
-    ACCOUNT_EXECUTIVE = "account_executive"
-    ACCOUNT_OWNER = "account_owner"
-
-
 class AccountsTableRelationshipOperator(StrEnum):
     EXACT = "exact"
     IS_NOT = "is_not"

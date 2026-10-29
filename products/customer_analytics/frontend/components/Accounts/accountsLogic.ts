@@ -53,7 +53,7 @@ import type {
     AccountPresenceViewerApi,
     CustomPropertyValueWriteApi,
 } from '../../generated/api.schemas'
-import { accountsColumnConfigLogic, isLegacyRoleColumn } from './accountsColumnConfigLogic'
+import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import {
     ACCOUNT_EXPANSION_TABS,
@@ -76,7 +76,7 @@ import {
 } from './accountsTableQuery'
 import { getAccountsViewSession } from './accountsViewSessionLogic'
 import { AccountsViewState, normalizeRoleFilter } from './accountsViewState'
-import { AccountsEvents, DEFAULT_TILES } from './constants'
+import { ACCOUNT_RELATIONSHIP_ANALYTICS_ROLES, AccountsEvents, DEFAULT_TILES } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
 
@@ -1813,7 +1813,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 actions.setRelationshipOverride(accountId, column, user ? [user.id] : [])
                 posthog.capture(AccountsEvents.RoleAssigned, {
-                    role: isLegacyRoleColumn(column) ? column : definition.name,
+                    role: ACCOUNT_RELATIONSHIP_ANALYTICS_ROLES[definition.name] ?? definition.name,
                     is_assigned: user !== null,
                     assigned_user_id: user?.id ?? null,
                     source: 'list_row',

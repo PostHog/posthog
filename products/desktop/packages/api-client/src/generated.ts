@@ -610,14 +610,6 @@ export namespace Schemas {
         timestamp: string;
         value: number;
     };
-    export type AccountsTableLegacyRole =
-        | "csm"
-        | "account_executive"
-        | "account_owner";
-    export type AccountsTableLegacyRelationshipColumn = {
-        kind?: string | undefined;
-        role: AccountsTableLegacyRole;
-    };
     export type AccountsTableNoteCountColumn = Partial<{ kind: string }>;
     export type AccountsTableTagsColumn = Partial<{ kind: string }>;
     export type AccountsTableRelationshipColumn = {
@@ -735,7 +727,6 @@ export namespace Schemas {
             | AccountsTableTagsColumn
             | AccountsTableNoteCountColumn
             | AccountsTableRelationshipColumn
-            | AccountsTableLegacyRelationshipColumn
             | AccountsTableCustomPropertyColumn;
         direction: AccountsTableSortDirection;
     };
@@ -748,7 +739,6 @@ export namespace Schemas {
             | AccountsTableTagsColumn
             | AccountsTableNoteCountColumn
             | AccountsTableRelationshipColumn
-            | AccountsTableLegacyRelationshipColumn
             | AccountsTableCustomPropertyColumn
             | AccountsTableCustomPropertyHistoryColumn
         >;

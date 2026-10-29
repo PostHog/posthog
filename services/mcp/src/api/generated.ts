@@ -3460,20 +3460,6 @@ export namespace Schemas {
       value: number;
     }
 
-    export type AccountsTableLegacyRole = typeof AccountsTableLegacyRole[keyof typeof AccountsTableLegacyRole];
-
-
-    export const AccountsTableLegacyRole = {
-      Csm: 'csm',
-      AccountExecutive: 'account_executive',
-      AccountOwner: 'account_owner',
-    } as const;
-
-    export interface AccountsTableLegacyRelationshipColumn {
-      kind?: 'legacy_relationship';
-      role: AccountsTableLegacyRole;
-    }
-
     export const AccountsTableNoteCountColumnValue = {
       kind: 'note_count',
     } as const;
@@ -3612,13 +3598,13 @@ export namespace Schemas {
 
     export interface AccountsTableSort {
       /** A typed column that supports server-side sorting. */
-      column: AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableLegacyRelationshipColumn | AccountsTableCustomPropertyColumn;
+      column: AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn;
       direction: AccountsTableSortDirection;
     }
 
     export interface AccountsTableQuery {
       /** Columns to load for each account. Account identity fields are always returned. */
-      columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableLegacyRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
+      columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
       /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
       filterGroups?: ((AccountsTableAccountFieldFilter | AccountsTableRelationshipFilter | AccountsTableCustomPropertyFilter)[])[] | null;
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */

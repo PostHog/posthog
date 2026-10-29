@@ -3171,7 +3171,6 @@ export type AccountsTableColumn =
     | AccountsTableTagsColumn
     | AccountsTableNoteCountColumn
     | AccountsTableRelationshipColumn
-    | AccountsTableLegacyRelationshipColumn
     | AccountsTableCustomPropertyColumn
     | AccountsTableCustomPropertyHistoryColumn
 
@@ -3184,7 +3183,6 @@ export type AccountsTableSortableColumn =
     | AccountsTableTagsColumn
     | AccountsTableNoteCountColumn
     | AccountsTableRelationshipColumn
-    | AccountsTableLegacyRelationshipColumn
     | AccountsTableCustomPropertyColumn
 
 export enum AccountsTableSortDirection {
@@ -3429,17 +3427,6 @@ export type AccountsTableResolvedColumn =
     | AccountsTableRelationshipColumn
     | AccountsTableCustomPropertyColumn
     | AccountsTableCustomPropertyHistoryColumn
-
-export enum AccountsTableLegacyRole {
-    Csm = 'csm',
-    AccountExecutive = 'account_executive',
-    AccountOwner = 'account_owner',
-}
-
-export interface AccountsTableLegacyRelationshipColumn {
-    kind: 'legacy_relationship'
-    role: AccountsTableLegacyRole
-}
 
 export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
     kind: NodeKind.AccountsTableQuery

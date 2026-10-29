@@ -8777,19 +8777,6 @@ export interface AccountsQueryApi {
     version?: number | null
 }
 
-export type AccountsTableLegacyRoleApi = (typeof AccountsTableLegacyRoleApi)[keyof typeof AccountsTableLegacyRoleApi]
-
-export const AccountsTableLegacyRoleApi = {
-    Csm: 'csm',
-    AccountExecutive: 'account_executive',
-    AccountOwner: 'account_owner',
-} as const
-
-export interface AccountsTableLegacyRelationshipColumnApi {
-    kind?: 'legacy_relationship'
-    role: AccountsTableLegacyRoleApi
-}
-
 export type AccountsTableAccountFieldOperatorApi =
     (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
 
@@ -8986,7 +8973,6 @@ export interface AccountsTableSortApi {
         | AccountsTableTagsColumnApi
         | AccountsTableNoteCountColumnApi
         | AccountsTableRelationshipColumnApi
-        | AccountsTableLegacyRelationshipColumnApi
         | AccountsTableCustomPropertyColumnApi
     direction: AccountsTableSortDirectionApi
 }
@@ -8998,7 +8984,6 @@ export interface AccountsTableQueryApi {
         | AccountsTableTagsColumnApi
         | AccountsTableNoteCountColumnApi
         | AccountsTableRelationshipColumnApi
-        | AccountsTableLegacyRelationshipColumnApi
         | AccountsTableCustomPropertyColumnApi
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]

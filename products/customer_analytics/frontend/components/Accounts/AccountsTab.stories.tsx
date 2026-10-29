@@ -22,7 +22,7 @@ import type {
     UserCustomerAnalyticsConfigApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_DEFAULT_COLUMNS, LEGACY_ROLE_COLUMNS, customPropertyAlias } from './accountsColumnConfigLogic'
+import { ACCOUNTS_DEFAULT_COLUMNS, customPropertyAlias, relationshipAlias } from './accountsColumnConfigLogic'
 
 const QUERY_ENDPOINT = '/api/projects/:team_id/accounts_table_query/'
 const COLUMN_CONFIGURATIONS_ENDPOINT = 'api/projects/:team_id/column_configurations/'
@@ -98,15 +98,7 @@ function buildAccountsTableQueryResponse(
                       ({ id }): AccountsTableResolvedColumn => ({ kind: 'relationship', definitionId: id })
                   ),
               ]
-            : query.columns.flatMap((column): AccountsTableResolvedColumn[] => {
-                  if (column.kind !== 'legacy_relationship') {
-                      return [column]
-                  }
-                  const definition = RELATIONSHIP_DEFINITIONS.results.find(
-                      ({ name }) => name === LEGACY_ROLE_COLUMNS[column.role]
-                  )
-                  return definition ? [{ kind: 'relationship', definitionId: definition.id }] : []
-              })
+            : query.columns
     return {
         columns,
         customPropertyDefinitions: definitions,
@@ -442,7 +434,7 @@ export const ManyColumns: Story = {
             JSON.stringify({
                 columns: [
                     ...ACCOUNTS_DEFAULT_COLUMNS,
-                    'csm',
+                    `accounts.relationships.values.\`${RELATIONSHIP_DEFINITIONS.results[0].id}\` AS ${relationshipAlias(RELATIONSHIP_DEFINITIONS.results[0].id)}`,
                     'external_id',
                     ...ADDITIONAL_COLUMN_DEFINITIONS.map(
                         ({ id }) => `accounts.custom_properties.values.\`${id}\` AS ${customPropertyAlias(id)}`

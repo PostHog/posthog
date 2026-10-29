@@ -1379,19 +1379,6 @@ export interface AccountsTableRelationshipColumnApi {
     kind?: 'relationship'
 }
 
-export type AccountsTableLegacyRoleApi = (typeof AccountsTableLegacyRoleApi)[keyof typeof AccountsTableLegacyRoleApi]
-
-export const AccountsTableLegacyRoleApi = {
-    Csm: 'csm',
-    AccountExecutive: 'account_executive',
-    AccountOwner: 'account_owner',
-} as const
-
-export interface AccountsTableLegacyRelationshipColumnApi {
-    kind?: 'legacy_relationship'
-    role: AccountsTableLegacyRoleApi
-}
-
 export interface AccountsTableCustomPropertyColumnApi {
     /** Team-scoped custom property definition to return for each account. */
     definitionId: string
@@ -2112,7 +2099,6 @@ export interface AccountsTableSortApi {
         | AccountsTableTagsColumnApi
         | AccountsTableNoteCountColumnApi
         | AccountsTableRelationshipColumnApi
-        | AccountsTableLegacyRelationshipColumnApi
         | AccountsTableCustomPropertyColumnApi
     direction: AccountsTableSortDirectionApi
 }
@@ -2135,7 +2121,6 @@ export interface AccountsTableQueryApi {
         | AccountsTableTagsColumnApi
         | AccountsTableNoteCountColumnApi
         | AccountsTableRelationshipColumnApi
-        | AccountsTableLegacyRelationshipColumnApi
         | AccountsTableCustomPropertyColumnApi
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]

@@ -13,7 +13,6 @@ import {
     AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableColumn,
-    AccountsTableLegacyRole,
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyOperator,
     AccountsTableFilter,
@@ -32,7 +31,7 @@ import {
 import { AccountCustomPropertyFilter, PropertyOperator, PropertyType } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
-import { isLegacyRoleColumn, type AccountColumnDisplayState } from './accountsColumnConfigLogic'
+import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { TileFilter } from './accountsOverviewTilesLogic'
 import {
@@ -146,9 +145,6 @@ export function columnFromExpression(
     expression: string,
     columnDisplay: AccountColumnDisplayState
 ): AccountsTableColumn | null {
-    if (isLegacyRoleColumn(expression)) {
-        return { kind: 'legacy_relationship', role: expression as AccountsTableLegacyRole }
-    }
     if (expression === 'accounts.tags.names AS tag_names') {
         return { kind: 'tags' }
     }

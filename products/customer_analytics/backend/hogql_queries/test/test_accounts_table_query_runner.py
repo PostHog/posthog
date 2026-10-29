@@ -27,8 +27,6 @@ from posthog.schema import (
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
     AccountsTableCustomPropertyOperator,
-    AccountsTableLegacyRelationshipColumn,
-    AccountsTableLegacyRole,
     AccountsTableNoteCountColumn,
     AccountsTableQuery,
     AccountsTableQueryResponse,
@@ -96,25 +94,6 @@ class TestAccountsTableQueryRunner(BaseTest):
         ]
         assert response.relationshipDefinitions is not None
         assert [(item.id, item.name) for item in response.relationshipDefinitions] == [(str(definition.id), "CSM")]
-
-    def test_resolves_saved_legacy_roles_and_sorts_their_values(self) -> None:
-        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
-            team_id=self.team.id, name="CSM"
-        )
-        account = create_account(team_id=self.team.id, name="Assigned")
-        AccountRelationship.objects.for_team(self.team.id).create(
-            team_id=self.team.id, account=account, definition=definition, user=self.user
-        )
-        column = AccountsTableLegacyRelationshipColumn(role=AccountsTableLegacyRole.CSM)
-
-        response = self._run(
-            AccountsTableQuery(
-                columns=[column], sort=AccountsTableSort(column=column, direction=AccountsTableSortDirection.ASC)
-            )
-        )
-
-        assert response.columns == [AccountsTableRelationshipColumn(definitionId=str(definition.id))]
-        assert response.results[0].relationships[str(definition.id)] == [self.user.id]
 
     def test_returns_filter_definition_metadata_without_selecting_its_values(self) -> None:
         definition = create_custom_property_definition(
