@@ -12,8 +12,6 @@ to match the rest of `/api/users/@me/…`.
 
 from typing import cast
 
-from django.utils import timezone as django_timezone
-
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
@@ -112,8 +110,8 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         },
         summary="Register a push notification token",
         description=(
-            "Idempotent upsert: if the (user, token) pair already exists, `platform` and "
-            "`last_seen_at` are refreshed. Otherwise a new row is created."
+            "Register the device for the authenticated user, removing registrations for the same token "
+            "belonging to other users on this instance. Re-registration refreshes `platform` and `last_seen_at`."
         ),
     )
     def create(self, request: Request, **_kwargs) -> Response:
@@ -122,18 +120,8 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         token: str = data["token"]
         platform: str = data["platform"]
 
-        # `last_seen_at` is explicit in defaults (rather than relying on the
-        # model's `auto_now=True`) because `update_or_create` passes
-        # `defaults.keys()` as `update_fields` on the update path — fields not
-        # listed there won't be written even though `pre_save` ran for them.
-        push_token, created = UserPushToken.objects.update_or_create(
-            user=user,
-            token=token,
-            defaults={"platform": platform, "last_seen_at": django_timezone.now()},
-        )
-
-        if created:
-            self._enforce_per_user_cap(user)
+        push_token = UserPushToken.register(user=user, token=token, platform=platform)
+        self._enforce_per_user_cap(user)
 
         return Response(UserPushTokenItemSerializer(push_token).data)
 
