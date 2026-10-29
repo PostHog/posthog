@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from django.db.models import Case, IntegerField, Value, When
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
@@ -18,7 +19,6 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -161,13 +161,22 @@ def resolve_team_github_integration(
     )
     # Skip integrations whose installation has been synced and confirmed empty (0 repos). The SDK
     # defers the repository cache, so check it only until the first match.
-    integration = next(
-        (row for row in candidates if not (row.repository_cache_updated_at is not None and row.repository_cache == [])),
+    github = next(
+        (
+            adapter
+            for adapter in (
+                GitHubIntegration(row, source="repo_selection", priority=Priority.CRITICAL) for row in candidates
+            )
+            if not (
+                adapter.integration.repository_cache_updated_at is not None
+                and adapter.integration.repository_cache == []
+            )
+        ),
         None,
     )
     # Prefer the first GitHub integration from the team
-    if integration is not None:
-        return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
+    if github is not None:
+        return github
 
     if team_only:
         return None

@@ -21,6 +21,7 @@ import structlog
 from posthog.comment.access import task_comment_target_is_accessible
 from posthog.comment.formatting import rich_content_to_slack_payload
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.comment import Comment
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import SlackIntegration
@@ -32,7 +33,6 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.identity import resolve_slack_user
 from posthog.user_permissions import UserPermissions
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
 from products.tasks.backend.models import Task, TaskCommentActivity

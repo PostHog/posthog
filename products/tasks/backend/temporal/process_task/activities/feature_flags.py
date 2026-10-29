@@ -3,11 +3,9 @@ from typing import Any
 
 from temporalio import activity
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
-
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 logger = get_logger(__name__)
 
@@ -31,9 +29,7 @@ def is_slack_app_agent_design_enabled_for_task_activity(
     from products.slack_app.backend.feature_flags import is_slack_app_agent_design_enabled
     from products.tasks.backend.models import TaskRun
 
-    # One query for the team and the creator. The gate reads `integration.team`, so the joined
-    # team also saves a lazy load later.
-    run = TaskRun.objects.select_related("team", "task__created_by").filter(id=input.run_id).first()
+    run = TaskRun.objects.select_related("task__created_by").filter(id=input.run_id).first()
     try:
         if run is None:
             raise IntegrationNotFound(f"No task run {input.run_id}")
@@ -42,7 +38,6 @@ def is_slack_app_agent_design_enabled_for_task_activity(
         logger.warning("slack_app_agent_design_integration_missing", integration_id=input.integration_id)
         enabled = False
     else:
-        integration.team = run.team
         # The run's creator is the person the decision is about, so the gate resolves the
         # flag against them and an internal rollout can name people by email or cohort the
         # way every other one does. None when the run has no creator on record.

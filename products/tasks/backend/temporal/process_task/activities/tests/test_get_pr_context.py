@@ -9,9 +9,9 @@ from django.core.exceptions import ObjectDoesNotExist
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.integrations import IntegrationNotFound
 from posthog.models.team.team import Team
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,

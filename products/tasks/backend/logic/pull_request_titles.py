@@ -6,11 +6,11 @@ import structlog
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError, PullRequestRef
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.visibility import task_visibility_q

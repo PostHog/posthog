@@ -20,13 +20,13 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.user_integration import UserIntegration
 from posthog.oauth_provenance import get_oauth_client_id, is_interactive_desktop_grant
 from posthog.object_tags.kinds import OBJECT_KINDS
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
-from products.integrations.backend.presentation.fields import IntegrationReferenceField
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES, TASK_RUN_FAILURE_ERROR_TYPES

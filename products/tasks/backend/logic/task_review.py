@@ -1,10 +1,10 @@
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.models import Task
 
 

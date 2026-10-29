@@ -11,11 +11,11 @@ from django.utils import timezone
 import requests
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import GitHubIntegration
 
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -121,7 +121,6 @@ def _refresh_installation_token(integration: IntegrationRecord) -> None:
     try:
         if github.access_token_expired():
             github.refresh_access_token()
-            integration.refresh_from_db(fields=["config", "sensitive_config"])
     except Exception:
         logger.warning("repository_readiness.refresh_token_failed", exc_info=True)
         return

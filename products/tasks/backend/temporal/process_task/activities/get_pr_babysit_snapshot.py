@@ -5,11 +5,11 @@ from django.core.exceptions import ObjectDoesNotExist
 from temporalio import activity
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration
 from posthog.temporal.common.utils import close_db_connections
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.babysit_pr.snapshot import PRSnapshot

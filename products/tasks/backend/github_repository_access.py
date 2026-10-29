@@ -2,9 +2,8 @@ import logging
 from collections.abc import Iterable
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration
-
-from products.integrations.backend.facade.api import IntegrationManager
 
 logger = logging.getLogger(__name__)
 

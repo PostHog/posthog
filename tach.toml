@@ -1070,7 +1070,6 @@ depends_on = [
     "products.event_definitions",
     "products.exports",
     "products.feature_flags",
-    "products.integrations",
     "products.ai_observability",
     "products.mcp_store",
     "products.notifications",

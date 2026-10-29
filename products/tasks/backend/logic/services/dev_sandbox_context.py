@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from posthog.integrations import IntegrationManager
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 
 

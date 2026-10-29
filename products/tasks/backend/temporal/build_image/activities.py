@@ -11,10 +11,10 @@ from temporalio import activity
 if TYPE_CHECKING:
     import modal
 
+from posthog.integrations import IntegrationManager
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.logic.services.image_spec import (
     SandboxImageSpec,
     parse_image_spec_json,

@@ -2,10 +2,9 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.temporal.common.utils import asyncify
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.temporal.observability import log_with_activity_context
 

@@ -25,11 +25,11 @@ django.setup()
 from django.db import transaction
 
 from posthog.accessible_teams import AccessibleTeams
+from posthog.integrations import IntegrationManager
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.personal_api_key_minting import mint_personal_api_key
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import Task, TaskRun
@@ -78,7 +78,7 @@ def create_test_task(repository=None):
             title="Add a joke to the README.md file",
             description="Add a joke to the README.md file",
             origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=github_integration,
+            github_integration_id=github_integration.id,
             repository=repository,
         )
 

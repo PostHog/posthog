@@ -8,12 +8,11 @@ from temporalio import activity
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.constants import CI_STATUSES, PR_STATES
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun

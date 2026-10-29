@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.enums import LabeledStrEnum
+from posthog.integrations import IntegrationManager
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
@@ -28,7 +29,6 @@ from posthog.models.user_integration import (
 )
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.mcp_store.backend.facade.api import resolve_installations_for_sandbox
 from products.mcp_store.backend.facade.contracts import UnmountedInstallation, UnmountedInstallationReason
 from products.tasks.backend import model_catalog

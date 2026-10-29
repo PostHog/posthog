@@ -30,6 +30,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -41,7 +42,6 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.constants import (
     DEFAULT_TRUSTED_DOMAINS,
     GITHUB_PR_URL_PREFIX,
@@ -1330,6 +1330,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 ),
                 None,
             )
+        github_integration_id = github_integration.id if github_integration is not None else None
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -1337,7 +1338,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             client_provenance=client_provenance,
             created_by=created_by,
             repository=repository,
-            github_integration=github_integration,
+            github_integration_id=github_integration_id,
             runtime=runtime,
         )
         authorship_mode = (
@@ -1406,7 +1407,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             profile=profile_key,
             client_provenance=client_provenance,
             created_by=created_by,
-            github_integration=github_integration,
+            github_integration_id=github_integration_id,
             github_user_integration=github_user_integration,
             repository=repository,
             repositories=resolved_repositories,

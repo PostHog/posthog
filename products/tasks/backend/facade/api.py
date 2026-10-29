@@ -56,6 +56,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
@@ -67,8 +68,6 @@ from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.facade import api as cdp_facade
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.posthog_ai.backend.task_ownership import (
     detach_conversations_for_task_handoff,
     soft_delete_conversations_for_task,
@@ -6375,7 +6374,7 @@ def _ensure_task_team_github_integration(task: Task) -> bool:
     github_integration = IntegrationManager.github.oauth.find(task.team_id)
     if github_integration is None:
         return False
-    task.github_integration = github_integration
+    task.github_integration_id = github_integration.id
     task.save(update_fields=["github_integration", "updated_at"])
     return True
 
@@ -9284,7 +9283,7 @@ def warm_task_sandbox(
     )
     # `_build_task` resolves the team's first GitHub integration; a warm must instead hold the
     # one the caller asked for, because warm reuse matches on the integration id.
-    task.github_integration = github_integration
+    task.github_integration_id = github_integration.id if github_integration is not None else None
     task.save(update_fields=["github_integration", "updated_at"])
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
@@ -10838,7 +10837,9 @@ def update_channel(
                 update_fields.append("name")
             if repositories is not None:
                 channel.repositories = repositories
-                channel.github_integration = github_integration if repositories else None
+                channel.github_integration_id = (
+                    github_integration.id if repositories and github_integration is not None else None
+                )
                 update_fields.extend(["repositories", "github_integration"])
             if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
                 channel.auto_archive_after_days = auto_archive_after_days

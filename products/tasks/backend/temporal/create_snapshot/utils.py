@@ -1,9 +1,8 @@
 from typing import Optional
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration
-
-from products.integrations.backend.facade.api import IntegrationManager
 
 
 def get_github_token(team_id: int, github_integration_id: int) -> Optional[str]:

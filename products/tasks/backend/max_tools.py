@@ -6,9 +6,8 @@ from asgiref.sync import async_to_sync, sync_to_async
 from pydantic import BaseModel, Field
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.storage import object_storage
-
-from products.integrations.backend.facade.api import IntegrationManager
 
 from ee.hogai.tool import MaxTool
 
@@ -89,7 +88,7 @@ By default, the task will be created and immediately executed. Set run=false to 
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 repository=repository,
-                github_integration=github_integration,
+                github_integration_id=github_integration.id if github_integration is not None else None,
             )
 
             task_run = None
