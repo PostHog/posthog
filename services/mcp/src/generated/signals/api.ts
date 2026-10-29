@@ -193,6 +193,10 @@ export const signalsConfigCreateBodyMaxReportsPerDayMax = 2147483647
 
 export const signalsConfigCreateBodyPullRequestLabelMax = 50
 
+export const signalsConfigCreateBodyImplementationRepositoriesItemMax = 255
+
+export const signalsConfigCreateBodyImplementationRepositoriesMax = 20
+
 export const SignalsConfigCreateBody = () => zod.object({
     autostart_enabled: zod
         .boolean()
@@ -282,6 +286,13 @@ export const SignalsConfigCreateBody = () => zod.object({
         .nullish()
         .describe(
             "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
+        ),
+    implementation_repositories: zod
+        .array(zod.string().max(signalsConfigCreateBodyImplementationRepositoriesItemMax))
+        .max(signalsConfigCreateBodyImplementationRepositoriesMax)
+        .optional()
+        .describe(
+            "Extra GitHub repositories, as 'organization\/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default."
         ),
     anomaly_scoring_enabled: zod
         .boolean()
