@@ -1448,7 +1448,7 @@ export interface TraceClusterApi {
 }
 
 export interface TraceClustersApi {
-    /** The clusters that list the trace: for each clustering job, the newest run that lists it. Clusters come before outliers, then newest first. */
+    /** The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. Manual runs are left out. Clusters come before outliers, then newest first. */
     clusters: TraceClusterApi[]
 }
 

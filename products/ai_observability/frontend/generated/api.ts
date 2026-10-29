@@ -705,7 +705,7 @@ export const getAiObservabilityTracesClustersRetrieveUrl = (
 }
 
 /**
- * The clusters that list this trace, from the newest run of each clustering job that lists it.
+ * The clusters that list this trace, from the newest scheduled run of each clustering job that lists it.
  */
 export const aiObservabilityTracesClustersRetrieve = async (
     projectId: string,
