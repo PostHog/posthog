@@ -1548,6 +1548,67 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             self.team,
         )
         flush_persons_and_events()
+        self._log_split_change_from_90_10_on_2024_01_03()
+
+        response = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
+        ).calculate()
+
+        self.assertEqual(
+            [(finding.code, finding.subcode) for finding in response.health_findings or []],
+            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
+        )
+
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_srm_segments_after_a_split_change_count_only_the_users_first_exposed_after_it(self) -> None:
+        ff_property = f"$feature/{self.feature_flag.key}"
+        # Web 1.0.0 got the old 90/10 split before the change. After it, web 2.0.0 matches the current 50/50 split
+        # and posthog-node 4.2.1 doesn't.
+        journeys_for(
+            {
+                f"user_{library}_{version}_{variant}_{i}": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": day,
+                        "properties": {
+                            "$feature_flag_response": variant,
+                            ff_property: variant,
+                            "$feature_flag": self.feature_flag.key,
+                            "$lib": library,
+                            "$lib_version": version,
+                        },
+                    }
+                ]
+                for day, library, version, counts in (
+                    ("2024-01-02", "web", "1.0.0", (("control", 200), ("test", 10))),
+                    ("2024-01-04", "web", "2.0.0", (("control", 60), ("test", 60))),
+                    ("2024-01-04", "posthog-node", "4.2.1", (("control", 15), ("test", 105))),
+                )
+                for variant, count in counts
+                for i in range(count)
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+        self._log_split_change_from_90_10_on_2024_01_03()
+
+        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=True):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        [finding] = response.health_findings or []
+        versions = sorted(
+            str(value) for key, value in finding.evidence.items() if re.fullmatch(r"library_version_\d+", key)
+        )
+        self.assertEqual((finding.subcode, versions), ("split_changed", ["2.0.0", "4.2.1"]))
+        self.assertIn(
+            'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
+            "library.",
+            finding.detail,
+        )
+
+    def _log_split_change_from_90_10_on_2024_01_03(self) -> None:
         before = {
             **self.feature_flag.filters,
             "multivariate": {
@@ -1573,15 +1634,6 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             created_at=datetime(2024, 1, 3, tzinfo=UTC),
         )
 
-        response = ExperimentExposuresQueryRunner(
-            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
-        ).calculate()
-
-        self.assertEqual(
-            [(finding.code, finding.subcode) for finding in response.health_findings or []],
-            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
-        )
-
     @parameterized.expand(
         [
             (
@@ -1601,13 +1653,16 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     "library_3": "posthog-ios",
                     "library_3_exposed_control": 10,
                     "library_3_exposed_test": 10,
-                    "library_version_1": "web 1.200.0",
+                    "library_version_1": "1.200.0",
+                    "library_version_1_library": "web",
                     "library_version_1_exposed_control": 100,
                     "library_version_1_exposed_test": 100,
-                    "library_version_2": "posthog-node 4.2.1",
+                    "library_version_2": "4.2.1",
+                    "library_version_2_library": "posthog-node",
                     "library_version_2_exposed_control": 5,
                     "library_version_2_exposed_test": 120,
-                    "library_version_3": "posthog-ios 3.0.0",
+                    "library_version_3": "3.0.0",
+                    "library_version_3_library": "posthog-ios",
                     "library_version_3_exposed_control": 10,
                     "library_version_3_exposed_test": 10,
                     "page_1": "/",

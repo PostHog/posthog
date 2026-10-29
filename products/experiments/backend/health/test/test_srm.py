@@ -27,6 +27,10 @@ def _segment(dimension: ExposureSegmentDimension, value: str, control: int, test
     return ExposureSegment(dimension=dimension, value=value, exposed_by_variant={"control": control, "test": test})
 
 
+def _version(library: str, version: str, control: int, test: int) -> ExposureSegment:
+    return replace(_segment(LIBRARY_VERSION, version, control, test), library=library)
+
+
 def _exposures(segments: tuple[ExposureSegment, ...] | None) -> ExposureTotals:
     return ExposureTotals(
         total_exposures={"control": 600, "test": 900},
@@ -92,8 +96,8 @@ class TestSrmSegments(TestCase):
                 (
                     _segment(LIBRARY, "web", 800, 1200),
                     _segment(LIBRARY, "posthog-node", 400, 400),
-                    _segment(LIBRARY_VERSION, "web 1.200.0", 400, 400),
-                    _segment(LIBRARY_VERSION, "posthog-node 4.2.1", 100, 400),
+                    _version("web", "1.200.0", 400, 400),
+                    _version("posthog-node", "4.2.1", 100, 400),
                     _segment(PAGE, "/pricing", 600, 600),
                     _segment(PAGE, "/checkout", 200, 600),
                 ),
@@ -105,8 +109,8 @@ class TestSrmSegments(TestCase):
                 "the_version_of_the_located_library",
                 (
                     *SERVER_SKEWED,
-                    _segment(LIBRARY_VERSION, "web 1.200.0", 500, 500),
-                    _segment(LIBRARY_VERSION, "posthog-node 4.2.1", 100, 400),
+                    _version("web", "1.200.0", 500, 500),
+                    _version("posthog-node", "4.2.1", 100, 400),
                 ),
                 "library_version",
                 f'{MISMATCH} The mismatch comes from users whose first exposure was sent by version "4.2.1" of the '
@@ -116,8 +120,8 @@ class TestSrmSegments(TestCase):
                 "an_unknown_version_of_the_located_library",
                 (
                     *SERVER_SKEWED,
-                    _segment(LIBRARY_VERSION, "web 1.200.0", 500, 500),
-                    _segment(LIBRARY_VERSION, f"posthog-node {BREAKDOWN_NULL_STRING_LABEL}", 100, 400),
+                    _version("web", "1.200.0", 500, 500),
+                    _version("posthog-node", BREAKDOWN_NULL_STRING_LABEL, 100, 400),
                 ),
                 "library_version",
                 f"{MISMATCH} The mismatch comes from users whose first exposure was sent by an unknown version of the "

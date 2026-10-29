@@ -18,7 +18,12 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.checks.srm import reads_flag_history, reads_segments, srm
+from products.experiments.backend.health.checks.srm import (
+    reads_flag_history,
+    reads_segments,
+    segments_first_exposed_after,
+    srm,
+)
 from products.experiments.backend.health.context import (
     ExposureEvents,
     ExposureSegment,
@@ -617,37 +622,42 @@ class TestSrmAfterSplitChange(TestCase):
 
     @parameterized.expand(
         [
-            ("failing_test", RUNNING_CONTEXT, MATCHES_THE_NEW_SPLIT, 0.00001, (True, True)),
-            ("passing_test", RUNNING_CONTEXT, MATCHES_THE_NEW_SPLIT, 0.01, (False, False)),
+            ("failing_test", RUNNING_CONTEXT, MATCHES_THE_NEW_SPLIT, 0.00001, (True, True, None)),
+            ("passing_test", RUNNING_CONTEXT, MATCHES_THE_NEW_SPLIT, 0.01, (False, False, None)),
             (
                 "split_change_explains_it",
                 _context(EVEN, UNEVEN, exposed_units=5),
                 MATCHES_THE_NEW_SPLIT,
                 0.00001,
-                (True, False),
+                (True, False, FIRST_CHANGE_AT.date()),
             ),
             (
                 "split_change_with_a_failed_retest",
                 _context(EVEN, UNEVEN, exposed_units=5),
                 {"control": 250, "test": 250},
                 0.00001,
-                (True, True),
+                (True, True, FIRST_CHANGE_AT.date()),
             ),
             (
                 "activation",
                 replace(RUNNING_CONTEXT, exposure_events=ACTIVATION_EVENTS),
                 MATCHES_THE_NEW_SPLIT,
                 0.00001,
-                (True, False),
+                (True, False, None),
             ),
         ]
     )
     def test_reads_the_flag_history_and_the_segments_only_for_a_mismatch(
-        self, _name: str, ctx: HealthContext, after_change: dict[str, int], p_value: float, expected: tuple[bool, bool]
+        self,
+        _name: str,
+        ctx: HealthContext,
+        after_change: dict[str, int],
+        p_value: float,
+        expected: tuple[bool, bool, date | None],
     ) -> None:
         ctx = replace(ctx, exposures=replace(_totals(after_change), sample_ratio_mismatch_p_value=p_value))
 
-        self.assertEqual((reads_flag_history(ctx), reads_segments(ctx)), expected)
+        self.assertEqual((reads_flag_history(ctx), reads_segments(ctx), segments_first_exposed_after(ctx)), expected)
 
     def test_names_the_cause_the_evidence_and_the_next_step(self) -> None:
         outcome = srm(replace(_context(EVEN, UNEVEN, exposed_units=5), exposures=_totals(MATCHES_THE_NEW_SPLIT)))

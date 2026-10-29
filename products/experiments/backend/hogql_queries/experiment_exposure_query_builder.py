@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import date
 from enum import StrEnum
 
 from posthog.schema import Breakdown, ExperimentEventExposureConfig, MultipleBreakdownType, MultipleVariantHandling
@@ -123,13 +124,15 @@ class ExposureQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def segments_query(self, top_values: int) -> ast.SelectQuery:
+    def segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
         """
-        Persons or groups by variant and by the SDK library of their first exposure, by that library with its
-        version, and by the page of the exposure, or by its screen when it has no path. The team's path cleaning
-        rules group the pages. Columns: dimension, segment, variant, exposed_count. In each dimension, the
-        `top_values` segments with the most persons or groups keep their own rows, and the others share the
-        BREAKDOWN_OTHER_STRING_LABEL segment, so that one path per URL can't grow the result.
+        Persons or groups by variant and by the SDK library of their first exposure, by the version of that library,
+        and by the page of the exposure, or by its screen when it has no path. The team's path cleaning rules group
+        the pages. Columns: dimension, library, segment, variant, exposed_count. `library` holds the library of a
+        version segment, and is empty in the other dimensions. In each dimension, the `top_values` segments with the
+        most persons or groups keep their own rows, and the others share the BREAKDOWN_OTHER_STRING_LABEL segment, so
+        that one path per URL can't grow the result. With `first_exposed_after`, only the persons or groups first
+        exposed after that day in the team's timezone count, as in the daily counts of timeseries_query.
         """
         entities = ExposureQueryBuilder(
             context=replace(self.context, breakdowns=_SEGMENT_BREAKDOWNS),
@@ -138,56 +141,62 @@ class ExposureQueryBuilder:
         # The window functions rank the segments on the grouped rows, so the events are scanned once.
         query = parse_select(
             """
-            SELECT dimension, segment, variant, sum(exposed_count) AS exposed_count
+            SELECT dimension, library, segment, variant, sum(exposed_count) AS exposed_count
             FROM (
                 SELECT
                     dimension,
+                    if(segment_rank <= {top_values}, segment_library, '') AS library,
                     if(segment_rank <= {top_values}, segment_value, {other_segments}) AS segment,
                     variant,
                     exposed_count
                 FROM (
                     SELECT
                         dimension,
+                        segment_library,
                         segment_value,
                         variant,
                         exposed_count,
                         dense_rank() OVER (
-                            PARTITION BY dimension ORDER BY segment_total DESC, segment_value ASC
+                            PARTITION BY dimension ORDER BY segment_total DESC, segment_library ASC, segment_value ASC
                         ) AS segment_rank
                     FROM (
                         SELECT
                             dimension,
+                            segment_library,
                             segment_value,
                             variant,
                             exposed_count,
-                            sum(exposed_count) OVER (PARTITION BY dimension, segment_value) AS segment_total
+                            sum(exposed_count) OVER (
+                                PARTITION BY dimension, segment_library, segment_value
+                            ) AS segment_total
                         FROM (
                             SELECT
-                                segment_pair.1 AS dimension,
-                                segment_pair.2 AS segment_value,
+                                segment_tuple.1 AS dimension,
+                                segment_tuple.2 AS segment_library,
+                                segment_tuple.3 AS segment_value,
                                 variant,
                                 count() AS exposed_count
                             FROM ({entities}) AS entities
                             ARRAY JOIN arrayConcat(
                                 [
-                                    ({library}, breakdown_value_1),
-                                    ({library_version}, concat(breakdown_value_1, ' ', breakdown_value_2))
+                                    ({library}, '', breakdown_value_1),
+                                    ({library_version}, breakdown_value_1, breakdown_value_2)
                                 ],
                                 multiIf(
                                     notEmpty(breakdown_value_3) AND breakdown_value_3 != {no_value},
-                                    [({page}, {page_value})],
+                                    [({page}, '', {page_value})],
                                     notEmpty(breakdown_value_4) AND breakdown_value_4 != {no_value},
-                                    [({screen}, breakdown_value_4)],
+                                    [({screen}, '', breakdown_value_4)],
                                     []
                                 )
-                            ) AS segment_pair
-                            WHERE notEmpty(variant)
-                            GROUP BY dimension, segment_value, variant
+                            ) AS segment_tuple
+                            WHERE notEmpty(variant) AND {first_exposed}
+                            GROUP BY dimension, segment_library, segment_value, variant
                         )
                     )
                 )
             )
-            GROUP BY dimension, segment, variant
+            GROUP BY dimension, library, segment, variant
             """,
             placeholders={
                 "entities": entities,
@@ -199,6 +208,14 @@ class ExposureQueryBuilder:
                 "page": ast.Constant(value=ExposureSegmentDimension.PAGE.value),
                 "page_value": apply_path_cleaning(ast.Field(chain=["breakdown_value_3"]), self.context.team),
                 "screen": ast.Constant(value=ExposureSegmentDimension.SCREEN.value),
+                "first_exposed": (
+                    parse_expr(
+                        "toDate(toString(first_exposure_time)) > {day}",
+                        placeholders={"day": ast.Constant(value=first_exposed_after)},
+                    )
+                    if first_exposed_after is not None
+                    else ast.Constant(value=True)
+                ),
             },
         )
         assert isinstance(query, ast.SelectQuery)

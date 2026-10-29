@@ -1,5 +1,6 @@
 import unicodedata
 from collections.abc import Mapping
+from datetime import date
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -80,8 +81,9 @@ def reads_flag_history(ctx: HealthContext) -> bool:
 
 def reads_segments(ctx: HealthContext) -> bool:
     """Whether `srm` reports a mismatch that a split change doesn't explain, which it then looks for in the segments
-    of the exposures. After a split change, that is a mismatch among the users first exposed after the change. The
-    exposure query loads the segments only then, because their query scans the exposure events."""
+    of the exposures. After a split change, that is a mismatch among the users first exposed after the change, and
+    the segments count only them (`segments_first_exposed_after`). The exposure query loads the segments only then,
+    because their query scans the exposure events."""
     # With an activation, the segments would come from the activation event, not from the flag call that assigned
     # the variant.
     if ctx.exposure_events is not None and ctx.exposure_events.activation is not None:
@@ -93,6 +95,16 @@ def reads_segments(ctx: HealthContext) -> bool:
         return True
     retest_p_value = outcome.evidence.get("p_value_after_split_change")
     return isinstance(retest_p_value, float) and retest_p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+
+
+def segments_first_exposed_after(ctx: HealthContext) -> date | None:
+    """The day after which the segments count the users, in the team's timezone. None for the whole run. After a split
+    change, the users first exposed before it got their variants from another split, so they would fail the test
+    against the current split in any segment they fill."""
+    history = ctx.flag_history
+    if not isinstance(history, FlagHistory) or _split_change_warning(ctx) is None:
+        return None
+    return _last_split_change_day(history)
 
 
 def srm(ctx: HealthContext) -> CheckOutcome:
@@ -167,7 +179,7 @@ def _retest_after_change(
             f"The exposure criteria count {unit}s at an activation, so the {unit}s exposed after the change can't "
             "be tested alone."
         ], None
-    changed_on = history.counted(SplitChange)[-1].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
+    changed_on = _last_split_change_day(history)
     after_change = sample_ratio_test(
         {
             variant: sum(count for day, count in daily.items() if day > changed_on)
@@ -186,6 +198,10 @@ def _retest_after_change(
         f"The {unit}s first exposed after the day of the change match the current split "
         f"(p = {after_change.p_value:.2g})."
     ], after_change.p_value
+
+
+def _last_split_change_day(history: FlagHistory) -> date:
+    return history.counted(SplitChange)[-1].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
 
 
 def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
@@ -345,21 +361,13 @@ def _located(verdicts: list[_Verdict]) -> list[ExposureSegment]:
 def _without_libraries_of_located_versions(located: list[ExposureSegment]) -> list[ExposureSegment]:
     """A located version of a located library says the same more precisely, so the library isn't named too."""
     versioned = {
-        _library_and_version(segment)[0]
-        for segment in located
-        if segment.dimension == ExposureSegmentDimension.LIBRARY_VERSION
+        segment.library for segment in located if segment.dimension == ExposureSegmentDimension.LIBRARY_VERSION
     }
     return [
         segment
         for segment in located
         if not (segment.dimension == ExposureSegmentDimension.LIBRARY and segment.value in versioned)
     ]
-
-
-def _library_and_version(segment: ExposureSegment) -> tuple[str, str]:
-    # The query joins the library and its version with one space. A library name holds none.
-    library, _, version = segment.value.partition(" ")
-    return library, version
 
 
 def _joined(words: list[str]) -> str:
@@ -380,15 +388,15 @@ def _segment_place(segment: ExposureSegment) -> str:
                     "whose first exposure was sent by a library version other than the "
                     f"{TOP_SEGMENT_VALUES} most common"
                 )
-            library, version = _library_and_version(segment)
+            library = segment.library
             by_library = (
                 "an unknown library"
-                if library == BREAKDOWN_NULL_STRING_LABEL
+                if library is None or library == BREAKDOWN_NULL_STRING_LABEL
                 else f"the {_segment_label(library)} library"
             )
-            if version == BREAKDOWN_NULL_STRING_LABEL:
+            if segment.value == BREAKDOWN_NULL_STRING_LABEL:
                 return f"whose first exposure was sent by an unknown version of {by_library}"
-            return f"whose first exposure was sent by version {_segment_label(version)} of {by_library}"
+            return f"whose first exposure was sent by version {_segment_label(segment.value)} of {by_library}"
         case ExposureSegmentDimension.PAGE:
             if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
                 return f"first exposed on a page other than the {TOP_SEGMENT_VALUES} most common"
@@ -410,8 +418,9 @@ def _segment_label(value: str) -> str:
 
 
 def _segment_evidence(tests: list[_SegmentTest], verdicts: list[_Verdict]) -> dict[str, str | int | float | None]:
-    """Each segment in the keys `<dimension>_N` (the value), `<dimension>_N_p_value` and
-    `<dimension>_N_exposed_<variant>`, and each compared dimension in `<dimension>_homogeneity_p_value`."""
+    """Each segment in the keys `<dimension>_N` (the value), `<dimension>_N_library` (the library of a version),
+    `<dimension>_N_p_value` and `<dimension>_N_exposed_<variant>`, and each compared dimension in
+    `<dimension>_homogeneity_p_value`."""
     evidence: dict[str, str | int | float | None] = {}
     for verdict in verdicts:
         dimension = verdict.dimension
@@ -421,6 +430,8 @@ def _segment_evidence(tests: list[_SegmentTest], verdicts: list[_Verdict]) -> di
         for index, test in enumerate(in_dimension, start=1):
             key = f"{dimension.value}_{index}"
             evidence[key] = test.segment.value
+            if test.segment.library is not None:
+                evidence[f"{key}_library"] = test.segment.library
             evidence[f"{key}_p_value"] = test.p_value
             for variant, exposed in test.segment.exposed_by_variant.items():
                 evidence[f"{key}_exposed_{variant}"] = exposed
