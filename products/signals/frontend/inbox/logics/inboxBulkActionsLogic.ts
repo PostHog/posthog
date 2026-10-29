@@ -189,8 +189,8 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
         /** Broadcast that a report's suggested reviewers were saved, with the PostHog user uuids now on
          * it, so a list scoped to a reviewer who is no longer on the report drops the row in place. */
         reportReviewersChanged: (reportId: string, reviewerUuids: string[]) => ({ reportId, reviewerUuids }),
-        /** Broadcast that a report was claimed or released elsewhere (the detail pane), with the new
-         * assignee (null once released), so every mounted list updates the row's claim in place. */
+        /** Broadcast that a report was claimed or released elsewhere (the detail pane, a row menu), with the
+         * new assignee (null once released), so every mounted list updates the row's claim in place. */
         reportClaimChanged: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
     }),
 

@@ -1,7 +1,9 @@
 import json
 import builtins
+import dataclasses
 from collections import defaultdict
 from collections.abc import Sequence
+from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
@@ -83,6 +85,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_queries_budget
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
+from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -553,6 +556,16 @@ class _InsightResultWarnings(RootModel):
     root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
 
 
+RESOLVED_DATE_RANGE_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "properties": {
+        "date_from": {"type": "string", "format": "date-time"},
+        "date_to": {"type": "string", "format": "date-time"},
+    },
+}
+
+
 @extend_schema_serializer(deprecate_fields=["dashboards"])
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
@@ -604,7 +617,11 @@ class InsightSerializer(InsightBasicSerializer):
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
-    resolved_date_range = serializers.SerializerMethodField(read_only=True)
+    action_names = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The name of each action the insight's series reference, keyed by action id. A series saved without "
+        "a name displays this name.",
+    )
     query_scan = serializers.SerializerMethodField(
         read_only=True,
         help_text="What ClickHouse read for this insight's last slow run, with the findings of its query scan.",
@@ -661,6 +678,8 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "resolved_date_range",
+            "resolved_compare_date_range",
+            "action_names",
             "query_scan",
             "warnings",
             "_create_in_folder",
@@ -1109,18 +1128,32 @@ class InsightSerializer(InsightBasicSerializer):
     def get_types(self, insight: Insight):
         return self.insight_result(insight).types
 
-    @extend_schema_field(
-        {
-            "type": "object",
-            "nullable": True,
-            "properties": {
-                "date_from": {"type": "string", "format": "date-time"},
-                "date_to": {"type": "string", "format": "date-time"},
-            },
-        }
-    )
+    @extend_schema_field(RESOLVED_DATE_RANGE_SCHEMA)
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
+    def get_action_names(self, insight: Insight):
+        return self.insight_result(insight).action_names
+
+    resolved_date_range = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The period that this insight's query covered, with both ends resolved to timestamps."
+            " Null when the insight has no result yet or its query type does not report the range."
+        ),
+    )
+    resolved_compare_date_range = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The earlier period that this insight's query compared against, with both ends resolved to timestamps."
+            " Null when comparison is off, when the insight has no result yet, or when its query type does not report the range."
+        ),
+    )
+
+    @extend_schema_field(RESOLVED_DATE_RANGE_SCHEMA)
+    def get_resolved_compare_date_range(self, insight: Insight):
+        return self.insight_result(insight).resolved_compare_date_range
 
     @extend_schema_field(OpenApiTypes.ANY)
     def get_query_scan(self, insight: Insight):
@@ -1306,22 +1339,16 @@ class InsightSerializer(InsightBasicSerializer):
             entry = QueryCache(team_id=insight.team_id, cache_key=expected_cache_key).lookup().entry
             cached_response = entry.as_full_response() if entry else None
             if cached_response:
-                return InsightResult(
-                    result=cached_response.get("results"),
-                    has_more=cached_response.get("hasMore"),
-                    columns=cached_response.get("columns"),
-                    last_refresh=cached_response.get("last_refresh"),
+                action_names = cached_response.get("action_names")
+                if action_names is None and isinstance(insight.query, dict):
+                    # An entry cached before responses carried `action_names` lacks the field, and this shortcut
+                    # skips the runner that fills it on a cache hit.
+                    action_names = get_response_action_names(insight.team, upgrade(deepcopy(insight.query)))
+                return dataclasses.replace(
+                    InsightResult.from_response_dict(cached_response),
                     cache_key=expected_cache_key,
                     is_cached=True,
-                    timezone=cached_response.get("timezone"),
-                    next_allowed_client_refresh=cached_response.get("next_allowed_client_refresh"),
-                    cache_target_age=cached_response.get("cache_target_age"),
-                    timings=cached_response.get("timings"),
-                    query_status=cached_response.get("query_status"),
-                    hogql=cached_response.get("hogql"),
-                    types=cached_response.get("types"),
-                    query_scan=cached_response.get("query_scan"),
-                    warnings=cached_response.get("warnings"),
+                    action_names=action_names,
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()

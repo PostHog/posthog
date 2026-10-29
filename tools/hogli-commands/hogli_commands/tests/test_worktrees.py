@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import math
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 import click
+from hogli_commands import worktrees
+from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
+    WorktreeBox,
     _belongs_to_repo,
+    _boxes_of_removed_worktrees,
+    _clean_worktree_boxes,
     _collect_deps_items,
     _compute_git_state,
     _discover_root_worktrees,
@@ -17,12 +23,22 @@ from hogli_commands.worktrees import (
     _execute,
     _include_orphans,
     _is_under,
+    _match_worktree_boxes,
     _parse_cutoff,
     _reclaimed_bytes,
     _registered_worktrees,
+    _resolve_box_action,
     _resolve_orphan_policy,
     _worktree_roots,
 )
+
+
+def _box(
+    name: str, git_dir: Path | str = "admin", workspace_id: str | None = None, worktree_id: str | None = None
+) -> devbox_config.WorktreeBoxRecord:
+    return devbox_config.WorktreeBoxRecord(
+        workspace=name, git_dir=str(git_dir), workspace_id=workspace_id, worktree_id=worktree_id
+    )
 
 
 def _make_worktree(path: Path) -> Worktree:
@@ -306,6 +322,195 @@ class TestOrphanPolicy:
         # --dry-run (preview) and --yes (non-interactive) can't prompt → include.
         monkeypatch.setattr("click.confirm", lambda *a, **k: pytest.fail("must not prompt"))
         assert _include_orphans("ask", [_make_worktree(tmp_path)], dry_run=dry_run, yes=yes) is True
+
+
+class TestResolveBoxAction:
+    @pytest.mark.parametrize(
+        ("flags", "saved", "mode", "expected"),
+        [
+            ((False, False, False), None, "full", None),
+            ((False, False, False), "delete", "full", "delete"),
+            ((True, False, False), "delete", "full", "stop"),
+            ((False, True, False), None, "full", "delete"),
+            ((False, False, True), "stop", "full", None),
+            ((False, False, False), "stop", "deps", None),
+        ],
+        ids=["default-off", "saved-config", "flag-beats-config", "delete-flag", "keep-beats-config", "deps-ignores"],
+    )
+    def test_flags_and_saved_config(self, monkeypatch, flags, saved, mode, expected) -> None:
+        monkeypatch.setattr(worktrees, "saved_worktree_box_cleanup", lambda: saved)
+        assert _resolve_box_action(*flags, mode) == expected
+
+    @pytest.mark.parametrize(
+        ("flags", "mode"),
+        [((True, True, False), "full"), ((True, False, False), "deps")],
+        ids=["two-flags", "deps-mode"],
+    )
+    def test_conflicting_flags_rejected(self, flags, mode) -> None:
+        with pytest.raises(click.UsageError):
+            _resolve_box_action(*flags, mode)
+
+
+class TestWorktreeBoxes:
+    @pytest.fixture
+    def registry_path(self, tmp_path, monkeypatch) -> Path:
+        path = tmp_path / "boxes.json"
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: path)
+        return path
+
+    @pytest.mark.parametrize(
+        ("case", "matched"),
+        [("same-path", True), ("moved", True), ("recreated-at-same-path", False), ("no-worktree-id-recorded", False)],
+    )
+    def test_matches_a_worktree_only_by_the_id_in_its_admin_directory(self, tmp_path, case, matched) -> None:
+        admin = tmp_path / "repo" / ".git" / "worktrees" / "feature"
+        admin.mkdir(parents=True)
+        registered_path = tmp_path / "old" / "feature"
+        current = tmp_path / "moved" / "feature" if case == "moved" else registered_path
+        current.mkdir(parents=True)
+        (current / ".git").write_text(f"gitdir: {admin}\n")
+        worktree_id = devbox_config.ensure_worktree_id(admin)
+        if case == "recreated-at-same-path":
+            (admin / "hogli-devbox-worktree-id").unlink()
+        record = _box(
+            "devbox-test-user-feature",
+            git_dir=admin,
+            worktree_id=None if case == "no-worktree-id-recorded" else worktree_id,
+        )
+
+        boxes = _match_worktree_boxes([_make_worktree(current)], {str(registered_path): record})
+
+        expected = [WorktreeBox(worktree_path=registered_path, record=record, current_path=current)]
+        assert boxes == (expected if matched else [])
+
+    @pytest.mark.parametrize(
+        ("case", "sources", "pending"),
+        [
+            ("removed", None, True),
+            ("removed", {"claude"}, True),
+            ("removed", {"phw"}, False),
+            ("moved", None, False),
+            ("admin-dir-reused", None, True),
+            ("other-repo", None, False),
+        ],
+        ids=[
+            "removed",
+            "removed-source-selected",
+            "source-not-selected",
+            "moved-or-unmounted",
+            "admin-dir-reused-by-another-worktree",
+            "other-repo",
+        ],
+    )
+    def test_pending_boxes_need_a_removed_worktree_in_the_selected_scope(
+        self, tmp_path, case, sources, pending
+    ) -> None:
+        repo = tmp_path / "repo"
+        common = repo / ".git"
+        other_common = tmp_path / "other" / ".git"
+        (common / "worktrees").mkdir(parents=True)
+        (other_common / "worktrees").mkdir(parents=True)
+        admin = (other_common if case == "other-repo" else common) / "worktrees" / "feature"
+        if case in ("moved", "admin-dir-reused"):
+            admin.mkdir()
+        worktree_id = devbox_config.ensure_worktree_id(admin) if case == "moved" else "id-of-the-removed-worktree"
+        record = _box("devbox-test-user-feature", git_dir=admin, worktree_id=worktree_id)
+        registry = {str(repo / ".claude" / "worktrees" / "feature"): record}
+
+        boxes = _boxes_of_removed_worktrees(registry, repo, common, sources)
+
+        expected = [WorktreeBox(worktree_path=repo / ".claude" / "worktrees" / "feature", record=record)]
+        assert boxes == (expected if pending else [])
+
+    @pytest.mark.parametrize(
+        ("action", "status", "live_id", "last_used_at", "expected_calls"),
+        [
+            ("delete", "running", "id-a", None, [("delete", "devbox-test-user-a")]),
+            ("stop", "running", "id-a", None, [("stop", "devbox-test-user-a")]),
+            ("stop", "stopped", "id-a", None, []),
+            ("delete", "running", "id-recreated", None, []),
+            ("delete", "running", "id-a", "2026-01-01T00:00:00.123456789Z", [("delete", "devbox-test-user-a")]),
+            ("delete", "running", "id-a", "2026-03-01T00:00:00Z", []),
+            ("delete", "running", "id-a", "", []),
+        ],
+        ids=[
+            "delete",
+            "stop-running",
+            "stop-already-stopped",
+            "recreated-box-left-alone",
+            "idle-past-cutoff",
+            "used-after-cutoff-kept",
+            "unknown-last-use-kept",
+        ],
+    )
+    def test_acts_on_existing_box_and_forgets_it(
+        self, tmp_path, monkeypatch, registry_path, action, status, live_id, last_used_at, expected_calls
+    ) -> None:
+        calls: list[tuple[str, str]] = []
+        terminated: list[str] = []
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            worktrees,
+            "fetch_user_workspaces",
+            lambda: [{"name": "devbox-test-user-a", "id": live_id, "status": status, "last_used_at": last_used_at}],
+        )
+        monkeypatch.setattr(worktrees, "get_workspace_status", lambda ws: ws["status"])
+        monkeypatch.setattr(worktrees, "delete_workspace", lambda name: calls.append(("delete", name)))
+        monkeypatch.setattr(worktrees, "stop_workspace", lambda name: calls.append(("stop", name)))
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", terminated.append)
+        box_a, box_b = _box("devbox-test-user-a", workspace_id="id-a"), _box("devbox-test-user-b")
+        devbox_config.record_worktree_box(tmp_path / "a", box_a)
+        devbox_config.record_worktree_box(tmp_path / "b", box_b)
+
+        _clean_worktree_boxes(
+            [
+                WorktreeBox(worktree_path=tmp_path / "a", record=box_a),
+                WorktreeBox(worktree_path=tmp_path / "b", record=box_b),
+            ],
+            action,
+            **({} if last_used_at is None else {"idle_before": datetime(2026, 2, 1, tzinfo=UTC).timestamp()}),
+        )
+
+        assert calls == expected_calls
+        acted = live_id == box_a.workspace_id and (last_used_at is None or bool(expected_calls))
+        assert terminated == ([worktrees.mutagen.workspace_label_selector("devbox-test-user-a")] if acted else [])
+        kept = live_id == box_a.workspace_id and not acted
+        assert devbox_config.load_worktree_boxes() == ({str(tmp_path / "a"): box_a} if kept else {})
+
+    @pytest.mark.parametrize(
+        "listed",
+        [[{"name": "devbox-test-user-a", "id": "id-a"}], None],
+        ids=["delete-fails", "listing-fails"],
+    )
+    def test_failed_box_action_keeps_registry_entry(self, tmp_path, monkeypatch, registry_path, listed) -> None:
+        def fail(name: str) -> None:
+            raise SystemExit(1)
+
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(worktrees, "fetch_user_workspaces", lambda: listed)
+        monkeypatch.setattr(worktrees, "delete_workspace", fail)
+        monkeypatch.setattr(worktrees, "extract_workspace_label", lambda name: "a")
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: None)
+        record = _box("devbox-test-user-a", workspace_id="id-a")
+        devbox_config.record_worktree_box(tmp_path / "a", record)
+
+        _clean_worktree_boxes([WorktreeBox(worktree_path=tmp_path / "a", record=record)], "delete")
+
+        assert devbox_config.load_worktree_boxes() == {str(tmp_path / "a"): record}
+
+    def test_box_without_a_workspace_id_is_left_alone(self, tmp_path, monkeypatch, registry_path) -> None:
+        deleted: list[str] = []
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            worktrees, "fetch_user_workspaces", lambda: [{"name": "devbox-test-user-a", "id": "id-recreated"}]
+        )
+        monkeypatch.setattr(worktrees, "delete_workspace", deleted.append)
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: None)
+        devbox_config.record_worktree_box(tmp_path / "a", _box("devbox-test-user-a"))
+
+        _clean_worktree_boxes([WorktreeBox(worktree_path=tmp_path / "a", record=_box("devbox-test-user-a"))], "delete")
+
+        assert deleted == []
 
 
 class TestReclaimedBytes:

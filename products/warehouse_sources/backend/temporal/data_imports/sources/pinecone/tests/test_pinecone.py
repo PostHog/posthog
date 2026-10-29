@@ -44,6 +44,14 @@ def source_inputs(endpoint: str) -> SourceInputs:
     )
 
 
+# endpoint -> (path, data selector, row key, cursor param)
+PAGINATED_ENDPOINTS = {
+    "backups": ("backups", "data", "backup_id", "paginationToken"),
+    "restore_jobs": ("restore-jobs", "data", "restore_job_id", "paginationToken"),
+    "assistants": ("assistant/assistants", "assistants", "name", "pagination_token"),
+}
+
+
 def pipeline(endpoint: str) -> "SourceResponse":
     source = PineconeSource()
     inputs = source_inputs(endpoint)
@@ -127,6 +135,7 @@ class TestPineconeTransport(SimpleTestCase):
             ("restore_jobs", "absent", {}),
             ("restore_jobs", "null", {"pagination": None}),
             ("restore_jobs", "empty_token", {"pagination": {"next": ""}}),
+            ("assistants", "absent", {}),
         ]
     )
     def test_cursor_pages_checkpoint_after_yield_and_stop(
@@ -137,8 +146,7 @@ class TestPineconeTransport(SimpleTestCase):
         inputs = source_inputs(endpoint)
         source = PineconeSource()
         manager = source.get_resumable_source_manager(inputs)
-        path = endpoint.replace("_", "-")
-        key = "backup_id" if endpoint == "backups" else "restore_job_id"
+        path, selector, key, cursor_param = PAGINATED_ENDPOINTS[endpoint]
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable.get_client",
@@ -149,14 +157,14 @@ class TestPineconeTransport(SimpleTestCase):
             http.add(
                 responses.GET,
                 f"https://api.pinecone.io/{path}",
-                json={"data": [{key: "first"}], "pagination": {"next": "next+/="}},
+                json={selector: [{key: "first"}], "pagination": {"next": "next+/="}},
             )
             http.add(
                 responses.GET,
                 f"https://api.pinecone.io/{path}",
-                json={"data": [{key: "second"}], "pagination": {"next": "last-token"}},
+                json={selector: [{key: "second"}], "pagination": {"next": "last-token"}},
             )
-            http.add(responses.GET, f"https://api.pinecone.io/{path}", json={"data": [{key: "third"}], **terminal})
+            http.add(responses.GET, f"https://api.pinecone.io/{path}", json={selector: [{key: "third"}], **terminal})
             response = source.source_for_pipeline(PineconeSourceConfig(api_key="fake-pinecone-key"), manager, inputs)
             pages = iter(sync_items(response))
             assert next(pages) == [{key: "first"}]
@@ -174,7 +182,7 @@ class TestPineconeTransport(SimpleTestCase):
             manager.confirm()
             assert not manager.has_staged_state()
             assert redis.set.call_count == 2
-            assert [parse_qs(urlsplit(call.request.url or "").query).get("paginationToken") for call in http.calls] == [
+            assert [parse_qs(urlsplit(call.request.url or "").query).get(cursor_param) for call in http.calls] == [
                 None,
                 ["next+/="],
                 ["last-token"],
@@ -203,6 +211,109 @@ class TestPineconeTransport(SimpleTestCase):
                 "paginationToken": ["saved-token"],
             }
             redis.set.assert_not_called()
+
+    def test_namespaces_fan_out_over_ready_data_plane_indexes(self) -> None:
+        def index(name: str, host: str, deployment_type: str = "managed", ready: bool = True) -> dict[str, object]:
+            return {
+                "name": name,
+                "host": host,
+                "deployment": {"deployment_type": deployment_type},
+                "status": {"ready": ready},
+            }
+
+        indexes = [
+            index("serverless", "serverless-abc.svc.aped-1.pinecone.io"),
+            index("byoc", "byoc-abc.svc.aped-1.pinecone.io", deployment_type="byoc"),
+            index("pod", "pod-abc.svc.us-east1-gcp.pinecone.io", deployment_type="pod"),
+            index("initializing", "initializing-abc.svc.aped-1.pinecone.io", ready=False),
+            index("off-domain", "index.example.com"),
+        ]
+        with responses.RequestsMock() as http:
+            http.add(responses.GET, "https://api.pinecone.io/indexes", json={"indexes": indexes})
+            http.add(
+                responses.GET,
+                "https://serverless-abc.svc.aped-1.pinecone.io/namespaces",
+                json={"namespaces": [{"name": "docs", "record_count": "3"}], "pagination": {"next": "ns-token"}},
+            )
+            http.add(
+                responses.GET,
+                "https://serverless-abc.svc.aped-1.pinecone.io/namespaces",
+                json={"namespaces": [{"name": "faq", "record_count": "5"}], "total_count": 2},
+            )
+            http.add(responses.GET, "https://byoc-abc.svc.aped-1.pinecone.io/namespaces", json={"total_count": 0})
+            response = pipeline("namespaces")
+            assert list(sync_items(response)) == [
+                [{"index_name": "serverless", "name": "docs", "record_count": "3"}],
+                [{"index_name": "serverless", "name": "faq", "record_count": "5"}],
+            ]
+            assert response.primary_keys == ["index_name", "name"]
+            assert [
+                (urlsplit(call.request.url or "").hostname, parse_qs(urlsplit(call.request.url or "").query))
+                for call in http.calls
+            ] == [
+                ("api.pinecone.io", {}),
+                ("serverless-abc.svc.aped-1.pinecone.io", {"limit": ["100"]}),
+                ("serverless-abc.svc.aped-1.pinecone.io", {"limit": ["100"], "paginationToken": ["ns-token"]}),
+                ("byoc-abc.svc.aped-1.pinecone.io", {"limit": ["100"]}),
+            ]
+            assert {call.request.headers["Api-Key"] for call in http.calls} == {"fake-pinecone-key"}
+
+    def test_assistant_files_fan_out_skips_deleted_assistants_and_signed_urls(self) -> None:
+        host = "https://prod-1-data.ke.pinecone.io"
+        with responses.RequestsMock() as http:
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/assistant/assistants",
+                json={
+                    "assistants": [
+                        {"name": "support", "status": "Ready", "host": host},
+                        {"name": "deleted", "status": "Ready", "host": host},
+                    ],
+                    "pagination": {"next": "assistant-token"},
+                },
+            )
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/assistant/assistants",
+                json={"assistants": [{"name": "starting", "status": "Initializing", "host": host}]},
+            )
+            http.add(
+                responses.GET,
+                f"{host}/files/support",
+                json={
+                    "files": [
+                        {
+                            "id": "file-1",
+                            "name": "guide.pdf",
+                            "status": "Available",
+                            "signed_url": "https://storage.example.com/guide.pdf?signature=fake",
+                        }
+                    ],
+                    "pagination": {"next": "file-token"},
+                },
+            )
+            http.add(
+                responses.GET,
+                f"{host}/files/support",
+                json={"files": [{"id": "file-2", "name": "faq.md", "status": "Processing"}]},
+            )
+            http.add(responses.GET, f"{host}/files/deleted", json={"error": {"code": "NOT_FOUND"}}, status=404)
+            response = pipeline("assistant_files")
+            assert list(sync_items(response)) == [
+                [{"assistant_name": "support", "id": "file-1", "name": "guide.pdf", "status": "Available"}],
+                [{"assistant_name": "support", "id": "file-2", "name": "faq.md", "status": "Processing"}],
+            ]
+            assert response.primary_keys == ["assistant_name", "id"]
+            assert [
+                (urlsplit(call.request.url or "").path, parse_qs(urlsplit(call.request.url or "").query))
+                for call in http.calls
+            ] == [
+                ("/assistant/assistants", {"limit": ["100"]}),
+                ("/files/support", {"limit": ["100"]}),
+                ("/files/support", {"limit": ["100"], "pagination_token": ["file-token"]}),
+                ("/files/deleted", {"limit": ["100"]}),
+                ("/assistant/assistants", {"limit": ["100"], "pagination_token": ["assistant-token"]}),
+            ]
 
     @parameterized.expand(
         [("indexes", "indexes"), ("collections", "collections"), ("backups", "data"), ("restore_jobs", "data")]

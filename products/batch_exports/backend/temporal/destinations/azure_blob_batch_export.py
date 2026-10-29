@@ -15,7 +15,8 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import AzureBlobIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import AzureBlobIntegration
 from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
 from posthog.security.pinned_aiohttp import pinned_session
 from posthog.temporal.common.base import PostHogWorkflow
@@ -124,8 +125,8 @@ class AzureBlobInsertInputs(BatchExportInsertInputs):
 
 async def _get_azure_blob_integration(integration_id: int, team_id: int) -> AzureBlobIntegration:
     try:
-        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.azure_blob.credentials.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise AzureBlobIntegrationNotFoundError(integration_id, team_id)
 
     return AzureBlobIntegration(integration)

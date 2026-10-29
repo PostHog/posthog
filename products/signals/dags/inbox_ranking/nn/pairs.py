@@ -29,7 +29,7 @@ import pyarrow.compute as pc
 from posthog import settings
 from posthog.models import Team
 
-from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
+from products.signals.backend.ranking.features import DAYS_SINCE_LAST_VIEW_CAP, EMBEDDING_DIMENSIONS
 from products.signals.dags.inbox_ranking.common import (
     dataset_bucket,
     owner_tags,
@@ -64,7 +64,7 @@ PAIR_EXAMPLES_SCHEMA_VERSION = 1
 _REPORT_HEAD = HEADS_BY_NAME["open"]
 PAIR_HORIZON_DAYS = _REPORT_HEAD.horizon_days
 PAIR_HEADS = PAIR_HEAD_NAMES
-DAYS_SINCE_VIEW_CAP = 90.0
+DAYS_SINCE_VIEW_CAP = DAYS_SINCE_LAST_VIEW_CAP
 # (name, lowest, highest) prior views per bucket. The within-user grade needs enough rows in the
 # buckets with real history to be readable.
 HISTORY_BUCKETS: tuple[tuple[str, int, int | None], ...] = (

@@ -75,7 +75,7 @@ export function InboxWaitingForWork(): JSX.Element {
                     <p className="m-0 max-w-xl text-sm text-tertiary">
                         {completed
                             ? 'Your sources are listening and your scouts will run on their schedules. Reports appear here when they find something worth investigating.'
-                            : 'Your signal sources and scouts are running in the background. When they find something actionable, a pull request will appear here.'}
+                            : 'Your sources and scouts are running in the background. When they find something actionable, a pull request will appear here.'}
                     </p>
                 </div>
             )}
@@ -84,7 +84,7 @@ export function InboxWaitingForWork(): JSX.Element {
                 <section className="flex flex-col">
                     <div className="flex items-center justify-between gap-2 border-b border-primary px-1 pb-3">
                         <div>
-                            <h3 className="m-0 text-sm font-semibold">Signal sources</h3>
+                            <h3 className="m-0 text-sm font-semibold">Sources</h3>
                             <p className="m-0 text-xs text-tertiary">Events that start an investigation</p>
                         </div>
                         <span
@@ -112,12 +112,12 @@ export function InboxWaitingForWork(): JSX.Element {
                         ))}
                         {isWizardRunning ? <InstallingFlowRow type="source" /> : null}
                         {!sourcesLoading && !isWizardRunning && visibleSources.length === 0 ? (
-                            <p className="m-0 p-3 text-xs text-tertiary">No signal sources are active.</p>
+                            <p className="m-0 p-3 text-xs text-tertiary">No sources are active.</p>
                         ) : null}
                     </div>
                     {enabledSources.length > MAX_VISIBLE_ITEMS ? (
                         <Link
-                            to={urls.inbox('settings')}
+                            to={urls.inbox('sources')}
                             // pinned: analytics and UI tests can depend on these overflow-link selectors.
                             data-attr="inbox-waiting-signal-sources-more"
                             className="border-t border-primary px-1 pt-3 text-xs text-tertiary no-underline hover:text-primary focus-visible:text-primary"
