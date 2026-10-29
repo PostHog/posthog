@@ -12,8 +12,6 @@ export const keyBinds: Record<string, string[]> = {
     orgSwitcher: ['g', 'then', 'o'],
     quickStart: ['g', 'then', 's'],
     recentItems: [...baseModifier, 'y'],
-    toggleShortcutMenu: [...baseModifier, 'k'],
-    toggleShortcutMenuFallback: ['command', 'shift', 'k'],
     search: ['command', 'k'],
     new: [...baseModifier, 'n'],
     edit: ['e'],
