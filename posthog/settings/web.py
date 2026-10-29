@@ -215,6 +215,9 @@ MIDDLEWARE = [
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
+    # Opens one authorization session per request, so `authorization.check()` without a subject
+    # uses the request's user. Middleware above this line runs outside the session and must pass a subject.
+    "products.authorization.backend.middleware.AuthorizationSessionMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
