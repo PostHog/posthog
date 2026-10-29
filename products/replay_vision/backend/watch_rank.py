@@ -396,20 +396,23 @@ def select_embedding_picks(
         .filter(member_root__in=list(roots))
         .values_list("id", flat=True)
     )
-    # The members are read by id alone and their rank checked here: the feed's scanner and rank filters would match
-    # the partial rank indexes, and Postgres would scan a whole window of index pages to keep a few hundred rows.
-    members = accessible_observations(access, team_id, walkable.filter(id__in=member_ids)).values(
-        "id", "watch_rank", member_person=person
+    # Read by id with the rank checks in Python, since the rank filters steer Postgres onto the partial rank indexes.
+    readable_scanners = {str(scanner_id) for scanner_id in scanner_ids}
+    members = (
+        accessible_observations(access, team_id, walkable.filter(id__in=member_ids))
+        .values_list("id", "scanner_id", "watch_rank", person)
+        .iterator()
     )
     reach_sessions: Counter[str] = Counter()
     reach_people: dict[str, set[str]] = {}
-    for member in members:
-        rank = current_rank({"watch_rank": member["watch_rank"]})
-        if rank is None or rank.get("category") not in categories:
+    for member_id, scanner_id, watch_rank, member_person in members:
+        rank = current_rank({"watch_rank": watch_rank})
+        if str(scanner_id) not in readable_scanners or rank is None or rank.get("category") not in categories:
             continue
-        root = str(rank.get("group") or member["id"])
+        group = rank.get("group")
+        root = str(group) if group is not None else str(member_id)
         reach_sessions[root] += 1
-        reach_people.setdefault(root, set()).add(member["member_person"])
+        reach_people.setdefault(root, set()).add(member_person)
     group_reach = {
         root: {"sessions": sessions, "people": len(reach_people[root])} for root, sessions in reach_sessions.items()
     }
