@@ -32460,6 +32460,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "description": "Exclude reports from the project's internal and test users.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPMissingCapabilitiesQuery",
                     "type": "string"

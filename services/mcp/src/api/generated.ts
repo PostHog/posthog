@@ -63561,6 +63561,8 @@ export namespace Schemas {
 
     export interface MCPMissingCapabilitiesQuery {
       dateRange?: DateRange | null;
+      /** Exclude reports from the project's internal and test users. */
+      filterTestAccounts?: boolean | null;
       kind?: 'MCPMissingCapabilitiesQuery';
       /** Page size; defaults to 100, capped at 500. */
       limit?: number | null;

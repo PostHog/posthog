@@ -32,6 +32,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     display_person_properties,
     mcp_query_date_range,
+    shared_filter_exprs,
     validate_mcp_analytics_access,
 )
 
@@ -81,6 +82,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
             ),
             parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
+            *shared_filter_exprs(self.team, None, self.query.filterTestAccounts),
         ]
         term = (self.query.search or "").strip()
         if term:

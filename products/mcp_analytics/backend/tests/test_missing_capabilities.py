@@ -83,6 +83,24 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
 
         assert [row.intent for row in self._run(search=term)] == expected
 
+    @parameterized.expand(
+        [
+            ("excluded", True, ["external ask"]),
+            ("included", False, ["internal ask", "external ask"]),
+        ]
+    )
+    def test_filter_test_accounts(self, _name: str, filter_test_accounts: bool, expected: list[str]) -> None:
+        self.team.test_account_filters = [
+            {"key": "$mcp_client_name", "value": ["internal-agent"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        now = datetime.now(tz=UTC)
+        self._emit(intent="external ask", timestamp=now - timedelta(hours=2))
+        self._emit(intent="internal ask", client_name="internal-agent", timestamp=now - timedelta(hours=1))
+        flush_persons_and_events()
+
+        assert [row.intent for row in self._run(filterTestAccounts=filter_test_accounts)] == expected
+
     def test_labels_unidentified_and_self_reported_clients(self) -> None:
         self._emit(intent="no client identity", client_name=None)
         self._emit(intent="self-reported client", client_name="some-inhouse-agent")
