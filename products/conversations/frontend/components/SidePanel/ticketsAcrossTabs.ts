@@ -1,14 +1,21 @@
 import posthog from 'posthog-js'
+import { z } from 'zod'
+
+import { localStorageSlot } from 'lib/utils/localStorageSlot'
 
 import type { ConversationTicket } from '../../types'
 
-interface TicketsSnapshot {
-    tickets: ConversationTicket[]
-    fetchedAt: number
-}
+const STORAGE_KEY = 'posthog-conversations-tickets'
 
-const DB_NAME = 'posthog-conversations'
-const STORE_NAME = 'shared'
+// One slot for every identity, so a person who used this browser earlier leaves nothing behind.
+const sharedTickets = localStorageSlot(
+    STORAGE_KEY,
+    z.object({
+        identity: z.string(),
+        fetchedAt: z.number(),
+        tickets: z.array(z.custom<ConversationTicket>()),
+    })
+)
 
 export async function loadTicketsAcrossTabs(
     fetchTickets: () => Promise<ConversationTicket[] | null>,
@@ -16,62 +23,24 @@ export async function loadTicketsAcrossTabs(
 ): Promise<ConversationTicket[] | null> {
     // The widget fetches tickets as its signed identity, which can differ from the current distinct id
     // when another tab logs in as someone else, so that identity scopes the stored tickets.
-    const key = posthog.config?.identity_distinct_id ?? posthog.get_distinct_id?.() ?? ''
+    const identity = posthog.config?.identity_distinct_id ?? posthog.get_distinct_id?.() ?? ''
 
-    if (!options.force) {
-        const snapshot = (await runRequest('readonly', (store) => store.get(key))) as TicketsSnapshot | null
-        if (snapshot && Date.now() - snapshot.fetchedAt < options.maxAgeMs) {
-            return snapshot.tickets
-        }
+    const stored = options.force ? null : sharedTickets.get()
+    if (stored?.identity === identity && Date.now() - stored.fetchedAt < options.maxAgeMs) {
+        return stored.tickets
     }
 
     const tickets = await fetchTickets()
     if (tickets) {
-        // Only the latest snapshot stays, so a person who used this browser earlier leaves nothing behind.
-        await runRequest('readwrite', (store) => {
-            store.clear()
-            return store.put({ tickets, fetchedAt: Date.now() }, key)
-        })
+        sharedTickets.set({ identity, fetchedAt: Date.now(), tickets })
     }
     return tickets
 }
 
-export async function clearSharedTickets(): Promise<void> {
-    await runRequest('readwrite', (store) => store.clear())
-}
-
-function openDb(): Promise<IDBDatabase | null> {
-    if (typeof indexedDB === 'undefined') {
-        return Promise.resolve(null)
+export function clearSharedTickets(): void {
+    try {
+        localStorage.removeItem(STORAGE_KEY)
+    } catch {
+        // Disabled storage must not prevent logout.
     }
-    return new Promise((resolve) => {
-        try {
-            const request = indexedDB.open(DB_NAME, 1)
-            request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAME)
-            request.onsuccess = () => resolve(request.result)
-            request.onerror = () => resolve(null)
-        } catch {
-            resolve(null)
-        }
-    })
-}
-
-// IndexedDB can be missing or blocked, for example in private windows. The tickets then come from the network only.
-async function runRequest(
-    mode: IDBTransactionMode,
-    makeRequest: (store: IDBObjectStore) => IDBRequest
-): Promise<unknown> {
-    const db = await openDb()
-    if (!db) {
-        return null
-    }
-    return new Promise((resolve) => {
-        try {
-            const request = makeRequest(db.transaction(STORE_NAME, mode).objectStore(STORE_NAME))
-            request.onsuccess = () => resolve(request.result ?? null)
-            request.onerror = () => resolve(null)
-        } catch {
-            resolve(null)
-        }
-    }).finally(() => db.close())
 }

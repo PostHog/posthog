@@ -556,7 +556,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         logout: () => {
-            void clearSharedTickets()
+            clearSharedTickets()
         },
         initTickets: () => {
             if (cache.initialized) {

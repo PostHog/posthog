@@ -10,23 +10,18 @@ const OPTIONS = { maxAgeMs: MAX_AGE_MS }
 const ticket = (id: string): ConversationTicket => ({ id }) as ConversationTicket
 
 describe('loadTicketsAcrossTabs', () => {
-    const originalIndexedDB = globalThis.indexedDB
     let now: number
 
     const fetchingTickets = (...ids: string[]): jest.Mock => jest.fn().mockResolvedValue(ids.map(ticket))
 
-    beforeEach(async () => {
+    beforeEach(() => {
         now = START
         jest.spyOn(Date, 'now').mockImplementation(() => now)
-        await new Promise((resolve) => {
-            const request = indexedDB.deleteDatabase('posthog-conversations')
-            request.onsuccess = request.onerror = () => resolve(null)
-        })
+        localStorage.clear()
     })
 
     afterEach(() => {
         jest.restoreAllMocks()
-        globalThis.indexedDB = originalIndexedDB
         ;(posthog as any).config = undefined
     })
 
@@ -71,19 +66,21 @@ describe('loadTicketsAcrossTabs', () => {
         const fetchTickets = fetchingTickets('fetched')
         await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
 
-        await clearSharedTickets()
+        clearSharedTickets()
         await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
 
         expect(fetchTickets).toHaveBeenCalledTimes(2)
     })
 
-    it('still fetches from the network when IndexedDB throws on open', async () => {
-        globalThis.indexedDB = {
-            open: () => {
-                throw new DOMException('denied', 'SecurityError')
-            },
-        } as unknown as IDBFactory
+    it('still fetches from the network when storage throws', async () => {
+        const denied = (): never => {
+            throw new DOMException('denied', 'SecurityError')
+        }
+        jest.spyOn(Storage.prototype, 'getItem').mockImplementation(denied)
+        jest.spyOn(Storage.prototype, 'setItem').mockImplementation(denied)
+        jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(denied)
 
         expect(await loadTicketsAcrossTabs(fetchingTickets('fetched'), OPTIONS)).toEqual([ticket('fetched')])
+        expect(() => clearSharedTickets()).not.toThrow()
     })
 })
