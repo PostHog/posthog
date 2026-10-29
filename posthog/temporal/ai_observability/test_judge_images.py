@@ -143,6 +143,17 @@ class TestJudgeImagesContent:
 
         assert content[1] == {"type": "text", "text": "Image 1: could not be attached."}
 
+    def test_stops_calling_storage_after_a_storage_error(self):
+        images = JudgeImages(team_id=7)
+        prompt = f"user: {images.marker(_pointer('a'))} {images.marker(_pointer('b'))}"
+
+        with patch(f"{OBJECT_STORAGE}.head_object_strict", side_effect=ObjectStorageError("timed out")) as head:
+            content = images.content(prompt, "together_ai", "any")
+
+        assert head.call_count == 1
+        assert {"type": "text", "text": "Image 1: could not be attached."} in content
+        assert {"type": "text", "text": "Image 2: could not be attached."} in content
+
     @pytest.mark.parametrize(
         ("provider", "media", "too_large", "reads"),
         [

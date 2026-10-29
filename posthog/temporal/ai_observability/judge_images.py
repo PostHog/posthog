@@ -76,6 +76,8 @@ class JudgeImages:
         self._team_id = team_id
         self._images: list[_Image] = []
         self._numbers: dict[str, int] = {}
+        # After one storage failure the rest would fail too, each after its own timeout and retry.
+        self._storage_failed = False
 
     def marker(self, media: MediaBlock) -> str:
         pointer = BlobPointer.parse(media.url) if media.url else None
@@ -142,12 +144,15 @@ class JudgeImages:
             return _Attachment(
                 outcome="inline", part=ImagePart(mime_type=image.mime_type, data=data), inline_bytes=len(data)
             )
+        if self._storage_failed:
+            return _Attachment(outcome="unavailable")
         limits = [
             limit for limit in (inline_budget if transport == "inline" else None, provider_limit) if limit is not None
         ]
         try:
             return self._attach_blob(image, image.pointer, transport, min(limits, default=None))
         except ObjectStorageError:
+            self._storage_failed = True
             return _Attachment(outcome="unavailable")
 
     def _attach_blob(
