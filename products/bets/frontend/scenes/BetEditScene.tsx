@@ -146,7 +146,6 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                                         onChange={(event) => change({ goal_description: event.target.value })}
                                         onBlur={() => touch('goal_insight')}
                                         placeholder="For example: the share of new users who upload a file in their first week."
-                                        className="Bets__goalDescription"
                                     />
                                 ) : (
                                     <BetInsightPicker
@@ -230,7 +229,7 @@ export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
                             </div>
                             {isNew && <BetOwnerIdeasField />}
                         </BetFormSection>
-                        <BetFormActions id={id} className="Bets__formFooter" />
+                        <BetFormActions id={id} />
                     </form>
                 </div>
             )}

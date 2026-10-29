@@ -139,19 +139,17 @@ export function BetBuildDialog({ bet }: { bet: BetsDetailApi }): JSX.Element {
                                     <Text size="sm" variant="muted" render={<p className="m-0" />}>
                                         Bets builds the change behind a flag and tests it with this plan.
                                     </Text>
-                                    <div className="flex flex-col gap-4">
-                                        {FIELDS.map((field) => (
-                                            <PlanFieldRow
-                                                key={field.name}
-                                                field={field}
-                                                value={plan.draft[field.name]}
-                                                missing={field.name === 'audience' && plan.audienceMissing}
-                                                disabled={building}
-                                                inputRef={refs[field.name]}
-                                                onChange={(value) => editPlan(item.id, item.plan, field.name, value)}
-                                            />
-                                        ))}
-                                    </div>
+                                    {FIELDS.map((field) => (
+                                        <PlanFieldRow
+                                            key={field.name}
+                                            field={field}
+                                            value={plan.draft[field.name]}
+                                            missing={field.name === 'audience' && plan.audienceMissing}
+                                            disabled={building}
+                                            inputRef={refs[field.name]}
+                                            onChange={(value) => editPlan(item.id, item.plan, field.name, value)}
+                                        />
+                                    ))}
                                     {plan.warnings.length > 0 && (
                                         <div className="flex flex-col gap-1" aria-live="polite">
                                             {plan.warnings.map((warning) => (

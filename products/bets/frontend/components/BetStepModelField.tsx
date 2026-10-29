@@ -1,13 +1,4 @@
-import {
-    Field,
-    FieldDescription,
-    FieldLabel,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@posthog/quill'
+import { Field, FieldDescription, FieldLabel } from '@posthog/quill'
 
 import type {
     BetsModelOptionApi,
@@ -15,6 +6,7 @@ import type {
     ModelStepEnumApi,
     StepBillingEnumApi,
 } from '../generated/api.schemas'
+import { BetsSelect } from './BetsSelect'
 
 const STEPS: Record<ModelStepEnumApi, { label: string; description: string }> = {
     scout: { label: 'Finding ideas', description: 'The Scout reads your data and code to pick the next idea.' },
@@ -59,11 +51,11 @@ export function BetStepModelField({
             <div className="Bets__formRow">
                 <Field>
                     <FieldLabel htmlFor={id}>{STEPS[step].label}</FieldLabel>
-                    <Select
+                    <BetsSelect
                         value={value?.model || DEFAULT_MODEL}
                         items={models}
                         disabled={disabled}
-                        onValueChange={(model) =>
+                        onChange={(model) =>
                             onChange({
                                 model: !model || model === DEFAULT_MODEL ? '' : model,
                                 reasoning_effort:
@@ -75,61 +67,31 @@ export function BetStepModelField({
                                         : 'credits',
                             })
                         }
-                    >
-                        <SelectTrigger id={id} aria-label={`${STEPS[step].label} model`}>
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {models.map((model) => (
-                                <SelectItem key={model.value} value={model.value}>
-                                    {model.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                        trigger={{ id, 'aria-label': `${STEPS[step].label} model` }}
+                    />
                 </Field>
                 <div className="Bets__formRow">
                     {!!efforts.length && (
                         <Field>
                             <FieldLabel htmlFor={`${id}-effort`}>Effort</FieldLabel>
-                            <Select
+                            <BetsSelect
                                 value={value?.reasoning_effort || efforts[0].value}
                                 items={efforts}
                                 disabled={disabled}
-                                onValueChange={(effort) => effort && onChange({ reasoning_effort: effort })}
-                            >
-                                <SelectTrigger id={`${id}-effort`} aria-label={`${STEPS[step].label} effort`}>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {efforts.map((effort) => (
-                                        <SelectItem key={effort.value} value={effort.value}>
-                                            {effort.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                onChange={(effort) => effort && onChange({ reasoning_effort: effort })}
+                                trigger={{ id: `${id}-effort`, 'aria-label': `${STEPS[step].label} effort` }}
+                            />
                         </Field>
                     )}
                     <Field>
                         <FieldLabel htmlFor={`${id}-billing`}>Billing</FieldLabel>
-                        <Select
+                        <BetsSelect
                             value={planUsable ? (value?.billing ?? 'credits') : 'credits'}
                             items={billing}
                             disabled={disabled || billing.length < 2}
-                            onValueChange={(choice) => choice && onChange({ billing: choice as StepBillingEnumApi })}
-                        >
-                            <SelectTrigger id={`${id}-billing`} aria-label={`${STEPS[step].label} billing`}>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {billing.map((choice) => (
-                                    <SelectItem key={choice.value} value={choice.value}>
-                                        {choice.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                            onChange={(choice) => choice && onChange({ billing: choice as StepBillingEnumApi })}
+                            trigger={{ id: `${id}-billing`, 'aria-label': `${STEPS[step].label} billing` }}
+                        />
                     </Field>
                 </div>
             </div>

@@ -17,7 +17,7 @@ export function BetOwnerIdeasField(): JSX.Element {
                 Have an idea already? The Scout checks it against your data, next to its own ideas.
             </FieldDescription>
             {ownerIdeas.length > 0 && (
-                <ol className="Bets__ideas m-0 flex list-none flex-col gap-2 p-0">
+                <ol className="m-0 flex list-none flex-col gap-2 p-0">
                     {ownerIdeas.map((idea, index) => (
                         <li key={index} className="flex items-center gap-2">
                             <Input

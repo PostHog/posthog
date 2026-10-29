@@ -5,15 +5,8 @@ import { TodaySparkline } from 'scenes/project-homepage/today/TodaySparkline'
 import type { BetsMetricApi } from '../generated/api.schemas'
 import { metricPeriod, number } from '../lib/format'
 
-export function BetsMetric({
-    metric,
-    label,
-    unit = metric.unit,
-}: {
-    metric: BetsMetricApi
-    label?: string
-    unit?: string
-}): JSX.Element {
+export function BetsMetric({ metric, label }: { metric: BetsMetricApi; label?: string }): JSX.Element {
+    const { unit } = metric
     const period = metricPeriod(metric.dates)
     return (
         <section className="flex min-w-0 items-center justify-between gap-6" aria-label={label ?? metric.name}>

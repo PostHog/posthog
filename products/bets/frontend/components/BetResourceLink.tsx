@@ -26,7 +26,6 @@ export function BetResourceLink({
     href,
     detail,
     id,
-    onClick,
     disabled = false,
 }: {
     kind: BetResourceKind
@@ -34,7 +33,6 @@ export function BetResourceLink({
     href: string
     detail?: string
     id?: string
-    onClick?: () => void
     disabled?: boolean
 }): JSX.Element {
     const preview = useMemo<TodayObjectPreview>(
@@ -68,8 +66,7 @@ export function BetResourceLink({
               : undefined
     const link = (
         <LinkPrimitive
-            to={onClick ? undefined : href}
-            onClick={onClick}
+            to={href}
             disabled={disabled}
             target={kind === 'pull_request' || kind === 'repository' ? '_blank' : undefined}
             className="Bets__resourceLink"

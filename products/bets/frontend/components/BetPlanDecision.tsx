@@ -17,7 +17,7 @@ export function BetPlanDecision({ item, bet }: { item: BetsWorkApi; bet: BetsDet
     if (stoppingWork === item.id) {
         return (
             <div
-                className="Bets__planDecision flex flex-col gap-2"
+                className="flex flex-col gap-2"
                 role="group"
                 aria-label="Stop the experiment"
                 onKeyDown={(event) => {
@@ -55,7 +55,7 @@ export function BetPlanDecision({ item, bet }: { item: BetsWorkApi; bet: BetsDet
         )
     }
     return (
-        <div className="Bets__planDecision flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             <Button
                 size="sm"
                 variant="primary"

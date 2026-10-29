@@ -17,7 +17,7 @@ export function BetWorkStatusIcon({ status }: { status: BetWorkStatus }): JSX.El
     const icon =
         status.mark === 'verified' ? (
             <IconCheck className="text-success" />
-        ) : status.mark === 'failed' ? (
+        ) : status.mark === 'failed' || status.mark === 'cancelled' ? (
             <IconX />
         ) : status.mark === 'waiting' ? (
             <IconClock />
@@ -25,8 +25,6 @@ export function BetWorkStatusIcon({ status }: { status: BetWorkStatus }): JSX.El
             <IconWarning className="text-warning" />
         ) : status.mark === 'previous' ? (
             <IconArchive />
-        ) : status.mark === 'cancelled' ? (
-            <IconX />
         ) : (
             <span className="size-2 rounded-full border border-current" />
         )

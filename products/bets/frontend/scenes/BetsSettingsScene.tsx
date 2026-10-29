@@ -1,22 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    Button,
-    Field,
-    FieldDescription,
-    FieldLabel,
-    Input,
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-    Text,
-} from '@posthog/quill'
+import { Button, Field, FieldDescription, FieldLabel, Input, Text } from '@posthog/quill'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { BetsPage } from '../BetsPage'
+import { BetsSelect } from '../components/BetsSelect'
 import { BetsSettingsSkeleton } from '../components/BetsSettingsSkeleton'
 import { BetStepModelField } from '../components/BetStepModelField'
 import { type MinRunUnit, betsSettingsLogic } from '../logics/betsSettingsLogic'
@@ -108,23 +97,13 @@ export function BetsSettingsScene(): JSX.Element {
                     </Field>
                     <Field>
                         <FieldLabel>North Star</FieldLabel>
-                        <Select
+                        <BetsSelect
                             value={insight}
                             items={items}
-                            onValueChange={(value) => setInsight(value ?? '')}
+                            onChange={(value) => setInsight(value ?? '')}
                             disabled={!overview.can_edit}
-                        >
-                            <SelectTrigger aria-label="North Star insight">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {items.map((item) => (
-                                    <SelectItem key={item.value} value={item.value}>
-                                        {item.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                            trigger={{ 'aria-label': 'North Star insight' }}
+                        />
                         <FieldDescription>A saved insight with one series, shown at the top of Bets.</FieldDescription>
                     </Field>
                     <fieldset className="flex flex-col gap-6 border-0 p-0 m-0">
@@ -162,23 +141,13 @@ export function BetsSettingsScene(): JSX.Element {
                                         onChange={(event) => setMinRun(Math.round(Number(event.target.value)))}
                                         disabled={!overview.can_edit}
                                     />
-                                    <Select
+                                    <BetsSelect
                                         value={minRunUnit}
                                         items={RUN_UNITS}
-                                        onValueChange={(value) => value && setMinRunUnit(value as MinRunUnit)}
+                                        onChange={(value) => value && setMinRunUnit(value as MinRunUnit)}
                                         disabled={!overview.can_edit}
-                                    >
-                                        <SelectTrigger aria-label="Shortest run unit" className="w-24 shrink-0">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {RUN_UNITS.map((unit) => (
-                                                <SelectItem key={unit.value} value={unit.value}>
-                                                    {unit.label}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                        trigger={{ 'aria-label': 'Shortest run unit', className: 'w-24 shrink-0' }}
+                                    />
                                 </div>
                                 <FieldDescription>
                                     Every experiment runs at least this long. 0 lets the plan decide.

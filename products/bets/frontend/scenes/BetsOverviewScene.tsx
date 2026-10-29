@@ -25,13 +25,11 @@ export function BetsOverviewScene(): JSX.Element {
             description="Decisions and next steps for your bets."
             breadcrumbs={breadcrumbs}
             actions={
-                <>
-                    {overview?.can_edit && (
-                        <Button variant="primary" size="sm" render={<LinkPrimitive to={urls.betsNew()} />}>
-                            <IconPlus /> New bet
-                        </Button>
-                    )}
-                </>
+                overview?.can_edit && (
+                    <Button variant="primary" size="sm" render={<LinkPrimitive to={urls.betsNew()} />}>
+                        <IconPlus /> New bet
+                    </Button>
+                )
             }
         >
             {overview && !error && (

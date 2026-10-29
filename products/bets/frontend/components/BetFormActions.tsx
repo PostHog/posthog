@@ -18,7 +18,7 @@ const FIELD_TARGETS: Record<BetFormField, string> = {
     repository: '#bet-repository, .Bets__repositoryPicker button',
 }
 
-export function BetFormActions({ id, className }: { id: string; className?: string }): JSX.Element {
+export function BetFormActions({ id }: { id: string }): JSX.Element {
     const { busy, error, errorField, missing, submitDisabledReason, isNew } = useValues(betFormLogic({ id }))
     const { reveal } = useActions(betFormLogic({ id }))
     const focusField = (field: BetFormField): void => {
@@ -26,7 +26,7 @@ export function BetFormActions({ id, className }: { id: string; className?: stri
         document.querySelector<HTMLElement>(FIELD_TARGETS[field])?.focus()
     }
     return (
-        <div className={`Bets__formActions ${className ?? ''}`}>
+        <div className="Bets__formActions">
             {error && (
                 <Text variant="destructive" size="xs" render={<p role="alert" className="m-0" />}>
                     {errorField ? (

@@ -159,15 +159,10 @@
     }
 
     .Bets__formActions {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-    }
-
-    .Bets__formFooter {
         position: sticky;
         bottom: 0;
         z-index: 2;
+        display: flex;
         flex-flow: row wrap;
         gap: 8px 16px;
         align-items: center;
@@ -244,16 +239,17 @@
         border-block: 1px solid var(--today-line);
     }
 
-    .Bets__goalMetric {
+    .Bets__goalMetric,
+    .Bets__goalSecondary {
         .Bets__resourceLink {
             padding: 0;
             margin-bottom: 4px;
-
-            .Bets__resourceLinkTitle {
-                text-wrap: pretty;
-                white-space: normal;
-            }
         }
+    }
+
+    .Bets__goalMetric .Bets__resourceLink .Bets__resourceLinkTitle {
+        text-wrap: pretty;
+        white-space: normal;
     }
 
     .Bets__goalValue {
@@ -328,13 +324,6 @@
 
         ul {
             grid-template-columns: repeat(auto-fill, minmax(180px, 240px));
-        }
-    }
-
-    .Bets__goalSecondary {
-        .Bets__resourceLink {
-            padding: 0;
-            margin-bottom: 4px;
         }
     }
 
@@ -766,9 +755,9 @@
         }
     }
 
-    &.BetBuildDialog {
+    &.BetBuildDialog,
+    &.BetsAllocationDialog {
         top: 50%;
-        max-width: min(520px, calc(100vw - 2rem));
         max-height: calc(100dvh - 2rem);
         transition:
             opacity 200ms var(--today-ease),
@@ -785,6 +774,10 @@
         &[data-ending-style] {
             transition-duration: 150ms;
         }
+    }
+
+    &.BetBuildDialog {
+        max-width: min(520px, calc(100vw - 2rem));
     }
 
     .BetBuildDialog__warningIcon {
@@ -795,24 +788,7 @@
     }
 
     &.BetsAllocationDialog {
-        top: 50%;
         max-width: min(760px, calc(100vw - 3rem));
-        max-height: calc(100dvh - 2rem);
-        transition:
-            opacity 200ms var(--today-ease),
-            scale 200ms var(--today-ease);
-        transform-origin: center;
-        translate: -50% -50%;
-
-        &[data-starting-style],
-        &[data-ending-style] {
-            opacity: 0;
-            scale: 0.96;
-        }
-
-        &[data-ending-style] {
-            transition-duration: 150ms;
-        }
 
         .BetsTreemap {
             height: min(380px, 55dvh);
@@ -1104,13 +1080,12 @@
     .Bets__statusFrame:first-child {
         opacity: 1;
     }
-}
 
-@media (prefers-reduced-motion: reduce) {
     .Bets .BetsTreemap__tile,
     .Bets .BetsTreemap__label,
     .Bets .BetsTreemap__share,
-    .Bets.BetsAllocationDialog {
+    .Bets.BetsAllocationDialog,
+    .Bets.BetBuildDialog {
         transition: none;
     }
 
@@ -1122,16 +1097,7 @@
     }
 
     .Bets.BetsAllocationDialog[data-starting-style],
-    .Bets.BetsAllocationDialog[data-ending-style] {
-        scale: 1;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .Bets.BetBuildDialog {
-        transition: none;
-    }
-
+    .Bets.BetsAllocationDialog[data-ending-style],
     .Bets.BetBuildDialog[data-starting-style],
     .Bets.BetBuildDialog[data-ending-style] {
         scale: 1;

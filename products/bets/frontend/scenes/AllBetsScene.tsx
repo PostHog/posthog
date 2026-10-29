@@ -42,40 +42,34 @@ export function AllBetsScene(): JSX.Element {
                     <BetsFilters />
                     <BetsTableSkeleton />
                 </div>
-            ) : (
-                <>
-                    {overview.bets.length ? (
-                        <div className="mt-8" aria-busy={overviewLoading}>
-                            <BetsFilters />
-                            {filteredBets.length ? (
-                                <BetsTable bets={filteredBets} />
-                            ) : (
-                                <div className="flex flex-col items-start gap-3 py-10">
-                                    <Text variant="muted">No bets match these filters.</Text>
-                                </div>
-                            )}
-                        </div>
+            ) : overview.bets.length ? (
+                <div className="mt-8" aria-busy={overviewLoading}>
+                    <BetsFilters />
+                    {filteredBets.length ? (
+                        <BetsTable bets={filteredBets} />
                     ) : (
                         <div className="flex flex-col items-start gap-3 py-10">
-                            <h2 className="Bets__sectionTitle">What should improve next?</h2>
-                            <Text variant="muted">
-                                Define an outcome, choose a primary metric, and give the bet a budget.
-                            </Text>
-                            {overview.can_edit && (
-                                <Button
-                                    variant="outline"
-                                    render={
-                                        <LinkPrimitive
-                                            to={overview.settings.budget_cents ? urls.betsNew() : urls.betsSettings()}
-                                        />
-                                    }
-                                >
-                                    {overview.settings.budget_cents ? 'Create your first bet' : 'Set your budget'}
-                                </Button>
-                            )}
+                            <Text variant="muted">No bets match these filters.</Text>
                         </div>
                     )}
-                </>
+                </div>
+            ) : (
+                <div className="flex flex-col items-start gap-3 py-10">
+                    <h2 className="Bets__sectionTitle">What should improve next?</h2>
+                    <Text variant="muted">Define an outcome, choose a primary metric, and give the bet a budget.</Text>
+                    {overview.can_edit && (
+                        <Button
+                            variant="outline"
+                            render={
+                                <LinkPrimitive
+                                    to={overview.settings.budget_cents ? urls.betsNew() : urls.betsSettings()}
+                                />
+                            }
+                        >
+                            {overview.settings.budget_cents ? 'Create your first bet' : 'Set your budget'}
+                        </Button>
+                    )}
+                </div>
             )}
         </BetsPage>
     )

@@ -10,7 +10,6 @@ import { type BetRating, betPerformance } from '../lib/betPerformance'
 import { BET_STATUS_LABELS } from '../lib/betStatus'
 import { money, number, progressPercent } from '../lib/format'
 import { betsSidebarPreviewLogic } from '../logics/betsSidebarPreviewLogic'
-import { BET_RATING_CLASSES } from './betRatingClasses'
 import { BetSparkline } from './BetSparkline'
 
 const RATING_TONES: Record<BetRating, TodayTone> = {
@@ -18,6 +17,13 @@ const RATING_TONES: Record<BetRating, TodayTone> = {
     meh: 'neutral',
     good: 'good',
     amazing: 'good',
+}
+
+const RATING_CLASSES: Record<BetRating, string> = {
+    bad: 'text-warning-foreground',
+    meh: 'text-muted-foreground',
+    good: 'text-success-foreground',
+    amazing: 'text-success-foreground',
 }
 
 export function BetsSidebarHoverCard({ bet }: { bet: BetsEntryApi }): JSX.Element {
@@ -48,7 +54,7 @@ export function BetsSidebarHoverCard({ bet }: { bet: BetsEntryApi }): JSX.Elemen
                         {bet.goal_metric || bet.metric.name}
                     </Text>
                     {performance && (
-                        <span className={cn('shrink-0 tabular-nums', BET_RATING_CLASSES[performance.rating])}>
+                        <span className={cn('shrink-0 tabular-nums', RATING_CLASSES[performance.rating])}>
                             {progressPercent(performance.progress)}
                         </span>
                     )}

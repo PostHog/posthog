@@ -12,11 +12,9 @@ const AXIS_ROW = 20
 export function BetGoalChart({
     bet,
     pins,
-    className,
 }: {
     bet: Pick<BetsDetailApi, 'target' | 'unit' | 'goal_metric' | 'metric'>
     pins?: BetIdeaPin[]
-    className?: string
 }): JSX.Element {
     const [levels, setLevels] = useState(1)
     const target = bet.target === null ? null : Number(bet.target)
@@ -39,7 +37,6 @@ export function BetGoalChart({
             empty={bet.metric.values.length ? undefined : 'No observations yet'}
             ticks={chartTicks(bet.metric.dates, (date) => metricPeriod([date]))}
             edge={edge}
-            className={className}
         >
             {pins?.length ? <BetIdeaPins pins={pins} onLevels={setLevels} /> : null}
         </BetMiniChart>

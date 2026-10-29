@@ -59,7 +59,7 @@ export function BetDetailScene({ id }: { id: string }): JSX.Element {
             breadcrumbs={breadcrumbs}
             actions={
                 bet && (
-                    <div className="flex flex-wrap items-center gap-2">
+                    <>
                         <Tooltip>
                             <TooltipTrigger
                                 delay={200}
@@ -104,7 +104,7 @@ export function BetDetailScene({ id }: { id: string }): JSX.Element {
                                 )}
                             </>
                         )}
-                    </div>
+                    </>
                 )
             }
         >
@@ -128,21 +128,21 @@ export function BetDetailScene({ id }: { id: string }): JSX.Element {
                         <BetHeaderStatus bet={bet} />
                     </div>
                     <BetConfiguration bet={bet} />
-                    {bet.results ? (
-                        <div className="Bets__detailMain @container/bets-main min-w-0">
+                    <div className="Bets__detailMain @container/bets-main min-w-0">
+                        {bet.results ? (
                             <BetResults bet={bet} results={bet.results} />
-                        </div>
-                    ) : (
-                        <div className="Bets__detailMain @container/bets-main min-w-0">
-                            <BetGoal bet={bet} />
-                            <div ref={ideasRef} className="scroll-mt-6">
-                                <BetIdeas bet={bet} />
-                            </div>
-                            <div ref={workRef} className="scroll-mt-6">
-                                <BetProgress bet={bet} />
-                            </div>
-                        </div>
-                    )}
+                        ) : (
+                            <>
+                                <BetGoal bet={bet} />
+                                <div ref={ideasRef} className="scroll-mt-6">
+                                    <BetIdeas bet={bet} />
+                                </div>
+                                <div ref={workRef} className="scroll-mt-6">
+                                    <BetProgress bet={bet} />
+                                </div>
+                            </>
+                        )}
+                    </div>
                     <BetActivity
                         entries={activity}
                         loading={activityLoading}
