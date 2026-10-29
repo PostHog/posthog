@@ -34,9 +34,18 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
+    companion_resource_name,
+    history_naming_of,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HistoryTableNameTakenError,
+    not_another_schemas_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -292,20 +301,24 @@ def _record_storage_delta(job: ExternalDataJob, storage_delta_mib: Optional[floa
 
 
 def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -> DataWarehouseTable | None:
-    """The schema's linked table, unless the link is its `_cdc` companion.
+    """The schema's linked table, unless the link is its history table.
 
-    cdc_only links the schema to its companion table. Reusing that link after a switch to a mode that
-    writes the consolidated table would publish the consolidated data under the companion's record,
+    cdc_only links the schema to its history table. Reusing that link after a switch to a mode that
+    writes the consolidated table would publish the consolidated data under the history table's record,
     and the consolidated table would never get a record of its own. A pinned folder can give the
-    schema's own table the companion's name, and then the link is right.
+    schema's own table the legacy history name, and then the link is right.
     """
     table = schema.table
     if table is None:
         return None
     names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
-    table_name = build_table_name(pipeline, names.table_storage_name)
-    companion_name = build_table_name(pipeline, companion_resource_name(schema.name))
-    return None if table.name == companion_name != table_name else table
+    if table.name == build_table_name(pipeline, names.table_storage_name):
+        return table
+    if table.is_history_table:
+        return None
+    # A history table registered before the marker existed carries only its legacy name.
+    legacy_name = build_table_name(pipeline, companion_resource_name(schema.name, LEGACY_HISTORY_NAMING))
+    return None if table.name == legacy_name else table
 
 
 def find_orphan_table(schema: ExternalDataSchema, source: ExternalDataSource) -> DataWarehouseTable | None:
@@ -685,12 +698,19 @@ async def register_cdc_companion_table(
             # when the cluster is degraded, so holding a Postgres transaction open across them is
             # what produced minutes-long "idle in transaction" connections.
             # Find existing companion table (not schema.table) by name
-            companion_table: DataWarehouseTable | None = DataWarehouseTable.objects.filter(
+            same_name = DataWarehouseTable.objects.filter(
                 team_id=team_id,
                 name=companion_table_name,
                 external_data_source_id=job.pipeline.id,
                 deleted=False,
-            ).first()
+            )
+            companion_table: DataWarehouseTable | None = not_another_schemas_table(same_name, schema_id).first()
+            if companion_table is None and same_name.exists():
+                # Another schema's table has this name. Taking its record would point it at this history,
+                # and a second record of the same name would hide one of them.
+                raise HistoryTableNameTakenError(
+                    f"{companion_table_name} is already the name of another table of this source"
+                )
 
             previous_queryable_folder = companion_table.queryable_folder if companion_table else None
             storage_delta_mib = _storage_delta_mib(companion_table, live_size_mib)
@@ -717,13 +737,17 @@ async def register_cdc_companion_table(
                 )
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
-                companion_table = DataWarehouseTable.objects.create(
+                companion_table = DataWarehouseTable(
                     external_data_source_id=job.pipeline.id,
                     created_via=DataWarehouseTableCreatedVia.SOURCE,
                     size_in_s3_mib=live_size_mib,
-                    options={HISTORY_TABLE_OPTION: True},
                     **table_params,
                 )
+                # The batches carry the validity columns of the naming this run chose for the table.
+                companion_table.mark_as_history_table(
+                    ph_naming=history_naming_of(table_schema_dict or {}) == HISTORY_NAMING
+                )
+                companion_table.save()
             _record_storage_delta(job, storage_delta_mib)
             _record_query_folder_pointer(
                 schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger

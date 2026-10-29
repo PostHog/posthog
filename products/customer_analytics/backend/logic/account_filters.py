@@ -285,6 +285,24 @@ def _custom_property_filter_predicate(
     raise InvalidAccountFilter(f"Unsupported custom property filter operator: {operator.value}")
 
 
+def filter_valid_account_filters(
+    filters: tuple[contracts.AccountTableFilter, ...],
+    *,
+    custom_property_display_types: dict[UUID, DisplayType],
+) -> tuple[contracts.AccountTableFilter, ...]:
+    valid_filters: list[contracts.AccountTableFilter] = []
+    for filter_ in filters:
+        if isinstance(filter_, contracts.AccountTableCustomPropertyFilter):
+            try:
+                _custom_property_filter_predicate(
+                    filter_, custom_property_display_types[filter_.definition_id], timezone_info=UTC_TIMEZONE
+                )
+            except InvalidAccountFilter:
+                continue
+        valid_filters.append(filter_)
+    return tuple(valid_filters)
+
+
 def apply_account_filters(
     queryset: QuerySet[Account],
     *,
