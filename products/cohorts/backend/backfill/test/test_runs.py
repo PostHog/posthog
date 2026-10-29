@@ -342,6 +342,7 @@ _PAGEVIEW_LEAF = {
     "bytecode": _BYTECODE,
 }
 _TEN_DAYS_AGO = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%d")
+_120_DAYS_AGO = (datetime.now(UTC) - timedelta(days=120)).strftime("%Y-%m-%d")
 _FLAG_CALL_TABLE_CASES = [
     ("swapped", _FLAG_CALL_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "flag_evaluations"),
     ("rewrite_off", _FLAG_CALL_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, "events"),
@@ -379,6 +380,13 @@ _FLAG_CALL_TABLE_CASES = [
         "flag_evaluations",
     ),
     ("no_flag_calls", _PAGEVIEW_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
+    (
+        "sliding_and_fixed_range_in_one_cohort",
+        (_FLAG_CALL_LEAF, {**_FLAG_CALL_LEAF, "conditionHash": "flagcall00000002", "explicit_datetime": _TEN_DAYS_AGO}),
+        FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        True,
+        "events",
+    ),
 ]
 
 
@@ -418,13 +426,13 @@ class TestBackfillRunFlagCallsTable(BaseTest):
         self,
         _name: str,
         scope: str,
-        leaf: dict,
+        leaf: dict | tuple[dict, ...],
         mode: FlagEvaluationsMode,
         rewrite_enabled: bool,
         expected: str,
     ) -> None:
         self._set_flag_evaluations_mode(mode)
-        cohort = self._cohort(leaf)
+        cohort = self._cohort(*(leaf if isinstance(leaf, tuple) else (leaf,)))
 
         with self._flag_calls_rewrite(rewrite_enabled):
             if scope == "team":
@@ -455,15 +463,24 @@ class TestBackfillRunFlagCallsTable(BaseTest):
 
         self.assertEqual(run.pinned["flag_calls_table"], expected)
 
-    def test_a_flag_call_cohort_whose_batch_query_does_not_compile_gets_no_run(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "batch_query_does_not_compile",
+                {
+                    **_FLAG_CALL_LEAF,
+                    "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
+                },
+            ),
+            # The seeder fails a run that scans a day older than the flag_evaluations TTL.
+            ("sliding_window_past_the_ttl", {**_FLAG_CALL_LEAF, "time_value": 120}),
+            ("fixed_range_past_the_ttl", {**_FLAG_CALL_LEAF, "explicit_datetime": _120_DAYS_AGO}),
+        ]
+    )
+    def test_a_flag_call_cohort_that_no_table_can_backfill_gets_no_run(self, _name: str, leaf: dict) -> None:
         # Pinning events instead would give the cohort an empty flag-call history that still counts as backfilled.
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        cohort = self._cohort(
-            {
-                **_FLAG_CALL_LEAF,
-                "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
-            }
-        )
+        cohort = self._cohort(leaf)
 
         with self._flag_calls_rewrite():
             attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")

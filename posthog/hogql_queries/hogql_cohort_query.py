@@ -804,19 +804,19 @@ FLAG_CALL_READS_COMPILE_ERRORS = (BaseHogQLError, ValidationError, ValueError)
 
 @frozen
 class FlagCallReads:
-    
     only_in_flag_evaluations: bool
     reads_from_events: int
 
 
 def batch_flag_call_reads(cohort: Cohort, team: Team) -> FlagCallReads:
-    """How many flag-call reads the batch query for this cohort leaves on events.
+    """Whether the organization's flag calls are only in flag_evaluations, and how many flag-call reads the batch query
+    for this cohort leaves on events.
 
     It compiles the cohort the way the batch calculation does, so it follows the rewrite's rules and its fallback to
     events when a field doesn't resolve on flag_evaluations. It raises whatever the compile raises.
     """
     executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(bypass_warehouse_access_control=True)
-    executor.generate_clickhouse_sql()
+    _, context = executor.generate_clickhouse_sql()
     prepared = executor.clickhouse_prepared_ast
     return FlagCallReads(
         only_in_flag_evaluations=context.database is not None and context.database.flag_calls_only_in_flag_evaluations,
