@@ -160,4 +160,9 @@ export default defineCommand({
     agent({ result, out }) {
         out.jsonLines(result.languages)
     },
+
+    telemetry: ({ result }) => ({
+        languages: result.languages.map((pulled) => pulled.language),
+        written: result.languages.filter((pulled) => pulled.status === 'written').length,
+    }),
 })

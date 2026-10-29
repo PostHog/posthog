@@ -35,4 +35,6 @@ export default defineCommand({
     agent({ result, out }) {
         out.jsonLines(result.endpoints.map(summary))
     },
+
+    telemetry: ({ result }) => ({ endpoint_count: result.endpoints.length }),
 })

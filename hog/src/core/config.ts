@@ -76,6 +76,12 @@ export const PostHogConfig = z
                     .boolean()
                     .optional()
                     .describe('Exit with code 0 when a command fails, like --no-fail. HOG_NO_FAIL overrides it.'),
+                telemetry: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'false stops hog from sending anonymous usage data to PostHog for everyone working in this folder.'
+                    ),
                 rateLimit: z
                     .number()
                     .int()

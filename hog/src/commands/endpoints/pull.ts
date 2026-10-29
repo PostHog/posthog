@@ -185,4 +185,11 @@ export default defineCommand({
     agent({ result, out }) {
         out.json(result)
     },
+
+    telemetry: ({ result, options }) => ({
+        status: result.status,
+        all: options.all === true,
+        endpoint_count: result.plan.length,
+        written: result.written.length,
+    }),
 })

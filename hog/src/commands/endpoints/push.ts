@@ -119,4 +119,13 @@ export default defineCommand({
 
     exitCode: (result) =>
         result.problems.length > 0 || result.outcomes.some((outcome) => outcome.status === 'failed') ? 1 : 0,
+
+    telemetry: ({ result }) => ({
+        status: result.status,
+        file_count: result.plan.length,
+        invalid_count: result.problems.length,
+        created: result.outcomes.filter((outcome) => outcome.status === 'created').length,
+        updated: result.outcomes.filter((outcome) => outcome.status === 'updated').length,
+        failed: result.outcomes.filter((outcome) => outcome.status === 'failed').length,
+    }),
 })

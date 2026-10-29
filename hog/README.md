@@ -48,9 +48,8 @@ First, the commands that make hog a complete CLI:
 
 Then, once the commands above work:
 
-- [ ] Telemetry: the `posthog cli command run` and `error_tracking_cli_sourcemaps_upload_*` events posthog-cli sends.
 - [ ] Callers: the SDKs, build plugins and scripts that run `posthog-cli` with its arguments. Move them to hog, or give hog a `posthog-cli` entry point that translates the arguments.
-- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, and CI on Linux and Windows.
+- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, CI on Linux and Windows.
 
 Not planned:
 
@@ -77,21 +76,34 @@ Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 Every option below works on any command, and each has an environment variable.
 A flag beats the environment variable, which beats `posthog.json`.
 
-| Option                    | Environment                 | `posthog.json`  | What it does                                                                                                                  |
-| ------------------------- | --------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `--host <url>`            | `HOG_HOST`                  | `host`          | The PostHog host to use instead of the one in your credentials                                                                |
-| `--dotenv-file <path>`    | `HOG_DOTENV_FILE`           |                 | Read credentials from this file when the environment has none                                                                 |
-| `-o, --output <format>`   | `HOG_OUTPUT`                |                 | `text` or `json`                                                                                                              |
-| `--raw`                   | `HOG_RAW`                   |                 | Print a command's full result as JSON                                                                                         |
-| `--debug`                 | `HOG_DEBUG`                 |                 | Print each HTTP request, its status and duration to stderr                                                                    |
-| `--no-fail`               | `HOG_NO_FAIL`               | `cli.noFail`    | Exit with code 0 when a command fails or reports a problem, such as `diff` finding drift. Usage errors still exit with code 2 |
-| `--skip-ssl-verification` | `HOG_SKIP_SSL_VERIFICATION` |                 | Accept any TLS certificate, for a self-signed self-hosted PostHog                                                             |
-| `--rate-limit <requests>` | `HOG_RATE_LIMIT`            | `cli.rateLimit` | The most requests per minute. No limit by default                                                                             |
-|                           | `HOG_DRY_RUN`               |                 | Turns on `--dry-run` for every command that has one, and fails the commands that write without one                            |
+| Option                    | Environment                        | `posthog.json`  | What it does                                                                                                                  |
+| ------------------------- | ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `--host <url>`            | `HOG_HOST`                         | `host`          | The PostHog host to use instead of the one in your credentials                                                                |
+| `--dotenv-file <path>`    | `HOG_DOTENV_FILE`                  |                 | Read credentials from this file when the environment has none                                                                 |
+| `-o, --output <format>`   | `HOG_OUTPUT`                       |                 | `text` or `json`                                                                                                              |
+| `--raw`                   | `HOG_RAW`                          |                 | Print a command's full result as JSON                                                                                         |
+| `--debug`                 | `HOG_DEBUG`                        |                 | Print each HTTP request, its status and duration to stderr                                                                    |
+| `--no-fail`               | `HOG_NO_FAIL`                      | `cli.noFail`    | Exit with code 0 when a command fails or reports a problem, such as `diff` finding drift. Usage errors still exit with code 2 |
+| `--skip-ssl-verification` | `HOG_SKIP_SSL_VERIFICATION`        |                 | Accept any TLS certificate, for a self-signed self-hosted PostHog                                                             |
+| `--no-telemetry`          | `HOG_NO_TELEMETRY`, `DO_NOT_TRACK` | `cli.telemetry` | Send no anonymous usage data. See [Telemetry](#telemetry)                                                                     |
+| `--rate-limit <requests>` | `HOG_RATE_LIMIT`                   | `cli.rateLimit` | The most requests per minute. No limit by default                                                                             |
+|                           | `HOG_DRY_RUN`                      |                 | Turns on `--dry-run` for every command that has one, and fails the commands that write without one                            |
 
 `--host`, `HOG_HOST` and `host` in `posthog.json` override the host of every credential source.
 Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
 hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables don't count.
+
+## Telemetry
+
+hog sends anonymous usage events to PostHog, so the team can see which commands people use and where they fail.
+
+- `posthog cli command run`, once per command, the same event posthog-cli sends: the command, exit code, duration, the names of the options passed, the detected agent and CI provider, the OS, and counts from the result, such as rows returned or endpoints pushed.
+- `$exception` when a command fails, with the error code, message, hint and HTTP status. A message can name a file, or quote part of a query or an API answer.
+- `error_tracking_cli_sourcemaps_upload_started`, `_finished` and `_endpoint_fallback`, as in posthog-cli.
+
+Usage events never carry argument or option values or API keys. They are tied to a random ID in `~/.posthog/hog-telemetry-id`, not to a person.
+Telemetry is on by default and goes to the same PostHog project as posthog-cli's.
+Turn telemetry off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"cli": { "telemetry": false }` in `posthog.json`.
 
 ## posthog.json
 

@@ -12,12 +12,13 @@ import {
     type Legacy,
     type OptionSpec,
 } from '@/core/command'
-import { loadConfig } from '@/core/config'
+import { findConfig, loadConfig } from '@/core/config'
 import { Context } from '@/core/context'
 import { EXIT_FAILURE, EXIT_USAGE, HogError } from '@/core/errors'
-import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, resolveGlobals } from '@/core/globals'
+import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
+import { Telemetry } from '@/core/telemetry'
 import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { VERSION } from '@/version'
@@ -116,23 +117,42 @@ async function readArgument(runtime: Runtime, name: string, value: string): Prom
     return text
 }
 
-function commandPath(command: Commander): string {
-    const names: string[] = []
-    for (let current: Commander | null = command; current?.parent; current = current.parent) {
-        names.unshift(current.name())
-    }
-    return names.join(' ')
-}
-
 interface RunState {
     exitCode: number
     noFail?: boolean
+    debug?: boolean
+    options?: string[]
+    command?: string
+    properties?: Record<string, unknown>
 }
 
-function createProgram(runtime: Runtime, mode: Mode, state: RunState): Commander {
+// commander reads `--no-fail` as turning off an option named `fail`, so `noFail` is set from it.
+function negatedFlags(flags: Record<string, unknown>): Record<string, unknown> {
+    const resolved = { ...flags }
+    for (const name of Object.keys(GLOBAL_OPTIONS)) {
+        const positive = /^no([A-Z].*)$/.exec(name)?.[1]
+        if (positive) {
+            const key = positive.charAt(0).toLowerCase() + positive.slice(1)
+            resolved[name] = flags[key] === false ? true : undefined
+        }
+    }
+    return resolved
+}
+
+// The flags the caller typed, by name. Values never leave, and neither does anything commander
+// didn't parse as an option, such as a query that starts with dashes.
+function usedOptions(command: Commander): string[] {
+    const negated: Record<string, string> = { fail: 'no-fail', telemetry: 'no-telemetry' }
+    return Object.keys(command.optsWithGlobals())
+        .filter((key) => command.getOptionValueSourceWithGlobals(key) === 'cli')
+        .map((key) => negated[key] ?? kebabCase(key))
+        .sort()
+}
+
+function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry: Telemetry): Commander {
     const out = new Output(runtime, mode)
 
-    function addRunnable(command: Commander, node: Command): void {
+    function addRunnable(command: Commander, node: Command, path: string): void {
         const argEntries = Object.entries(node.args ?? {})
         for (const [name, spec] of argEntries) {
             command.argument(argumentSyntax(name, spec), spec.description)
@@ -147,12 +167,16 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState): Commander
 
         command.action(async (...params: unknown[]) => {
             const self = params.at(-1) as Commander
-            const flags = self.optsWithGlobals()
-            // commander reads `--no-fail` as turning off an option named `fail`.
-            flags.noFail = flags.fail === false ? true : undefined
+            state.command = path
+            telemetry.commandName = path.replaceAll(/[ -]/g, '_')
+            state.options = usedOptions(self)
             const config = node.allowsInvalidConfig ? undefined : loadConfig(runtime)
-            const globals = resolveGlobals(flags, runtime.env, (await config)?.config)
+            const globals = resolveGlobals(negatedFlags(self.optsWithGlobals()), runtime.env, (await config)?.config)
             state.noFail = globals.noFail === true
+            state.debug = globals.debug === true
+            if (globals.noTelemetry) {
+                telemetry.disable()
+            }
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
             if (envFlag(runtime.env, DRY_RUN_ENV)) {
@@ -161,7 +185,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState): Commander
                 } else if (node.writes) {
                     throw new HogError(
                         'dry_run_unsupported',
-                        `\`hog ${commandPath(self)}\` has no dry run, and HOG_DRY_RUN is set.`,
+                        `\`hog ${path}\` has no dry run, and HOG_DRY_RUN is set.`,
                         'Unset HOG_DRY_RUN to run it, or leave the command out of the dry run.',
                         EXIT_USAGE
                     )
@@ -174,7 +198,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState): Commander
                 args[name] = spec.stdin && value !== undefined ? await readArgument(runtime, name, value) : value
             }
 
-            const ctx = new Context(commandRuntime, globals, mode, COMMANDS, config)
+            const ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)
             let result: unknown
             try {
                 result = await node.run({ args, options, ctx })
@@ -189,16 +213,21 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState): Commander
                 out.json(result)
             }
             state.exitCode = node.exitCode?.(result) ?? 0
+            state.properties = {
+                dry_run: options.dryRun === true,
+                ...node.telemetry?.({ result, args, options } as never),
+            }
         })
     }
 
-    function addNode(parent: Commander, name: string, node: Command | Group | Legacy): void {
+    function addNode(parent: Commander, name: string, node: Command | Group | Legacy, prefix = ''): void {
         const command = parent.command(name).description(node.description)
+        const path = prefix ? `${prefix} ${name}` : name
         switch (node.kind) {
             case 'group':
                 command.aliases(node.aliases ?? [])
                 for (const [childName, child] of Object.entries(node.commands)) {
-                    addNode(command, childName, child)
+                    addNode(command, childName, child, path)
                 }
                 return
             case 'legacy':
@@ -206,7 +235,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState): Commander
                 command.helpGroup(LEGACY_HELP_GROUP)
                 return
             case 'command':
-                addRunnable(command, node)
+                addRunnable(command, node, path)
         }
     }
 
@@ -246,6 +275,7 @@ type Token = ReturnType<typeof parseArgs>['tokens'] extends (infer T)[] | undefi
 interface PreParsed {
     format: OutputFormat | undefined
     noFail: boolean
+    noTelemetry: boolean
     tokens: Token[]
 }
 
@@ -268,7 +298,7 @@ function preParse(argv: readonly string[]): PreParsed {
     })
     const output = values.output
     const format = GLOBAL_OPTIONS.output.choices.find((choice) => choice === output)
-    return { format, noFail: values['no-fail'] === true, tokens }
+    return { format, noFail: values['no-fail'] === true, noTelemetry: values['no-telemetry'] === true, tokens }
 }
 
 function findLegacy(tokens: Token[]): LegacyRoute | undefined {
@@ -367,6 +397,20 @@ function toHogError(caught: unknown): HogError {
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
 }
 
+// Read without the schema, so an opt-out still counts in a file another check rejects. A file
+// that isn't JSON stops the command later, with telemetry on.
+async function configOptsOut(runtime: Runtime): Promise<boolean> {
+    const path = await findConfig(runtime)
+    if (path === undefined) {
+        return false
+    }
+    try {
+        return (JSON.parse(await runtime.readFile(path)) as { cli?: { telemetry?: unknown } })?.cli?.telemetry === false
+    } catch {
+        return false
+    }
+}
+
 function safeEnvFlag(env: Runtime['env'], names: readonly string[]): boolean {
     try {
         return envFlag(env, names) === true
@@ -375,36 +419,104 @@ function safeEnvFlag(env: Runtime['env'], names: readonly string[]): boolean {
     }
 }
 
+// `$exception` frames for a bug, with file names only, so one bug groups together wherever hog is installed.
+function stackFrames(error: unknown): Record<string, unknown>[] {
+    const stack = error instanceof Error ? (error.stack ?? '') : ''
+    return stack
+        .split('\n')
+        .slice(1)
+        .map((line) => /at (?:(.+?) \()?(.+?):(\d+):(\d+)\)?$/.exec(line.trim()))
+        .filter((match): match is RegExpExecArray => match !== null)
+        .map(([, fn, file, line, column]) => ({
+            platform: 'node:javascript',
+            function: fn ?? '<anonymous>',
+            filename: file!.split(/[\\/]/).at(-1),
+            lineno: Number(line),
+            colno: Number(column),
+            in_app: !file!.includes('node_modules'),
+        }))
+        .reverse()
+}
+
+function captureFailure(telemetry: Telemetry, command: string | undefined, error: HogError, cause: unknown): void {
+    const status = error instanceof ApiError ? error.status : undefined
+    const bug = !(cause instanceof HogError)
+    telemetry.capture('$exception', {
+        $exception_list: [
+            {
+                type: bug && cause instanceof Error ? cause.name : error.code,
+                value: error.message,
+                mechanism: { type: 'generic', handled: !bug },
+                ...(bug ? { stacktrace: { type: 'raw', frames: stackFrames(cause) } } : {}),
+            },
+        ],
+        $exception_fingerprint: ['hog', command ?? 'unknown', error.code, status].filter(Boolean).join(':'),
+        error_code: error.code,
+        error_hint: error.hint ?? null,
+        http_status: status ?? null,
+        api_error_type: error instanceof ApiError ? (error.type ?? null) : null,
+    })
+}
+
 export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
-    const { format, noFail, tokens } = preParse(argv)
+    const { format, noFail, noTelemetry, tokens } = preParse(argv)
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
     const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
     const mode = resolveMode(runtime.env, terminal, format ?? envFormat)
     const state: RunState = { exitCode: 0 }
-    const program = createProgram(runtime, mode, state)
+    const telemetry = new Telemetry(
+        runtime,
+        mode,
+        !(
+            noTelemetry ||
+            optOutFlag(runtime.env, GLOBAL_OPTIONS.noTelemetry.env) ||
+            (runtime.telemetryToken !== undefined && (await configOptsOut(runtime)))
+        )
+    )
+    const program = createProgram(runtime, mode, state, telemetry)
     if (argv.length === 0) {
         program.outputHelp()
         return 0
     }
+    const started = runtime.now()
     const commandIndex = tokens.find((token) => token.kind === 'positional')?.index
     const isHelp = commandIndex !== undefined && argv[commandIndex] === 'help'
     const args = isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : [...argv]
 
+    let exitCode: number
+    let failure: HogError | undefined
     try {
         const legacy = findLegacy(isHelp ? preParse(args).tokens : tokens)
         if (legacy) {
+            state.command = legacy.path
             throw notPorted(args, legacy)
         }
         await program.parseAsync(args, { from: 'user' })
         // --no-fail also covers a result that reports a problem, like a failed push or a stale SDK.
-        return state.noFail && state.exitCode === EXIT_FAILURE ? 0 : state.exitCode
+        exitCode = state.noFail && state.exitCode === EXIT_FAILURE ? 0 : state.exitCode
     } catch (caught) {
         if (caught instanceof CommanderError && caught.exitCode === 0) {
             return 0
         }
-        const error = toHogError(caught)
-        new Output(runtime, mode).error(error)
+        failure = toHogError(caught)
+        new Output(runtime, mode).error(failure)
+        if (failure.exitCode === EXIT_FAILURE && failure.code !== 'not_ported') {
+            captureFailure(telemetry, state.command, failure, caught)
+        }
         const ignore = state.noFail ?? (noFail || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.noFail.env))
-        return ignore && error.exitCode === EXIT_FAILURE ? 0 : error.exitCode
+        exitCode = ignore && failure.exitCode === EXIT_FAILURE ? 0 : failure.exitCode
     }
+
+    // posthog-cli's usage event, so one dashboard covers both CLIs. Option names only, never values.
+    telemetry.capture('posthog cli command run', {
+        command_path: state.command ?? null,
+        exit_code: exitCode,
+        success: failure === undefined && exitCode === 0,
+        error_code: failure?.code ?? null,
+        duration_ms: runtime.now() - started,
+        options: state.options ?? [],
+        ...state.properties,
+    })
+    await telemetry.flush(state.debug)
+    return exitCode
 }

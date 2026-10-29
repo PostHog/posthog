@@ -60,4 +60,6 @@ export default defineCommand({
         }
         out.line(out.style(`Run \`hog api schema ${result.name} <field>\` to see a nested field.`, 'dim'))
     },
+
+    telemetry: ({ args }) => ({ tool: args.tool }),
 })

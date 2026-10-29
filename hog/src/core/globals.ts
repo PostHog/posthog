@@ -49,6 +49,14 @@ export const GLOBAL_OPTIONS = {
         env: ['HOG_SKIP_SSL_VERIFICATION'],
         description: 'Accept any TLS certificate, for a self-hosted PostHog with a self-signed one',
     },
+    noTelemetry: {
+        type: 'boolean',
+        env: ['HOG_NO_TELEMETRY', 'DO_NOT_TRACK'],
+        config: 'cli.telemetry',
+        negate: true,
+        lenient: true,
+        description: 'Send no anonymous usage data to PostHog',
+    },
     rateLimit: {
         type: 'string',
         placeholder: 'requests',
@@ -88,6 +96,16 @@ export function envFlag(env: Env, names: readonly string[]): boolean | undefined
     return undefined
 }
 
+// For opt-outs shared with other tools, like DO_NOT_TRACK: any value but an explicit "no" opts out,
+// and an unknown value never breaks a command.
+export function optOutFlag(env: Env, names: readonly string[]): boolean | undefined {
+    const set = names.map((name) => env[name]?.trim().toLowerCase()).filter((value) => value !== undefined)
+    if (set.length === 0) {
+        return undefined
+    }
+    return set.some((value) => !FALSE_VALUES.has(value))
+}
+
 function envValue(env: Env, names: readonly string[]): { name: string; value: string } | undefined {
     for (const name of names) {
         const value = env[name]
@@ -114,7 +132,9 @@ export function resolveGlobals(
         const envNames = spec.env ?? []
         let value: unknown = flags[name]
         let source = `--${kebabCase(name)}`
-        if (value === undefined && spec.type === 'boolean') {
+        if (value === undefined && spec.type === 'boolean' && spec.lenient) {
+            value = optOutFlag(env, envNames)
+        } else if (value === undefined && spec.type === 'boolean') {
             value = envFlag(env, envNames)
             source = envNames.find((envName) => env[envName] !== undefined) ?? source
         } else if (value === undefined) {
@@ -124,7 +144,7 @@ export function resolveGlobals(
         }
         const configured = spec.config === undefined ? undefined : configValue(config, spec.config)
         if (value === undefined && configured !== undefined) {
-            value = spec.type === 'string' ? String(configured) : configured
+            value = spec.type === 'string' ? String(configured) : spec.negate ? !configured : configured
             source = `${spec.config} in posthog.json`
         }
         if (spec.type === 'string' && spec.choices && value !== undefined && !spec.choices.includes(String(value))) {

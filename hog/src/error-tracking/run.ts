@@ -151,7 +151,14 @@ export class Session {
     constructor(private readonly ctx: Context) {}
 
     getClient(): Promise<SymbolSetClient> {
-        this.client ??= this.ctx.credentials().then((credentials) => new SymbolSetClient(this.ctx.runtime, credentials))
+        this.client ??= this.ctx
+            .credentials()
+            .then(
+                (credentials) =>
+                    new SymbolSetClient(this.ctx.runtime, credentials, () =>
+                        this.ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_endpoint_fallback')
+                    )
+            )
         return this.client
     }
 }
@@ -564,16 +571,48 @@ export async function upload(
             groups.set(key, [item])
         }
     }
-    for (const group of groups.values()) {
-        const client = await session.getClient()
-        const outcome = await client.upload(
-            group.map((item) => item.upload),
-            { concurrency: options.concurrency, ...group[0]!.policy }
-        )
-        for (const [chunkId, status] of outcome.status) {
-            statuses.set(chunkId, status)
-        }
+    // posthog-cli's upload events, so its dashboards keep working. `type` was plain or hermes there.
+    const kinds: Record<string, number> = {}
+    for (const item of planned) {
+        kinds[item.artifact.kind] = (kinds[item.artifact.kind] ?? 0) + 1
     }
+    const kindNames = Object.keys(kinds)
+    const uploadProperties = {
+        type: kindNames.length === 1 ? (kindNames[0] === 'js' ? 'plain' : kindNames[0]) : 'mixed',
+        kinds,
+        file_count: planned.length,
+        total_bytes: planned.reduce((sum, item) => sum + item.upload.data.length, 0),
+    }
+    ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_started', uploadProperties)
+    const uploadStarted = ctx.runtime.now()
+    const finished = (error?: unknown): void => {
+        const counts = [...statuses.values()]
+        ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_finished', {
+            ...uploadProperties,
+            duration_ms: ctx.runtime.now() - uploadStarted,
+            success: error === undefined,
+            uploaded: counts.filter((status) => status === 'uploaded').length,
+            skipped_already_present: counts.filter((status) => status === 'already_present').length,
+            skipped_too_large: counts.filter((status) => status === 'too_large').length,
+            error_code: error === undefined ? null : error instanceof HogError ? error.code : 'internal_error',
+        })
+    }
+    try {
+        for (const group of groups.values()) {
+            const client = await session.getClient()
+            const outcome = await client.upload(
+                group.map((item) => item.upload),
+                { concurrency: options.concurrency, ...group[0]!.policy }
+            )
+            for (const [chunkId, status] of outcome.status) {
+                statuses.set(chunkId, status)
+            }
+        }
+    } catch (error) {
+        finished(error)
+        throw error
+    }
+    finished()
 
     let deletedMaps: string[] = []
     if (options.deleteAfter && jsUploadable) {

@@ -140,4 +140,10 @@ export default defineCommand({
     agent({ result, out }) {
         out.jsonLines(result.results ?? [])
     },
+
+    telemetry: ({ result, args, options }) => ({
+        source: args.name === undefined ? 'file' : 'endpoint',
+        variable_count: options.var?.length ?? 0,
+        row_count: result.results?.length ?? 0,
+    }),
 })

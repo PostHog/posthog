@@ -143,7 +143,8 @@ export class SymbolSetClient {
 
     constructor(
         private readonly runtime: Runtime,
-        private readonly credentials: Credentials
+        private readonly credentials: Credentials,
+        private readonly onFallback: () => void = () => {}
     ) {
         this.throttle = new Throttle(runtime, RATE_LIMIT_PER_MINUTE)
     }
@@ -388,8 +389,9 @@ export class SymbolSetClient {
                     `Object storage answered ${response.status}: ${await response.text()}`
                 )
             }
-            if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0) {
+            if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0 && !this.preferFallback) {
                 this.preferFallback = true
+                this.onFallback()
             }
         }).catch((error) => {
             throw new HogError(

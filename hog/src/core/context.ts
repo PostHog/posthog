@@ -9,6 +9,7 @@ import { loadConfig, type LoadedConfig } from './config'
 import type { GlobalOptions } from './globals'
 import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
+import { Telemetry } from './telemetry'
 
 // What a command's `run` gets besides its own arguments and options. It has no output on
 // purpose: `run` returns data, and the command's `human` and `agent` views print it.
@@ -23,7 +24,8 @@ export class Context {
         readonly globals: GlobalOptions,
         readonly mode: Mode,
         readonly tree: CommandTree,
-        loaded?: Promise<LoadedConfig | undefined>
+        loaded?: Promise<LoadedConfig | undefined>,
+        readonly telemetry: Telemetry = new Telemetry(runtime, mode, false)
     ) {
         this.loaded = loaded
     }
@@ -57,6 +59,7 @@ export class Context {
     // Throws `not_authenticated` when there are none.
     async credentials(): Promise<ResolvedCredentials> {
         this.resolved ??= await resolveCredentials(this.runtime, this.globals)
+        this.telemetry.projectId = this.resolved.projectId
         return this.resolved
     }
 }

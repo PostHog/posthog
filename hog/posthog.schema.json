@@ -78,6 +78,10 @@
                     "description": "Exit with code 0 when a command fails, like --no-fail. HOG_NO_FAIL overrides it.",
                     "type": "boolean"
                 },
+                "telemetry": {
+                    "description": "false stops hog from sending anonymous usage data to PostHog for everyone working in this folder.",
+                    "type": "boolean"
+                },
                 "rateLimit": {
                     "description": "The most requests hog sends per minute, like --rate-limit. HOG_RATE_LIMIT overrides it.",
                     "type": "integer",
