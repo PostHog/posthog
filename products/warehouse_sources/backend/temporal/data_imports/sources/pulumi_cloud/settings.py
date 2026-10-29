@@ -3,10 +3,10 @@ from typing import Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-PaginationStyle = Literal["continuation_token", "page", "cursor"]
+PaginationStyle = Literal["continuation_token", "page", "cursor", "offset", "single_page"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class PulumiCloudEndpointConfig:
     name: str
     path: str
@@ -42,8 +42,10 @@ class PulumiCloudEndpointConfig:
 #   newest-first ("pageSize=1 with page=1 returns only the most recent update"), so the paginator
 #   stops client-side once an entire page predates the watermark — each incremental run only pays
 #   for the new pages instead of re-walking every stack's full history.
-# - `stacks`, `deployments`, and `resources` are current-state listings/indexes with no reliable
-#   server-side timestamp filter, so they ship as full refresh.
+# - `stacks`, `deployments`, `resources`, `policy_issues`, `members`, and `stack_tags` are
+#   current-state listings/indexes with no reliable server-side timestamp filter, so they ship as
+#   full refresh. `resource_summary` re-reads a fixed one-year window of daily rows each run, and
+#   the current day's row keeps changing until the day ends, so it is full refresh too.
 PULUMI_CLOUD_ENDPOINTS: dict[str, PulumiCloudEndpointConfig] = {
     "stacks": PulumiCloudEndpointConfig(
         name="stacks",
@@ -111,6 +113,41 @@ PULUMI_CLOUD_ENDPOINTS: dict[str, PulumiCloudEndpointConfig] = {
         pagination="cursor",
         partition_key="created",
         description="Every resource in the organization's Pulumi Insights resource index, one row per resource",
+    ),
+    "policy_issues": PulumiCloudEndpointConfig(
+        name="policy_issues",
+        # POST-only grid query; it supersedes the deprecated GET /policyresults/violationsv2.
+        path="/api/orgs/{org}/policyresults/issues",
+        primary_keys=["id"],
+        pagination="offset",
+        partition_key="observedAt",
+        description="Policy issues (open and closed) that Policy Packs detected on stacks and Insights resources, with severity, enforcement level, and triage status",
+    ),
+    "resource_summary": PulumiCloudEndpointConfig(
+        name="resource_summary",
+        path="/api/orgs/{org}/resources/summary",
+        primary_keys=["year", "month", "day"],
+        pagination="single_page",
+        description="Daily resources under management (RUM) and resource hours under management (RHUM) for the organization over the last year",
+    ),
+    "members": PulumiCloudEndpointConfig(
+        name="members",
+        path="/api/orgs/{org}/members",
+        # The source copies `user.githubLogin` to a top-level `userLogin`: it is the login that stack
+        # updates and audit logs reference, and it is unique within the organization.
+        primary_keys=["userLogin"],
+        pagination="continuation_token",
+        partition_key="created",
+        description="Members of the organization, with their login, role, and join date",
+    ),
+    "stack_tags": PulumiCloudEndpointConfig(
+        name="stack_tags",
+        # Pulumi has no GET for /tags, so the tags come from the stack detail endpoint.
+        path="/api/stacks/{org}/{project}/{stack}",
+        primary_keys=["orgName", "projectName", "stackName", "name"],
+        pagination="single_page",
+        fan_out_over_stacks=True,
+        description="One row per tag on every stack (for example environment, owner, or cost center), for grouping stack and update data",
     ),
 }
 

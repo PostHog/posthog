@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     BarChartConfig,
     BarsConfig,
@@ -80,7 +81,8 @@ export interface FunnelChartProps<Meta = unknown> {
      *  conversion from the first step as a percent (0–100). The hatched track drawn behind each
      *  bar covers the remainder up to 100%. See `funnelFromCounts` for the raw-counts case. */
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: FunnelChartConfig
     /** Custom tooltip content. Omit for the built-in tooltip with percent formatting. */
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
@@ -193,7 +195,7 @@ function StepFooterRow({
 export function FunnelChart<Meta = unknown>({
     steps,
     series,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onStepClick,
@@ -203,6 +205,7 @@ export function FunnelChart<Meta = unknown>({
     children,
     onError,
 }: FunnelChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         tooltip: tooltipConfig,
         legend,

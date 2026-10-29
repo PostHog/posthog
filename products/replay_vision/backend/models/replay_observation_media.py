@@ -1,6 +1,5 @@
 from django.db import models
 
-from posthog.migration_helpers import deprecate_field
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
@@ -41,7 +40,6 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
 
     # Analysis-video time, for seeking the player the person is looking at.
     video_start_ms = models.PositiveIntegerField()
-    rec_start_ms = deprecate_field(models.PositiveIntegerField(null=True, blank=True))
 
     created_at = models.DateTimeField(auto_now_add=True)
 
