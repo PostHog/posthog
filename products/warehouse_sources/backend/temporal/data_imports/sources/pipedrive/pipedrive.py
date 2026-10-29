@@ -2,6 +2,7 @@ import re
 import secrets
 import datetime
 import dataclasses
+from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -24,24 +25,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
     OffsetPaginator,
+    SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import (
+    DEAL_IDS_PER_REQUEST,
+    DEAL_PARENT_PATHS,
+    PAGE_SIZE,
     PipedriveEndpointConfig,
     endpoints_for_version,
 )
 
 LOGGER = structlog.get_logger(__name__)
-
-# Pipedrive caps list pages at 500 items (default 100).
-PAGE_SIZE = 500
 
 # Webhook management lives on v1; there is no v2 equivalent.
 WEBHOOKS_PATH = "/api/v1/webhooks"
@@ -109,10 +117,17 @@ def _build_url(company_domain: str, path: str, params: dict[str, Any]) -> str:
     return f"{url}?{urlencode(clean_params)}"
 
 
+def _cursor_paginator() -> JSONResponseCursorPaginator:
+    return JSONResponseCursorPaginator(cursor_path="additional_data.next_cursor", cursor_param="cursor")
+
+
 def _build_paginator(config: PipedriveEndpointConfig) -> BasePaginator:
     if config.pagination == "cursor":
         # v2 endpoints: opaque cursor in the response body; ``limit`` rides in the endpoint params.
-        return JSONResponseCursorPaginator(cursor_path="additional_data.next_cursor", cursor_param="cursor")
+        return _cursor_paginator()
+    if config.pagination == "none":
+        # Documented as unpaginated: a full page must not send a second request at `start=500`.
+        return SinglePagePaginator()
     # v1 endpoints: start/limit offset. No top-level total; termination is a short/empty page.
     return OffsetPaginator(
         limit=PAGE_SIZE,
@@ -349,6 +364,115 @@ def delete_webhook(company_domain: str, api_token: str, webhook_url: str) -> Web
     return WebhookDeletionResult(success=True)
 
 
+def _deal_fan_out_rows(
+    client: RESTClient,
+    config: PipedriveEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[PipedriveResumeConfig],
+    initial_state: Optional[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read a deal child endpoint for every active and archived deal.
+
+    Deals arrive in ascending id order, so the resume state stays small: the parent list and page
+    being read, the last deal id whose rows are all yielded, and the cursor inside the deal group
+    being read. The shared fan-out helper instead records every finished parent, which grows with
+    the account.
+    """
+    state = initial_state or {}
+    group_size = DEAL_IDS_PER_REQUEST if config.deal_fan_out == "batched" else 1
+    # A deal deleted between the deals listing and this fetch has nothing left to read.
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name=config.name)
+    start_parent = state.get("parent_index", 0)
+
+    for parent_index, parent_path in enumerate(DEAL_PARENT_PATHS):
+        if parent_index < start_parent:
+            continue
+        resuming = parent_index == start_parent
+        progress: dict[str, Any] = {
+            "parent_index": parent_index,
+            "parent_page": state.get("parent_page") if resuming else None,
+            "done_through": state.get("done_through") if resuming else None,
+            "group": None,
+            "child": None,
+        }
+        resume_group = state.get("group") if resuming else None
+        resume_child = state.get("child") if resuming else None
+        next_parent_page: dict[str, Any] = {}
+
+        def stage(
+            group: Optional[list[int]], child: Optional[dict[str, Any]], _progress: dict[str, Any] = progress
+        ) -> None:
+            _progress["group"] = group
+            _progress["child"] = child
+            resumable_source_manager.save_state(PipedriveResumeConfig(paginator_state=dict(_progress)))
+
+        def on_parent_page(
+            paginator_state: Optional[dict[str, Any]], has_next: bool, _next: dict[str, Any] = next_parent_page
+        ) -> None:
+            _next["state"] = paginator_state if has_next else None
+
+        def read_group(
+            group: list[int], child_initial: Optional[dict[str, Any]], _progress: dict[str, Any] = progress
+        ) -> Iterator[list[dict[str, Any]]]:
+            if config.deal_fan_out == "batched":
+                path = config.path
+                params: dict[str, Any] = {"deal_ids": ",".join(str(deal_id) for deal_id in group)}
+            else:
+                path = config.path.format(id=group[0])
+                params = {}
+            params["limit"] = PAGE_SIZE
+
+            def on_child_page(
+                paginator_state: Optional[dict[str, Any]],
+                has_next: bool,
+                _group: list[int] = group,
+            ) -> None:
+                # Staged before the page is yielded, so the cursor commits with the rows it covers.
+                if has_next:
+                    stage(_group, paginator_state)
+                else:
+                    _progress["done_through"] = _group[-1]
+                    stage(None, None)
+
+            for rows in client.paginate(
+                path=path,
+                params=params,
+                paginator=_cursor_paginator(),
+                data_selector="data",
+                hooks=hooks,
+                initial_paginator_state=child_initial,
+                page_state_hook=on_child_page,
+            ):
+                if config.deal_fan_out == "per_deal":
+                    for row in rows:
+                        row["deal_id"] = group[0]
+                yield rows
+
+            # A group with no rows stages nothing. Resuming from the last staged state reads such
+            # groups again, which costs requests but yields no duplicate rows.
+            _progress["done_through"] = group[-1]
+            resumable_source_manager.safe_point()
+
+        # Finish the saved group with its cursor before regrouping: deals added or deleted since the
+        # crash would change the rebuilt groups, and restarting a half-read batch duplicates rows.
+        if resume_group:
+            yield from read_group(resume_group, resume_child)
+
+        for deals in client.paginate(
+            path=parent_path,
+            params={"limit": PAGE_SIZE, "sort_by": "id", "sort_direction": "asc"},
+            paginator=_cursor_paginator(),
+            data_selector="data",
+            initial_paginator_state=progress["parent_page"],
+            page_state_hook=on_parent_page,
+        ):
+            done_through = progress["done_through"]
+            deal_ids = [deal["id"] for deal in deals if done_through is None or deal["id"] > done_through]
+            for start in range(0, len(deal_ids), group_size):
+                yield from read_group(deal_ids[start : start + group_size], None)
+
+            progress["parent_page"] = next_parent_page.get("state")
+
+
 def pipedrive_source(
     company_domain: str,
     api_token: str,
@@ -360,37 +484,19 @@ def pipedrive_source(
     db_incremental_field_last_value: Optional[Any] = None,
     api_version: str = "v2",
 ) -> SourceResponse:
-    config = endpoints_for_version(api_version)[endpoint]
+    endpoints = endpoints_for_version(api_version)
+    config = endpoints[endpoint]
 
-    params: dict[str, Any] = {}
-    if config.pagination == "cursor":
-        # The cursor paginator only injects ``cursor``; ``limit`` must be a static param.
-        params["limit"] = PAGE_SIZE
-
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(company_domain),
-            # Only the non-secret Accept header here; the token travels via framework auth so it's
-            # redacted from logged URLs, headers, sampled bodies, and raised error messages.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_token, "name": "x-api-token", "location": "header"},
-            "paginator": _build_paginator(config),
-            # base_url host (`{subdomain}.pipedrive.com`) is implicitly allowed; `[]` pins every
-            # request — including resume URLs — to it, matching the source's SSRF posture.
-            "allowed_hosts": [],
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    # Mirrors the old `data.get("data") or []`: a 200 body without `data` yields an
-                    # empty page rather than raising (not required).
-                    "data_selector": "data",
-                },
-            }
-        ],
+    client_config: ClientConfig = {
+        "base_url": base_url(company_domain),
+        # Only the non-secret Accept header here; the token travels via framework auth so it's
+        # redacted from logged URLs, headers, sampled bodies, and raised error messages.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_token, "name": "x-api-token", "location": "header"},
+        "paginator": _build_paginator(config),
+        # base_url host (`{subdomain}.pipedrive.com`) is implicitly allowed; `[]` pins every
+        # request — including resume URLs — to it, matching the source's SSRF posture.
+        "allowed_hosts": [],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -407,14 +513,46 @@ def pipedrive_source(
         if state:
             resumable_source_manager.save_state(PipedriveResumeConfig(paginator_state=state))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    resource: Any
+    column_hints = None
+    if config.deal_fan_out is not None:
+        client = RESTClient(
+            base_url=base_url(company_domain),
+            headers={"Accept": "application/json"},
+            auth=APIKeyAuth(api_key=api_token, name="x-api-token", location="header"),
+            allowed_hosts=[],
+        )
+        resource = _deal_fan_out_rows(client, config, resumable_source_manager, initial_paginator_state)
+    else:
+        params: dict[str, Any] = {}
+        if config.pagination == "cursor":
+            # The cursor paginator only injects ``cursor``; ``limit`` must be a static param.
+            params["limit"] = PAGE_SIZE
+
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": params,
+                        # Mirrors the old `data.get("data") or []`: a 200 body without `data` yields an
+                        # empty page rather than raising (not required).
+                        "data_selector": "data",
+                    },
+                }
+            ],
+        }
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        column_hints = resource.column_hints
 
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
 
@@ -428,11 +566,11 @@ def pipedrive_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
+        column_hints=column_hints,
     )
