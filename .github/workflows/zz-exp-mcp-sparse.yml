@@ -1,0 +1,94 @@
+name: EXP MCP sparse checkout (throwaway)
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/zz-exp-mcp-sparse.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    unit-tests:
+        name: MCP unit tests ${{ matrix.arm }} rep ${{ matrix.rep }}
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                arm: [full, sparse]
+                rep: [1, 2, 3]
+        steps:
+            - name: Start clock
+              run: echo "T0=$(date +%s.%N)" >> "$GITHUB_ENV"
+
+            - name: Checkout code (full)
+              if: matrix.arm == 'full'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Checkout code (sparse)
+              if: matrix.arm == 'sparse'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      !/.test_durations
+                      package.json
+                      /.github/actions/
+                      /services/mcp/
+                      /packages/
+                      /common/
+                      /tools/openapi-codegen/
+                      /products/*/mcp/
+                      /products/*/frontend/
+                      /products/notebooks/
+                      /frontend/src/queries/
+                      /frontend/src/mocks/fixtures/
+                      /frontend/bin/
+
+            - name: Record checkout cost
+              run: |
+                  t=$(date +%s.%N)
+                  echo "T_CHECKOUT=$t" >> "$GITHUB_ENV"
+                  kib=$(git count-objects -v | awk '/^size(-pack)?:/ {s+=$2} END {print s}')
+                  echo "CHECKOUT_LINE=checkout_s=$(awk -v a="$t" -v b="$T0" 'BEGIN {printf "%.1f", a-b}') objects_mib=$((kib / 1024)) files=$(git ls-files -t | grep -vc '^S ')" >> "$GITHUB_ENV"
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ github.token }}
+
+            - name: Run wrangler pre-build steps
+              working-directory: services/mcp
+              run: |
+                  pnpm build
+                  pnpm exec tsx scripts/copy-instructions.ts
+
+            - name: Run unit tests
+              run: |
+                  pnpm --filter=@posthog/mcp run test -u
+                  if [ -n "$(git status --porcelain -- services/mcp/tests/unit)" ]; then
+                    git status --short -- services/mcp/tests/unit
+                    exit 1
+                  fi
+
+            - name: Run Hono unit tests
+              run: cd services/mcp && pnpm run test:hono
+
+            - name: Report
+              if: always()
+              env:
+                  ARM: ${{ matrix.arm }}
+                  REP: ${{ matrix.rep }}
+              run: |
+                  t=$(date +%s.%N)
+                  line="RESULT arm=$ARM rep=$REP $CHECKOUT_LINE job_s=$(awk -v a="$t" -v b="$T0" 'BEGIN {printf "%.1f", a-b}') status=${{ job.status }}"
+                  echo "$line"
+                  echo "$line" >> "$GITHUB_STEP_SUMMARY"
