@@ -118,7 +118,6 @@ function ReportCardRaw({
     rankingSortField = null,
     timestampField = 'updated_at',
     hideOwnClaim = false,
-    claimStyle = 'avatar',
 }: {
     report: SignalReport
     attached?: boolean
@@ -138,8 +137,6 @@ function ReportCardRaw({
     timestampField?: 'created_at' | 'updated_at'
     /** Hide the user's own claim marker, for views where every card is theirs. */
     hideOwnClaim?: boolean
-    /** How the user's own claim shows: their avatar beside the time, or an accent on the card's left edge. */
-    claimStyle?: 'avatar' | 'edge'
 }): JSX.Element {
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
@@ -189,8 +186,7 @@ function ReportCardRaw({
 
     const claim = useReportClaim(report.assignee)
     const showsClaim = !!claim && !isDismissed && !isResolved && !(claim.isMine && hideOwnClaim)
-    const claimAccent = showsClaim && claim.isMine && claimStyle === 'edge'
-    const claimAvatar = showsClaim && !claimAccent ? <ReportClaimAvatar claim={claim} /> : null
+    const claimAvatar = showsClaim ? <ReportClaimAvatar claim={claim} /> : null
     const showsDismiss = !!onDismiss
 
     // Why the report left the inbox (reason tag + note tooltip) when we have it: the dismiss reason
@@ -327,19 +323,9 @@ function ReportCardRaw({
                 (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
                 isSelected && 'ring-1 ring-accent',
                 // A long press must not paint the title as selected text under the finger.
-                isHolding && 'select-none',
-                claimAccent && 'relative'
+                isHolding && 'select-none'
             )}
         >
-            {claimAccent && (
-                <span
-                    aria-hidden
-                    className={clsx(
-                        'pointer-events-none absolute inset-y-0 left-0 w-0.5 bg-success',
-                        !attached && 'rounded-l'
-                    )}
-                />
-            )}
             <div className="relative flex min-w-0 flex-1">
                 {hasPr && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">

@@ -355,21 +355,11 @@ const claimedRankedReports: SignalReport[] = [
     }),
 ]
 
-export const ReportCardClaimAvatar: Story = {
+export const ReportCardClaims: Story = {
     render: () => (
         <CardList>
             {claimedRankedReports.map((report) => (
-                <ReportCard key={report.id} report={report} rankingSortField="ranking_action" claimStyle="avatar" />
-            ))}
-        </CardList>
-    ),
-}
-
-export const ReportCardClaimEdge: Story = {
-    render: () => (
-        <CardList>
-            {claimedRankedReports.map((report) => (
-                <ReportCard key={report.id} report={report} rankingSortField="ranking_action" claimStyle="edge" />
+                <ReportCard key={report.id} report={report} rankingSortField="ranking_action" />
             ))}
         </CardList>
     ),
