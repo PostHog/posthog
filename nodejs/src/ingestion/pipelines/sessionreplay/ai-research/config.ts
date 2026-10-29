@@ -83,9 +83,9 @@ export type AiResearchV4Config = {
      * Wall time the fetch pass of one poll batch may take.
      *
      * A batch can hold more URLs for one registrable domain than a polite rate carries in this
-     * time. What the pass does not reach goes to a delay topic without spending a hop. The value
-     * sits well inside Kafka's max.poll.interval.ms of 300s, which the crawl history round trips
-     * share.
+     * time. What the pass does not reach goes back to the frontier without spending a hop, or to a
+     * delay topic while its registrable domain backs off. The value sits well inside Kafka's
+     * max.poll.interval.ms of 300s, which the crawl history round trips share.
      */
     AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS: number
     /** Refused before the body when the response declares more, and abandoned mid-body when it declares nothing. */
