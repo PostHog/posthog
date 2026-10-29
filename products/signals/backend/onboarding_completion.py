@@ -6,8 +6,8 @@ from rest_framework.exceptions import APIException
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
-from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.integrations import IntegrationManager
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import SignalSourceConfig
