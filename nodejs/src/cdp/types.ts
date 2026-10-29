@@ -486,6 +486,9 @@ export type HogFlowInvocationContext = {
     // Stamped at run start and persisted with the state, so a recovery path that holds only the
     // workflow id still keeps a sensitive run's message data out of its snapshot.
     sensitive?: boolean
+    // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
+    // `triggered` and clears this flag, so a rescheduled run does not count again.
+    triggerMetricPending?: boolean
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1
