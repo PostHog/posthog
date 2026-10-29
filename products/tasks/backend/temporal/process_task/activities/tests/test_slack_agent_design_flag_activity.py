@@ -27,7 +27,7 @@ class TestIsSlackAppAgentDesignEnabledForTaskActivity(BaseTest):
             origin_product=Task.OriginProduct.SLACK,
             created_by=self.user,
         )
-        self.run = TaskRun.objects.create(task=self.task, team=self.team)
+        self.task_run = TaskRun.objects.create(task=self.task, team=self.team)
         other_org = Organization.objects.create(name="Other org")
         self.other_team = Team.objects.create(organization=other_org, name="Other team")
 
@@ -45,7 +45,7 @@ class TestIsSlackAppAgentDesignEnabledForTaskActivity(BaseTest):
         self, _name: str, integration_team: str, run_exists: bool, expected: bool
     ) -> None:
         integration = self._slack_integration(self.team if integration_team == "same_team" else self.other_team)
-        run_id = str(self.run.id) if run_exists else str(uuid.uuid4())
+        run_id = str(self.task_run.id) if run_exists else str(uuid.uuid4())
 
         with patch(
             "products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
@@ -63,5 +63,5 @@ class TestIsSlackAppAgentDesignEnabledForTaskActivity(BaseTest):
         else:
             feature_enabled.assert_not_called()
         if run_exists:
-            self.run.refresh_from_db()
-            assert self.run.state[AGENT_DESIGN_STATE_KEY] is expected
+            self.task_run.refresh_from_db()
+            assert self.task_run.state[AGENT_DESIGN_STATE_KEY] is expected
