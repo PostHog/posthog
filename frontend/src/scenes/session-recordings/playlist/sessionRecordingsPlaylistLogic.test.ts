@@ -2132,6 +2132,20 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         it.each([
+            ['true', true],
+            ['false', false],
+        ])('applies filter_test_accounts sent as the string "%s" instead of resetting', async (value, expected) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    date_from: '-14d',
+                    filter_test_accounts: value as unknown as boolean,
+                })
+            }).toMatchValues({
+                filters: expect.objectContaining({ date_from: '-14d', filter_test_accounts: expected }),
+            })
+        })
+
+        it.each([
             ['$ip', '192.0.2.1', PropertyFilterType.Event],
             ['$browser', 'Chrome', PropertyFilterType.Event],
             ['$geoip_country_code', 'AU', PropertyFilterType.Person],

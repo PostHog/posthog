@@ -333,6 +333,18 @@ export function overviewPropertyFilterType(
         : PropertyFilterType.Session
 }
 
+// PostHog AI, and the replay links it builds, can send filter_test_accounts as the string "true" or "false".
+// isValidRecordingFilters rejects a string, so without this the user's filters reset to the defaults.
+function normalizeRecordingFilters(
+    filters: Partial<RecordingUniversalFilters> | undefined
+): Partial<RecordingUniversalFilters> | undefined {
+    const filterTestAccounts: unknown = filters?.filter_test_accounts
+    if (filterTestAccounts === 'true' || filterTestAccounts === 'false') {
+        return { ...filters, filter_test_accounts: filterTestAccounts === 'true' }
+    }
+    return filters
+}
+
 export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
     if (!filters || typeof filters !== 'object') {
         return false
@@ -1384,7 +1396,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             props.filters ?? getDefaultFilters(props.personUUID, props.pinnedFilters),
             { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
-                setFilters: (state, { filters }) => {
+                setFilters: (state, { filters: rawFilters }) => {
+                    const filters = normalizeRecordingFilters(rawFilters)
                     try {
                         if (!isValidRecordingFilters(filters)) {
                             posthog.captureException(new Error('Invalid filters provided'), {
