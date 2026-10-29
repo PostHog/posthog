@@ -35,31 +35,38 @@ def test_a_near_match_is_not_a_membership(_name: str, near: dict[str, object]) -
     assert ClusterMemberships.of("trace-1", [make_cluster_run_row(clusters=cluster_json(near))]).clusters == ()
 
 
-def test_keeps_the_newest_run_of_each_job() -> None:
+def test_keeps_the_newest_scheduled_run_of_each_job() -> None:
     runs = [
         make_cluster_run_row(
-            run_id="1_trace_20260903_030000_a",
+            run_id=f"1_trace_20260905_120000_{JOB_A}_retry-tuning",
+            job_id=JOB_A,
+            job_name="Support conversations",
+            timestamp=T0 + timedelta(days=4),
+            clusters=cluster_json(make_cluster(9, ["trace-1"])),
+        ),
+        make_cluster_run_row(
+            run_id=f"1_trace_20260903_030000_{JOB_A}",
             job_id=JOB_A,
             job_name="Support conversations",
             timestamp=T0 + timedelta(days=2),
             clusters=cluster_json(make_cluster(4, ["trace-1"])),
         ),
         make_cluster_run_row(
-            run_id="1_trace_20260902_030000_b",
+            run_id=f"1_trace_20260902_030000_{JOB_B}",
             job_id=JOB_B,
             job_name="Agent runs",
             timestamp=T0 + timedelta(days=1),
             clusters=cluster_json(make_cluster(1, ["trace-1"])),
         ),
         make_cluster_run_row(
-            run_id="1_trace_20260904_030000_a",
+            run_id=f"1_trace_20260904_030000_{JOB_A}",
             job_id=JOB_A,
             job_name="Support conversations",
             timestamp=T0 + timedelta(days=3),
             clusters=cluster_json(make_cluster(2, ["trace-1"])),
         ),
         make_cluster_run_row(
-            run_id="1_trace_20260902_030000_a",
+            run_id=f"1_trace_20260902_030000_{JOB_A}",
             job_id=JOB_A,
             job_name="Support conversations",
             timestamp=T0 + timedelta(days=1),
@@ -70,8 +77,8 @@ def test_keeps_the_newest_run_of_each_job() -> None:
     clusters = ClusterMemberships.of("trace-1", runs).clusters
 
     assert [(c.run_id, c.job_id, c.cluster_id) for c in clusters] == [
-        ("1_trace_20260904_030000_a", JOB_A, 2),
-        ("1_trace_20260902_030000_b", JOB_B, 1),
+        (f"1_trace_20260904_030000_{JOB_A}", JOB_A, 2),
+        (f"1_trace_20260902_030000_{JOB_B}", JOB_B, 1),
     ]
 
 
@@ -80,6 +87,9 @@ def test_runs_without_a_job_count_as_one_job() -> None:
         make_cluster_run_row(run_id="1_trace_20260901_030000", job_id="", job_name="", timestamp=T0),
         make_cluster_run_row(
             run_id="1_trace_20260902_030000", job_id="", job_name="", timestamp=T0 + timedelta(days=1)
+        ),
+        make_cluster_run_row(
+            run_id="1_trace_20260903_120000_retry-tuning", job_id="", job_name="", timestamp=T0 + timedelta(days=2)
         ),
     ]
 
@@ -91,13 +101,13 @@ def test_runs_without_a_job_count_as_one_job() -> None:
 def test_outliers_come_after_clusters() -> None:
     runs = [
         make_cluster_run_row(
-            run_id="1_trace_20260904_030000_a",
+            run_id=f"1_trace_20260904_030000_{JOB_A}",
             job_id=JOB_A,
             timestamp=T0 + timedelta(days=3),
             clusters=cluster_json(make_cluster(0, ["trace-2"]), make_cluster(-1, ["trace-1"], title="Outliers")),
         ),
         make_cluster_run_row(
-            run_id="1_trace_20260902_030000_b",
+            run_id=f"1_trace_20260902_030000_{JOB_B}",
             job_id=JOB_B,
             timestamp=T0 + timedelta(days=1),
             clusters=cluster_json(make_cluster(1, ["trace-1"])),

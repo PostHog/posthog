@@ -182,8 +182,8 @@ class TraceCluster(Contract):
 
 class TraceClusters(Contract):
     clusters: list[TraceCluster] = Field(
-        description="The clusters that list the trace: for each clustering job, the newest run that lists it. "
-        "Clusters come before outliers, then newest first."
+        description="The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. "
+        "Manual runs are left out. Clusters come before outliers, then newest first."
     )
 
 

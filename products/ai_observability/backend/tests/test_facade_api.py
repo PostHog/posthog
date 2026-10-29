@@ -210,7 +210,7 @@ class TestGetTraceClusters(ClickhouseTestMixin, BaseTest):
                 self._run(
                     "00000000-0000-0000-0000-0000000c3001",
                     [make_cluster(3, ["trace-1"], title="Billing questions")],
-                    run_id="1_trace_20260902_030000_job",
+                    run_id=f"1_trace_20260902_030000_{CLUSTERING_JOB_ID}",
                     job_id=CLUSTERING_JOB_ID,
                     job_name="Support conversations",
                 ),

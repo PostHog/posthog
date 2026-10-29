@@ -157,7 +157,7 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["llm_analytics:read", "ai_observability_clusters:read"],
     )
     def clusters(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
-        """The clusters that list this trace, from the newest run of each clustering job that lists it."""
+        """The clusters that list this trace, from the newest scheduled run of each clustering job that lists it."""
         try:
             trace_id = decode_trace_id_segment(pk)
         except MalformedTraceIdSegmentError:

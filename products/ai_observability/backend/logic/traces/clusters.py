@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime
@@ -8,6 +9,9 @@ from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_C
 
 from .cluster_queries import ClusterRunRow
 from .trace_queries import read_text
+
+# Run ids read {team_id}_{level}_{YYYYMMDD}_{HHMMSS}[_{job_id}][_{run_label}], and only a manual admin run sets a label.
+_UNLABELLED_RUN_ID = re.compile(r"\d+_[a-z]+_\d{8}_\d{6}(?:_(?P<job_id>[^_]+))?")
 
 
 @frozen
@@ -33,6 +37,11 @@ def _parsed_clusters(raw: str | None) -> list[object]:
     except ValueError:
         return []
     return clusters if isinstance(clusters, list) else []
+
+
+def _is_manual(run: ClusterRunRow) -> bool:
+    match = _UNLABELLED_RUN_ID.fullmatch(read_text(run.run_id) or "")
+    return match is None or match["job_id"] != read_text(run.job_id)
 
 
 def _memberships(trace_id: str, run: ClusterRunRow) -> Iterator[TraceCluster]:
@@ -65,8 +74,11 @@ class ClusterMemberships:
     @classmethod
     def of(cls, trace_id: str, runs: Sequence[ClusterRunRow]) -> Self:
         # Scheduled jobs rerun daily over overlapping windows, so each job keeps only its newest run that lists the trace.
+        # A manual run can reuse a job's id with its own parameters, so it must not displace the job's scheduled run.
         newest_by_job: dict[str, TraceCluster] = {}
         for run in runs:
+            if _is_manual(run):
+                continue
             for membership in _memberships(trace_id, run):
                 job = membership.job_id or ""
                 current = newest_by_job.get(job)
