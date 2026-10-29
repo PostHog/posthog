@@ -1,4 +1,8 @@
-import type { SignalReportClaimApi, _UserApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SignalReportAssigneeApi,
+    SignalReportClaimApi,
+    _UserApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReport, SignalReportStatus } from '../types'
 
@@ -15,6 +19,14 @@ const CLAIMABLE_STATUSES: ReadonlySet<SignalReportStatus> = new Set([
 export function reportClaimant(report: Pick<SignalReport, 'assignee'>): _UserApi | null {
     const assignee = report.assignee
     return assignee?.kind === 'user' ? assignee.user : null
+}
+
+/**
+ * The person who owns a claim: they claimed it directly or through their own external agent. An internal
+ * task claim has no owner, because the task can run as a person who did not start it (auto-start).
+ */
+export function reportClaimOwner(assignee: SignalReportAssigneeApi | null | undefined): _UserApi | null {
+    return assignee?.kind === 'user' || assignee?.kind === 'agent' ? (assignee.responsible_user ?? null) : null
 }
 
 export function isReportClaimable(report: Pick<SignalReport, 'assignee' | 'status'>): boolean {

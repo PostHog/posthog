@@ -38,6 +38,7 @@ import {
 } from '../types'
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
+import { reportClaimOwner } from '../utils/reportClaim'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -989,7 +990,7 @@ export const reportListLogic = kea<reportListLogicType>([
         [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId, assignee }) => {
             const isLoaded = values.reports.some((r) => r.id === reportId)
             if (values.scopeAssignee) {
-                const isMine = !!values.user?.uuid && assignee?.responsible_user?.uuid === values.user.uuid
+                const isMine = !!values.user?.uuid && reportClaimOwner(assignee)?.uuid === values.user.uuid
                 if (!isMine && isLoaded) {
                     actions.removeReport(reportId)
                     return

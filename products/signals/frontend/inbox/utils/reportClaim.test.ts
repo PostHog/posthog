@@ -1,7 +1,7 @@
 import type { SignalActorKindEnumApi, SignalReportAssigneeApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReportStatus } from '../types'
-import { isReportClaimable, reportClaimRequest } from './reportClaim'
+import { isReportClaimable, reportClaimOwner, reportClaimRequest } from './reportClaim'
 
 describe('report claim', () => {
     const assignee = (kind: SignalActorKindEnumApi): SignalReportAssigneeApi => ({
@@ -40,5 +40,13 @@ describe('report claim', () => {
         { status: SignalReportStatus.RESOLVED, claimable: false },
     ])('offers a claim on a $status report: $claimable', ({ status, claimable }) => {
         expect(isReportClaimable({ assignee: null, status })).toBe(claimable)
+    })
+
+    it.each([
+        { kind: 'user' as const, owner: 'user-1' },
+        { kind: 'agent' as const, owner: 'user-1' },
+        { kind: 'task' as const, owner: null },
+    ])('names the owner of a $kind claim: $owner', ({ kind, owner }) => {
+        expect(reportClaimOwner(assignee(kind))?.uuid ?? null).toBe(owner)
     })
 })

@@ -1,36 +1,48 @@
+import { useValues } from 'kea'
+
 import { LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { fullNameOrEmail } from 'lib/utils/strings'
+import { userLogic } from 'scenes/userLogic'
 
-import type { _UserApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportAssigneeApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { reportClaimOwner } from '../../utils/reportClaim'
 
 export function ReportClaimPill({
-    claimant,
-    isClaimedByMe,
-    claimedAt,
+    assignee,
 }: {
-    claimant: _UserApi | null
-    isClaimedByMe: boolean
-    claimedAt: string | null
+    assignee: SignalReportAssigneeApi | null | undefined
 }): JSX.Element | null {
-    if (!claimant) {
+    const { user } = useValues(userLogic)
+    const owner = reportClaimOwner(assignee)
+    if (!assignee || !owner) {
         return null
     }
-    const name = fullNameOrEmail(claimant)
+    const name = fullNameOrEmail(owner)
+    const isMine = !!user?.uuid && owner.uuid === user.uuid
+    const label =
+        assignee.kind === 'agent'
+            ? isMine
+                ? 'Your agent is working on this'
+                : `${name}'s agent is working on this`
+            : isMine
+              ? "You're working on this"
+              : `${name} is working on this`
 
     return (
         <div>
             <LemonTag
                 type="success"
-                icon={<ProfilePicture user={claimant} name={name} size="xs" />}
+                icon={<ProfilePicture user={owner} name={name} size="xs" />}
                 data-attr="inbox-report-claim-pill"
             >
-                <span>{isClaimedByMe ? "You're working on this" : `${name} is working on this`}</span>
-                {claimedAt && (
+                <span>{label}</span>
+                {assignee.claimed_at && (
                     <>
                         <span aria-hidden>·</span>
-                        <TZLabel time={claimedAt} />
+                        <TZLabel time={assignee.claimed_at} />
                     </>
                 )}
             </LemonTag>

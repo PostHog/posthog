@@ -941,34 +941,32 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert {row["id"] for row in response.json()["results"]} == {str(mine.id)}
 
-    def test_assignee_mine_matches_claims_by_the_user_their_agents_and_their_tasks(self):
+    def test_assignee_mine_matches_claims_by_the_user_and_their_agents_but_not_their_tasks(self):
         Task = apps.get_model("tasks", "Task")
         teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
         own_task = Task.objects.create(
             team=self.team, created_by=self.user, title="Own task", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
-        teammate_task = Task.objects.create(
-            team=self.team, created_by=teammate, title="Teammate task", origin_product=Task.OriginProduct.SIGNAL_REPORT
-        )
-        mine = [self._create_report(title=title) for title in ("By me", "By my agent", "By my task")]
-        theirs = [self._create_report(title=title) for title in ("By teammate", "By teammate task")]
+        mine = [self._create_report(title=title) for title in ("By me", "By my agent", "Legacy by me")]
+        not_mine = [self._create_report(title=title) for title in ("By teammate", "By my task", "Legacy by my task")]
         for report, headers in [
             (mine[0], {}),
             (mine[1], self._agent_headers("codex")),
-            (mine[2], {"X-PostHog-Task-Id": str(own_task.id)}),
-            (theirs[1], {"X-PostHog-Task-Id": str(teammate_task.id)}),
+            (not_mine[1], {"X-PostHog-Task-Id": str(own_task.id)}),
         ]:
             assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
+        SignalReportAssignment.all_teams.create(team=self.team, report=mine[2], actor_kind="user", actor_user=self.user)
+        SignalReportAssignment.all_teams.create(
+            team=self.team, report=not_mine[2], actor_kind="task", actor_task_id=own_task.id
+        )
         self.client.force_login(teammate)
-        assert self.client.post(self._claim_url(theirs[0]), data={}, format="json").status_code == 200
+        assert self.client.post(self._claim_url(not_mine[0]), data={}, format="json").status_code == 200
         self.client.force_login(self.user)
 
         response = self.client.get(self._list_url(assignee="mine"))
 
         assert response.status_code == status.HTTP_200_OK
-        rows = response.json()["results"]
-        assert {row["id"] for row in rows} == {str(report.id) for report in mine}
-        assert {row["assignee"]["responsible_user"]["id"] for row in rows} == {self.user.id}
+        assert {row["id"] for row in response.json()["results"]} == {str(report.id) for report in mine}
 
     def test_responsible_users_resolves_task_claims_in_fixed_queries(self):
         Task = apps.get_model("tasks", "Task")

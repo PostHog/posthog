@@ -10,7 +10,7 @@ from posthog.dataclasses import frozen
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReportArtefact, SignalReportAssignment
+from products.signals.backend.models import SignalActorKind, SignalReportArtefact, SignalReportAssignment
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -118,18 +118,13 @@ def responsible_users(claims: Iterable[ReportClaim]) -> dict[UUID, User]:
 
 
 def reports_claimed_for_user(*, team_id: int, user_id: int) -> Q:
-    """Reports whose active claim the user answers for: their own, their external agents', and their tasks'."""
-    claims = active_claims(team_id=team_id)
-    legacy = legacy_claims(team_id=team_id)
-    claimed_task_ids = [
-        *claims.filter(created_by__isnull=True, task_id__isnull=False).values_list("task_id", flat=True),
-        *legacy.filter(actor_user__isnull=True, actor_task_id__isnull=False).values_list("actor_task_id", flat=True),
-    ]
-    own_task_ids = tasks_facade.filter_task_ids_created_by(
-        [task_id for task_id in claimed_task_ids if task_id is not None], team_id=team_id, user_id=user_id
-    )
-    own_claims = claims.filter(Q(created_by_id=user_id) | Q(created_by__isnull=True, task_id__in=own_task_ids))
-    own_legacy = legacy.filter(Q(actor_user_id=user_id) | Q(actor_user__isnull=True, actor_task_id__in=own_task_ids))
+    """Reports whose active claim the user holds directly or through their external agents.
+
+    An internal task claim does not count, because the task can run as a user who did not start it.
+    """
+    personal_kinds = (SignalActorKind.USER, SignalActorKind.AGENT)
+    own_claims = active_claims(team_id=team_id).filter(created_by_id=user_id, actor_kind__in=personal_kinds)
+    own_legacy = legacy_claims(team_id=team_id).filter(actor_user_id=user_id, actor_kind__in=personal_kinds)
     return Q(id__in=own_claims.values("report_id")) | Q(id__in=own_legacy.values("report_id"))
 
 

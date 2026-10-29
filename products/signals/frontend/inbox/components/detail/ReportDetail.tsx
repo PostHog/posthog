@@ -238,8 +238,6 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
-        reportClaimant,
-        isClaimedByMe,
         report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
@@ -337,13 +335,7 @@ export function InboxDetailFrame({
         </h1>
     )
 
-    const claimPill = (
-        <ReportClaimPill
-            claimant={reportClaimant}
-            isClaimedByMe={isClaimedByMe}
-            claimedAt={(currentReport ?? report).assignee?.claimed_at ?? null}
-        />
-    )
+    const claimPill = <ReportClaimPill assignee={(currentReport ?? report).assignee} />
 
     // The report body: title, summary, charts, and the rating. On a PR-bearing report it is the
     // "Summary" tab; otherwise it sits under the "Report summary" header.

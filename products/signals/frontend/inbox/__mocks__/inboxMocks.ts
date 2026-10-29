@@ -157,8 +157,13 @@ export function agentClaim(user: ClaimUser, agent: string): SignalReportAssignee
     return { ...userClaim(user), kind: 'agent', agent }
 }
 
+export function taskClaim(user: ClaimUser): SignalReportAssigneeApi {
+    return { ...userClaim(user), kind: 'task', user: null, task_id: 'task-uuid' }
+}
+
 export const myClaim = userClaim(MOCK_DEFAULT_USER)
 export const myAgentClaim = agentClaim(MOCK_DEFAULT_USER, 'claude-code')
+export const myTaskClaim = taskClaim(MOCK_DEFAULT_USER)
 export const teammateClaim = userClaim({
     id: 2,
     uuid: 'teammate-uuid',
