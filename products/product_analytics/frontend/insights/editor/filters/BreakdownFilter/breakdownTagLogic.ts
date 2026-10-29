@@ -6,23 +6,17 @@ import {
     propertyFilterTypeToPropertyDefinitionType,
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import type { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import type { Breakdown, BreakdownFilter } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps } from '~/types'
+import type { CohortType, PropertyDefinition, PropertyDefinitionType, TeamPublicType, TeamType } from '~/types'
 
-import type { TaxonomicFilterValue } from '../../../../lib/components/TaxonomicFilter/types'
-import type { Breakdown, BreakdownFilter } from '../../../../queries/schema/schema-general'
-import type {
-    CohortType,
-    PropertyDefinition,
-    PropertyDefinitionType,
-    TeamPublicType,
-    TeamType,
-} from '../../../../types'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 
@@ -295,7 +289,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (s) => [s.isMultipleBreakdownsEnabled, s.multipleBreakdown, s.globalHistogramBinsUsed],
             (
                 isMultipleBreakdownsEnabled: boolean,
-                multipleBreakdown: import('../../../../queries/schema').Breakdown | undefined,
+                multipleBreakdown: import('~/queries/schema').Breakdown | undefined,
                 globalHistogramBinsUsed: boolean
             ) => {
                 if (isMultipleBreakdownsEnabled) {
@@ -311,7 +305,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 isMultipleBreakdownsEnabled: boolean,
                 localHistogramBinCount: number | undefined,
                 globalBinCount: number | undefined,
-                multipleBreakdown: import('../../../../queries/schema').Breakdown | undefined
+                multipleBreakdown: import('~/queries/schema').Breakdown | undefined
             ) => {
                 if (isMultipleBreakdownsEnabled) {
                     return localHistogramBinCount ?? multipleBreakdown?.histogram_bin_count ?? 10
@@ -331,7 +325,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
                 isMultipleBreakdownsEnabled: boolean,
                 localNormalizeBreakdownURL: boolean | undefined,
                 globalNormalizeBreakdownUrl: boolean,
-                multipleBreakdown: import('../../../../queries/schema').Breakdown | undefined
+                multipleBreakdown: import('~/queries/schema').Breakdown | undefined
             ) => {
                 if (isMultipleBreakdownsEnabled) {
                     return localNormalizeBreakdownURL ?? multipleBreakdown?.normalize_url ?? true
@@ -363,8 +357,8 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             (s) => [s.isMultipleBreakdownsEnabled, s.breakdownFilter, s.multipleBreakdown],
             (
                 isMultipleBreakdownsEnabled: boolean,
-                breakdownFilter: import('../../../../queries/schema').BreakdownFilter,
-                multipleBreakdown: import('../../../../queries/schema').Breakdown | undefined
+                breakdownFilter: import('~/queries/schema').BreakdownFilter,
+                multipleBreakdown: import('~/queries/schema').Breakdown | undefined
             ): TaxonomicFilterGroupType | undefined => {
                 let breakdownType = isMultipleBreakdownsEnabled
                     ? filterToTaxonomicFilterType(
