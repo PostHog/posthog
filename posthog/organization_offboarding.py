@@ -119,6 +119,11 @@ class OrganizationOffboarding:
                     configurations = SharingConfiguration.objects.filter(
                         team_id=resource.team_id, **{f"{resource.kind}_id": resource_id}
                     )
+                    field = cast(models.ForeignKey, SharingConfiguration._meta.get_field(resource.kind))
+                    resource_model = cast(type[models.Model], field.related_model)
+                    resource_model._default_manager.select_for_update().get(
+                        **{field.target_field.name: resource_id, "team_id": resource.team_id}
+                    )
                     configurations.update(enabled=False)
                     if resource.kind == "dashboard":
                         configuration = configurations.select_related("dashboard").first()

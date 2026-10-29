@@ -338,6 +338,13 @@ export const membersLogic = kea<membersLogicType>([
         },
     })),
     reducers({
+        members: [
+            null as OrganizationMemberType[] | null,
+            {
+                postRemoveMember: (state, { userUuid }) =>
+                    state?.filter((member) => member.user.uuid !== userUuid) ?? null,
+            },
+        ],
         search: ['', { setSearch: (_, { search }) => search }],
     }),
     selectors({
