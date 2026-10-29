@@ -63,7 +63,7 @@ from .logic import (
     with_span_attribute_type_suffix,
 )
 from .models import TracingIdentityAttributeKeys
-from .span_identity import identity_value_expr
+from .span_identity import identity_value_expr, str_attr_field
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -277,8 +277,14 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         # Single table scan plus hash aggregate. Cheap enough to run unscoped.
+        where = self._where_without_date_range()
+        group_name: ast.Expr = ast.Field(chain=["name"])
+        if self.query.groupByEndpoint:
+            where = ast.And(exprs=[where, _endpoint_scope_expr()])
+            group_name = _endpoint_name_expr()
         placeholders: dict[str, ast.Expr] = {
-            "where": self._where_without_date_range(),
+            "where": where,
+            "group_name": group_name,
             "limit": ast.Constant(value=self._limit),
             "offset": ast.Constant(value=self._offset),
             **query_date_range.to_placeholders(),
@@ -302,7 +308,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             """
             SELECT
                 service_name,
-                name,
+                {group_name} AS group_name,
                 count() AS count,
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
@@ -317,7 +323,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             + """
               AND timestamp >= {date_from}
               AND timestamp < {date_to}
-            GROUP BY service_name, name
+            GROUP BY service_name, group_name
             ORDER BY total_duration_nano DESC
             LIMIT {limit}
             OFFSET {offset}
@@ -351,6 +357,31 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         response = super().run(*args, **kwargs)
         assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
         return response
+
+
+def _http_method_expr() -> ast.Expr:
+    # OTel renamed `http.method` to `http.request.method`; SDKs in the wild send either.
+    return parse_expr(
+        "coalesce(nullIf({new}, ''), nullIf({old}, ''))",
+        placeholders={"new": str_attr_field("http.request.method"), "old": str_attr_field("http.method")},
+    )
+
+
+def _endpoint_scope_expr() -> ast.Expr:
+    # Server spans alone include queue consumers and Temporal activities, which carry no HTTP method.
+    return parse_expr("kind = 2 AND {method} IS NOT NULL", placeholders={"method": _http_method_expr()})
+
+
+def _endpoint_name_expr() -> ast.Expr:
+    # Some instrumentations name a span after the raw path or the bare method, so the route is the
+    # stable key. A span without a route keeps its own name.
+    return parse_expr(
+        "if({route} IS NOT NULL, concat({method}, ' ', {route}), name)",
+        placeholders={
+            "route": ast.Call(name="nullIf", args=[str_attr_field("http.route"), ast.Constant(value="")]),
+            "method": _http_method_expr(),
+        },
+    )
 
 
 def _annotate_calls_per_parent_invocation(rows: list[SpanTreeNode]) -> None:

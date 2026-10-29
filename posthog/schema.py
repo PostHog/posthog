@@ -31496,6 +31496,14 @@ class TraceSpansAggregationQuery(BaseModel):
     )
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
+    groupByEndpoint: bool | None = Field(
+        default=None,
+        description=(
+            "Group HTTP server spans by `METHOD route` in place of the span name. Spans"
+            " without a route keep their name. Spans that are not HTTP server spans are"
+            " left out."
+        ),
+    )
     includeImpact: bool | None = Field(
         default=None,
         description=("Also aggregate sessions and people per operation. Off by default: it reads the attribute maps."),
