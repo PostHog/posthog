@@ -214,15 +214,15 @@ export function InboxDetailFrame({
     pullRequestNote,
     children,
 }: InboxDetailFrameProps): JSX.Element {
-    const reportContextGroup = `signal_report:${report.id}`
+    const reportContextGroup = `inbox_report:${report.id}`
     useAttachedContext([
-        { type: 'signal_report', key: report.id, label: 'Report', dismissGroup: reportContextGroup },
+        { type: 'inbox_report', key: report.id, label: 'Self-driving Inbox Report', dismissGroup: reportContextGroup },
         {
             type: 'instructions',
             hidden: true,
             dismissGroup: reportContextGroup,
             value:
-                'The signal_report item identifies the open Self-driving report. ' +
+                'The inbox_report item identifies the open Self-driving report. ' +
                 'Use inbox-reports-retrieve for report details and inbox-report-artefacts-list for evidence, notes, ' +
                 'code references, and task_run links. Read individual artefacts with inbox-report-artefacts-retrieve. ' +
                 'Follow task_id and run_id from task_run entries with tasks-retrieve, tasks-runs-retrieve, and ' +
