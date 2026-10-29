@@ -568,12 +568,66 @@ class UncoveredGroupSerializer(serializers.Serializer):
     matched_metric_id = serializers.UUIDField(
         allow_null=True, help_text="The matching catalog metric, for covered and slice."
     )
-    distinct_people = serializers.IntegerField(help_text="Distinct people who ran the measure, without scouts.")
-    runs = serializers.IntegerField(help_text="Query runs of the measure, without scouts.")
+    distinct_people = serializers.IntegerField(
+        help_text="People who wrote the measure or created a chart of it, directly or through an agent. Without scouts."
+    )
+    views = serializers.IntegerField(
+        help_text="Runs of the measure that a person saw, in the web app or an agent session. At least the built count."
+    )
+    built = serializers.IntegerField(
+        help_text="Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query."
+    )
     sample_sql = serializers.CharField(help_text="One query that computes the measure.")
     draft_name = serializers.CharField(allow_null=True, help_text="Proposed metric name, when one was drafted.")
     draft_description = serializers.CharField(
         allow_null=True, help_text="Proposed metric description, when one was drafted."
+    )
+    draft_definition = serializers.CharField(
+        allow_null=True, help_text="Proposed HogQL definition, when one was drafted."
+    )
+    complexity = serializers.IntegerField(
+        help_text="How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse."
+    )
+
+
+class ChartSourceSerializer(serializers.Serializer):
+    insight_short_id = serializers.CharField(help_text="Short ID of the saved chart, for a link to it.")
+    insight_name = serializers.CharField(help_text="Name of the saved chart.")
+    dashboard_id = serializers.IntegerField(allow_null=True, help_text="The dashboard that ran the chart, if any.")
+    dashboard_name = serializers.CharField(allow_null=True, help_text="Name of the dashboard, if any.")
+    people = serializers.IntegerField(help_text="Distinct people whose visit ran the chart. Viewers count.")
+
+
+class SurfaceSourceSerializer(serializers.Serializer):
+    product = serializers.CharField(help_text="The web app area that ran the query. Empty when it is unknown.")
+    people = serializers.IntegerField(help_text="Distinct people who ran the query there.")
+    runs = serializers.IntegerField(help_text="Query runs from that area.")
+
+
+class AgentSourceSerializer(serializers.Serializer):
+    people = serializers.IntegerField(help_text="Distinct people whose agents ran the query, without scouts.")
+    sessions = serializers.IntegerField(help_text="Agent sessions that ran the query, without scouts.")
+    runs = serializers.IntegerField(help_text="Query runs by agents, without scouts.")
+
+
+class ProposedMetricSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Proposed metric name.")
+    description = serializers.CharField(help_text="What the proposed metric counts.")
+    definition = serializers.CharField(allow_blank=True, help_text="Proposed HogQL definition.")
+    measures = serializers.IntegerField(help_text="Recurring measures that this proposal merges.")
+    people = serializers.IntegerField(help_text="Distinct people across the measures, without scouts.")
+    views = serializers.IntegerField(
+        help_text="Runs of the measure that a person saw, in the web app or an agent session. At least the built count."
+    )
+    built = serializers.IntegerField(
+        help_text="Times a person or an agent wrote the most-built measure in the proposal, as on a measure."
+    )
+    charts = ChartSourceSerializer(many=True, help_text="The saved charts with the most people.")
+    other_charts = serializers.IntegerField(help_text="Saved charts that are not listed in charts.")
+    surfaces = SurfaceSourceSerializer(many=True, help_text="Web app areas that ran it outside a saved chart.")
+    agents = AgentSourceSerializer(allow_null=True, help_text="Agent use, or null when no agent ran it.")
+    complexity = serializers.IntegerField(
+        help_text="How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse."
     )
 
 
@@ -595,6 +649,9 @@ class UsageSnapshotPayloadSerializer(serializers.Serializer):
     )
     uncovered = UncoveredGroupSerializer(
         many=True, allow_null=True, help_text="Recurring query shapes and their catalog outcome. Null until grouped."
+    )
+    proposed_metrics = ProposedMetricSerializer(
+        many=True, allow_null=True, help_text="Proposed metrics with their sources. Null until drafted."
     )
 
 
