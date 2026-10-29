@@ -73,12 +73,29 @@ def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team, databa
     return ReplaceFilters(filters, team, database).visit(node)
 
 
+@dataclasses.dataclass(frozen=True)
+class ResolvedDateRange:
+    date_from: Optional[datetime]
+    date_to: Optional[datetime]
+    date_to_inclusive: bool
+
+
+def resolve_date_range(filters: Optional[HogQLFilters], team: Team, now: datetime) -> ResolvedDateRange:
+    """The bounds `{filters}` puts on a query at `now`, for callers that need the window without expanding SQL."""
+    resolver = ReplaceFilters(filters, team, now=now)
+    date_to, date_to_inclusive = resolver._resolve_date_to()
+    return ResolvedDateRange(
+        date_from=resolver._resolve_date_from(), date_to=date_to, date_to_inclusive=date_to_inclusive
+    )
+
+
 class ReplaceFilters(CloningVisitor):
     def __init__(
         self,
         filters: Optional[HogQLFilters],
         team: Team = DEFAULT_TEAM,
         database: Optional[Database] = None,
+        now: Optional[datetime] = None,
     ):
         super().__init__()
         self.filters = filters
@@ -86,7 +103,7 @@ class ReplaceFilters(CloningVisitor):
         self.database = database
         self.selects: list[ast.SelectQuery] = []
         self.compare_operations: list[CompareOperationWrapper] = []
-        self._now: Optional[datetime] = None
+        self._now: Optional[datetime] = now.astimezone(team.timezone_info) if now is not None else None
 
     def _current_time(self) -> datetime:
         # One shared "now" so both bounds of the range resolve against the same instant
