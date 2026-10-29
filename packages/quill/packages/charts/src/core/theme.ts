@@ -153,7 +153,8 @@ const FALLBACK_THEME: ChartTheme = { colors: [...DEFAULT_CHART_COLORS] }
 const ChartThemeContext = createContext<ChartTheme | null>(null)
 
 /** Gives every chart below it a theme, so a chart can omit its `theme` prop. Pass the result of
- *  {@link useChartTheme} (or the host's own theme hook) as `value`. */
+ *  {@link useChartTheme} (or the host's own theme hook) as `value`. A new `value` object repaints
+ *  every chart below, so keep it stable. */
 export const ChartThemeProvider = ChartThemeContext.Provider
 
 /** The theme a chart draws with: its own `theme` prop, else the nearest {@link ChartThemeProvider},

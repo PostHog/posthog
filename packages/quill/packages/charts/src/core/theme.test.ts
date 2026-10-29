@@ -80,18 +80,15 @@ describe('chart theme', () => {
     const PROVIDED_THEME: ChartTheme = { colors: ['#000002'] }
 
     it.each([
-        { name: 'the prop over the provider', prop: PROP_THEME, provided: PROVIDED_THEME, expected: PROP_THEME.colors },
-        {
-            name: 'the provider without a prop',
-            prop: undefined,
-            provided: PROVIDED_THEME,
-            expected: PROVIDED_THEME.colors,
-        },
-        { name: 'the CSS vars without either', prop: undefined, provided: null, expected: [...DEFAULT_CHART_COLORS] },
+        { name: 'the prop over the provider', prop: PROP_THEME, provided: PROVIDED_THEME, expected: '#000001' },
+        { name: 'the provider without a prop', prop: undefined, provided: PROVIDED_THEME, expected: '#000002' },
+        { name: 'the CSS vars without either', prop: undefined, provided: null, expected: '#000003' },
     ])('resolves a chart theme from $name', ({ prop, provided, expected }) => {
+        document.body.style.setProperty('--data-color-1', '#000003')
         const wrapper = ({ children }: { children: ReactNode }): ReactNode =>
             provided ? createElement(ChartThemeProvider, { value: provided }, children) : children
         const { result } = renderHook(() => useResolvedChartTheme(prop), { wrapper })
-        expect(result.current.colors).toEqual(expected)
+        expect(result.current.colors[0]).toBe(expected)
+        document.body.style.removeProperty('--data-color-1')
     })
 })
