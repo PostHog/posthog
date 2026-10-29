@@ -118,10 +118,22 @@ const sesSendDurationMs = new Histogram({
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: "Milliseconds from an email job's scheduled time on the email queue to its handoff to SES. The scheduled time is when the job was queued, or when a delayed or rescheduled send became due, so a throttled or rate-limited send measures only its last wait. source is transactional_api or workflow; priority_class is the email queue lane.",
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane.',
     labelNames: ['source', 'priority_class'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
+
+type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime }
+
+// A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
+// workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
+// Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
+function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
+    const source =
+        invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
+    const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
+    return startedAt ? { source, startedAt } : undefined
+}
 
 /**
  * Tagged error signalling that SES rejected the send for a transient,
@@ -447,8 +459,8 @@ export class EmailService {
         )
         const addLog = createAddLogFunction(result.logs)
 
-        // Read from the dequeued invocation: result.invocation is a clone, and a clone drops the scheduled time.
-        const queueDueAt = invocation.queue === 'email' && !isTest ? invocation.queueScheduledAt : undefined
+        // Read from the incoming invocation: result.invocation is a clone, and a clone drops the scheduled time.
+        const queueWait = invocation.queue === 'email' && !isTest ? emailQueueWait(invocation) : undefined
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
@@ -730,7 +742,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueDueAt)
+                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
                     break
 
                 case 'unsupported':
@@ -1156,7 +1168,7 @@ export class EmailService {
         from: { email: string; name: string },
         trackingEnabled: boolean,
         isTest = false,
-        queueDueAt?: DateTime
+        queueWait?: EmailQueueWait
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
@@ -1267,16 +1279,13 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
-        if (queueDueAt) {
+        if (queueWait) {
             emailQueueToSendMs
                 .labels({
-                    source:
-                        result.invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT
-                            ? 'transactional_api'
-                            : 'workflow',
+                    source: queueWait.source,
                     priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
                 })
-                .observe(Math.max(0, Date.now() - queueDueAt.toMillis()))
+                .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
 
         const sendStartedAt = performance.now()

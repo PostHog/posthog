@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, get_args
 from uuid import uuid4
 
 import pytest
@@ -20,8 +20,16 @@ from posthog.models.utils import generate_random_token_secret
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.messaging.backend.services.transactional_email import make_transactional
+from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
+
+
+def _stage_counts() -> dict[str, float]:
+    return {
+        stage: REGISTRY.get_sample_value("messaging_transactional_email_stage_duration_seconds_count", {"stage": stage})
+        or 0
+        for stage in get_args(TransactionalEmailStage)
+    }
 
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
@@ -103,10 +111,16 @@ class TestTransactionalEmail(APIBaseTest):
             if identifiers
             else {k: v for k, v in self.body.items() if k != "identifiers"}
         )
+        client = self._psak_client(["hog_flow:write"])
+        stages_before = _stage_counts()
 
-        response = self._send(self._psak_client(["hog_flow:write"]), route, body)
+        response = self._send(client, route, body)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        stages_after = _stage_counts()
+        assert {stage: stages_after[stage] - stages_before[stage] for stage in stages_after} == dict.fromkeys(
+            stages_after, 1
+        )
         assert response.json() == {"message_id": "invocation-1", "replayed": False}
         assert capture.call_args.kwargs["properties"]["route"] == route
         assert mock_post.call_args.args[0].endswith(

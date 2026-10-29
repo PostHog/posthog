@@ -547,22 +547,29 @@ describe('EmailService', () => {
         })
 
         describe('queue-to-send latency', () => {
+            // The job was created a minute ago and rescheduled after a throttle, so it became due again 5 seconds ago.
+            // Running the email step clones the invocation, which resets queueScheduledAt before the send.
             it.each([
-                ['workflow', 'bulk', (): void => {}],
+                ['workflow', 'bulk', 'its rescheduled time', (): void => {}, 5_000, 60_000],
                 [
                     'transactional_api',
                     'fast',
+                    'its creation',
                     (): void => {
                         invocation.state.globals.event.event = '$transactional_email'
                         invocation.hogFunction.metadata = { message_category_type: 'transactional' }
                     },
+                    60_000,
+                    Infinity,
                 ],
             ])(
-                'observes the wait of a %s send dequeued from the email queue on the %s lane',
-                async (source, priorityClass, setUp) => {
+                'observes the wait of a retried %s send on the %s lane from %s',
+                async (source, priorityClass, _from, setUp, minWaitMs, maxWaitMs) => {
                     setUp()
                     invocation.queue = 'email'
-                    invocation.queueScheduledAt = DateTime.utc().minus({ seconds: 5 })
+                    invocation.queueCreatedAt = DateTime.utc().minus({ seconds: 60 })
+                    invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                    invocation.queueScheduledAt = undefined
                     const name = 'cdp_email_queue_to_send_ms'
                     const labels = { source, priority_class: priorityClass }
                     const countBefore = await metricValue(name, labels, `${name}_count`)
@@ -571,7 +578,9 @@ describe('EmailService', () => {
                     await service.executeSendEmail(invocation)
 
                     expect(await metricValue(name, labels, `${name}_count`)).toBe(countBefore + 1)
-                    expect((await metricValue(name, labels, `${name}_sum`)) - sumBefore).toBeGreaterThanOrEqual(5_000)
+                    const waitMs = (await metricValue(name, labels, `${name}_sum`)) - sumBefore
+                    expect(waitMs).toBeGreaterThanOrEqual(minWaitMs)
+                    expect(waitMs).toBeLessThan(maxWaitMs)
                 }
             )
         })

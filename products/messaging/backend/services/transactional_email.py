@@ -3,7 +3,9 @@ per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
 import time
-from typing import Any
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db import transaction
@@ -65,6 +67,44 @@ CDP_SEND_RESULTS = Counter(
 )
 
 
+TransactionalEmailStage = Literal[
+    "auth",
+    "permissions",
+    "throttle",
+    "validation",
+    "feature_flag",
+    "template_lookup",
+    "workflow_access",
+    "workflow_lookup",
+    "cdp_call",
+    "usage_event",
+    "total",
+]
+STAGE_DURATION = Histogram(
+    "messaging_transactional_email_stage_duration_seconds",
+    "Time one transactional email send request spends in each stage, including requests that fail in that stage: "
+    "auth, permissions and throttle (DRF's checks), validation (the request body), feature_flag, template_lookup, "
+    "workflow_access (the caller's editor access to the workflow), workflow_lookup (the template and workflow "
+    "checks before the send), cdp_call (the same time as messaging_transactional_email_cdp_request_duration_seconds), "
+    "usage_event, and total (the DRF view from start to response).",
+    labelnames=["stage"],
+    buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15),
+)
+
+
+def observe_transactional_email_stage(stage: TransactionalEmailStage, seconds: float) -> None:
+    STAGE_DURATION.labels(stage=stage).observe(seconds)
+
+
+@contextmanager
+def transactional_email_stage(stage: TransactionalEmailStage) -> Iterator[None]:
+    started_at = time.monotonic()
+    try:
+        yield
+    finally:
+        observe_transactional_email_stage(stage, time.monotonic() - started_at)
+
+
 def _cdp_error_result(error: Exception) -> str:
     # ConnectTimeout is both a Timeout and a ConnectionError, so the timeout check goes first.
     if isinstance(error, requests.Timeout):
@@ -76,6 +116,12 @@ def _cdp_error_result(error: Exception) -> str:
 
 def _cdp_response_result(status_code: int) -> str:
     return "success" if status_code == 202 else f"{status_code // 100}xx"
+
+
+def _observe_cdp_call(seconds: float) -> None:
+    # Both histograms get the same value, so the stage breakdown and the CDP request metric can't disagree.
+    CDP_SEND_DURATION.observe(seconds)
+    observe_transactional_email_stage("cdp_call", seconds)
 
 
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
@@ -340,7 +386,8 @@ def send_transactional_email(
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
 
-    hog_flow_id = _transactional_workflow_id(team.id, template_id)
+    with transactional_email_stage("workflow_lookup"):
+        hog_flow_id = _transactional_workflow_id(team.id, template_id)
     payload = {
         "to": to,
         # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
@@ -354,11 +401,11 @@ def send_transactional_email(
     try:
         response = run_transactional_workflow(team.id, str(hog_flow_id), payload, timeout=timeout)
     except Exception as e:
-        CDP_SEND_DURATION.observe(time.monotonic() - started_at)
+        _observe_cdp_call(time.monotonic() - started_at)
         CDP_SEND_RESULTS.labels(result=_cdp_error_result(e)).inc()
         logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
         raise DeliveryUnavailable() from e
-    CDP_SEND_DURATION.observe(time.monotonic() - started_at)
+    _observe_cdp_call(time.monotonic() - started_at)
     CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
     if response.status_code != 202:
