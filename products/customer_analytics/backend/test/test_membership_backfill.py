@@ -94,6 +94,22 @@ def test_batch_projection_is_scoped_and_bounded(catching_up: bool, native_json: 
     assert ("FROM events_json" in sql) == native_json
 
 
+@pytest.mark.parametrize(("deadline", "expected_timeout"), [(None, 120), (25.0, 15), (310.0, 120)])
+def test_query_inherits_shared_resources_and_respects_deadline(deadline: float | None, expected_timeout: int) -> None:
+    service = MembershipBackfillService(deadline=deadline)
+    with (
+        patch(f"{MODULE}.sync_execute", return_value=[(1,)]) as execute,
+        patch(f"{MODULE}.monotonic", return_value=10.0),
+    ):
+        assert service.query("SELECT 1", {}, team_id=17) == [(1,)]
+
+    execute.assert_called_once()
+    query_settings = cast(dict[str, int | str], execute.call_args.kwargs["settings"])
+    assert "max_memory_usage" not in query_settings
+    assert "max_threads" not in query_settings
+    assert query_settings["max_execution_time"] == expected_timeout
+
+
 @pytest.mark.parametrize("enabled", [False, True, None])
 def test_shared_gate_uses_organization_identity(enabled: bool | None) -> None:
     team = Team(id=7, organization_id="00000000-0000-4000-8000-000000000001")
