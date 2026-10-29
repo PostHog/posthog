@@ -550,14 +550,18 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
         assert create_response.json()["managed_by"] is None
 
-    def test_managed_upsert_updates_its_own_function_and_reloads_workers_after_commit(self):
+    def test_managed_upsert_preserves_watcher_state_and_reloads_workers_after_commit(self):
         managed = self._upsert_managed()
 
         with (
             patch("products.cdp.backend.facade.api.reload_hog_functions_on_workers") as mock_reload,
+            patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get,
+            patch("posthog.plugins.plugin_server_api.internal_requests.patch") as mock_patch,
             self.captureOnCommitCallbacks(execute=True),
             transaction.atomic(),
         ):
+            mock_get.return_value.status_code = status.HTTP_200_OK
+            mock_get.return_value.json.return_value = {"state": HogFunctionState.DISABLED.value}
             upsert_managed_hog_function(
                 {"name": "Renamed"},
                 team_id=self.team.pk,
@@ -567,6 +571,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             assert mock_reload.call_count == 0
 
+        mock_get.assert_not_called()
+        mock_patch.assert_not_called()
         mock_reload.assert_called_once_with(team_id=self.team.pk, hog_function_ids=[str(managed.id)])
         managed.refresh_from_db()
         assert (managed.name, managed.managed_by) == ("Renamed", "example_product")
@@ -592,18 +598,26 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         target.refresh_from_db()
         assert target.name != "Hijacked"
 
-    def test_disable_managed_hog_functions_disables_only_owned_functions_and_reloads_workers(self):
+    @parameterized.expand([("reload_success", False), ("reload_failure", True)])
+    def test_disable_managed_hog_functions_disables_only_owned_functions_and_reloads_workers(
+        self, _name: str, reload_fails: bool
+    ) -> None:
         owned = self._upsert_managed()
         foreign = self._upsert_managed(managed_by="another_product")
+        later_callback = MagicMock()
 
         with (
             patch("products.cdp.backend.facade.api.reload_hog_functions_on_workers") as mock_reload,
             self.captureOnCommitCallbacks(execute=True),
         ):
+            if reload_fails:
+                mock_reload.side_effect = ConnectionError("The worker reload service is unavailable.")
             disable_managed_hog_functions(
                 team_id=self.team.pk, managed_by="example_product", hog_function_ids=[owned.id, foreign.id]
             )
+            transaction.on_commit(later_callback)
 
+        later_callback.assert_called_once_with()
         owned.refresh_from_db()
         foreign.refresh_from_db()
         assert (owned.enabled, owned.encrypted_inputs) == (False, None)

@@ -993,7 +993,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
-        if res.enabled and res.status.get("state", 0) == HogFunctionState.DISABLED.value:
+        # Product reconciliation must not restart a destination the worker disabled.
+        if res.managed_by is None and res.enabled and res.status.get("state", 0) == HogFunctionState.DISABLED.value:
             res.set_function_status(HogFunctionState.DEGRADED.value)
 
         return res

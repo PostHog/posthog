@@ -104,6 +104,7 @@ def upsert_managed_hog_function(
 
     The public hog function API hides owned functions and refuses to change them. An update of a
     function that another product owns, or that no product owns, raises PermissionDenied.
+    Updates preserve the worker's automatically disabled state.
     """
     from products.cdp.backend.api.hog_function import HogFunctionSerializer  # noqa: PLC0415
 
@@ -136,7 +137,9 @@ def disable_managed_hog_functions(*, team_id: int, managed_by: str, hog_function
         return
     # A queryset update skips the post_save receiver, so the workers are told here.
     functions.update(enabled=False, encrypted_inputs=None)
-    transaction.on_commit(lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=disabled_ids))
+    transaction.on_commit(
+        lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=disabled_ids), robust=True
+    )
 
 
 def compile_filters_expr(filters: Mapping[str, Any], *, team_id: int) -> ast.Expr:
