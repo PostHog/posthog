@@ -1,0 +1,112 @@
+name: EXP checkout seed (throwaway)
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/zz-exp-checkout-seed.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    REPO_URL: https://github.com/${{ github.repository }}
+
+jobs:
+    seed:
+        name: Seed (${{ matrix.age_hours }}h old)
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
+        strategy:
+            matrix:
+                age_hours: [0, 24, 168]
+        steps:
+            - name: Fetch master commit of the requested age at depth 1
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  AGE_HOURS: ${{ matrix.age_hours }}
+              run: |
+                  until=$(date -u -d "-${AGE_HOURS} hours" +%Y-%m-%dT%H:%M:%SZ)
+                  sha=$(gh api "repos/${GITHUB_REPOSITORY}/commits?sha=master&until=${until}&per_page=1" --jq '.[0].sha')
+                  echo "seed sha=$sha until=$until"
+                  git init -q .
+                  git remote add origin "$REPO_URL"
+                  git fetch --no-tags --depth=1 origin "$sha"
+                  test "$(cat .git/shallow)" = "$sha"
+                  ls -la .git/objects/pack
+            - uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .git/objects
+                      .git/shallow
+                  key: exp-git-seed-${{ matrix.age_hours }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+    measure:
+        name: Checkout ${{ matrix.arm }} rep ${{ matrix.rep }}
+        needs: seed
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                arm: [fresh, seed-0h, seed-24h, seed-168h]
+                rep: [1, 2, 3, 4, 5]
+        steps:
+            - name: Start clock
+              run: echo "T0=$(date +%s.%N)" >> "$GITHUB_ENV"
+
+            - name: Init repository for the seed
+              if: matrix.arm != 'fresh'
+              run: |
+                  git init -q .
+                  git remote add origin "$REPO_URL"
+
+            - name: Restore seed
+              if: matrix.arm != 'fresh'
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .git/objects
+                      .git/shallow
+                  key: exp-git-${{ matrix.arm == 'seed-0h' && 'seed-0' || matrix.arm == 'seed-24h' && 'seed-24' || 'seed-168' }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  fail-on-cache-miss: true
+
+            - name: Verify and attach seed
+              if: matrix.arm != 'fresh'
+              run: |
+                  echo "T_RESTORED=$(date +%s.%N)" >> "$GITHUB_ENV"
+                  git verify-pack .git/objects/pack/*.idx
+                  seed=$(cat .git/shallow)
+                  git update-ref refs/remotes/origin/master "$seed"
+                  git update-ref --no-deref HEAD "$seed"
+                  touch .git/seed-marker
+                  echo "SEED_PACK_BYTES=$(stat -c %s .git/objects/pack/*.pack)" >> "$GITHUB_ENV"
+                  echo "T_VERIFIED=$(date +%s.%N)" >> "$GITHUB_ENV"
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Assert correctness and report
+              env:
+                  ARM: ${{ matrix.arm }}
+                  REP: ${{ matrix.rep }}
+              run: |
+                  t_end=$(date +%s.%N)
+                  test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+                  test -z "$(git status --porcelain)"
+                  git fsck --connectivity-only --no-dangling HEAD
+                  if [ "$ARM" != fresh ]; then
+                      test -f .git/seed-marker
+                      test "$(ls .git/objects/pack/*.pack | wc -l)" -eq 2
+                  fi
+                  pack_bytes=$(stat -c %s .git/objects/pack/*.pack | awk '{s+=$1} END {print s}')
+                  fetched_bytes=$(( pack_bytes - ${SEED_PACK_BYTES:-0} ))
+                  total=$(awk -v a="$t_end" -v b="$T0" 'BEGIN {printf "%.1f", a-b}')
+                  verify=$(awk -v a="${T_VERIFIED:-0}" -v b="${T_RESTORED:-0}" 'BEGIN {printf "%.1f", a-b}')
+                  line="RESULT arm=$ARM rep=$REP total_s=$total verify_s=$verify fetched_bytes=$fetched_bytes files=$(git ls-files | wc -l)"
+                  echo "$line"
+                  echo "$line" >> "$GITHUB_STEP_SUMMARY"
