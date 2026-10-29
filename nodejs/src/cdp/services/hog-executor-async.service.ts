@@ -503,6 +503,17 @@ export class HogExecutorAsyncService {
             fetchParams.body = params.body
         }
 
+        if (params.expires_at !== undefined) {
+            const remainingMs = params.expires_at - Date.now()
+            if (remainingMs <= 0) {
+                result.error = new Error('HTTP fetch expired before delivery.')
+                result.finished = true
+                addLog('error', result.error.message)
+                return result
+            }
+            fetchParams.timeoutMs = Math.min(10000, remainingMs)
+        }
+
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
             url: params.url,
             fetchParams,
