@@ -1497,6 +1497,24 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_person_properties_rejects_an_oversized_payload(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"properties": {f"key_{i}": "x" * 2000 for i in range(500)}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture.assert_not_called()
+
     @mock.patch("posthog.api.person.PersonViewSet._get_non_writable_person_properties")
     def test_update_person_properties_rejects_a_non_writable_key_anywhere_in_the_object(
         self, mock_non_writable

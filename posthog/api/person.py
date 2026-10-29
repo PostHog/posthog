@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import builtins
 import dataclasses
@@ -235,9 +236,13 @@ class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
     )
 
 
-# Matches the cap on the persons bulk-delete endpoint; also keeps the resulting
-# capture event safely under the ~1 MB Kafka message limit.
+# Matches the cap on the persons bulk-delete endpoint.
 MAX_PROPERTY_KEYS_PER_REQUEST = 1000
+
+# Capture refuses an event over the ~1 MB Kafka message limit, and _set_properties
+# discards that failure, so an oversized request would answer 202 having written
+# nothing. The headroom covers the event envelope around the properties.
+MAX_PROPERTIES_PAYLOAD_BYTES = 900_000
 
 
 @extend_schema_field(
@@ -1503,6 +1508,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif len(properties) > MAX_PROPERTY_KEYS_PER_REQUEST:
             raise ValidationError(
                 {"properties": f"Set at most {MAX_PROPERTY_KEYS_PER_REQUEST} properties in one request."}
+            )
+
+        payload_size = len(json.dumps(properties, default=str).encode())
+        if payload_size > MAX_PROPERTIES_PAYLOAD_BYTES:
+            raise ValidationError(
+                {
+                    "properties": f"Property values total {payload_size} bytes, over the "
+                    f"{MAX_PROPERTIES_PAYLOAD_BYTES} byte limit for one request. Send them in smaller batches."
+                }
             )
 
         non_writable = self._get_non_writable_person_properties(request)
