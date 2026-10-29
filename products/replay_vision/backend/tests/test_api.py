@@ -4242,6 +4242,7 @@ class TestClusterViewSets(_VisionAPITestCase):
                     group_id=cluster,
                     theme_id=cluster if category != "routine" and not experiment else None,
                     category=category,
+                    contrast=0.3,
                     variant=variant or "",
                     experiment_id=experiment,
                 )

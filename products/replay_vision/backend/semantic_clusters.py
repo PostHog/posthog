@@ -162,7 +162,7 @@ def summarize_clusters(
     days = _readable_days(tables, team_id, scanner_ids, scope, experiment_ids)
     if cluster_id is not None:
         days = days.filter(**{tables.day_cluster: cluster_id})
-    count = _count_field(kind, scope)
+    count = "observation_count"
     in_window = Q(day__gte=window.first_day)
     ranked = (
         days.filter(day__gte=window.previous_first_day, day__lte=window.last_day)
@@ -260,11 +260,6 @@ def cluster_scanner_id(kind: ClusterKind, team_id: int, cluster_id: uuid.UUID) -
     )
 
 
-def _count_field(kind: ClusterKind, scope: ClusterScope) -> str:
-    # A theme holds only issues, so its day count is already the issue count.
-    return "observation_count" if kind == ClusterKind.THEME or scope.include_routine else "issue_count"
-
-
 def _readable_days(
     tables: _KindTables, team_id: int, scanner_ids: list[str], scope: ClusterScope, experiment_ids: set[int]
 ) -> QuerySet[Any]:
@@ -277,6 +272,8 @@ def _readable_days(
     )
     if scope.variants:
         days = days.filter(variant__in=[_stored_variant(v) for v in scope.variants])
+    if not scope.include_routine:
+        days = days.filter(category__in=ISSUE_CATEGORIES)
     return _reviewed(days, tables, scope)
 
 
@@ -301,10 +298,12 @@ def _cluster_rows(
     now: datetime,
 ) -> dict[uuid.UUID, dict[str, Any]]:
     today = now.astimezone(UTC).date()
-    count = f"days__{_count_field(kind, scope)}"
+    count = "days__observation_count"
     readable = Q()
     if tables.day is ReplayScannerFeedGroupDay:
         readable = Q(days__experiment_id=0) | Q(days__experiment_id__in=experiment_ids)
+        if not scope.include_routine:
+            readable &= Q(days__category__in=ISSUE_CATEGORIES)
     rows = (
         tables.cluster.objects.for_team(team_id)
         .filter(id__in=cluster_ids)
