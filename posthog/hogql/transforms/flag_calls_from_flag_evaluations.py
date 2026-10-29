@@ -141,6 +141,10 @@ def resolve_flag_calls_from_flag_evaluations(
     `flag_evaluations`, it raises a QueryError instead of returning the original. It also raises before it
     resolves anything when such an organization's query has a scan of only flag calls with a shape that
     `flag_evaluations` cannot stand in for.
+
+    While `events` still gets flag calls, a project that reads the native-JSON events table keeps reading `events`.
+    That table decodes JSON escapes in a property value. `flag_evaluations` returns the escaped text, so a filter on
+    such a value selects different rows in the two tables.
     """
     database = context.database
     if (
@@ -154,6 +158,8 @@ def resolve_flag_calls_from_flag_evaluations(
     if not finder.found:
         return resolve(node)
     only_in_flag_evaluations = database.flag_calls_only_in_flag_evaluations
+    if not only_in_flag_evaluations and context.uses_new_events_schema():
+        return resolve(node)
     with context.timings.measure("flag_calls_from_flag_evaluations"):
         rewritten = clone_expr(node)
         swapper = _EventsScanSwapper(

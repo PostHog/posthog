@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -1008,6 +1009,39 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         if mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
             assert swapped.clickhouse is not None
             assert "FROM flag_evaluations" in swapped.clickhouse
+
+    @parameterized.expand(
+        [
+            # The legacy events table returns the escaped text, as flag_evaluations does, so neither read matches.
+            ("legacy_events", False, 0),
+            ("native_json_events", True, 1),
+        ]
+    )
+    def test_filter_on_an_escaped_property_selects_the_same_calls_with_and_without_the_rewrite(
+        self, _name: str, use_new_events_schema: bool, expected_count: int
+    ):
+        row_uuid = uuid.uuid4()
+        properties = {"$feature_flag": "probe-flag", "message": 'say "hi"'}
+        self._insert_row(row_uuid, properties)
+        query = f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS} AND properties.message = 'say \"hi\"'"
+
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id="probe-distinct-id",
+                timestamp=self.occurred_at,
+                properties=properties,
+                event_uuid=str(row_uuid),
+            )
+            flush_persons_and_events()
+            from_events = self._query_events(query, rewrite=False, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+            rewritten = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+
+        assert from_events.results == [(expected_count,)]
+        assert rewritten.results == from_events.results
+        assert rewritten.clickhouse is not None
+        assert ("FROM flag_evaluations" in rewritten.clickhouse) is not use_new_events_schema
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
         self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)

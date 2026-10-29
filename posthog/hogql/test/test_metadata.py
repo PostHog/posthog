@@ -476,6 +476,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
+    # Mode 1 keeps reading events on the native-JSON events table.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_metadata_warns_for_flag_called_read_from_events(
         self,
         _name: str,
