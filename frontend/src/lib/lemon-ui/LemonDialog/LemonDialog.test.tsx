@@ -103,6 +103,20 @@ describe('LemonFormDialog', () => {
         expect(captureException).not.toHaveBeenCalled()
     })
 
+    it.each([
+        ['Cancel', 0],
+        ['Submit', 1],
+    ])('pressing Enter on the focused %s button only clicks it', async (button, submits) => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+
+        renderDialog(onSubmit)
+        screen.getByText(button).closest('button')?.focus()
+        await userEvent.keyboard('{Enter}')
+
+        await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
+        expect(onSubmit).toHaveBeenCalledTimes(submits)
+    })
+
     it.each(['Cancel', 'Submit'])('calls the imperative form close callback after %s', async (button) => {
         const onAfterClose = jest.fn()
         act(() => {
