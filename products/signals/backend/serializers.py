@@ -1497,12 +1497,38 @@ class ReportStartupFailureSerializer(serializers.Serializer):
     message = serializers.CharField(help_text="Safe explanation and suggested next action.")
 
 
+class ReportResearchMode(TextChoices):
+    CODE = "code", "Code context"
+    DATA_ONLY = "data_only", "Project data"
+
+
+class ReportRepositoryStatus(TextChoices):
+    AVAILABLE = "available", "Available"
+    NO_INTEGRATION = "no_integration", "Not connected"
+    NO_REPOSITORIES = "no_repositories", "No repositories"
+    SELECTION_UNRESOLVED = "selection_unresolved", "No repository selected"
+    GITHUB_UNAVAILABLE = "github_unavailable", "GitHub unavailable"
+
+
+class ReportResearchContextSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=ReportResearchMode.choices, help_text="Whether research had access to a repository."
+    )
+    repository_status = serializers.ChoiceField(
+        choices=ReportRepositoryStatus.choices,
+        help_text="Code availability when the report was researched; not a live integration health check.",
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     startup_failure = ReportStartupFailureSerializer(
         read_only=True,
         allow_null=True,
         required=False,
         help_text="Startup failure from the latest failed research attempt, when available.",
+    )
+    research_context = serializers.SerializerMethodField(
+        help_text="Evidence available to the latest research pass. Null for legacy reports."
     )
     reviewer_assignment = serializers.SerializerMethodField(
         help_text="Reviewer control and state token for preparing an automatic proposal."
@@ -1735,6 +1761,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "suppression_explanation",
             "repo_slug",
             "is_self_improvement_report",
+            "research_context",
             "is_suggested_reviewer",
             "source_products",
             "scout_name",
@@ -1982,6 +2009,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
         value = data.get("repository")
         return value if isinstance(value, str) and value else None
 
+    @extend_schema_field(ReportResearchContextSerializer(allow_null=True))
+    def get_research_context(self, obj: SignalReport) -> dict[str, str] | None:
+        data = self._get_repo_selection_artefact_data(obj)
+        context = data.get("research_context") if data else None
+        if not isinstance(context, dict):
+            return None
+        serializer = ReportResearchContextSerializer(data=context)
+        return dict(serializer.validated_data) if serializer.is_valid() else None
+
     @extend_schema_field(ReportRankingSerializer)
     def get_ranking(self, obj: SignalReport) -> dict:
         request = self.context.get("request")
@@ -2135,7 +2171,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
     def get_work_state(self, obj: SignalReport) -> str:
-        if obj.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+        if obj.status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED, SignalReport.Status.MONITORING}:
             return "done"
         if any(pr.state in {"open", "draft", "unknown"} for pr in self._get_pull_requests(obj)):
             return "in_review"
@@ -2254,7 +2290,34 @@ class SignalReportListSerializer(SignalReportSerializer):
         return inbox_merge_key(score, getattr(obj, "priority_sort_rank", None))
 
 
-class SignalReportListQuerySerializer(serializers.Serializer):
+class SignalReportSectionCountsSerializer(serializers.Serializer):
+    pull_requests = serializers.IntegerField(help_text="Ready reports with an implementation pull request.")
+    reports = serializers.IntegerField(help_text="Ready reports without an implementation pull request.")
+
+
+class SignalReportFilterQuerySerializer(serializers.Serializer):
+    exclude = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=100,
+        help_text=(
+            "Report ids to leave out of the results and counts, for example the reports a client already "
+            "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
+        ),
+    )
+    include_unlisted = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
+            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
+            "by id always works, whatever this value is."
+        ),
+    )
+
+
+class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     count_only = serializers.BooleanField(
         required=False,
         default=False,
@@ -2271,25 +2334,6 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
             "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
             "Defaults to true."
-        ),
-    )
-    exclude = RepeatedOrCommaSeparatedListField(
-        child=serializers.UUIDField(),
-        required=False,
-        default=list,
-        max_length=100,
-        help_text=(
-            "Report ids to leave out of `results` and `count`, for example the reports a client already "
-            "shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100."
-        ),
-    )
-    include_unlisted = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text=(
-            "Include reports kept out of the shared inbox. A report is kept out when the scout that "
-            "authored it turned off its `inbox` output destination. Defaults to false. Fetching a report "
-            "by id always works, whatever this value is."
         ),
     )
 

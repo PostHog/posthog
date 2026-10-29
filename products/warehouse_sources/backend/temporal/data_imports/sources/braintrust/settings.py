@@ -10,6 +10,8 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 # Fetch endpoints count `limit` in traces, so one page can hold many more rows than this.
 EVENTS_PAGE_SIZE = 100
+# Virtual-hosted S3 bucket hosts, global or regional (`<bucket>.s3.<region>.amazonaws.com`).
+S3_HOST_PATTERN = r"[a-z0-9][a-z0-9.-]*\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com"
 
 
 @frozen

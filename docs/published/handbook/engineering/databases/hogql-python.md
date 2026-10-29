@@ -183,7 +183,8 @@ Numeric, Boolean and DateTime property definitions keep their conversions when c
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
 Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
-Grouped queries preserve the property expression in grouping keys and expressions evaluated after aggregation; WHERE and aggregate arguments retain direct-path reads.
+Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
+This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
 Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
 Native queries disable forward-slash escaping so object and array text retains `/`.
 

@@ -434,36 +434,44 @@ def _json_subcolumn_access(
     return value
 
 
+def _declared_json_path_type(
+    field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
+) -> str:
+    """The type the native table declares for the path, or '' for a Dynamic path.
+
+    A declared column cannot hold NULL, so a missing key sits there as the type's default ('' or []) and the read has
+    to map that default back to NULL. A Dynamic path is NULL when the key is missing, so an empty value there is a
+    value the customer sent and reads as legacy reads it.
+    """
+    if source.json_column is not None:
+        return ""
+    is_person = False
+    table_type: ast.Type | None = field_type.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+        is_person = is_person or isinstance(table_type, ast.VirtualTableType)
+        table_type = table_type.table_type
+    if not isinstance(table_type, ast.TableType):
+        return ""
+    declared_types = PERSON_PROPERTIES_JSON_SUBCOLUMNS if is_person else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+    return declared_types.get(".".join(str(key) for key in keys), "")
+
+
 def _is_declared_array_path(
     field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
 ) -> bool:
     """Whether the native events table declares an array type for the path, so that every row holds an array there."""
-    if source.json_column is not None or field_type.name != "properties":
-        return False
-    table_type: ast.Type | None = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
-    if not isinstance(table_type, ast.TableType):
-        return False
-    declared_type = EVENTS_PROPERTIES_JSON_SUBCOLUMNS.get(".".join(str(key) for key in keys), "")
-    return declared_type.startswith("Array(")
+    return _declared_json_path_type(field_type, keys, source).startswith("Array(")
 
 
-def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
-    json_value = ast.Call(
-        name="nullIf",
-        args=[
-            ast.Call(
-                name="nullIf",
-                args=[
-                    ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-                    _sentinel("[]"),
-                ],
-            ),
-            _sentinel("{}"),
-        ],
-        type=ast.StringType(nullable=True),
-    )
+def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool, declared: bool) -> ast.Expr:
+    json_value: ast.Expr = ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    if declared:
+        # A declared array column holds [] for a missing key, so an empty container reads as NULL there.
+        json_value = ast.Call(
+            name="nullIf",
+            args=[ast.Call(name="nullIf", args=[json_value, _sentinel("[]")]), _sentinel("{}")],
+            type=ast.StringType(nullable=True),
+        )
     if as_json:
         return json_value
 
@@ -532,19 +540,19 @@ def _json_subcolumn_value_expr(
         return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
 
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
-    scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
+    # A declared column stores a missing key as '', and an index into a declared array reads '' past its end, so both
+    # map '' back to NULL. A Dynamic path is NULL for a missing key and keeps '' as a value.
+    declared = index_position is not None or bool(_declared_json_path_type(field_type, keys, source))
+    scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json, declared=declared)
+    missing: ast.Expr = ast.Call(name="isNull", args=[clone_expr(value)])
+    if declared:
+        missing = ast.Call(
+            name="isNull",
+            args=[ast.Call(name="nullIf", args=[ast.Call(name="toString", args=[clone_expr(value)]), _sentinel("")])],
+        )
     scalar_or_null = ast.Call(
         name="if",
-        args=[
-            ast.Call(
-                name="isNull",
-                args=[
-                    ast.Call(name="nullIf", args=[ast.Call(name="toString", args=[clone_expr(value)]), _sentinel("")])
-                ],
-            ),
-            ast.Constant(value=None, type=ast.StringType(nullable=True)),
-            scalar_value,
-        ],
+        args=[missing, ast.Constant(value=None, type=ast.StringType(nullable=True)), scalar_value],
         type=ast.StringType(nullable=True),
     )
     if index_position is not None:
@@ -1193,12 +1201,32 @@ class ClickHousePropertyResolver(CloningVisitor):
         try:
             if not node.group_by and node.group_by_mode != "all":
                 return super().visit_select_query(node)
-            result = super().visit_select_query(replace(node, select=[], group_by=None, having=None, order_by=None))
+            result = super().visit_select_query(
+                replace(
+                    node,
+                    select=[],
+                    group_by=None,
+                    having=None,
+                    order_by=None,
+                    qualify=None,
+                    window_exprs=None,
+                    limit_by=None,
+                    interpolate=None,
+                )
+            )
             self._in_grouped_clause = True
             result.select = [self.visit(expr) for expr in node.select]
             result.group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
             result.having = self.visit(node.having)
             result.order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
+            result.qualify = self.visit(node.qualify)
+            result.window_exprs = (
+                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+            )
+            result.limit_by = self.visit(node.limit_by)
+            result.interpolate = (
+                [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
+            )
             return result
         finally:
             self._in_grouped_clause = was_in_grouped_clause
@@ -1235,9 +1263,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         Only a single-key access (`properties.x`, no deeper `.a.b`) maps to one backing column. A multi-key access reads
         the column and then JSON-extracts deeper, so it can't use the bare-column comparison rewrites.
         """
-        # Bare-column rewrites after aggregation can reference a column absent from GROUP BY.
-        if self._in_grouped_clause:
-            return None
         node = self._lowered_property_operand(expr)
         if node is not None and len(node.keys) == 1:
             field_type = _blob_field_type_of(node)
@@ -1323,12 +1348,16 @@ class ClickHousePropertyResolver(CloningVisitor):
     # --- comparison / call rewrites ---
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
-        if self._in_grouped_clause and find_hogql_aggregation(node.name):
-            self._in_grouped_clause = False
-            try:
-                return super().visit_call(node)
-            finally:
-                self._in_grouped_clause = True
+        if self._in_grouped_clause:
+            if find_hogql_aggregation(node.name):
+                self._in_grouped_clause = False
+                try:
+                    return super().visit_call(node)
+                finally:
+                    self._in_grouped_clause = True
+            # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
+            # so its inputs keep the grouped context while ordinary aggregates above read original rows.
+            return super().visit_call(node)
 
         if node.name == "indexHint":
             self._index_hint_depth += 1
@@ -1337,7 +1366,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             finally:
                 self._index_hint_depth -= 1
 
-        if not self._in_grouped_clause and node.name in ("toFloat", "toInt") and len(node.args) == 1:
+        if node.name in ("toFloat", "toInt") and len(node.args) == 1:
             access = self._lowered_property_operand(node.args[0])
             # An array index reads through the JSON text of the value, so the cast wraps that read instead.
             if access is not None and all(isinstance(key, str) for key in access.keys):
@@ -1355,7 +1384,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                         type=node.type,
                     )
 
-        boolean_conversion = None if self._in_grouped_clause else self._rewrite_boolean_property_conversion(node)
+        boolean_conversion = self._rewrite_boolean_property_conversion(node)
         if boolean_conversion is not None:
             return boolean_conversion
 
@@ -1891,6 +1920,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        if self._in_grouped_clause:
+            return super().visit_compare_operation(node)
+
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
         # rewritten comparison, so once one matches we must NOT also substitute the value. (session_id is left to the
         # printer — it optimizes a real column, not a property.)

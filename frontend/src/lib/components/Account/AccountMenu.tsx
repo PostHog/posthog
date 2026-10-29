@@ -7,7 +7,6 @@ import {
     IconCopy,
     IconDatabase,
     IconDay,
-    IconExpand45,
     IconFeatures,
     IconGear,
     IconLaptop,
@@ -55,7 +54,6 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { getTreeItemsGames } from '~/products'
 import { UserTheme } from '~/types'
@@ -149,7 +147,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
     const { setShortcutMenuOpen } = useActions(shortcutLogic)
-    const { toggleZenMode } = useActions(navigation3000Logic)
 
     return (
         <DropdownMenu>
@@ -308,19 +305,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                     )}
 
                     <ThemeMenu />
-
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive
-                            tooltip="Hide navigation and focus on content"
-                            tooltipPlacement="right"
-                            onClick={() => toggleZenMode('account_menu')}
-                            menuItem
-                        >
-                            <IconExpand45 />
-                            Zen mode
-                            <KeyboardShortcut command option z className="ml-auto" />
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
 
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive
