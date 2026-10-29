@@ -1232,10 +1232,10 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 return
             found = True
             field_type = config.get("incremental_field_type")
-            # A run that started from a stored watermark read only rows above it, so its oldest row is
-            # not the oldest row of the table. As the earliest value, it would make the next run read
-            # every older row again.
-            reads_above_watermark = (
+            # A stored watermark with no earliest value means the table already holds every older row.
+            # A run from that watermark read only newer rows, so its oldest row must not become the
+            # earliest value: the next run would read every row below it again.
+            watermark_without_earliest = (
                 config.get("incremental_field_last_value") is not None
                 and config.get("incremental_field_earliest_value") is None
             )
@@ -1243,7 +1243,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 _advance_promoted_cursor(
                     config, "incremental_field_last_value", staged["last_value"], "last", field_type
                 )
-            if "earliest_value" in staged and not reads_above_watermark:
+            if "earliest_value" in staged and not watermark_without_earliest:
                 _advance_promoted_cursor(
                     config, "incremental_field_earliest_value", staged["earliest_value"], "earliest", field_type
                 )
