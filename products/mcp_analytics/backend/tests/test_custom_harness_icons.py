@@ -1,5 +1,7 @@
 import io
+import zlib
 import base64
+import struct
 
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
@@ -14,6 +16,19 @@ def _image_data_uri(mime: str, pil_format: str, size: tuple[int, int] = (16, 16)
     buffer = io.BytesIO()
     Image.new("RGB", size, (200, 40, 40)).save(buffer, format=pil_format)
     return f"data:{mime};base64,{base64.b64encode(buffer.getvalue()).decode()}"
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+
+def _handmade_png_data_uri(width: int, height: int, pixel_data: bytes) -> str:
+    """A PNG with valid chunk checksums whose header and pixels can say anything."""
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    png = (
+        b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", header) + _png_chunk(b"IDAT", pixel_data) + _png_chunk(b"IEND", b"")
+    )
+    return f"data:image/png;base64,{base64.b64encode(png).decode()}"
 
 
 class TestValidateHarnessIcon(SimpleTestCase):
@@ -37,6 +52,8 @@ class TestValidateHarnessIcon(SimpleTestCase):
             ("not_an_image", "data:image/png;base64," + base64.b64encode(b"hello").decode()),
             ("type_does_not_match_content", _image_data_uri("image/png", "JPEG")),
             ("too_wide", _image_data_uri("image/png", "PNG", size=(300, 10))),
+            ("decompression_bomb", _handmade_png_data_uri(20_000, 20_000, zlib.compress(b""))),
+            ("pixels_do_not_decode", _handmade_png_data_uri(16, 16, b"not zlib data")),
             ("too_many_bytes", "data:image/png;base64," + base64.b64encode(b"\x00" * 20_000).decode()),
         ]
     )

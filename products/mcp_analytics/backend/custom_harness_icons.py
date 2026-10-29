@@ -44,7 +44,10 @@ def validate_harness_icon(value: str) -> None:
                     f"The icon must be {MAX_HARNESS_ICON_SIDE_PX} by {MAX_HARNESS_ICON_SIDE_PX} pixels or smaller."
                 )
             image.verify()
-    except (UnidentifiedImageError, OSError, SyntaxError):
+        # verify() checks structure only and leaves the image unusable, so decode the pixels from a fresh open.
+        with Image.open(io.BytesIO(raw)) as image:
+            image.load()
+    except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError):
         raise ValidationError("The icon is not a valid image.")
 
     if pil_format != _PIL_FORMAT_BY_SUBTYPE[subtype]:
