@@ -56,6 +56,7 @@ from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
+from posthog.query_creator_access import OWNER_UNAVAILABLE_CODE, CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.rate_limit import (
     AlertLLMSimulationBurstThrottle,
     AlertLLMSimulationDailyThrottle,
@@ -75,6 +76,7 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -645,6 +647,11 @@ class RelativeDateTimeField(serializers.DateTimeField):
         return data
 
 
+ALERT_OWNER_UNAVAILABLE_MESSAGE = (
+    "Cannot enable this alert: its owner can no longer run it. Take ownership to enable it as yourself."
+)
+
+
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     evaluation_delay_intervals = serializers.IntegerField(
         min_value=0,
@@ -1109,6 +1116,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
         if insight is None:
             raise ValidationError({"insight": ["Insight is required."]})
+        # Checks run as the owner, so an owner who cannot run them would only get the alert disabled again.
+        if self.instance is not None and attrs.get("enabled") is True and not self.instance.enabled:
+            try:
+                assert_creator_can_run(self.instance.created_by, self.instance.team, insight)
+            except (CreatorLeftOrganizationError, UserAccessControlError):
+                raise ValidationError({"enabled": [ALERT_OWNER_UNAVAILABLE_MESSAGE]}, code=OWNER_UNAVAILABLE_CODE)
         # Enforced from the object-level validate() so it runs on every create and update — including
         # a PATCH that omits `insight` (which skips the field-level validator), so an alert can't be
         # repointed at a flag-gated insight kind (or a scope-gated one) in an account where the flag
@@ -1809,6 +1822,30 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={202: AlertTestDeliveryResponseSerializer},
         description="Send a synthetic test notification to subscribed users and every active destination on this alert.",
     )
+    @extend_schema(
+        request=None,
+        responses={200: AlertSerializer},
+        description=(
+            "Make the requesting user the owner of this alert and enable it. Checks run with the owner's "
+            "access, so this is how an alert continues after its owner left."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="take-ownership", required_scopes=["alert:write"])
+    def take_ownership(self, request, *args, **kwargs):
+        alert = self.get_object()
+        user = cast(User, request.user)
+        try:
+            assert_creator_can_run(user, alert.team, alert.insight)
+        except (CreatorLeftOrganizationError, UserAccessControlError):
+            raise ValidationError("Can't take ownership: you don't have access to this insight.") from None
+        AlertConfiguration.objects.filter(pk=alert.pk).update(created_by=user)
+        alert.created_by = user
+        # The enable runs the usual update path, so the insight query is validated as the new owner.
+        serializer = self.get_serializer(alert, data={"enabled": True}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(self.get_serializer(serializer.instance).data)
+
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,

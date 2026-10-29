@@ -13,6 +13,10 @@ from products.access_control.backend.facade.user_access_control import (
     model_to_resource,
 )
 
+# The API error code for a write refused because the owner can no longer run the resource.
+# Shared by subscriptions and alerts; the frontend offers to take ownership when it sees it.
+OWNER_UNAVAILABLE_CODE = "owner_unavailable"
+
 
 class CreatorLeftOrganizationError(Exception):
     """A background query refused to run because its owner is no longer in the organization."""

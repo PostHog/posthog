@@ -23,6 +23,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.query_creator_access import OWNER_UNAVAILABLE_CODE, CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.slo.context import SloSpec, slo_operation
@@ -30,7 +31,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import human_list
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
@@ -127,6 +128,11 @@ def _write_attrs(write: SubscriptionWrite) -> dict:
             continue
         attrs[_MODEL_ATTRIBUTE_NAMES.get(field.name, field.name)] = value
     return attrs
+
+
+OWNER_UNAVAILABLE_MESSAGE = (
+    "Cannot re-enable this subscription: its owner can no longer run it. Take ownership to enable it as yourself."
+)
 
 
 class _SubscriptionWrite:
@@ -420,6 +426,14 @@ class _SubscriptionWrite:
             error_message = validate_re_enable(target_type, integration_id)
             if error_message:
                 raise SubscriptionRequestInvalidError({"enabled": [error_message]})
+            # Deliveries run as the owner, so an owner who cannot run them would only get it disabled again.
+            assert existing is not None
+            try:
+                assert_creator_can_run(existing.created_by, self.team, existing.dashboard, existing.insight)
+            except (CreatorLeftOrganizationError, UserAccessControlError):
+                raise SubscriptionRequestInvalidError(
+                    {"enabled": [OWNER_UNAVAILABLE_MESSAGE]}, code=OWNER_UNAVAILABLE_CODE
+                ) from None
             # AI subs auto-disable on PromptRejectedError (deleted creator, prompt now
             # fails sanitization). The delivery path will just re-disable on the next
             # tick unless the underlying cause is fixed by this PATCH.
@@ -1020,6 +1034,39 @@ def update_subscription(
     )
     validated_data = subscription_write.validate(_write_attrs(write))
     return subscription_record(subscription_write.update(instance, validated_data))
+
+
+def take_subscription_ownership(
+    *,
+    team: Team,
+    organization: Organization,
+    user: User,
+    viewer: UserAccessControl,
+    subscription_id: int,
+    analytics_props: AnalyticsProps,
+) -> SubscriptionRecord:
+    """Make `user` the owner and enable the subscription, so deliveries run with their access.
+
+    The new owner must be able to view the dashboard or insight before the ownership moves. The
+    enable that follows runs the usual save-time checks as the new owner, so a table they cannot
+    read still refuses, and the subscription then stays disabled under its new owner.
+    """
+    instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
+    try:
+        assert_creator_can_run(user, team, instance.dashboard, instance.insight)
+    except (CreatorLeftOrganizationError, UserAccessControlError):
+        raise SubscriptionRequestInvalidError("Can't take ownership: you don't have access to this content.") from None
+    Subscription.objects.filter(pk=instance.pk).update(created_by=user)
+    return update_subscription(
+        team=team,
+        organization=organization,
+        user=user,
+        viewer=viewer,
+        subscription_id=subscription_id,
+        write=SubscriptionWrite(enabled=True),
+        partial=True,
+        analytics_props=analytics_props,
+    )
 
 
 def start_test_delivery(*, team_id: int, subscription_id: int) -> ManualDeliveryResult:
