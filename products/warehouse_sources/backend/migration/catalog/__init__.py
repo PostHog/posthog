@@ -133,25 +133,43 @@ def match_tables(
         by_letters.setdefault(_letters(name), name)
 
     vendor_tables = list(vendor_tables)
-    exact_targets = {by_letters[_letters(t)] for t in vendor_tables if _letters(t) in by_letters}
-    matches: list[TableMatch] = []
+    exact = {t: by_letters[_letters(t)] for t in vendor_tables if _letters(t) in by_letters}
+    taken = set(exact.values())
+    # A table another vendor table matches exactly is taken. Salesforce `account_history` is a
+    # field audit log, not the `Account` records that `account` already holds.
+    inferred: dict[str, tuple[str, int]] = {}
     for vendor_table in vendor_tables:
-        exact = by_letters.get(_letters(vendor_table))
-        # A table another vendor table matches exactly is taken. Salesforce `account_history` is a
-        # field audit log, not the `Account` records that `account` already holds.
-        inferred = next(
-            (
-                by_letters[k]
-                for k in _inferred_keys(vendor_table, rewrites)
-                if k in by_letters and by_letters[k] not in exact_targets
-            ),
+        if vendor_table in exact:
+            continue
+        keys = _inferred_keys(vendor_table, rewrites)
+        hit = next(
+            ((by_letters[k], rank) for rank, k in enumerate(keys) if k in by_letters and by_letters[k] not in taken),
             None,
         )
-        if exact is not None:
-            matches.append(TableMatch(vendor_table=vendor_table, posthog_table=exact, confidence=MatchConfidence.EXACT))
-        elif inferred is not None:
+        if hit is not None:
+            inferred[vendor_table] = hit
+    # When two vendor tables infer the same PostHog table, the one whose name needed the smaller
+    # change keeps it, so `campaign` beats `campaign_history` for `campaigns`. The name breaks ties,
+    # so the result does not depend on the input order.
+    winners: dict[str, str] = {}
+    for vendor_table, (target, _rank) in sorted(inferred.items(), key=lambda item: (item[1][1], item[0])):
+        winners.setdefault(target, vendor_table)
+
+    matches: list[TableMatch] = []
+    for vendor_table in vendor_tables:
+        if vendor_table in exact:
             matches.append(
-                TableMatch(vendor_table=vendor_table, posthog_table=inferred, confidence=MatchConfidence.INFERRED)
+                TableMatch(
+                    vendor_table=vendor_table, posthog_table=exact[vendor_table], confidence=MatchConfidence.EXACT
+                )
+            )
+        elif vendor_table in inferred and winners[inferred[vendor_table][0]] == vendor_table:
+            matches.append(
+                TableMatch(
+                    vendor_table=vendor_table,
+                    posthog_table=inferred[vendor_table][0],
+                    confidence=MatchConfidence.INFERRED,
+                )
             )
         else:
             matches.append(TableMatch(vendor_table=vendor_table, posthog_table=None, confidence=None))

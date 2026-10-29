@@ -71,6 +71,21 @@ class TestCatalog:
 
     @parameterized.expand(
         [
+            ("plural_listed_first", ["campaign", "campaign_history"]),
+            ("history_listed_first", ["campaign_history", "campaign"]),
+        ]
+    )
+    def test_closer_name_keeps_a_posthog_table_two_vendor_tables_infer(
+        self, _name: str, vendor_tables: list[str]
+    ) -> None:
+        matches = {
+            m.vendor_table: (m.posthog_table, m.confidence)
+            for m in match_tables("fivetran", vendor_tables, {"campaigns"})
+        }
+        assert matches == {"campaign": ("campaigns", MatchConfidence.INFERRED), "campaign_history": (None, None)}
+
+    @parameterized.expand(
+        [
             ("static_catalog", T.STRIPE, "Charge", True),
             ("needs_config_to_list", T.GITHUB, "issues", False),
             ("also_discovers_tables", T.FIREBASE, "auth_users", False),
