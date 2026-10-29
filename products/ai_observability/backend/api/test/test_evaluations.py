@@ -221,7 +221,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
     def test_switch_to_sentiment_ignores_stored_judge_method(self, method: str) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Check the response.", "judge_method": method},
+            evaluation_config={"prompt": "Check the response.", "judge_method": method, "reasoning_level": "high"},
             output_type="boolean",
             output_config={},
             model_configuration=LLMModelConfiguration(provider="openrouter", model="example/model"),

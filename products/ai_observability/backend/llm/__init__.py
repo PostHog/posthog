@@ -51,17 +51,7 @@ def supports_reasoning_level(provider: str | None, model: str | None) -> bool:
 
 
 def _build_model_infos(provider: str, models: list[str]) -> list[ModelInfo]:
-    return [
-        {
-            "id": m,
-            "name": m,
-            "provider": provider,
-            "description": "",
-            "is_recommended": True,
-            "supports_reasoning": supports_reasoning_level(provider.lower(), m),
-        }
-        for m in models
-    ]
+    return [{"id": m, "name": m, "provider": provider, "description": "", "is_recommended": True} for m in models]
 
 
 def get_default_models() -> list[ModelInfo]:

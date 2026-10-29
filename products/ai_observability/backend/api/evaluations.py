@@ -753,6 +753,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             )
 
     def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool) -> None:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return
         evaluation_config = data.get("evaluation_config", getattr(self.instance, "evaluation_config", None))
         if not isinstance(evaluation_config, dict) or not evaluation_config.get("reasoning_level"):
             return
