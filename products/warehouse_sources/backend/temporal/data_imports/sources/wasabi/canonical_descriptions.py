@@ -28,6 +28,23 @@ _UTILIZATION_METRIC_COLUMNS = {
     "DeleteBytes": "Bytes deleted in the period.",
 }
 
+_SUB_INVOICE_ITEM_COLUMNS = {
+    "SubInvoiceItemNum": "Unique identifier of the sub-invoice line item.",
+    "SubInvoiceNum": "Identifier of the sub-invoice the line item belongs to.",
+    "Type": "Resource type the line item charges for.",
+    "DisplayName": "Display name of the line item.",
+    "Description": "Description of the line item.",
+    "Qty": "Billed quantity of the resource.",
+    "UnitCost": "Cost per unit of the resource.",
+    "Total": "Total amount of the line item.",
+    "Currency": "Currency of the line item amounts.",
+    "AcctNum": "Account number of the sub-account the sub-invoice belongs to.",
+    "InvoiceNum": "Identifier of the Control Account invoice the sub-invoice rolls up into.",
+    "CreateTime": "When the sub-invoice was created.",
+    "PeriodStart": "Start of the billing period the sub-invoice covers.",
+    "PeriodEnd": "End of the billing period the sub-invoice covers.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "accounts": {
         "description": "Sub-accounts associated with the Wasabi Control Account, with summary profile information.",
@@ -80,6 +97,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Total": "Total amount of the sub-invoice.",
             "Currency": "Currency of the sub-invoice total.",
             "Status": "Payment status of the sub-invoice.",
+        },
+    },
+    "sub_account_invoice_items": {
+        "description": "Line items of each sub-invoice, such as storage and egress charges. Where a sub-account has buckets in regions with different prices, the unit cost is the weighted average across those regions.",
+        "docs_url": "https://docs.wasabi.com/apidocs/get-details-for-a-sub-invoice",
+        "columns": _SUB_INVOICE_ITEM_COLUMNS,
+    },
+    "sub_account_invoice_regional_items": {
+        "description": "Line items of each sub-invoice, broken down by Wasabi region.",
+        "docs_url": "https://docs.wasabi.com/apidocs/get-details-and-regional-usage-for-a-sub-invoice",
+        "columns": _SUB_INVOICE_ITEM_COLUMNS,
+    },
+    "air_jobs": {
+        "description": "Finished Wasabi AiR jobs for each sub-account. Jobs that are still in progress are not listed.",
+        "docs_url": "https://docs.wasabi.com/apidocs/get-air-jobs-for-a-sub-account",
+        "columns": {
+            "JobId": "Unique identifier of the AiR job.",
+            "AcctNum": "Account number of the sub-account that ran the job.",
+            "MediaRuntimeTotalSeconds": "Total runtime of the processed media, in seconds.",
+            "CreatedAt": "When the job was created.",
+            "FinishedAt": "When the job finished.",
         },
     },
 }

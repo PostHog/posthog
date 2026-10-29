@@ -78,7 +78,7 @@ from products.access_control.backend.facade.user_access_control import (
     access_level_satisfied_for_resource,
 )
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.facade.api import (
     get_experiment_health,
@@ -960,8 +960,9 @@ class EnterpriseExperimentsViewSet(
         each check, so a check that found no problem can be told from one that did not apply or could
         not read an input.
 
-        The checks here read the experiment, its flag, its linked metrics, and the changes of the
-        flag's variant split since launch. The checks that read exposure counts come with the
+        The checks here read the experiment, its flag, its linked metrics, the project's event and
+        property definitions, the cohorts of the exposure criteria, and the changes of the flag's
+        variant split since launch. The checks that read exposure counts come with the
         exposure query. The split-change check compares the split changes with the exposures only
         for exposure criteria that name an event without property filters. When the split changed
         after launch and the criteria have filters or an action, or an API key lacks `query:read`,
@@ -974,14 +975,32 @@ class EnterpriseExperimentsViewSet(
         definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
         not received. A name whose definition was deleted since launch, or in the last day for a
         draft, is not checked, because ingestion writes the definition again only when the event
-        arrives. `metric_event_not_ingested` names each metric that
+        arrives. No missing definition is checked when ingestion saw none of the experiment's events
+        in the last day, because ingestion can be set to skip a team. `metric_event_not_ingested`
+        names each metric that
         reads an event the project never received, in the `evidence` keys `metric_N`,
         `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
-        exposure event the project never received (`exposure_event_not_ingested`), and a
+        exposure event the project never received (`exposure_event_not_ingested`), a
         `$feature_flag` filter on the flag call events that requires another flag
-        (`filter_on_another_flag`). An event not received is info before launch, in the first 24
-        hours after launch, and when only secondary metrics read it, and a warning otherwise.
-        `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
+        (`filter_on_another_flag`), and a filter on an event or person property that the project has
+        no definition of, with an operator that a missing property fails
+        (`filter_on_property_not_ingested`, the keys in `evidence.properties`). A property whose
+        definition was ever deleted is not checked, and neither is an event property filter on an
+        action or on `$groupidentify`, whose properties ingestion keeps no definitions of. An event
+        or property not received is info before launch, in the first 24 hours after launch, and when
+        only secondary metrics read it, and a warning otherwise. `filter_on_another_flag` is a
+        warning in every state, `filter_on_property_not_ingested` also reports after the end, and
+        the other findings stop at the end.
+
+        `exposure_filters` reads the cohort and event property filters of the exposure criteria and
+        of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
+        warning in every state: the results use the members of a dynamic cohort at the calculation,
+        not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
+        that matches the cohort's members gives one variant, `cohort_in_release_conditions` when the
+        release conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts.
+        Both subcodes need the exposure criteria to keep the members too, not to leave them out.
+        `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
+        events, not users (`evidence.properties`).
 
         `metric_cannot_compile` builds and compiles the query of each metric without running it, as
         the caller, so a metric that every calculation fails on shows before launch. A metric that

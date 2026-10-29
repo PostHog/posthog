@@ -19,6 +19,7 @@ import {
     FetchAttempt,
     FetchPass,
     HOPS_EXHAUSTED,
+    URL_TOO_OLD,
     isTransientOutcome,
 } from './fetch-runner'
 import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
@@ -437,6 +438,9 @@ export class UrlFetchConsumer {
             'not_ready',
             waitMs
         )
+        if (result === 'refused_age') {
+            return this.terminalAttempt(candidate, URL_TOO_OLD, nowMs)
+        }
         if (result === 'refused_delay' || waitMs > ONE_HOUR_MS) {
             return this.terminalAttempt(candidate, DELAY_TOO_LONG, nowMs)
         }

@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { HOGQLX_TAGS_NO_ATTRIBUTES, parseHogQLX } from '~/queries/nodes/HogQLX/render'
 import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -109,12 +110,38 @@ export const MAX_COLUMN_WIDTH = 320
 const COLUMN_WIDTH_SAMPLE_CELLS = 5000
 const MIN_COLUMN_WIDTH_SAMPLE_ROWS = 10
 
+// Tags that renderHogQLX renders as their children's text. Keep in sync with render.tsx.
+const HOGQLX_TEXT_TAGS = new Set([...HOGQLX_TAGS_NO_ATTRIBUTES, 'a', 'blink', 'marquee', 'redacted'])
+
+// Counts the visible text of a parsed HogQLX value. Other tags (sparklines, buttons, images) and plain
+// objects render as widgets or JSON, so they get the widest column.
+function getHogQLXTextLength(value: unknown): number {
+    if (value == null) {
+        return 0
+    }
+    if (typeof value !== 'object') {
+        return String(value).length
+    }
+    if (Array.isArray(value)) {
+        return value.reduce((total: number, child) => total + getHogQLXTextLength(child), 0)
+    }
+    const { __hx_tag: tag, children, source, href } = value as Record<string, unknown>
+    if (typeof tag === 'string' && HOGQLX_TEXT_TAGS.has(tag)) {
+        const content = children ?? source
+        // Links without content show their href
+        return content ? getHogQLXTextLength(content) : tag === 'a' ? getHogQLXTextLength(href) : 0
+    }
+    return Infinity
+}
+
 function getCellTextLength(cell: TableDataCell<any>): number {
     if (cell.isTransposedHeader && cell.sourceColumnName) {
         return cell.sourceColumnName.length
     }
     if (cell.formattedValue !== null && typeof cell.formattedValue === 'object') {
-        return Infinity
+        return Array.isArray(cell.formattedValue) && cell.formattedValue[0] === '__hx_tag'
+            ? getHogQLXTextLength(parseHogQLX(cell.formattedValue))
+            : Infinity
     }
     return String(cell.formattedValue ?? cell.value ?? '').length
 }

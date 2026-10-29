@@ -23,7 +23,7 @@ const FIRST_REFRESH = '2026-01-01T00:00:00.000Z'
 const SECOND_REFRESH = '2026-01-01T00:01:00.000Z'
 
 const timeSeriesRow = {
-    action: { id: '$pageview', type: 'events', order: 0, math: 'total' },
+    order: 0,
     label: '$pageview',
     data: [1, 2, 3],
     days: ['2026-01-01', '2026-01-02', '2026-01-03'],
@@ -92,7 +92,7 @@ describe('chartPreviewsLogic', () => {
             breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
         })
         insightDataLogic(insightProps).actions.setInsightData({
-            results: [{ ...timeSeriesRow, action: { ...timeSeriesRow.action, math: BaseMathType.UniqueUsers } }],
+            results: [timeSeriesRow],
             hasMore: true,
             last_refresh: FIRST_REFRESH,
         })

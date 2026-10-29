@@ -30,10 +30,9 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     - Manually, when a user adds it in the Suppression list UI.
 
     The pre-send path consults this list (see the Node `EmailSuppressionService`) and skips
-    matching recipients. Unlike opt-outs, a suppression is a deliverability signal, not a
-    messaging preference, so it applies regardless of message category (including transactional).
-    The one exception is a COMPLAINT entry: the recipient objected to our mail, but the address
-    still works, so transactional messages still go out to it.
+    matching recipients. Transactional messages skip only addresses that hard-bounced, because
+    only a hard bounce proves the address can't receive mail. A complaint, a manual entry or a
+    run of soft bounces (for example a full inbox) still lets transactional messages through.
     """
 
     # db_constraint=False on these hot-table FKs so CreateModel takes no lock on
@@ -58,6 +57,9 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     last_bounce_at = models.DateTimeField(null=True, blank=True)
     # Last SMTP diagnostic we saw, kept for visibility in the UI (e.g. the "Message expired" text).
     last_bounce_diagnostic = models.TextField(null=True, blank=True)
+    # When the address last hard-bounced. Set on every row, manual entries included, and cleared when a
+    # user removes the suppression. A suppressed row with this set also blocks transactional messages.
+    hard_bounced_at = models.DateTimeField(null=True, blank=True)
 
     # Whether the address is actively suppressed. A row can exist while still only counting
     # bounces (suppressed=False) before it crosses the threshold.
