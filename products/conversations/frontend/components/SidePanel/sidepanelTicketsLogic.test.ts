@@ -15,6 +15,12 @@ import { BillingType, SidePanelTab } from '~/types'
 
 import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
+import { loadTicketsAcrossTabs } from './ticketsAcrossTabs'
+
+jest.mock('./ticketsAcrossTabs', () => ({
+    loadTicketsAcrossTabs: jest.fn((fetchTickets) => fetchTickets()),
+    subscribeToSharedTickets: jest.fn(() => () => {}),
+}))
 
 describe('sidepanelTicketsLogic', () => {
     let logic: ReturnType<typeof sidepanelTicketsLogic.build>
@@ -89,6 +95,11 @@ describe('sidepanelTicketsLogic', () => {
             'It broke badly\n\n-----\nProject ID: 997',
             {},
             true
+        )
+        // The new ticket must show up now, so it skips the shared freshness window
+        expect(loadTicketsAcrossTabs).toHaveBeenLastCalledWith(
+            expect.any(Function),
+            expect.objectContaining({ force: true })
         )
 
         // Leaving the composer clears the prefill so a later blank "New ticket" starts empty

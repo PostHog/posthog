@@ -44,6 +44,7 @@ import type {
     SidePanelTicketFilter,
     SidePanelViewState,
 } from '../../types'
+import { loadTicketsAcrossTabs, subscribeToSharedTickets } from './ticketsAcrossTabs'
 
 function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
     switch (filter) {
@@ -170,8 +171,8 @@ export interface sidepanelTicketsLogicActions {
     loadMessages: (ticketId: string) => {
         ticketId: string
     }
-    loadTickets: () => {
-        value: true
+    loadTickets: (force?: boolean) => {
+        force: boolean
     }
     markAsRead: (ticketId: string) => {
         ticketId: string
@@ -306,7 +307,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     actions({
         grantSupportExemption: true,
         initTickets: true,
-        loadTickets: true,
+        loadTickets: (force: boolean = false) => ({ force }),
         startPolling: true,
         stopPolling: true,
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
@@ -566,7 +567,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 document.addEventListener('visibilitychange', cache.onVisibilityChange)
             }
         },
-        loadTickets: async () => {
+        loadTickets: async ({ force }) => {
             // We don't support self-hosted, and the conversations extension is cloud-only — both the
             // panel and the tickets scene already render a community-forum message instead. This logic
             // still mounts there (the scene declares it in its SceneExport), so without this it would
@@ -590,7 +591,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Conversations extension loads lazily — retry until it's ready
                 if ((cache.conversationsRetries ?? 0) < 20) {
                     cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
-                    cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(), 500)
+                    cache.conversationsRetryTimer = window.setTimeout(() => actions.loadTickets(force), 500)
                     return
                 }
                 // Out of retries. Kept separate from the send-failure event because nothing was
@@ -630,13 +631,19 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setTicketsLoading(true)
             }
             try {
-                const response = await posthog.conversations.getTickets({ limit: 50 })
-                if (response) {
+                const tickets = await loadTicketsAcrossTabs(
+                    async () => {
+                        const response = await posthog.conversations.getTickets({ limit: 50 })
+                        return response ? (response.results as ConversationTicket[]) : null
+                    },
+                    { force, maxAgeMs: POLL_INTERVAL_THREAD }
+                )
+                if (tickets) {
                     cache.ticketsFetched = true
-                    actions.setTickets(response.results as ConversationTicket[])
+                    actions.setTickets(tickets)
                     // With no tickets there's nothing to poll for; creating one re-runs loadTickets
                     // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
-                    if (response.results.length > 0) {
+                    if (tickets.length > 0) {
                         actions.startPolling()
                     } else {
                         actions.stopPolling()
@@ -799,7 +806,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         })
                         actions.setView('ticket')
                     }
-                    actions.loadTickets()
+                    actions.loadTickets(true)
                     actions.loadMessages(response.ticket_id)
                     lemonToast.success('Message sent!')
                     onSuccess()
@@ -952,7 +959,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 unread_count: 0,
                 last_message_at: pending.created_at,
             })
-            actions.loadTickets()
+            actions.loadTickets(true)
         },
         requestRestoreLink: async ({ email }) => {
             const conversations = posthog.conversations as any
@@ -993,7 +1000,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
                 } else {
                     removeRestoreTokenFromUrl()
-                    actions.loadTickets()
+                    actions.loadTickets(true)
                 }
                 return
             }
@@ -1016,7 +1023,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 console.error('Failed to restore from URL token:', e)
             } finally {
                 removeRestoreTokenFromUrl()
-                actions.loadTickets()
+                actions.loadTickets(true)
             }
         },
     })),
@@ -1102,7 +1109,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             document.removeEventListener('visibilitychange', cache.onVisibilityChange)
         }
     }),
-    afterMount(({ values, actions }) => {
+    afterMount(({ values, actions, cache }) => {
+        cache.disposables.add(() => subscribeToSharedTickets((tickets) => actions.setTickets(tickets)), 'sharedTickets')
         actions.initTickets()
         // A cold load of a `#panel=support:...:true` URL can set these before this logic mounts, so
         // the isEmailFormOpen/pendingViewTicket subscriptions above only fire on change and would
