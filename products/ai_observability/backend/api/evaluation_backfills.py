@@ -52,6 +52,7 @@ from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_R
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+from products.ai_observability.backend.api.evaluation_permissions import EvaluationSourceAccessPermission
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
 from products.ai_observability.backend.backfill_candidates import BackfillScope, count_backfill_candidates
 from products.ai_observability.backend.models.evaluation_backfill import ACTIVE_BACKFILL_STATUSES, EvaluationBackfill
@@ -285,6 +286,7 @@ class EvaluationBackfillViewSet(
             APIScopePermission(),
             EvaluationBackfillAccessControlPermission(),
             TeamMemberAccessPermission(),
+            EvaluationSourceAccessPermission(),
         ]
 
     def get_throttles(self) -> list[BaseThrottle]:

@@ -26,6 +26,7 @@ from products.ai_observability.backend.ai_event_lookup import fetch_ai_event
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..models.evaluations import Evaluation, EvaluationTarget
+from .evaluation_permissions import EvaluationSourceAccessPermission
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +66,7 @@ class EvaluationRunResponseSerializer(serializers.Serializer):
 
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [IsAuthenticated, AccessControlPermission, EvaluationSourceAccessPermission]
 
     @extend_schema(request=EvaluationRunRequestSerializer, responses={202: EvaluationRunResponseSerializer})
     @llma_track_latency("llma_evaluation_runs_create")

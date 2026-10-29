@@ -36,6 +36,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     normalize_report_content_payload,
 )
 
+from products.ai_observability.backend.api.evaluation_permissions import EvaluationSourceAccessPermission
 from products.ai_observability.backend.api.evaluations import _OutputConfigField
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.evaluation_configs import OutputType, evaluation_supports_reports
@@ -628,6 +629,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             APIScopePermission(),
             EvaluationReportAccessControlPermission(),
             TeamMemberAccessPermission(),
+            EvaluationSourceAccessPermission(),
         ]
 
     @staticmethod

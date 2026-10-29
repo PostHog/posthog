@@ -279,6 +279,17 @@ Deploy all evaluation workers before enabling the flag.
 
 ## Run history and reports
 
+Online evaluations run as project workflows and can read complete event properties. Viewers with any event-property
+denial cannot access evaluation management, runs, backfills, or reports. Their event queries and event API responses also
+hide derived evaluation values, including explanations, verdicts, scores, sentiment, and report content. This conservative
+rule applies to custom properties and evaluation outputs too: Hog source and judge prompts can depend on arbitrary event
+properties. Restricting an output property also hides the other derived outputs, since a later evaluation or report could
+copy it. Permission changes take effect on subsequent reads, including cached reads.
+
+When any event-property denial exists for a project, including member or role rules, report email and Slack notifications
+contain a link instead of report content. Opening the link checks the viewer's current permissions. Evaluation reports are
+not copied into Inbox while those restrictions exist. Previously delivered messages and existing Inbox findings are not removed.
+
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
 Opening a specific backfill shows all runs from that backfill, regardless of the date filter.

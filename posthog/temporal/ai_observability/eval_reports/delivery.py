@@ -22,6 +22,9 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportMetrics,
     citation_wrappers,
 )
+from posthog.utils import absolute_uri
+
+from products.access_control.backend.facade.api import team_has_event_property_restrictions
 
 logger = structlog.get_logger(__name__)
 
@@ -287,10 +290,11 @@ def deliver_email_report(
     project_id: int,
     period_start: str,
     period_end: str,
+    *,
+    include_content: bool = True,
 ) -> list[str]:
     """Send report via email. Returns list of errors (empty if all succeeded)."""
     from posthog.email import EmailMessage
-    from posthog.utils import absolute_uri
 
     content = EvalReportContent.from_dict(report_run.content)
     citation_map = _build_citation_map(content.citations)
@@ -301,11 +305,13 @@ def deliver_email_report(
     for section in content.sections:
         body_parts.append(_render_section_html(section.title, section.content, project_id, citation_map))
     body_html = "\n".join(body_parts)
+    if not include_content:
+        body_html = "<p>Open the report in PostHog to view its contents.</p>"
 
     evaluation_url = absolute_uri(f"/project/{project_id}/ai-evals/evaluations/{evaluation_id}")
     period_start_display = _format_period_for_display(period_start)
     period_end_display = _format_period_for_display(period_end)
-    subject_title = content.title or "Evaluation report"
+    subject_title = (content.title or "Evaluation report") if include_content else "Evaluation report ready"
     subject = f"{evaluation_name}: {subject_title}"
 
     for target in targets:
@@ -346,6 +352,8 @@ def deliver_slack_report(
     project_id: int,
     period_start: str,
     period_end: str,
+    *,
+    include_content: bool = True,
 ) -> list[str]:
     """Send report via Slack. Returns list of errors (empty if all succeeded).
 
@@ -361,6 +369,8 @@ def deliver_slack_report(
     errors: list[str] = []
 
     header_text = f"{evaluation_name}: {content.title}" if content.title else f"Evaluation report: {evaluation_name}"
+    if not include_content:
+        header_text = "Evaluation report ready"
     # Slack header blocks are limited to 150 chars, enforce that here.
     if len(header_text) > 150:
         header_text = header_text[:147] + "..."
@@ -403,11 +413,24 @@ def deliver_slack_report(
                     "type": "context",
                     "elements": [{"type": "mrkdwn", "text": period_line}],
                 },
-                *_render_metrics_slack_blocks(content.metrics),
+                *(_render_metrics_slack_blocks(content.metrics) if include_content else []),
                 {"type": "divider"},
             ]
 
-            if content.sections:
+            if not include_content:
+                report_url = absolute_uri(
+                    f"/project/{project_id}/ai-evals/evaluations/{report_run.report.evaluation_id}"
+                )
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"<{report_url}|Open the report in PostHog> to view its contents.",
+                        },
+                    }
+                )
+            elif content.sections:
                 first_section_mrkdwn = _render_section_mrkdwn(
                     content.sections[0].title, content.sections[0].content, project_id, citation_map
                 )
@@ -431,7 +454,7 @@ def deliver_slack_report(
 
             # Thread replies: remaining sections, one per reply
             thread_ts = result.get("ts")
-            if thread_ts and len(content.sections) > 1:
+            if include_content and thread_ts and len(content.sections) > 1:
                 for section in content.sections[1:]:
                     mrkdwn_text = _render_section_mrkdwn(section.title, section.content, project_id, citation_map)
                     client.chat_postMessage(
@@ -467,6 +490,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     period_start = report_run.period_start.isoformat()
     period_end = report_run.period_end.isoformat()
     targets = report.delivery_targets or []
+    # Delivery destinations have no PostHog viewer identity; authorize the content when the link is opened.
+    include_content = not team_has_event_property_restrictions(team_id=team_id)
 
     all_errors: list[str] = []
 
@@ -474,7 +499,14 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     email_errors: list[str] = []
     if email_targets:
         email_errors = deliver_email_report(
-            report_run, email_targets, evaluation_name, evaluation_id, project_id, period_start, period_end
+            report_run,
+            email_targets,
+            evaluation_name,
+            evaluation_id,
+            project_id,
+            period_start,
+            period_end,
+            include_content=include_content,
         )
         all_errors.extend(email_errors)
 
@@ -482,7 +514,14 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     slack_errors: list[str] = []
     if slack_targets:
         slack_errors = deliver_slack_report(
-            report_run, slack_targets, evaluation_name, team_id, project_id, period_start, period_end
+            report_run,
+            slack_targets,
+            evaluation_name,
+            team_id,
+            project_id,
+            period_start,
+            period_end,
+            include_content=include_content,
         )
         all_errors.extend(slack_errors)
 

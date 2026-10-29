@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, patch
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 
-from posthog.models import Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, PropertyDefinition, Team
 from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     EmitEvalReportSignalInputs,
     EvalReportSignalSummary,
@@ -15,6 +16,8 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     summarize_report_for_signal,
 )
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.models.role import Role
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -126,6 +129,27 @@ async def _setup_org_not_ai_approved(ateam):
     )
 
 
+@sync_to_async
+def _setup_restricted_event_properties(team: Team) -> None:
+    organization = team.organization
+    organization.available_product_features = [
+        {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        {"key": AvailableFeature.ROLE_BASED_ACCESS},
+    ]
+    organization.save()
+    definition = PropertyDefinition.objects.create(
+        team=team, name="evaluation_context", type=PropertyDefinition.Type.EVENT
+    )
+    role = Role.objects.create(organization=organization, name="Restricted readers")
+    PropertyAccessControl.objects.create(team=team, property_definition=definition, role=role, access_level="none")
+    SignalSourceConfig.objects.create(
+        team=team,
+        source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
+        source_type=SignalSourceConfig.SourceType.EVALUATION_REPORT,
+        enabled=True,
+    )
+
+
 # `ai_product` is the Go-gateway opt-in. Dropping it reverts this site to the Python gateway
 # and unattributes its spend, with no call failing to show it.
 @pytest.mark.asyncio
@@ -152,8 +176,9 @@ class TestEmitEvalReportSignalActivity:
             _setup_no_source_config,
             _setup_config_disabled,
             _setup_org_not_ai_approved,
+            _setup_restricted_event_properties,
         ],
-        ids=["no_source_config", "config_disabled", "org_not_ai_approved"],
+        ids=["no_source_config", "config_disabled", "org_not_ai_approved", "restricted_event_properties"],
     )
     async def test_skips_when_gate_fails(self, ateam, setup_fn):
         await setup_fn(ateam)

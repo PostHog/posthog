@@ -18,6 +18,9 @@ from products.access_control.backend.property_access_control import (
     get_restricted_properties_for_team,
     restriction_cache_scope,
 )
+from products.ai_observability.backend.facade.property_access import EVALUATION_OUTPUT_PROPERTIES
+
+EVALUATION_OUTPUT_RESTRICTIONS = {(name, PropertyDefinition.Type.EVENT) for name in EVALUATION_OUTPUT_PROPERTIES}
 
 
 def _enable_property_access_control(organization: Organization, *, role_based_access: bool = True) -> None:
@@ -360,7 +363,7 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
             access_level=PropertyAccessLevel.NONE.value,
         )
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
-        assert restricted == {("secret_event_prop", PropertyDefinition.Type.EVENT)}
+        assert restricted == {("secret_event_prop", PropertyDefinition.Type.EVENT)} | EVALUATION_OUTPUT_RESTRICTIONS
 
     def test_denied_person_property(self):
         PropertyAccessControl.objects.create(
@@ -383,10 +386,14 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
             access_level=PropertyAccessLevel.NONE.value,
         )
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
-        assert restricted == {
-            ("secret_event_prop", PropertyDefinition.Type.EVENT),
-            ("secret_person_prop", PropertyDefinition.Type.PERSON),
-        }
+        assert (
+            restricted
+            == {
+                ("secret_event_prop", PropertyDefinition.Type.EVENT),
+                ("secret_person_prop", PropertyDefinition.Type.PERSON),
+            }
+            | EVALUATION_OUTPUT_RESTRICTIONS
+        )
 
     def test_read_write_properties_not_included(self):
         PropertyAccessControl.objects.create(
@@ -426,7 +433,11 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
     @parameterized.expand(
         [
             ("with_role_based_access", True, set()),
-            ("without_role_based_access", False, {("secret_event_prop", PropertyDefinition.Type.EVENT)}),
+            (
+                "without_role_based_access",
+                False,
+                {("secret_event_prop", PropertyDefinition.Type.EVENT)} | EVALUATION_OUTPUT_RESTRICTIONS,
+            ),
         ]
     )
     def test_role_override_removes_from_restricted(
@@ -474,7 +485,7 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
         )
 
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
-        assert restricted == {("secret_event_prop", PropertyDefinition.Type.EVENT)}
+        assert restricted == {("secret_event_prop", PropertyDefinition.Type.EVENT)} | EVALUATION_OUTPUT_RESTRICTIONS
 
 
 class TestRestrictionCacheScope(BaseTest):
@@ -522,7 +533,9 @@ class TestRestrictionCacheScope(BaseTest):
                 second = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
                 assert mock_manager.filter.call_count == 0
 
-        assert first == second == {("secret_event_prop", PropertyDefinition.Type.EVENT)}
+        assert (
+            first == second == {("secret_event_prop", PropertyDefinition.Type.EVENT)} | EVALUATION_OUTPUT_RESTRICTIONS
+        )
         assert _restriction_cache_var.get() is None
 
     def test_model_save_inside_scope_invalidates_cache(self):
@@ -536,9 +549,10 @@ class TestRestrictionCacheScope(BaseTest):
             )
 
             # The post_save signal should have cleared the cache so we see the new restriction
-            assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == {
-                ("secret_event_prop", PropertyDefinition.Type.EVENT)
-            }
+            assert (
+                get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+                == {("secret_event_prop", PropertyDefinition.Type.EVENT)} | EVALUATION_OUTPUT_RESTRICTIONS
+            )
 
 
 class TestQueryTimeFeatureGate(BaseTest):
@@ -589,6 +603,7 @@ class TestQueryTimeFeatureGate(BaseTest):
 
         _enable_property_access_control(self.organization)
 
-        assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == {
-            ("gated_event_prop", PropertyDefinition.Type.EVENT)
-        }
+        assert (
+            get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+            == {("gated_event_prop", PropertyDefinition.Type.EVENT)} | EVALUATION_OUTPUT_RESTRICTIONS
+        )

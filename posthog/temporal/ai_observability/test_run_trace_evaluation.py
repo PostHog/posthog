@@ -14,6 +14,7 @@ from posthog.schema import DateRange, LLMTrace, LLMTraceEvent, SessionQuery, Tra
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
@@ -27,11 +28,13 @@ from posthog.temporal.ai_observability.run_session_evaluation import fetch_sessi
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import restriction_cache_scope
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.cdp.backend.validation import compile_hog
 
+from .eval_reports.report_agent.tools import _execute_hogql
 from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult
 from .evaluation_types import EvaluationActivityResult
@@ -434,6 +437,46 @@ class TestBackgroundEvaluationPropertyAccess:
                 assert name not in user_trace.events[0].properties
             else:
                 assert user_trace.events[0].properties[name] == value
+
+        bytecode = compile_hog("print(evaluation_events[1].properties.evaluation_context); return true", "destination")
+        result = execute_hog_eval_bytecode(bytecode, build_trace_hog_globals(trace, unit_id, bytecode=bytecode), False)
+        assert result["reasoning"] == "arithmetic"
+        bulk_create_events(
+            [
+                {
+                    "event": "$ai_evaluation",
+                    "team": team,
+                    "distinct_id": "test-person",
+                    "timestamp": FROZEN_NOW,
+                    "properties": {
+                        "$ai_trace_id": unit_id,
+                        "$ai_evaluation_reasoning": result["reasoning"],
+                        "$ai_evaluation_result": result["verdict"],
+                    },
+                }
+            ]
+        )
+        query = "SELECT properties.$ai_evaluation_reasoning, properties.$ai_evaluation_result, properties FROM events WHERE event = '$ai_evaluation' AND properties.$ai_trace_id = {trace_id}"
+        response = execute_hogql_query(
+            query, team=team, user=user, placeholders={"trace_id": ast.Constant(value=unit_id)}
+        )
+        reasoning, verdict, blob = response.results[0]
+        assert _execute_hogql(team.id, query, {"trace_id": ast.Constant(value=unit_id)})[0][0] == "arithmetic"
+        if property_type == PropertyDefinition.Type.EVENT and access_level == PropertyAccessLevel.NONE:
+            assert reasoning is None
+            assert verdict is None
+            assert "$ai_evaluation_reasoning" not in json.loads(blob)
+            assert "$ai_evaluation_result" not in json.loads(blob)
+        else:
+            assert reasoning == "arithmetic"
+
+        # A newly granted reader sees the existing result without rerunning the evaluation.
+        PropertyAccessControl.objects.filter(team=team).update(access_level=PropertyAccessLevel.READ.value)
+        with restriction_cache_scope():
+            response = execute_hogql_query(
+                query, team=team, user=user, placeholders={"trace_id": ast.Constant(value=unit_id)}
+            )
+        assert response.results[0][0] == "arithmetic"
 
 
 class TestFetchTraceForEvaluation:

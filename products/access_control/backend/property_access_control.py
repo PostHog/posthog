@@ -15,7 +15,7 @@ from celery.signals import task_postrun, task_prerun
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition
 from posthog.models.team import Team
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
@@ -23,6 +23,7 @@ from posthog.synthetic_user import SyntheticUser
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UserNotOrganizationMemberError
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import RoleMembership
+from products.ai_observability.backend.facade.property_access import EVALUATION_OUTPUT_PROPERTIES
 
 # Scoped memoization for `get_restricted_properties_for_team`. A single request, Celery task,
 # or other unit of work can construct many query runners (e.g. a dashboard with N insights),
@@ -87,8 +88,6 @@ def _invalidate_restriction_cache_on_change(**_kwargs: object) -> None:
 
 if TYPE_CHECKING:
     from posthog.models import User
-
-    from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
 # Re-exported for legacy callers; canonical definition lives in facade.contracts.
@@ -381,6 +380,12 @@ def get_restricted_properties_with_group_type_index_for_team(
                     group_type_index=prop_def.group_type_index,
                 )
             )
+
+    if any(restriction.property_type == PropertyDefinition.Type.EVENT for restriction in restricted):
+        restricted.update(
+            RestrictedProperty(name=name, property_type=PropertyDefinition.Type.EVENT)
+            for name in EVALUATION_OUTPUT_PROPERTIES
+        )
 
     if cache is not None:
         cache[cache_key] = restricted

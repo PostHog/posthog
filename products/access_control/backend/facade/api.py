@@ -206,6 +206,18 @@ def team_has_property_access_rules(*, team_id: int) -> bool:
     return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
 
 
+def team_has_event_property_restrictions(*, team_id: int) -> bool:
+    """Whether any audience has an event-property denial, including member and role rules."""
+    return (
+        is_property_access_control_enabled(team_id=team_id)
+        and PropertyAccessControl.objects.filter(
+            team_id=team_id,
+            property_definition__type=PropertyDefinition.Type.EVENT,
+            access_level=contracts.PropertyAccessLevel.NONE.value,
+        ).exists()
+    )
+
+
 def person_property_names_with_access_rules(*, team_id: int) -> frozenset[str]:
     """Person properties with any access rule on the team, for callers that share a result across users."""
     return frozenset(
