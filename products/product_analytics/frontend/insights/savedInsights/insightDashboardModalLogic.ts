@@ -1,9 +1,9 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import type { InsightModel } from '~/types'
+import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 
-import type { Node } from '../../queries/schema/schema-general'
-import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
+import type { Node } from '~/queries/schema/schema-general'
+import type { InsightModel } from '~/types'
 
 export type OptimisticDashboardState = Record<number, boolean>
 

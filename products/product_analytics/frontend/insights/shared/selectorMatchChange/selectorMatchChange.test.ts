@@ -1,6 +1,6 @@
-import { getSelectorMatchChangeActionIds } from 'scenes/insights/selectorMatchChange'
-
 import { NodeKind } from '~/queries/schema/schema-general'
+
+import { getSelectorMatchChangeActionIds } from './selectorMatchChange'
 
 describe('getSelectorMatchChangeActionIds', () => {
     const actionSeries = (id: number): Record<string, any> => ({ kind: NodeKind.ActionsNode, id })

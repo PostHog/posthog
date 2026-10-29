@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightModel } from '~/types'
 
-import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { insightDashboardModalLogic } from './insightDashboardModalLogic'
 
 const createInsight = (id: number, name = 'test'): InsightModel =>
