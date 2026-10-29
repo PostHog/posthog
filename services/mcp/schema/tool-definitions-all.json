@@ -17589,6 +17589,7 @@
         "summary": "Build email workflows for events",
         "title": "Build email workflows for events",
         "required_scopes": ["hog_flow:write", "query:read"],
+        "api_operations": ["POST /api/projects/{project_id}/workflow_data_suggestions/build_for_events/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
