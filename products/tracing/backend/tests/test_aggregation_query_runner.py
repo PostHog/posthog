@@ -339,7 +339,6 @@ class TestTraceSpansAggregationHealth(_TraceSpansTestBase):
                 ts = dt.datetime(2026, 6, 2, hour, 0, 0) + dt.timedelta(seconds=j)
                 ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
                 end_str = (ts + dt.timedelta(milliseconds=10)).strftime("%Y-%m-%d %H:%M:%S.%f")
-                # The last `errors` spans of each group fail.
                 status = 2 if j >= count - errors else 0
                 values.append(
                     f"('019e8763-0000-0000-0000-{i:012d}', {cls.team.id}, '{_b64(i.to_bytes(16, 'big'))}', "

@@ -1131,6 +1131,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     actions.cancelInProgressAggregation(controller)
 
                     const fullRange = options?.fullRange ?? false
+                    const groupByEndpoint = options?.groupByEndpoint || undefined
                     const currentWindow = fullRange ? values.sparklineWindowMs : values.currentWindowMs
                     const compare = !fullRange && values.timeComparison !== null
 
@@ -1171,8 +1172,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             // Only the Operations table renders the Sessions and Users columns, and
                             // the aggregates read attribute maps the rest of the query never touches.
                             includeImpact: fullRange && !!values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP],
-                            groupByEndpoint: options?.groupByEndpoint || undefined,
-                            includeHealth: options?.groupByEndpoint || undefined,
+                            groupByEndpoint,
+                            includeHealth: groupByEndpoint,
                         },
                         controller.signal
                     )

@@ -115,7 +115,6 @@ function buildColumns(
                   title: 'Health',
                   width: 110,
                   tooltip: 'Compared with the previous period of the same length.',
-                  // Descending puts the worst status first.
                   sorter: (a, b) => healthRank(b) - healthRank(a),
                   render: (row) => {
                       if (!row.health_status) {
