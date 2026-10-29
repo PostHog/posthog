@@ -34,6 +34,9 @@ describe('redactMetricVariableUrl', () => {
         ['a relative login link', '/login?next=%2Freset%2Fsecret#step', '/login'],
         ['a login subpath', '/login/reset?token=secret', '/login/reset'],
         ['a login element chain', 'a:attr__href="/login?next=%2Freset%2Fsecret"', ''],
+        ['an uppercase login link', '/LOGIN?next=%2Freset%2Fsecret', '/LOGIN'],
+        ['a protocol-relative login link', '//us.posthog.com/login?next=secret', '//us.posthog.com/login'],
+        ['a login link inside text', 'Continue at https://us.posthog.com/login?next=secret to proceed', ''],
     ])('keeps only the path of %s', (_name, text, expected) => {
         expect(redactMetricVariableUrl(text)).toBe(expected)
     })
@@ -103,10 +106,11 @@ describe('redactMetricVariableUrl', () => {
     })
 
     it.each([
-        '/login-help?next=visible',
-        '/api/login?next=visible',
-        'https://us.posthog.com/dashboard?next=/login?visible',
-    ])('leaves a non-login URL unchanged: %s', (url) => {
+        ['a lookalike path', '/login-help?next=visible'],
+        ['a nested login path', '/api/login?next=visible'],
+        ['a login path in a query', 'https://us.posthog.com/dashboard?next=/login?visible'],
+        ['many quoted login paths without a query', '"/login/'.repeat(100_000)],
+    ])('leaves a non-login URL unchanged: %s', (_name, url) => {
         expect(redactMetricVariableUrl(url)).toBe(url)
     })
 
