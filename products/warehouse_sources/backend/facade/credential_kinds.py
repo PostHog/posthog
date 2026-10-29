@@ -107,7 +107,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "AwsCloudTrail": "aws-cloud-trail",
     "AwsCloudformation": "aws-cloudformation",
     "AwsComputeOptimizer": "aws-compute-optimizer",
-    "AwsConfig": "aws-s3",
+    "AwsConfig": "aws-config",
     "AwsConnect": "aws-connect",
     "AwsCostAndUsageReport": "aws-cost-and-usage-report",
     "AwsCostAnomalyDetection": "aws-cost-anomaly-detection",

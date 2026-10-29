@@ -87,6 +87,10 @@ def aws_auth_field() -> SourceFieldSelectConfig:
     The key fields are optional in the config so that a role config parses. `resolve_aws_credentials`
     enforces them for the access keys branch. Configs saved before this field existed hold the keys
     at the top level, and they parse into the access keys branch, which is the default.
+
+    The IAM role picker names batch exports' `aws-s3` connections, so the default `credential_kind`
+    would be `aws-s3` for every source with this field. A source sets its own `credential_kind`, so
+    that its typed-in keys keep a kind of their own.
     """
     return SourceFieldSelectConfig(
         name=AWS_AUTH_FIELD_NAME,

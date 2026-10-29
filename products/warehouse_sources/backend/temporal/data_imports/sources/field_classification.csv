@@ -98,7 +98,7 @@ AwsBudgets,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-bud
 AwsCloudTrail,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-cloud-trail
 AwsCloudformation,,,,,,aws-cloudformation
 AwsComputeOptimizer,aws_access_key_id aws_secret_access_key aws_session_token region,,,,,aws-compute-optimizer
-AwsConfig,aws_auth region,aws_auth=role,,,,aws-s3
+AwsConfig,aws_auth region,aws_auth=role,,,,aws-config
 AwsConnect,,,,,,aws-connect
 AwsCostAndUsageReport,aws_access_key_id aws_secret_access_key aws_session_token aws_region bucket,,,prefix export_name first_billing_period,,aws-cost-and-usage-report
 AwsCostAnomalyDetection,aws_access_key_id aws_secret_access_key aws_session_token,,,,,aws-cost-anomaly-detection
