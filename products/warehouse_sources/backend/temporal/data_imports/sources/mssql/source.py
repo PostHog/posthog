@@ -64,6 +64,23 @@ _CONNECTION_TIMED_OUT_ERROR = (
 
 _GENERIC_CONNECTION_ERROR = "Could not connect to MS SQL. Please check all connection details are valid."
 
+# DB-Lib error 20002 at setup, usually paired with 20017 ("Unexpected EOF from the server"): the server
+# dropped the connection mid-handshake. Mirrors the Postgres source's wording for the same failure.
+_CONNECTION_DROPPED_ERROR = (
+    "Your SQL Server closed the connection while PostHog was connecting. Check your host, port, and "
+    "encryption settings, and that no firewall or SSH tunnel is dropping the connection."
+)
+
+# SQL Server error 1105 in tempdb. tempdb is shared across sessions, so a concurrent workload that
+# filled it can release it; scoped to tempdb so a customer database genuinely out of disk isn't matched.
+_TEMPDB_ALLOCATION_FAILED_ERROR = "in database 'tempdb' because the '"
+_TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE = (
+    "Your SQL Server's tempdb ran out of space while sorting rows for this sync (SQL Server error "
+    "1105), and it was still out of space after every retry. tempdb is shared across all sessions on "
+    "your server, so another workload may be holding the space — check tempdb's free space and "
+    "autogrowth settings. This sync is still enabled and will run again on its next schedule."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -76,9 +93,8 @@ MSSQLErrors = {
     "connection timed out": _CONNECTION_TIMED_OUT_ERROR,
     # DB-Lib error 20002, the generic connect-time failure `get_non_retryable_errors` below also
     # matches (and leaves unmapped there since the cause varies). Map it here too so a credential
-    # check that hits it returns the same generic guidance as an unmatched error already gets,
-    # instead of falling through to `capture_exception` as a bug.
-    "Adaptive Server connection failed": _GENERIC_CONNECTION_ERROR,
+    # check that hits it names the likely causes instead of falling through to `capture_exception`.
+    "Adaptive Server connection failed": _CONNECTION_DROPPED_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
@@ -147,6 +163,12 @@ class MSSQLSource(
             # and then sent nothing, so the next attempt, which continues from the last
             # checkpoint where the read has one, can succeed.
             MSSQL_ROW_READ_TIMEOUT_ERROR,
+            _TEMPDB_ALLOCATION_FAILED_ERROR,
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            _TEMPDB_ALLOCATION_FAILED_ERROR: _TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE,
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

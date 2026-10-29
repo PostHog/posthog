@@ -7,6 +7,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
+import { modelsLineageLogic } from './modelsLineageLogic'
 import { ModelsLineageTab } from './ModelsLineageTab'
 
 function mockNode(
@@ -26,9 +27,6 @@ function mockEdge(id: string, sourceId: string, targetId: string): DataModelingE
         id,
         source_id: sourceId,
         target_id: targetId,
-        properties: {},
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
     }
 }
 
@@ -474,6 +472,7 @@ export const SelectorFocus: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await canvas.findByText('revenue_summary')
+        modelsLineageLogic.actions.nodeDragStopped('4', { x: 100000, y: 100000 })
         const search = canvas.getByPlaceholderText('Search, or +name for upstream')
         fireEvent.change(search, { target: { value: 'revenue_summary+' } })
         await canvas.findByText('4 models · downstream')
@@ -488,6 +487,13 @@ export const SelectorFocus: Story = {
                 const graph = canvasElement.querySelector<HTMLElement>('.react-flow')
                 if (!graph || graph.querySelectorAll('.react-flow__node').length !== 4) {
                     throw new Error('A downstream selector must keep only its lineage cone visible')
+                }
+                if (Object.keys(modelsLineageLogic.values.nodePositions).length > 0) {
+                    throw new Error('A lineage filter must clear positions from the previous graph')
+                }
+                const model = graph.querySelector<HTMLElement>('.react-flow__node[data-id="4"]')
+                if (!model || model.style.transform.includes('100000')) {
+                    throw new Error('A lineage filter must place distant nodes in the new layout')
                 }
             },
             { timeout: VIEWPORT_SETTLE_MS }

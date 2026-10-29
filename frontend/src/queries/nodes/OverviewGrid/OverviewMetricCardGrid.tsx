@@ -128,7 +128,6 @@ function MetricCardCell({
             theme={sparklineTheme}
             formatLabel={(label) => dayjs(label).format('MMM D')}
             sparklineHeight={48}
-            sparklineClassName="mt-3"
             adornment={
                 preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
                     <PreAggregatedBadge

@@ -8,6 +8,7 @@ import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import { useRadialLayout } from '../../core/radial-context'
 import { RadialChart } from '../../core/RadialChart'
 import type { RadialLayoutBuilder } from '../../core/RadialChart'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     ChartDrawArgs,
     ChartLegendConfig,
@@ -67,7 +68,8 @@ export interface PieChartConfig<Meta = unknown> {
 
 export interface PieChartProps<Meta = unknown> {
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: PieChartConfig<Meta>
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onSliceClick?: (payload: RadialSlicePayload<Meta>) => void
@@ -136,7 +138,7 @@ function defaultValueFormatter(value: number): string {
 
 function PieChartInner<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onSliceClick,
@@ -146,6 +148,7 @@ function PieChartInner<Meta = unknown>({
     centerLabel,
     children,
 }: Omit<PieChartProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         innerRadiusRatio = 0,
         showValueOnSlice = !(innerRadiusRatio > 0),

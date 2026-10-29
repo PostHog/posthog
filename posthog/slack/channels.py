@@ -165,6 +165,7 @@ def post_message(
     text: str,
     thread_ts: str | None = None,
     reply_broadcast: bool = False,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> SlackResponse:
     # No unfurls: the text is written over untrusted content, so a prompt-injected URL must not make
     # Slack's unfurler fetch an attacker's server from inside the workspace.
@@ -176,6 +177,7 @@ def post_message(
         reply_broadcast=reply_broadcast,
         unfurl_links=False,
         unfurl_media=False,
+        attachments=attachments,
     )
 
 
@@ -185,9 +187,16 @@ def update_message(
     ts: str,
     blocks: list[dict[str, Any]],
     text: str,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> SlackResponse:
     """Replace a message the app posted. Slack keeps its place in the channel and marks it edited."""
-    return slack.client.chat_update(channel=channel_id, ts=ts, blocks=blocks, text=text)
+    return slack.client.chat_update(
+        channel=channel_id,
+        ts=ts,
+        blocks=blocks,
+        text=text,
+        attachments=attachments,
+    )
 
 
 def join_channel(slack: SlackIntegration, channel_id: str) -> str | None:

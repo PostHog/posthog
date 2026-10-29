@@ -24,7 +24,7 @@ import { CommentType } from '~/types'
 
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
-import { getCommentText, getRecordingLinkInfo, isViewingRecording } from './commentUtils'
+import { getCommentText, getRecordingLinkInfo, isViewingRecording, scopeSyncsToSlack } from './commentUtils'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 
 // Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
@@ -197,7 +197,11 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
     const slackThread = comment.slack_thread
     // Only an untracked top-level comment (a thread root) can be sent to Slack; replies follow their parent.
     const canSendToSlack =
-        featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC] && !comment.source_comment && !fromSlack && !slackThread
+        featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC] &&
+        scopeSyncsToSlack(comment.scope) &&
+        !comment.source_comment &&
+        !fromSlack &&
+        !slackThread
 
     return (
         <div className="flex items-center justify-between gap-2">
