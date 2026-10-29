@@ -118,6 +118,11 @@ class TestClassify(BaseTest):
                 SqlWindowClass.UP_TO_NOW_LONG,
             ),
             (
+                "truncated_bound_covers_its_whole_period",
+                "select count() from events where toStartOfMonth(timestamp) < '2026-10-29' and timestamp >= '2026-09-01'",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
                 "absolute_past_range",
                 "select count() from events where timestamp between '2026-10-01' and '2026-10-15'",
                 SqlWindowClass.FIXED_PAST,
@@ -213,6 +218,17 @@ class TestClassify(BaseTest):
                 "or_of_time_ranges",
                 "select count() from events where timestamp > now() - interval 7 day or timestamp < '2020-01-01'",
                 FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "today_plus_hours",
+                "select count() from events where timestamp < today() + interval 12 hour and timestamp >= '2026-10-01'",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "join_after_a_subquery",
+                "select count() from (select uuid from events where timestamp >= '2026-01-01' and timestamp < '2026-02-01') e "
+                "cross join persons p",
+                FreshnessReason.JOIN,
             ),
             (
                 "join",

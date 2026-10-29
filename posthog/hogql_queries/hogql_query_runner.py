@@ -2,6 +2,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Optional, cast
+from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
 
@@ -24,7 +25,7 @@ from posthog.hogql.database.schema.activity_log_visibility import activity_log_v
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.filters import replace_filters
+from posthog.hogql.filters import SUB_DAY_DELTA_KEYS, replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -50,6 +51,7 @@ from posthog.hogql_queries.sql_freshness.classifier import (
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
@@ -68,6 +70,11 @@ def _is_absolute_date(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _is_sub_day_relative_date(value: str, timezone: ZoneInfo) -> bool:
+    _parsed, delta_mapping, _position = relative_date_parse_with_delta_mapping(value, timezone)
+    return bool(delta_mapping and SUB_DAY_DELTA_KEYS & delta_mapping.keys())
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -149,13 +156,18 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             resolved = resolve_types(clone_expr(query), context, dialect="hogql")
         except Exception:
             return Reject(reason=FreshnessReason.UNPARSEABLE)
+        relative_bounds = [bound for bound in bounds if not _is_absolute_date(bound)]
         return classify(
             resolved,
             now=datetime.now(UTC),
             timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
             week_start_day=self.team.week_start_day,
-            relative_date_range=not all(_is_absolute_date(bound) for bound in bounds),
-            rolling_filters=bool(filters and (filters.properties or filters.filterTestAccounts)),
+            relative_date_range=bool(relative_bounds),
+            rolling_filters=bool(
+                self.query.variables
+                or (filters and (filters.properties or filters.filterTestAccounts))
+                or any(_is_sub_day_relative_date(bound, self.team.timezone_info) for bound in relative_bounds)
+            ),
         )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:

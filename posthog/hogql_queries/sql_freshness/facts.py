@@ -25,6 +25,7 @@ from posthog.dataclasses import frozen
 from posthog.interval_specs import INTERVAL_SPECS, PERIOD_MAP
 
 _MONDAY = 1
+_SUB_DAY_UNITS = frozenset({"second", "minute", "hour"})
 _JOINABLE_TABLES = (
     PersonsTable,
     PersonDistinctIdsTable,
@@ -47,7 +48,6 @@ _SHIFT_FUNCTIONS = {
 _DATE_SHIFT_FUNCTIONS = {"dateSub": -1, "date_sub": -1, "dateAdd": 1, "date_add": 1}
 _CLOCK_FUNCTIONS = {id(meta): meta.clickhouse_name for meta in DATE_GENERATOR_FUNCTIONS.values()}
 _LOWER_BOUND_OPS = frozenset({ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq})
-_TRUNCATION_SHIFTED_OPS = frozenset({ast.CompareOperationOp.LtEq, ast.CompareOperationOp.Gt})
 _FLIPPED_OPS = {
     ast.CompareOperationOp.Gt: ast.CompareOperationOp.Lt,
     ast.CompareOperationOp.GtEq: ast.CompareOperationOp.LtEq,
@@ -188,6 +188,12 @@ def _period(unit: str, amount: int = 1) -> Union[timedelta, relativedelta]:
     return PERIOD_MAP[unit] * amount
 
 
+def _whole_days(delta: Union[timedelta, relativedelta]) -> bool:
+    if isinstance(delta, timedelta):
+        return delta.seconds == 0 and delta.microseconds == 0
+    return not (delta.hours or delta.minutes or delta.seconds or delta.microseconds)
+
+
 class _TimestampFinder(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
@@ -252,7 +258,7 @@ class _Evaluator:
         ):
             base = self.evaluate(expr.left)
             delta = self._delta(expr.right, base) if base is not None else None
-            if base is None or delta is None:
+            if base is None or delta is None or (base.utc_day and not _whole_days(delta)):
                 return None
             moved = base.at + delta if expr.op == ast.ArithmeticOperationOp.Add else base.at - delta
             return dataclasses.replace(base, at=moved)
@@ -313,19 +319,21 @@ class _Evaluator:
         inner = self.evaluate(call.args[0])
         return dataclasses.replace(inner, is_date=False) if inner else None
 
+    def align(self, value: datetime, function: str) -> datetime:
+        week_start_day = _MONDAY if function == "toMonday" else self.week_start_day
+        return INTERVAL_SPECS[_TRUNCATE_FUNCTIONS[function]].align(value.astimezone(self.timezone), week_start_day)
+
     def _truncate(self, call: ast.Call) -> Optional[_Value]:
         inner = self.evaluate(call.args[0]) if len(call.args) == 1 else None
         if inner is None or inner.utc_day:
             return None
-        week_start_day = _MONDAY if call.name == "toMonday" else self.week_start_day
-        spec = INTERVAL_SPECS[_TRUNCATE_FUNCTIONS[call.name]]
-        return _Value(at=spec.align(inner.at.astimezone(self.timezone), week_start_day), is_date=call.name == "toDate")
+        return _Value(at=self.align(inner.at, call.name), is_date=call.name == "toDate")
 
     def _shift(self, call: ast.Call) -> Optional[_Value]:
         sign, unit = _SHIFT_FUNCTIONS[call.name]
         inner = self.evaluate(call.args[0]) if len(call.args) == 2 else None
         amount = _int_constant(call.args[1]) if len(call.args) == 2 else None
-        if inner is None or amount is None:
+        if inner is None or amount is None or (inner.utc_day and unit in _SUB_DAY_UNITS):
             return None
         return dataclasses.replace(inner, at=inner.at + _period(unit, sign * amount))
 
@@ -334,7 +342,7 @@ class _Evaluator:
             return None
         unit = (_string_constant(call.args[0]) or "").lower().rstrip("s")
         inner, amount = self.evaluate(call.args[2]), _int_constant(call.args[1])
-        if unit not in PERIOD_MAP or inner is None or amount is None:
+        if unit not in PERIOD_MAP or inner is None or amount is None or (inner.utc_day and unit in _SUB_DAY_UNITS):
             return None
         return dataclasses.replace(inner, at=inner.at + _period(unit, _DATE_SHIFT_FUNCTIONS[call.name] * amount))
 
@@ -347,7 +355,7 @@ _CALL_HANDLERS: dict[str, Callable[[_Evaluator, ast.Call], Optional[_Value]]] = 
 }
 
 
-def _column_unit(expr: ast.Expr) -> tuple[bool, Optional[str]]:
+def _column_truncation(expr: ast.Expr) -> tuple[bool, Optional[str]]:
     expr = unwrap_alias(expr)
     if _is_events_timestamp(expr):
         return True, None
@@ -357,25 +365,36 @@ def _column_unit(expr: ast.Expr) -> tuple[bool, Optional[str]]:
         and len(expr.args) == 1
         and _is_events_timestamp(expr.args[0])
     ):
-        return True, _TRUNCATE_FUNCTIONS[expr.name]
+        return True, expr.name
     return False, None
 
 
 def _bound(
     evaluator: _Evaluator, column: ast.Expr, op: ast.CompareOperationOp, value_expr: ast.Expr
 ) -> Optional[_Bound]:
-    is_column, unit = _column_unit(column)
+    is_column, truncation = _column_truncation(column)
     if not is_column:
         return None
     value = evaluator.evaluate(value_expr)
     if value is None:
         raise _UnsupportedBound()
     at = evaluator.anchor(value)
-    step = _period(unit) if unit else timedelta()
+    if truncation is None:
+        if op == ast.CompareOperationOp.Eq:
+            return _Bound(start=at, end=at)
+        return _Bound(start=at, end=None) if op in _LOWER_BOUND_OPS else _Bound(start=None, end=at)
+    floor = evaluator.align(at, truncation)
+    ceiling = floor + _period(_TRUNCATE_FUNCTIONS[truncation])
+    next_boundary = at if floor == at else ceiling
     if op == ast.CompareOperationOp.Eq:
-        return _Bound(start=at, end=at + step)
-    edge = at + step if op in _TRUNCATION_SHIFTED_OPS else at
-    return _Bound(start=edge, end=None) if op in _LOWER_BOUND_OPS else _Bound(start=None, end=edge)
+        return _Bound(start=floor, end=ceiling)
+    if op == ast.CompareOperationOp.Lt:
+        return _Bound(start=None, end=next_boundary)
+    if op == ast.CompareOperationOp.LtEq:
+        return _Bound(start=None, end=ceiling)
+    if op == ast.CompareOperationOp.GtEq:
+        return _Bound(start=next_boundary, end=None)
+    return _Bound(start=ceiling, end=None)
 
 
 def _bounds_from_conjunct(evaluator: _Evaluator, conjunct: ast.Expr) -> _Bound:
@@ -420,9 +439,11 @@ def extract_facts(
     has_join = foreign_source = unbounded_select = unsupported_bound = False
     for select in scan.selects:
         join = select.select_from
-        if join is None or _is_subquery_type(join.type):
+        if join is None:
             continue
         has_join = has_join or join.next_join is not None
+        if _is_subquery_type(join.type):
+            continue
         if _events_table_type(join.type) is None:
             foreign_source = True
             continue
