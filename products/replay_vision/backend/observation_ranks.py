@@ -6,11 +6,12 @@ them the same way.
 
 import uuid
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import batched
 from typing import Any
 
-from django.db import connection
+from django.db import connection, transaction
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -18,6 +19,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.replay_vision.backend.models.replay_observation_rank import RankCategory
 
 _WRITE_CHUNK = 500
+_COPY_SLICE = timedelta(days=1)
 
 CATEGORY_CODES: dict[str, int] = {category.name.lower(): category.value for category in RankCategory}
 
@@ -73,7 +75,8 @@ def record_ranks(team_id: int, anchor_version: int, ranks: Mapping[str, NewRank]
                     contrast = EXCLUDED.contrast,
                     category = EXCLUDED.category,
                     feed_group_id = NULL,
-                    search_theme_id = NULL
+                    search_theme_id = NULL,
+                    ranked_at = now()
                 WHERE replay_vision_replayobservationrank.anchor_version <> EXCLUDED.anchor_version
                 """,
                 [row_team_id, anchor_version, *params, team_id],
@@ -117,27 +120,43 @@ def copy_team_ranks(team_id: int, anchor_version: int, since: datetime, *, dry_r
         FROM replay_vision_replayobservation o
         WHERE o.team_id = %(observation_team_id)s
             AND o.created_at >= %(since)s
+            AND o.created_at < %(until)s
             AND o.status = 'succeeded'
             AND o.watch_rank IS NOT NULL
             AND o.watch_rank -> 'anchor_version' = to_jsonb(%(anchor_version)s::int)
             AND jsonb_typeof(o.watch_rank -> 'contrast') = 'number'
             AND o.watch_rank ->> 'category' = ANY(%(categories)s)
     """
-    category = "CASE o.watch_rank ->> 'category' " + " ".join(
-        f"WHEN '{name}' THEN {code}" for name, code in CATEGORY_CODES.items()
-    )
     params: dict[str, Any] = {
         "team_id": resolve_effective_team_id(team_id),
         "observation_team_id": team_id,
         "since": since,
+        "until": timezone.now(),
         "anchor_version": anchor_version,
         "categories": list(CATEGORY_CODES),
     }
-    with connection.cursor() as cursor:
-        if dry_run:
+    if dry_run:
+        with connection.cursor() as cursor:
             # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
             cursor.execute(f"SELECT count(*) {source}", params)
             return cursor.fetchone()[0]
+    written = 0
+    end = params["until"]
+    # One day per statement, so the rank rows an upsert locks are released before the next day's rows.
+    while since < end:
+        params |= {"since": since, "until": min(since + _COPY_SLICE, end)}
+        written += _copy_slice(source, params)
+        since += _COPY_SLICE
+    if written:
+        mark_changed(team_id)
+    return written
+
+
+def _copy_slice(source: str, params: dict[str, Any]) -> int:
+    category = "CASE o.watch_rank ->> 'category' " + " ".join(
+        f"WHEN '{name}' THEN {code}" for name, code in CATEGORY_CODES.items()
+    )
+    with transaction.atomic(), connection.cursor() as cursor:
         cursor.execute(
             # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
             f"""
@@ -155,31 +174,18 @@ def copy_team_ranks(team_id: int, anchor_version: int, since: datetime, *, dry_r
             """,
             params,
         )
-        written = cursor.rowcount
-    if written:
-        mark_changed(team_id)
-    return written
+        return cursor.rowcount
 
 
 def mark_changed(team_id: int) -> None:
-    """Ask for a rebuild of the team's highlight feed. Only the first ask after a build writes, and neither statement
-    waits on a build in progress, which never holds the state row while it ranks."""
-    row_team_id = resolve_effective_team_id(team_id)
+    """Ask for a rebuild of the team's highlight feed, in the caller's transaction. Every ask counts, so one that lands
+    while a build ranks is still due after it; a build never holds the state row while it ranks."""
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            INSERT INTO replay_vision_replayhighlightfeedstate (team_id, generation, changes, built_changes)
-            VALUES (%s, 0, 1, 0)
-            ON CONFLICT (team_id) DO NOTHING
+            INSERT INTO replay_vision_replayhighlightfeedstate (team_id, generation, builds, changes, built_changes)
+            VALUES (%s, 0, '[]'::jsonb, 1, 0)
+            ON CONFLICT (team_id) DO UPDATE SET changes = replay_vision_replayhighlightfeedstate.changes + 1
             """,
-            [row_team_id],
-        )
-        if cursor.rowcount:
-            return
-        cursor.execute(
-            """
-            UPDATE replay_vision_replayhighlightfeedstate SET changes = changes + 1
-            WHERE team_id = %s AND changes <= built_changes
-            """,
-            [row_team_id],
+            [resolve_effective_team_id(team_id)],
         )

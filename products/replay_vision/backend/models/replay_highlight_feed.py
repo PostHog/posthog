@@ -19,13 +19,14 @@ class ReplayHighlightFeedState(TeamScopedRootMixin, models.Model):
         "posthog.Team", on_delete=models.CASCADE, primary_key=True, related_name="+", db_constraint=False
     )
     generation = models.PositiveBigIntegerField(default=0)
-    # The build before the current one, kept so a reader who started on it keeps its pages.
-    previous_generation = models.PositiveBigIntegerField(null=True, blank=True)
-    # When the current build became current, so a load that began earlier stays on the previous build.
     built_at = models.DateTimeField(null=True, blank=True)
+    # Each kept build as `[generation, ISO time it became current]`, so a load stays on the build its first page read.
+    builds = models.JSONField(default=list)
     # Counts asks for a rebuild; a build records the count it saw, so an ask that lands during a build is not lost.
     changes = models.PositiveBigIntegerField(default=0)
     built_changes = models.PositiveBigIntegerField(default=0)
+    # The last time a sweep tried to build the team, so a team whose builds keep failing waits its turn.
+    attempted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         app_label = "replay_vision"
@@ -50,8 +51,6 @@ class ReplayHighlightFeedEntry(TeamScopedRootMixin, models.Model):
     experiment_id = models.IntegerField(default=0)
     percentile = models.FloatField()
     group_root = models.UUIDField()
-    group_sessions = models.PositiveIntegerField()
-    group_people = models.PositiveIntegerField()
 
     class Meta:
         app_label = "replay_vision"

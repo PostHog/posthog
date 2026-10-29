@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.functions import Now
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 
@@ -47,6 +48,8 @@ class ReplayObservationRank(TeamScopedRootMixin, models.Model):
     # The experiment the observation was scanned for, or 0, so readers can keep experiment-scoped rows to the viewers
     # allowed to read them.
     experiment_id = models.IntegerField(default=0)
+    # When the rank was written, so a load can leave out rows ranked after its first page.
+    ranked_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         app_label = "replay_vision"

@@ -6,6 +6,7 @@ preset windows from a single read of the longest one. A build keeps only rows th
 bounded number of places per scanner, which is all a page load can reach.
 """
 
+from collections.abc import Sequence
 from dataclasses import fields
 from datetime import datetime, timedelta
 from typing import Any
@@ -30,6 +31,10 @@ MIN_SCANNER_ROWS = 10
 # Page loads read places round-robin across scanners, so no load reaches deeper than this into one scanner.
 MAX_PLACES_PER_SCANNER = 500
 ISSUE_CODES = (RankCategory.FAILURE, RankCategory.STRUGGLE, RankCategory.REVENUE)
+# Builds a reader may still be scrolling stay this long after a newer build replaces them.
+BUILD_RETENTION = timedelta(minutes=30)
+_STATEMENT_TIMEOUT = "120s"
+_LOCK_TIMEOUT = "10s"
 # Namespaces the per-team advisory lock that keeps two builds of one team from running at once.
 _BUILD_LOCK_KEY = 0x52564842
 
@@ -45,8 +50,6 @@ class RankedEntry:
     experiment_id: int
     percentile: float
     group_root: Any
-    group_sessions: int
-    group_people: int
 
 
 @frozen
@@ -56,30 +59,38 @@ class WindowBounds:
     end: datetime
 
 
-def _ranked_sql(team_id: int, anchor_version: int, windows: list[WindowBounds]) -> tuple[str, list[Any]]:
-    """A SELECT of every kept entry of `windows`, ranked from the team's rank rows, in `RankedEntry` field order."""
+def _ranked_sql(
+    team_id: int,
+    anchor_version: int,
+    windows: list[WindowBounds],
+    scanner_ids: Sequence[Any] | None = None,
+    ranked_before: datetime | None = None,
+) -> tuple[str, list[Any]]:
+    """A SELECT of every kept entry of `windows`, ranked from the team's rank rows, in `RankedEntry` field order.
+    `scanner_ids` and `ranked_before` narrow the rows before ranking."""
     window_values = ", ".join(["(%s::smallint, %s::timestamptz, %s::timestamptz)"] * len(windows))
+    narrowing = ""
+    narrowing_params: list[Any] = []
+    if scanner_ids is not None:
+        narrowing += " AND scanner_id = ANY(%s::uuid[])"
+        narrowing_params.append([str(scanner_id) for scanner_id in scanner_ids])
+    if ranked_before is not None:
+        narrowing += " AND ranked_at <= %s"
+        narrowing_params.append(ranked_before)
     sql = f"""
         WITH bounds(window_days, window_start, window_end) AS (VALUES {window_values}),
         ranked_rows AS MATERIALIZED (
-            SELECT observation_id, scanner_id, created_at, contrast, category, experiment_id, person_key,
+            SELECT observation_id, scanner_id, created_at, contrast, category, experiment_id,
                 COALESCE(feed_group_id, observation_id) AS group_root
             FROM replay_vision_replayobservationrank
             WHERE team_id = %s AND anchor_version = %s
                 AND created_at >= (SELECT min(window_start) FROM bounds)
-                AND created_at <= (SELECT max(window_end) FROM bounds)
+                AND created_at <= (SELECT max(window_end) FROM bounds){narrowing}
         ),
         windowed AS (
             SELECT bounds.window_days, ranked_rows.*
             FROM ranked_rows
             JOIN bounds ON ranked_rows.created_at >= bounds.window_start AND ranked_rows.created_at <= bounds.window_end
-        ),
-        -- Reach counts only rows every viewer may read, so it is the same for every viewer.
-        reach AS (
-            SELECT window_days, group_root, count(*) AS sessions, count(DISTINCT person_key) AS people
-            FROM windowed
-            WHERE category = ANY(%s) AND experiment_id = 0
-            GROUP BY window_days, group_root
         ),
         placed AS (
             SELECT windowed.*, ((scanner_rows - place + 1) - 0.5) / scanner_rows::double precision AS percentile
@@ -91,17 +102,16 @@ def _ranked_sql(team_id: int, anchor_version: int, windows: list[WindowBounds]) 
                 WINDOW scanner_window AS (PARTITION BY window_days, scanner_id)
             ) windowed
         )
-        SELECT placed.window_days, place, observation_id, scanner_id, created_at, category, experiment_id, percentile,
-            placed.group_root, COALESCE(reach.sessions, 1), COALESCE(reach.people, 1)
+        SELECT window_days, place, observation_id, scanner_id, created_at, category, experiment_id, percentile,
+            group_root
         FROM placed
-        LEFT JOIN reach ON reach.window_days = placed.window_days AND reach.group_root = placed.group_root
         WHERE scanner_rows >= %s AND place <= %s AND percentile >= %s
     """
     params: list[Any] = [value for bounds in windows for value in (bounds.window_days, bounds.start, bounds.end)]
     params += [
         resolve_effective_team_id(team_id),
         anchor_version,
-        list(ISSUE_CODES),
+        *narrowing_params,
         MIN_SCANNER_ROWS,
         MAX_PLACES_PER_SCANNER,
         MIN_PERCENTILE,
@@ -109,9 +119,20 @@ def _ranked_sql(team_id: int, anchor_version: int, windows: list[WindowBounds]) 
     return sql, params
 
 
-def rank_window(team_id: int, anchor_version: int, start: datetime, end: datetime) -> list[RankedEntry]:
-    """Rank one arbitrary window the way a build ranks a preset one, without storing it."""
-    sql, params = _ranked_sql(team_id, anchor_version, [WindowBounds(window_days=0, start=start, end=end)])
+def rank_window(
+    team_id: int,
+    anchor_version: int,
+    start: datetime,
+    end: datetime,
+    scanner_ids: Sequence[Any] | None = None,
+    ranked_before: datetime | None = None,
+) -> list[RankedEntry]:
+    """Rank one arbitrary window the way a build ranks a preset one, without storing it. `scanner_ids` ranks only those
+    scanners, which ranks each the same since a percentile is within its scanner."""
+    if scanner_ids is not None and not scanner_ids:
+        return []
+    window = WindowBounds(window_days=0, start=start, end=end)
+    sql, params = _ranked_sql(team_id, anchor_version, [window], scanner_ids, ranked_before)
     with connection.cursor() as cursor:
         # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
         cursor.execute(sql, params)
@@ -135,37 +156,45 @@ def build_highlight_feed(team_id: int, anchor_version: int, *, wait: bool = True
     row_team_id = resolve_effective_team_id(team_id)
     with transaction.atomic():
         with connection.cursor() as cursor:
+            # A stuck statement or lock fails the build instead of stalling every build behind it.
+            cursor.execute(
+                "SELECT set_config('statement_timeout', %s, true), set_config('lock_timeout', %s, true)",
+                [_STATEMENT_TIMEOUT, _LOCK_TIMEOUT],
+            )
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(%s, %s)" if wait else "SELECT pg_try_advisory_xact_lock(%s, %s)",
                 [_BUILD_LOCK_KEY, row_team_id],
             )
-            locked = cursor.fetchone()[0]
+            if cursor.fetchone()[0] is False:
+                return None
         state, _ = ReplayHighlightFeedState.objects.for_team(team_id).get_or_create(team_id=row_team_id)
-        if locked is False:
-            return None
         if not force and state.built_at is not None and state.changes <= state.built_changes:
             return state.generation
-        now = timezone.now()
+        seen_changes = state.changes
         generation = state.generation + 1
-        sql, params = _ranked_sql(team_id, anchor_version, preset_windows(now))
+        sql, params = _ranked_sql(team_id, anchor_version, preset_windows(timezone.now()))
         with connection.cursor() as cursor:
             cursor.execute(
                 # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
                 f"""
                 INSERT INTO replay_vision_replayhighlightfeedentry (
                     team_id, generation, window_days, place, observation_id, scanner_id, created_at, category,
-                    experiment_id, percentile, group_root, group_sessions, group_people
+                    experiment_id, percentile, group_root
                 )
                 SELECT %s, %s, ranked.* FROM ({sql}) ranked
                 """,
                 [row_team_id, generation, *params],
             )
-        # The build this one replaces stays, so a reader who started on it keeps its pages until the next build.
-        ReplayHighlightFeedEntry.objects.for_team(team_id).filter(generation__lt=state.generation).delete()
+        built_at = timezone.now()
+        # A build stays while a reader who started on it may still be scrolling, and the newest one always stays.
+        kept = [
+            build
+            for build in state.builds
+            if datetime.fromisoformat(build[1]) > built_at - BUILD_RETENTION or build[0] == state.generation
+        ]
+        kept.append([generation, built_at.isoformat()])
+        ReplayHighlightFeedEntry.objects.for_team(team_id).exclude(generation__in=[build[0] for build in kept]).delete()
         ReplayHighlightFeedState.objects.for_team(team_id).filter(team_id=row_team_id).update(
-            previous_generation=state.generation,
-            generation=generation,
-            built_at=timezone.now(),
-            built_changes=state.changes,
+            generation=generation, built_at=built_at, builds=kept, built_changes=seen_changes
         )
     return generation
