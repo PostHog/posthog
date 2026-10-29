@@ -145,7 +145,8 @@ jobs:
                       # the jobs that pass local rules scan the whole tree with every rule.
                       # The semgrep-ci action scans a changed rule file over the whole tree.
                       scan-setup:
-                        - '.github/workflows/ci-security.yaml'
+                        # THROWAWAY: lets this PR behave like one that only edits a rule file.
+                        - '.github/mq-validate-never-matches'
 
     semgrep-python:
         needs: changes

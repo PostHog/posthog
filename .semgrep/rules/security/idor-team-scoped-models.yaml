@@ -503,6 +503,7 @@ rules:
                               |WizardWorker
                               |WorkflowIdea
                               |WorkflowImport
+                              |WorkflowMqProbe
                               |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
@@ -991,6 +992,7 @@ rules:
                         |WizardWorker
                         |WorkflowIdea
                         |WorkflowImport
+                        |WorkflowMqProbe
                         |WorkflowProposal
                     )$
           # Exclude when team filter is present
