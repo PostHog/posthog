@@ -3477,7 +3477,9 @@ class TestExternalDataSource(APIBaseTest):
         schema = self._create_external_data_schema(source.pk)
         other_user = User.objects.create_user(email="other@example.com", first_name="Sam", password="test")
         for user, ref in [(self.user, source.pk), (other_user, source.pk), (self.user, other_source.pk)]:
-            FileSystemShortcut.objects.create(team=self.team, user=user, path="Stripe", type="data_source", ref=ref)
+            FileSystemShortcut.objects.create(
+                team=self.team, user=user, path="Stripe", type="data_source", ref=str(ref)
+            )
 
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
 
