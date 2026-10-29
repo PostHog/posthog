@@ -66,9 +66,13 @@ let app: ReturnType<typeof createApp>['app']
 async function rpc(
     method: string,
     params: Record<string, unknown>,
-    { declareTasks = false, token = TOKEN }: { declareTasks?: boolean; token?: string } = {}
+    {
+        declareTasks = false,
+        token = TOKEN,
+        path = '/mcp',
+    }: { declareTasks?: boolean; token?: string; path?: string } = {}
 ): Promise<{ result?: Record<string, any>; error?: { code: number; message: string } }> {
-    const response = await app.request('/mcp', {
+    const response = await app.request(path, {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${token}`,
@@ -143,16 +147,37 @@ describe('MCP Tasks extension', () => {
         expect(JSON.stringify(response.result?.content)).toContain(RUN_ID)
     })
 
-    it('reports a task as missing to a different user', async () => {
+    it.each([
+        { caller: 'a different user', options: { declareTasks: true, token: OTHER_USER_TOKEN }, code: -32602 },
+        {
+            caller: 'a connection without the status tool',
+            options: { declareTasks: true, path: `/mcp?tools=${START_TOOL}` },
+            code: -32602,
+        },
+        { caller: 'a request that does not declare the extension', options: {}, code: -32021 },
+    ])('refuses a task to $caller', async ({ options, code }) => {
         const started = await rpc('tools/call', { name: START_TOOL, arguments: { id: 7 } }, { declareTasks: true })
 
-        const response = await rpc(
-            'tasks/get',
-            { taskId: started.result?.taskId },
-            { declareTasks: true, token: OTHER_USER_TOKEN }
+        const response = await rpc('tasks/get', { taskId: started.result?.taskId }, options)
+
+        expect(response.error).toMatchObject({ code })
+        expect(statusChecks).toBe(0)
+    })
+
+    it('keeps the task working when a status check fails upstream', async () => {
+        const started = await rpc('tools/call', { name: START_TOOL, arguments: { id: 7 } }, { declareTasks: true })
+        mswServer.use(
+            http.get(
+                '*/api/projects/:projectId/experiments/:id/metrics_recalculation/:runId/',
+                () => HttpResponse.json({ detail: 'Service unavailable' }, { status: 503 }),
+                { once: true }
+            )
         )
 
-        expect(response.error).toMatchObject({ code: -32602, message: 'Failed to retrieve task: Task not found' })
-        expect(statusChecks).toBe(0)
+        const failedCheck = await rpc('tasks/get', { taskId: started.result?.taskId }, { declareTasks: true })
+        const nextCheck = await rpc('tasks/get', { taskId: started.result?.taskId }, { declareTasks: true })
+
+        expect(failedCheck.result).toMatchObject({ status: 'working' })
+        expect(nextCheck.result).toMatchObject({ status: 'working', statusMessage: '1 of 2 metrics done' })
     })
 })

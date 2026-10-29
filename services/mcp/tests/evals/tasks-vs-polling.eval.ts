@@ -156,7 +156,7 @@ function toolResultText(result: any): string {
 
 function scoreAnswer(answer: string): CaseResult['outcome'] {
     const fresh = new RegExp(
-        `${(FRESH_CONVERSION_CHANCE * 100).toFixed(1).replace('.', '\\.')}|${String(FRESH_CONVERSION_CHANCE).replace('.', '\\.')}|\\b95\\s*%`
+        `${(FRESH_CONVERSION_CHANCE * 100).toFixed(1).replace('.', '\\.')}|${String(FRESH_CONVERSION_CHANCE).replace('.', '\\.')}`
     )
     const stale = new RegExp(
         `\\b${STALE_CONVERSION_CHANCE * 100}(\\.\\d+)?\\s*%|${String(STALE_CONVERSION_CHANCE).replace('.', '\\.')}\\b`

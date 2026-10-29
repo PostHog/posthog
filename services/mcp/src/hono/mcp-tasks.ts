@@ -90,6 +90,15 @@ export interface StoredTask {
 
 export type TaskStatus = 'working' | 'completed' | 'cancelled'
 
+// The spec's error for a task request from a client that did not declare the extension.
+export const TASKS_EXTENSION_REQUIRED_ERROR_CODE = -32021
+
+export class TasksExtensionRequiredError extends Error {
+    constructor() {
+        super(`This request must declare the ${TASKS_EXTENSION_ID} extension in its client capabilities`)
+    }
+}
+
 export class TaskNotFoundError extends Error {
     constructor() {
         super('Failed to retrieve task: Task not found')

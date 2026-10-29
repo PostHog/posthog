@@ -138,6 +138,8 @@ function shouldSuppressStructuredContent(args: {
     return args.isCliModeEnabled && !isRenderUiHostInSingleExec
 }
 
+const TRANSIENT_STATUS_ERRORS: ReadonlySet<ToolErrorType> = new Set(['timeout', 'rate_limited', 'api_5xx'])
+
 function isTaskResult(result: unknown): boolean {
     return typeof result === 'object' && result !== null && (result as { resultType?: unknown }).resultType === 'task'
 }
@@ -577,7 +579,13 @@ export class ToolExecutor {
             })
 
             const task = options?.tasksRequested
-                ? await this.createTaskIfPending(tool.name, validation.data, handlerResult, state)
+                ? await this.createTaskIfPending(tool.name, validation.data, handlerResult, state).catch(
+                      (error: unknown) => {
+                          // The job runs already, so a failed task write must not hide the run this call started.
+                          console.error('[ToolExecutor] Task creation failed:', error)
+                          return undefined
+                      }
+                  )
                 : undefined
             return task ?? response
         } catch (error: unknown) {
@@ -714,7 +722,9 @@ export class ToolExecutor {
         const task = await this.requireTaskStore().get(taskId, state.distinctId)
         const spec = TASK_TOOLS[task.toolName]
         const preBuilt = spec ? this.catalog.getToolByName(spec.statusTool) : undefined
-        if (!spec || !preBuilt) {
+        // The grant of the polling connection decides access, not the grant that created the task.
+        // The API exempts reads from its tool allowlist, so this check is the only one.
+        if (!spec || !preBuilt || !state.allTools.some((t) => t.name === spec.statusTool)) {
             throw new TaskNotFoundError()
         }
         if (task.cancelled) {
@@ -727,6 +737,10 @@ export class ToolExecutor {
         try {
             statusResult = await statusTool.handler(contextForProject(state.context, task.projectId), statusArgs)
         } catch (error: unknown) {
+            // A failed status read says nothing about the job, so the client keeps polling.
+            if (TRANSIENT_STATUS_ERRORS.has(resolveToolErrorClassification(error).errorType)) {
+                return taskView(taskId, task, 'working', 'The last status check failed. The next poll retries it.')
+            }
             // The spec reports a tool error as a completed task whose result has `isError: true`.
             // The `failed` status is only for JSON-RPC errors.
             const result = handleToolError(

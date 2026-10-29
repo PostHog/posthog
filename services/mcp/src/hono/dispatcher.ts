@@ -49,6 +49,8 @@ import {
     requestDeclaresTasks,
     TaskNotFoundError,
     TASKS_EXTENSION_ID,
+    TASKS_EXTENSION_REQUIRED_ERROR_CODE,
+    TasksExtensionRequiredError,
     TaskStore,
 } from './mcp-tasks'
 import { initDurationSeconds, initTotal } from './metrics'
@@ -436,6 +438,9 @@ class McpDispatcher {
             if (error instanceof InterviewRequestError || error instanceof TaskNotFoundError) {
                 return jsonRpcMethodError(id, ErrorCode.InvalidParams, error.message)
             }
+            if (error instanceof TasksExtensionRequiredError) {
+                return jsonRpcMethodError(id, TASKS_EXTENSION_REQUIRED_ERROR_CODE, error.message)
+            }
             console.error('[McpDispatcher] Internal error:', error)
             return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
         }
@@ -521,13 +526,16 @@ class McpDispatcher {
             case Method.Ping:
                 return {}
             case Method.TasksGet:
-                return stateless && this.tasksEnabled
-                    ? await this.toolExecutor.handleTaskGet(params, state!)
-                    : METHOD_NOT_FOUND
             case Method.TasksCancel:
-                return stateless && this.tasksEnabled
-                    ? await this.toolExecutor.handleTaskCancel(params, state!)
-                    : METHOD_NOT_FOUND
+                if (!stateless || !this.tasksEnabled) {
+                    return METHOD_NOT_FOUND
+                }
+                if (!requestDeclaresTasks(params)) {
+                    throw new TasksExtensionRequiredError()
+                }
+                return method === Method.TasksGet
+                    ? await this.toolExecutor.handleTaskGet(params, state!)
+                    : await this.toolExecutor.handleTaskCancel(params, state!)
             default:
                 return METHOD_NOT_FOUND
         }
