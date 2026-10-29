@@ -59,6 +59,11 @@ from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortB
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.cohorts.backend.models.util import CohortErrorCode, count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -226,6 +231,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 "cohort_type": None,
                 "condition_type": None,
                 "realtime_enabled": False,
+                "realtime_level": "off",
             },
             team=ANY,
             request=ANY,
@@ -273,18 +279,37 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 "cohort_type": None,
                 "condition_type": None,
                 "realtime_enabled": False,
+                "realtime_level": "off",
                 "updated_by_creator": True,
             },
             team=ANY,
             request=ANY,
         )
 
+    @parameterized.expand(
+        [
+            ("team_off_the_pipeline", None, False, "off"),
+            # A load-test team runs the pipeline, so it is enabled, but adoption counts only serving teams.
+            ("team_granted_processing", RealtimeCohortLevel.PROCESSING, True, "processing"),
+        ]
+    )
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cohort_created_reports_realtime_classification(
-        self, patch_calculate_cohort, patch_capture, patch_on_commit
+        self,
+        _name: str,
+        access_level: RealtimeCohortLevel | None,
+        expected_enabled: bool,
+        expected_level: str,
+        patch_calculate_cohort,
+        patch_capture,
+        patch_on_commit,
     ):
+        if access_level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=access_level, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
@@ -322,8 +347,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             reported["condition_type"],
             {"person_properties": False, "behavioral": True, "lifecycle": False, "cohorts": False},
         )
-        # Realtime-eligible filters on a team the realtime pipeline does not cover.
-        self.assertFalse(reported["realtime_enabled"])
+        self.assertEqual((reported["realtime_enabled"], reported["realtime_level"]), (expected_enabled, expected_level))
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -428,7 +452,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -443,7 +467,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 

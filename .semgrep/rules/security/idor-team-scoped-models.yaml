@@ -1216,6 +1216,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RealtimeCohortTeamAccess
                         |RemoteConfig
                         |ReplayObservation
                         |ReplayObservationLabel

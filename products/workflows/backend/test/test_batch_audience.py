@@ -9,6 +9,11 @@ from posthog.redis import get_client as get_redis_client
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 from products.workflows.backend.services.blast_radius import get_audience_size
@@ -92,12 +97,21 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             ("nothing_building", "behavioral", "all", False, "needs_attention"),
             # The pipeline doesn't run for the team, so the cohort never finishes calculating.
             ("team_off_realtime_allowlist", "behavioral", "none", True, "needs_attention"),
+            # A load-test team runs the pipeline, but its users must not see the audience start building.
+            (
+                "team_granted_processing_only",
+                "behavioral",
+                "none",
+                True,
+                "needs_attention",
+                RealtimeCohortLevel.PROCESSING,
+            ),
             # The cohorts product reports this one as person_properties, which the response doesn't declare.
             ("person_property_cohort_on_a_behavioral_cohort", "person_on_behavioral", "all", False, "building"),
         ]
     )
     def test_realtime_cohort_audience_size_estimates_from_the_cohort_count(
-        self, _name, shape, allowlist, build_queued, expected_state
+        self, _name, shape, allowlist, build_queued, expected_state, access_level=None
     ):
         # The send reads realtime membership from a Postgres database Django can't reach, so the
         # preview estimates from the cohort's periodic count and reports no email dedupe.
@@ -129,6 +143,10 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             count=2,
             filters={"properties": {"type": "AND", "values": leaves}},
         )
+        if access_level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=access_level, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
         if build_queued:
             get_redis_client().set(
                 cohort_backfill_pending_key(cohort.pk, CohortBackfillKind.BEHAVIORAL),
