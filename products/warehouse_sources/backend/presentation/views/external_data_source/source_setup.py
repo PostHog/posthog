@@ -1764,7 +1764,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "schema_metadata": schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
-                # Capture and the seed read the naming the columns were checked against above.
                 if new_history is not None and is_history_table_mode(cdc_table_mode):
                     pin_history_naming(sync_type_config, new_history)
             else:
