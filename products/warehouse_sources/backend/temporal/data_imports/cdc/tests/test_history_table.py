@@ -82,7 +82,6 @@ class TestHistoryNaming(BaseTest):
         with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: False):
             assert history_naming(self.schema) == LEGACY_HISTORY_NAMING
 
-    # The API checked the columns against the pinned naming, so a later flag value must not move it.
     @parameterized.expand(
         [("pinned_new_flag_off", HISTORY_NAMING, False), ("pinned_legacy_flag_on", LEGACY_HISTORY_NAMING, True)]
     )
