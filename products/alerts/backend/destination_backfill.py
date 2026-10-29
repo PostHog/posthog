@@ -27,8 +27,8 @@ from products.alerts.backend.logic.destination_eligibility import STOCK_INPUT_VA
 from products.alerts.backend.logic.insight_alert_destinations import (
     INSIGHT_CHART_BLOCK,
     SLACK_TEMPLATE_ID,
-    _slack_attachments,
-    _slack_blocks,
+    hog_slack_attachments,
+    hog_slack_blocks,
 )
 from products.cdp.backend.facade.models import HogFunction, HogFunctionTemplate
 from products.cdp.backend.validation import compile_hog, generate_template_bytecode
@@ -79,9 +79,9 @@ def blocks_with_chart(blocks: Any) -> list[Any] | None:
 
 
 def blocks_with_readable_message(blocks: Any) -> list[Any] | None:
-    if blocks != _slack_blocks() and blocks not in STOCK_INPUT_VALUES[SLACK_TEMPLATE_ID]["blocks"]:
+    if blocks != hog_slack_blocks() and blocks not in STOCK_INPUT_VALUES[SLACK_TEMPLATE_ID]["blocks"]:
         return None
-    return _slack_blocks()
+    return hog_slack_blocks()
 
 
 def backfill_insight_alert_chart_blocks(
@@ -118,7 +118,7 @@ def backfill_insight_alert_chart_blocks(
             format_messages
             and template is not None
             and blocks == []
-            and ((destination.inputs or {}).get("attachments") or {}).get("value") == _slack_attachments()
+            and ((destination.inputs or {}).get("attachments") or {}).get("value") == hog_slack_attachments()
             and destination.hog == template.code
         ) or (not format_messages and mentions_chart(destination.inputs)):
             already_current += 1
@@ -154,7 +154,7 @@ def backfill_insight_alert_chart_blocks(
             # The worker renders the stored bytecode, not the value, so a value written without a
             # matching recompile would keep posting the old blocks.
             bytecode = generate_template_bytecode(upgraded, set(), function_type=destination.type)
-            attachments = _slack_attachments() if format_messages else []
+            attachments = hog_slack_attachments() if format_messages else []
             attachment_bytecode = generate_template_bytecode(attachments, set(), function_type=destination.type)
             sender_bytecode = compile_hog(template.code, "internal_destination") if template is not None else None
         except Exception:

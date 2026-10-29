@@ -247,8 +247,6 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         overlayCtx,
         dimensions,
         scales,
-        series: [],
-        labels: [],
         hoverIndex,
         hoverPosition,
         theme,
