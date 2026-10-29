@@ -12,6 +12,7 @@ import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AccountColumnOption } from './accountsColumnConfigLogic'
+import { AccountsDefinitionStatus } from './AccountsDefinitionStatus'
 import {
     accountsOverviewTilesLogic,
     AccountsOverviewTile,
@@ -136,6 +137,7 @@ export function AccountsOverviewTilesEditor({
                 </>
             }
         >
+            <AccountsDefinitionStatus />
             <div className="flex flex-col gap-3">
                 {tiles.length === 0 ? (
                     <div className="text-secondary text-sm">No tiles configured yet — add one to get started.</div>
