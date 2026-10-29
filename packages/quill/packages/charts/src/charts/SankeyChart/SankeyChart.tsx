@@ -257,14 +257,11 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         hoverAnimationMs: HOVER_ANIMATION_MS,
     })
 
-    const renderTooltip = useMemo(
-        () =>
-            tooltip ??
-            ((tooltipContext: SankeyTooltipContext<NodeMeta, LinkMeta>): React.ReactNode => (
-                <PieTooltip ctx={tooltipContext} valueFormatter={valueFormatter} />
-            )),
-        [tooltip, valueFormatter]
-    )
+    const renderTooltip =
+        tooltip ??
+        ((tooltipContext: SankeyTooltipContext<NodeMeta, LinkMeta>): React.ReactNode => (
+            <PieTooltip ctx={tooltipContext} valueFormatter={valueFormatter} />
+        ))
 
     const canvasBounds = useCanvasBounds(canvasRef)
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 
 import type { ChartLegendConfig, ChartTheme, Series } from '../../core/types'
 import type { LegendItem, LegendItemClickModifiers } from './Legend'
@@ -83,67 +83,54 @@ export function useChartLegend<Meta>(
     const hiddenKeys = controlledKeys ?? internalKeys
 
     const onToggleSeries = config?.onToggleSeries
-    const toggle = useCallback(
-        (key: string) => {
-            onToggleSeries?.(key, !hiddenKeys.includes(key))
-            if (controlledKeys === undefined) {
-                setInternalKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
-            }
-        },
-        [controlledKeys, hiddenKeys, onToggleSeries]
-    )
+    const toggle = (key: string): void => {
+        onToggleSeries?.(key, !hiddenKeys.includes(key))
+        if (controlledKeys === undefined) {
+            setInternalKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+        }
+    }
 
     const hiddenSet = useMemo(() => new Set(hiddenKeys), [hiddenKeys])
     const visibleSeries = useMemo(() => applyHiddenSeries(series, hiddenSet), [series, hiddenSet])
-    const derivedItems = useMemo(() => items ?? legendItemsFromSeries(series, theme), [items, series, theme])
+    const derivedItems = items ?? legendItemsFromSeries(series, theme)
 
     const interactive = config?.interactive ?? true
 
     // The rows the user can see, which is what "all" and "the others" mean to them — narrower than
     // `series`, which also carries derived overlays (CI bands, trend lines) that get no legend row.
-    const rowKeys = useMemo(() => derivedItems.map((item) => item.key), [derivedItems])
+    const rowKeys = derivedItems.map((item) => item.key)
 
     // "The others" is a question about visibility, not about rows, and a consumer can store one
     // visibility bit for several rows (see `visibilityGroupKey`). Resolve every row to its group
     // once so isolating, `canIsolate`, and `isOnlyVisible` all agree on what a distinct series is.
     const visibilityGroupKey = config?.visibilityGroupKey
-    const groupByRow = useMemo(() => {
-        const groups = new Map<string, string>()
-        rowKeys.forEach((key) => groups.set(key, visibilityGroupKey?.(key) ?? key))
-        return groups
-    }, [rowKeys, visibilityGroupKey])
-    const groupCount = useMemo(() => new Set(groupByRow.values()).size, [groupByRow])
+    const groupByRow = new Map(rowKeys.map((key) => [key, visibilityGroupKey?.(key) ?? key]))
+    const groupCount = new Set(groupByRow.values()).size
 
     // Isolating and hiding-all replace the whole hidden set in one go, so a controlled legend needs
     // `onSetHiddenSeries`: the per-series `onToggleSeries` can't express it as a single update.
     const onSetHiddenSeries = config?.onSetHiddenSeries
-    const setHidden = useCallback(
-        (next: string[]) => {
-            onSetHiddenSeries?.(next)
-            if (controlledKeys === undefined) {
-                setInternalKeys(next)
-            }
-        },
-        [controlledKeys, onSetHiddenSeries]
-    )
+    const setHidden = (next: string[]): void => {
+        onSetHiddenSeries?.(next)
+        if (controlledKeys === undefined) {
+            setInternalKeys(next)
+        }
+    }
 
     const canSetBulk = controlledKeys === undefined || onSetHiddenSeries !== undefined
     const canIsolate = interactive && canSetBulk && groupCount > 1
 
-    const isolate = useCallback(
-        (key: string) => {
-            const group = groupByRow.get(key)
-            const others = rowKeys.filter((k) => groupByRow.get(k) !== group)
-            const alreadyIsolated = others.length > 0 && !hiddenSet.has(key) && others.every((k) => hiddenSet.has(k))
-            setHidden(alreadyIsolated ? [] : others)
-        },
-        [rowKeys, groupByRow, hiddenSet, setHidden]
-    )
+    const isolate = (key: string): void => {
+        const group = groupByRow.get(key)
+        const others = rowKeys.filter((k) => groupByRow.get(k) !== group)
+        const alreadyIsolated = others.length > 0 && !hiddenSet.has(key) && others.every((k) => hiddenSet.has(k))
+        setHidden(alreadyIsolated ? [] : others)
+    }
 
-    const toggleAll = useCallback(() => {
+    const toggleAll = (): void => {
         const allVisible = rowKeys.every((k) => !hiddenSet.has(k))
         setHidden(allVisible ? [...rowKeys] : [])
-    }, [rowKeys, hiddenSet, setHidden])
+    }
 
     // Grafana's legend model: a plain click isolates (and clicking the isolated row restores all),
     // ⌘/Ctrl-click builds a selection one series at a time. Picking one series out of twenty is the
@@ -151,25 +138,20 @@ export function useChartLegend<Meta>(
     // A touch screen has no ⌘/Ctrl/Shift, so the additive gesture is unreachable and isolate-on-tap
     // would strand the user on one series with no way to add a second. Tap toggles there instead, so
     // taps build any subset the way the checkbox legend table does. Isolate stays on the row menu.
-    const handleItemClick = useCallback(
-        (key: string, { additive }: LegendItemClickModifiers) => {
-            if (additive || !canIsolate || isCoarsePointer()) {
-                toggle(key)
-                return
-            }
-            isolate(key)
-        },
-        [canIsolate, toggle, isolate]
-    )
+    const handleItemClick = (key: string, { additive }: LegendItemClickModifiers): void => {
+        if (additive || !canIsolate || isCoarsePointer()) {
+            toggle(key)
+            return
+        }
+        isolate(key)
+    }
 
     const consumerRenderItem = config?.renderItem
-    const renderItem = useMemo(() => {
-        if (!consumerRenderItem) {
-            return undefined
-        }
+    let renderItem: ChartLegendRenderProps['renderItem']
+    if (consumerRenderItem) {
         const visibleRows = rowKeys.filter((k) => !hiddenSet.has(k))
         const visibleGroups = new Set(visibleRows.map((k) => groupByRow.get(k)))
-        return (defaultNode: ReactNode, item: LegendItem): ReactNode =>
+        renderItem = (defaultNode, item) =>
             consumerRenderItem(defaultNode, item, {
                 isHidden: hiddenSet.has(item.key),
                 isOnlyVisible: groupCount > 1 && visibleGroups.size === 1 && !hiddenSet.has(item.key),
@@ -179,7 +161,7 @@ export function useChartLegend<Meta>(
                 isolate: () => isolate(item.key),
                 toggleAll,
             })
-    }, [consumerRenderItem, rowKeys, groupByRow, groupCount, hiddenSet, canIsolate, toggle, isolate, toggleAll])
+    }
 
     return {
         visibleSeries,

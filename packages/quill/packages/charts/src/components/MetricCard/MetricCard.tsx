@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -132,7 +132,7 @@ function MetricCardInner({
     const animationTarget = sparklineData && intentIndex >= 0 ? (sparklineData[intentIndex] ?? 0) : (restingValue ?? 0)
     const animatedValue = useAnimatedNumber(animationTarget, animationMs)
 
-    const baselineValue = useMemo(() => sparklineData?.find((v) => v !== 0 && Number.isFinite(v)), [sparklineData])
+    const baselineValue = sparklineData?.find((v) => v !== 0 && Number.isFinite(v))
 
     if (restingValue == null) {
         return null

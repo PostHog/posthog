@@ -379,18 +379,17 @@ export function Chart<Meta = unknown>({
         hoverAnimationMs,
     })
 
-    const ariaLabel = useMemo(() => {
-        const parts = [`Chart with ${countVisibleSeries(coloredSeries)} data series`]
-        const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
-        const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
-        if (!hideXAxis && cleanXAxisLabel) {
-            parts.push(`X-axis: ${cleanXAxisLabel}`)
-        }
-        if (!hideYAxis && cleanYAxisLabel) {
-            parts.push(`Y-axis: ${cleanYAxisLabel}`)
-        }
-        return parts.join('. ')
-    }, [coloredSeries, hideXAxis, hideYAxis, xAxisLabel, yAxisLabel])
+    const visibleSeriesCount = useMemo(() => countVisibleSeries(coloredSeries), [coloredSeries])
+    const ariaParts = [`Chart with ${visibleSeriesCount} data series`]
+    const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
+    const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
+    if (!hideXAxis && cleanXAxisLabel) {
+        ariaParts.push(`X-axis: ${cleanXAxisLabel}`)
+    }
+    if (!hideYAxis && cleanYAxisLabel) {
+        ariaParts.push(`Y-axis: ${cleanYAxisLabel}`)
+    }
+    const ariaLabel = ariaParts.join('. ')
 
     const canvasBounds = useCanvasBounds(canvasRef)
 
@@ -398,10 +397,6 @@ export function Chart<Meta = unknown>({
     // falling back to the value resolver when the chart doesn't stack.
     const stablePositionValue = useStableResolveValue(resolvePositionValue ?? resolveValue)
 
-    const axisValue = useMemo(
-        () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
-        [axisOrientation, xTickFormatter, isPercent]
-    )
     const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
@@ -416,10 +411,22 @@ export function Chart<Meta = unknown>({
             theme,
             resolvePositionValue: stablePositionValue,
             canvasBounds,
-            axis: axisValue,
+            axis: { orientation: axisOrientation, xTickFormatter, isPercent },
             yGutters,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue, yGutters])
+    }, [
+        scales,
+        dimensions,
+        labels,
+        coloredSeries,
+        theme,
+        stablePositionValue,
+        canvasBounds,
+        axisOrientation,
+        xTickFormatter,
+        isPercent,
+        yGutters,
+    ])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 

@@ -102,32 +102,29 @@ function StackedBarListInner<Meta = unknown>({
     const plotTop = labelPosition === 'top' ? Math.max(0, TOP_LABEL_LINE_HEIGHT + TOP_LABEL_GAP - barOffsetInRow) : 0
 
     // Stacked, because grouped insets each bar in its band and `barHeight` would no longer be exact.
-    const barConfig = useMemo<BarChartConfig>(
-        () => ({
-            barLayout: 'stacked',
-            axisOrientation: 'horizontal',
-            hideXAxis: true,
-            hideYAxis: true,
-            showGrid: false,
-            showAxisLines: false,
-            showTickMarks: false,
-            showCrosshair: false,
-            margins: { top: plotTop, right: 0, bottom: 0, left: 0 },
-            barCornerRadius,
-            bars: {
-                track: 'solid',
-                // Makes each band `rowHeight` tall so it lines up with its label and value cells.
-                bandPadding: Math.max(0, 1 - barHeight / rowHeight),
-                minBandSize: 0,
-                minBarSize: MIN_BAR_SIZE,
-                roundStackEnds: true,
-                valueDomain: resolvedValueDomain,
-            },
-            // Shows the tooltip over the track too, not only over the bar.
-            tooltip: { ...tooltipConfig, enabled: tooltipConfig?.enabled !== false, hitArea: 'band' },
-        }),
-        [barCornerRadius, barHeight, rowHeight, plotTop, resolvedValueDomain, tooltipConfig]
-    )
+    const barConfig: BarChartConfig = {
+        barLayout: 'stacked',
+        axisOrientation: 'horizontal',
+        hideXAxis: true,
+        hideYAxis: true,
+        showGrid: false,
+        showAxisLines: false,
+        showTickMarks: false,
+        showCrosshair: false,
+        margins: { top: plotTop, right: 0, bottom: 0, left: 0 },
+        barCornerRadius,
+        bars: {
+            track: 'solid',
+            // Makes each band `rowHeight` tall so it lines up with its label and value cells.
+            bandPadding: Math.max(0, 1 - barHeight / rowHeight),
+            minBandSize: 0,
+            minBarSize: MIN_BAR_SIZE,
+            roundStackEnds: true,
+            valueDomain: resolvedValueDomain,
+        },
+        // Shows the tooltip over the track too, not only over the bar.
+        tooltip: { ...tooltipConfig, enabled: tooltipConfig?.enabled !== false, hitArea: 'band' },
+    }
 
     const chart =
         labels.length > 0 ? (

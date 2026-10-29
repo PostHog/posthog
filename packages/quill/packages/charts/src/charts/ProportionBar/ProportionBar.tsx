@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
@@ -88,18 +88,15 @@ function ProportionBarInner<Meta = unknown>({
         tooltip: tooltipConfig,
     } = config ?? {}
 
-    const legendConfig = useMemo<ChartLegendConfig>(
-        () => ({ show: true, position: 'bottom', align: 'start', ...legend }),
-        [legend]
-    )
+    const legendConfig: ChartLegendConfig = { show: true, position: 'bottom', align: 'start', ...legend }
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
     const legendItems = useMemo(
         () => proportionLegendItems(series, theme, valueFormatter, legendProps.hiddenKeys),
         [series, theme, valueFormatter, legendProps.hiddenKeys]
     )
-    const colorByKey = useMemo(() => new Map(legendItems.map((item) => [item.key, item.color])), [legendItems])
+    const colorByKey = new Map(legendItems.map((item) => [item.key, item.color]))
     // Tooltips and clicks hand back the consumer's own series, not the single-value copies the bar draws.
-    const seriesByKey = useMemo(() => new Map(series.map((s) => [s.key, s])), [series])
+    const seriesByKey = new Map(series.map((s) => [s.key, s]))
 
     // Only the fields the bar needs to draw and identify a part. Carrying the rest of `s` through
     // (yAxisId, overlay, fill.lowerData, per-bar `bars` overrides) would let it change how the part
@@ -116,82 +113,67 @@ function ProportionBarInner<Meta = unknown>({
             })),
         [visibleSeries]
     )
-    const valueByKey = useMemo(() => new Map(barSeries.map((s) => [s.key, s.data[0]])), [barSeries])
-    const visibleTotal = useMemo(
-        () => barSeries.reduce((acc, s) => (s.visibility?.excluded ? acc : acc + s.data[0]), 0),
-        [barSeries]
-    )
+    const valueByKey = new Map(barSeries.map((s) => [s.key, s.data[0]]))
+    const visibleTotal = barSeries.reduce((acc, s) => (s.visibility?.excluded ? acc : acc + s.data[0]), 0)
     // As on PieChart, a slice index counts only the drawn parts, so a hidden part does not shift it.
-    const drawnKeys = useMemo(() => barSeries.filter((s) => !s.visibility?.excluded).map((s) => s.key), [barSeries])
-    const fractionOf = useCallback(
-        (value: number): number => (visibleTotal > 0 ? value / visibleTotal : 0),
-        [visibleTotal]
-    )
+    const drawnKeys = barSeries.filter((s) => !s.visibility?.excluded).map((s) => s.key)
+    const fractionOf = (value: number): number => (visibleTotal > 0 ? value / visibleTotal : 0)
 
     // BarChart layers the library's default axes, grid and margins under any config, so opt out of
     // each one to leave only the bar.
-    const barConfig = useMemo<BarChartConfig>(
-        () => ({
-            barLayout: 'percent',
-            axisOrientation: 'horizontal',
-            hideXAxis: true,
-            hideYAxis: true,
-            showGrid: false,
-            showAxisLines: false,
-            showTickMarks: false,
-            showCrosshair: false,
-            margins: { top: 0, right: 0, bottom: 0, left: 0 },
-            barCornerRadius,
-            bars: { bandPadding: 0, minBandSize: 0, roundStackEnds: true },
-            tooltip: { enabled: tooltipConfig?.enabled !== false },
-        }),
-        [barCornerRadius, tooltipConfig?.enabled]
-    )
+    const barConfig: BarChartConfig = {
+        barLayout: 'percent',
+        axisOrientation: 'horizontal',
+        hideXAxis: true,
+        hideYAxis: true,
+        showGrid: false,
+        showAxisLines: false,
+        showTickMarks: false,
+        showCrosshair: false,
+        margins: { top: 0, right: 0, bottom: 0, left: 0 },
+        barCornerRadius,
+        bars: { bandPadding: 0, minBandSize: 0, roundStackEnds: true },
+        tooltip: { enabled: tooltipConfig?.enabled !== false },
+    }
 
     // A percent layout hands the tooltip every segment as a 0..1 fraction. Narrow it to the hovered
     // part with its raw value, which is the context a PieChart tooltip receives. Reads the value
     // already computed for `barSeries` instead of rescanning the part's data on every hover.
     const captureTooltip = useTooltipCapture<Meta>()
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext<Meta>): React.ReactNode => {
-            const entry = ctx.seriesData.find((d) => d.series.key === ctx.hoveredSeriesKey)
-            if (!entry) {
-                return null
-            }
-            const original = seriesByKey.get(entry.series.key) ?? entry.series
-            const part = { ...original, color: colorByKey.get(original.key) ?? entry.color }
-            const value = valueByKey.get(entry.series.key) ?? 0
-            const partCtx = {
-                ...ctx,
-                label: part.label,
-                dataIndex: series.indexOf(original),
-                seriesData: [{ ...entry, series: part, value, fraction: fractionOf(value) }],
-            }
-            captureTooltip(partCtx)
-            return tooltip ? tooltip(partCtx) : <PieTooltip ctx={partCtx} valueFormatter={valueFormatter} />
-        },
-        [tooltip, series, seriesByKey, colorByKey, valueByKey, fractionOf, valueFormatter, captureTooltip]
-    )
+    const renderTooltip = (ctx: TooltipContext<Meta>): React.ReactNode => {
+        const entry = ctx.seriesData.find((d) => d.series.key === ctx.hoveredSeriesKey)
+        if (!entry) {
+            return null
+        }
+        const original = seriesByKey.get(entry.series.key) ?? entry.series
+        const part = { ...original, color: colorByKey.get(original.key) ?? entry.color }
+        const value = valueByKey.get(entry.series.key) ?? 0
+        const partCtx = {
+            ...ctx,
+            label: part.label,
+            dataIndex: series.indexOf(original),
+            seriesData: [{ ...entry, series: part, value, fraction: fractionOf(value) }],
+        }
+        captureTooltip(partCtx)
+        return tooltip ? tooltip(partCtx) : <PieTooltip ctx={partCtx} valueFormatter={valueFormatter} />
+    }
 
-    const handlePointClick = useCallback(
-        ({ series: clicked }: PointClickData<Meta>): void => {
-            const part = seriesByKey.get(clicked.key)
-            const sliceIndex = drawnKeys.indexOf(clicked.key)
-            const value = valueByKey.get(clicked.key) ?? 0
-            // A part with no visible width (value 0, or the whole bar empty) draws nothing. `PieChart`
-            // draws no slice and fires no click for it, so match that here.
-            if (!onSliceClick || !part || sliceIndex < 0 || visibleTotal <= 0 || value <= 0) {
-                return
-            }
-            onSliceClick({
-                sliceIndex,
-                series: { ...part, color: colorByKey.get(part.key) ?? '' },
-                value,
-                fraction: fractionOf(value),
-            })
-        },
-        [seriesByKey, drawnKeys, valueByKey, visibleTotal, onSliceClick, colorByKey, fractionOf]
-    )
+    const handlePointClick = ({ series: clicked }: PointClickData<Meta>): void => {
+        const part = seriesByKey.get(clicked.key)
+        const sliceIndex = drawnKeys.indexOf(clicked.key)
+        const value = valueByKey.get(clicked.key) ?? 0
+        // A part with no visible width (value 0, or the whole bar empty) draws nothing. `PieChart`
+        // draws no slice and fires no click for it, so match that here.
+        if (!onSliceClick || !part || sliceIndex < 0 || visibleTotal <= 0 || value <= 0) {
+            return
+        }
+        onSliceClick({
+            sliceIndex,
+            series: { ...part, color: colorByKey.get(part.key) ?? '' },
+            value,
+            fraction: fractionOf(value),
+        })
+    }
 
     // `ChartLegend` grows to fill a flex parent. Holding it in a box sized to its content keeps the
     // legend right next to the bar, and lets the consumer place the pair, for example centered.
