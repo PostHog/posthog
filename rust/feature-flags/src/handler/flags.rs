@@ -146,10 +146,12 @@ fn collect_excluded_by_runtime(
 /// An override whose key is absent from ``flags`` is ADDED rather than
 /// dropped: historical test evaluation reconstructs soft-deleted flags, and
 /// every source of the team's flag list (hypercache and PG) excludes deleted
-/// flags, so the reconstructed definition can only arrive this way. The added
-/// definition must carry the request's own ``team_id`` — overrides only reach
-/// this path through internal-token requests, but the guard keeps a forged
-/// payload from evaluating another team's flag definition.
+/// flags, so the reconstructed definition can only arrive this way. (The list
+/// also omits disabled flags that no other flag references, so those take the
+/// add path too when evaluated historically.) The added definition must carry
+/// the request's own ``team_id``: overrides only reach this path through
+/// internal-token requests, but the guard keeps a forged payload from
+/// evaluating another team's flag definition.
 fn apply_flag_overrides(
     flags: &mut Vec<FeatureFlag>,
     override_defs: &HashMap<String, Value>,
@@ -172,8 +174,8 @@ fn apply_flag_overrides(
             }
         };
         let Some(flag) = flags.iter_mut().find(|f| &f.key == flag_key) else {
-            // The key is not in the team's list — a reconstructed deleted
-            // flag. Guards: the payload's key must match the map key, the
+            // The key is not in the team's list, so this is a reconstructed
+            // deleted flag. Guards: the payload's key must match the map key, the
             // payload must belong to the requesting team, and its id must not
             // collide with an existing flag (duplicate ids would corrupt the
             // id-keyed evaluation stages).
@@ -257,42 +259,48 @@ pub async fn fetch_and_filter(
 
     // Apply override flag definitions if provided. Overrides require a clone
     // because `prepared.flags` is Arc-backed and shared across requests.
-    // `overridden_metadata` is Some only when an override ADDED a flag the
-    // team's list no longer carries (a reconstructed soft-deleted flag): the
-    // cached evaluation metadata was computed without it, so the added flag
-    // would sit in no dependency stage and never evaluate — and the staging
-    // math would miscount it as a cycle participant. Recomputing from the
-    // merged list keeps metadata and flag list consistent. A dependency of the
-    // added flag that is itself still deleted stays absent from the list, so
-    // the recompute marks the added flag as missing a dependency and it fails
-    // closed, same as any unresolvable dependency.
+    // `overridden_metadata` is Some whenever an override was applied. The
+    // cached evaluation metadata was computed from the live definitions: an
+    // ADDED flag (a reconstructed soft-deleted flag) sits in no dependency
+    // stage, so it would never evaluate and the staging math would miscount
+    // it as a cycle participant, while a REPLACED flag's historical version
+    // can depend on flags its live version does not, so the cached
+    // `transitive_deps` would leave those dependencies unevaluated.
+    // Recomputing from the merged list keeps metadata and flag list
+    // consistent. A dependency of an added flag that is itself still deleted
+    // stays absent from the list, so the recompute marks the added flag as
+    // missing a dependency and it fails closed, same as any unresolvable
+    // dependency.
     let (overridden_flags, overridden_metadata): (
         Option<PreparedFlags>,
         Option<Arc<EvaluationMetadata>>,
     ) = match override_flags_definitions {
         Some(override_defs) => {
             let mut flags_vec: Vec<FeatureFlag> = prepared.flags.iter().cloned().collect();
-            let len_before = flags_vec.len();
             let overridden_keys = apply_flag_overrides(&mut flags_vec, override_defs, team_id);
-            if !overridden_keys.is_empty() {
+            let any_applied = !overridden_keys.is_empty();
+            if any_applied {
                 with_canonical_log(|log| {
                     log.flags_overridden = Some(overridden_keys);
                 });
             }
-            let metadata = (flags_vec.len() > len_before).then(|| {
-                let mut recomputed = compute_flag_dependencies_or_single_stage(team_id, &flags_vec);
+            let metadata = any_applied.then(|| {
                 // `has_unparseable_flags` is read-time state (set when the cache
-                // decode skipped a flag), not derivable from the flag list, so the
-                // recompute must carry it over or a partial evaluation would stop
-                // reporting errorsWhileComputingFlags.
-                recomputed.has_unparseable_flags =
-                    prepared.evaluation_metadata.has_unparseable_flags;
-                Arc::new(recomputed)
+                // read skipped or omitted a flag), not derivable from the flag
+                // list, so the recompute must carry it over or a partial
+                // evaluation would stop reporting errorsWhileComputingFlags.
+                Arc::new(EvaluationMetadata {
+                    has_unparseable_flags: prepared.evaluation_metadata.has_unparseable_flags,
+                    ..compute_flag_dependencies_or_single_stage(team_id, &flags_vec)
+                })
             });
             (Some(PreparedFlags::seal(flags_vec)), metadata)
         }
         None => (None, None),
     };
+    // Metadata is Some exactly when an override was applied; the cohort
+    // handling below keys off the same condition.
+    let overrides_applied = overridden_metadata.is_some();
 
     let flags: &[FeatureFlag] = match &overridden_flags {
         Some(p) => p,
@@ -342,7 +350,17 @@ pub async fn fetch_and_filter(
         filtered_out_flag_ids,
         evaluation_metadata: overridden_metadata
             .unwrap_or_else(|| Arc::clone(&prepared.evaluation_metadata)),
-        cohorts: prepared.cohorts.as_ref().map(Arc::clone),
+        // The cached cohort list only holds cohorts the team's live flags
+        // reference. An override can name others (a reconstructed deleted
+        // flag's cohort, or one an older version of a live flag targeted), and
+        // the matcher treats a present list as complete, so a missing cohort
+        // fails evaluation with DependencyNotFound. Dropping the list makes
+        // the matcher load the team's full cohort set instead.
+        cohorts: if overrides_applied {
+            None
+        } else {
+            prepared.cohorts.as_ref().map(Arc::clone)
+        },
     };
     Ok(flag_list)
 }
@@ -1093,7 +1111,7 @@ mod tests {
     fn test_apply_flag_overrides_adds_flag_missing_from_team_list() {
         // Historical test evaluation reconstructs a soft-deleted flag and ships it
         // as an override. Every source of the team's flag list (cache and PG) excludes
-        // deleted flags, so the key is absent from `flags` — the override must be
+        // deleted flags, so the key is absent from `flags` and the override must be
         // ADDED, not dropped, or /test_evaluation reports flag_not_found for
         // timestamps at which the flag existed.
         let mut flags = vec![flag_with_team(1, 100, "live-flag")];
@@ -1130,7 +1148,7 @@ mod tests {
     #[test]
     fn test_apply_flag_overrides_rejects_added_flag_for_other_team() {
         // An override for a key absent from the list may only be added when its
-        // team_id matches the requesting team — otherwise a forged payload could
+        // team_id matches the requesting team, otherwise a forged payload could
         // evaluate another team's flag definition.
         let mut flags = vec![flag_with_team(1, 100, "live-flag")];
         let mut overrides = HashMap::new();
@@ -1162,6 +1180,28 @@ mod tests {
         assert!(
             applied.is_empty(),
             "duplicate-id override must not be added"
+        );
+        assert_eq!(flags.len(), 1, "flag list must be unchanged");
+    }
+
+    #[test]
+    fn test_apply_flag_overrides_rejects_added_flag_with_mismatched_payload_key() {
+        // An added override's payload key must equal the map key it arrived
+        // under. Without this guard, a payload claiming an existing flag's key
+        // would be pushed next to the real flag, and the key-indexed response
+        // would silently shadow one of them.
+        let mut flags = vec![flag_with_team(1, 100, "live-flag")];
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "deleted-flag".to_string(),
+            override_payload(2, 100, "live-flag"),
+        );
+
+        let applied = apply_flag_overrides(&mut flags, &overrides, 100);
+
+        assert!(
+            applied.is_empty(),
+            "override whose payload key differs from its map key must not be added"
         );
         assert_eq!(flags.len(), 1, "flag list must be unchanged");
     }

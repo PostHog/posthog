@@ -315,6 +315,10 @@ ENCRYPTED_VERSION_HISTORY_UNAVAILABLE = "Version history is not available for fl
 ENCRYPTED_HISTORICAL_EVALUATION_UNAVAILABLE = (
     "Historical evaluation is not available for flags with encrypted payloads."
 )
+TOMBSTONED_KEY_REUSED_UNAVAILABLE = (
+    "Historical evaluation is not available for this flag. Deleting it renamed its key, "
+    "and a newer flag now uses the original key, so the original bucketing can't be reproduced."
+)
 
 # What a config version 2 write may change, in request-field names; everything else stays unsupported
 # until the task that owns it lands. Disabling and soft-deleting are incident controls and need no admission.
@@ -5877,7 +5881,9 @@ class FeatureFlagViewSet(
                 # `has_encrypted_payloads` is mutable: a flag downgraded to plaintext keeps
                 # ciphertext in the activity log the reconstruction reads, so gate on the
                 # reconstructed version's own state too (same rule as the versions endpoint).
-                if reconstructed_flag_data.get("has_encrypted_payloads"):
+                # Index rather than .get(): if a refactor ever drops the field from
+                # reconstruction, this gate must fail loud, not quietly open.
+                if reconstructed_flag_data["has_encrypted_payloads"]:
                     return Response(
                         {"error": ENCRYPTED_HISTORICAL_EVALUATION_UNAVAILABLE},
                         status=status.HTTP_400_BAD_REQUEST,
@@ -5908,6 +5914,24 @@ class FeatureFlagViewSet(
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
+        # Bucketing hashes the flag key, and soft-deleting a flag linked to an
+        # experiment renames its key to "<key>:deleted:<id>". A historical
+        # evaluation must run under the original key, or users land in a
+        # different hash bucket than they did historically and get a wrong
+        # variant. If a live flag has reclaimed the original key, the flags
+        # service would match that flag by key and answer with its current
+        # state, so refuse instead.
+        evaluation_key = feature_flag.key
+        if timestamp and feature_flag.deleted:
+            original_key = feature_flag.key_without_tombstone()
+            if original_key != feature_flag.key:
+                if FeatureFlag.objects.filter(team_id=feature_flag.team_id, key=original_key).exists():
+                    return Response(
+                        {"error": TOMBSTONED_KEY_REUSED_UNAVAILABLE},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                evaluation_key = original_key
+
         # Evaluate the flag
         try:
             # Get team API token for Rust service
@@ -5928,24 +5952,21 @@ class FeatureFlagViewSet(
                     flag_dict: dict[str, Any] = {
                         k: reconstructed_flag_data[k] for k in RUST_FLAG_FIELDS if k in reconstructed_flag_data
                     }
-                    flag_dict.update({"id": feature_flag.id, "key": feature_flag.key, "team_id": feature_flag.team_id})
+                    flag_dict.update({"id": feature_flag.id, "key": evaluation_key, "team_id": feature_flag.team_id})
 
-                    # A successful reconstruction proves the flag existed and was not
-                    # deleted at the timestamp (find_version_at_timestamp returns None
-                    # for deleted-at-timestamp flags, which raises VersionNotFound
-                    # above). The walk-back cannot be trusted for ``deleted`` itself:
-                    # bulk deletes write deleted=True without a version bump and log
-                    # activity with empty changes, so reconstruction starts from the
-                    # deleted row and keeps deleted=True. The flags service skips
-                    # deleted flags, which surfaced as reason="flag_not_found", so
-                    # ship the override undeleted.
+                    # Reconstruction succeeded, so find_version_at_timestamp proved the
+                    # flag was not deleted at the timestamp. The reconstructed `deleted`
+                    # can still be True: a config-v1 bulk delete sets deleted=True
+                    # without a version bump and logs empty changes, so the walk-back
+                    # never undoes it. The flags service skips deleted flags, so the
+                    # override must ship deleted=False.
                     flag_dict["deleted"] = False
 
                     # Stringify datetime fields for JSON serialization.
                     if flag_dict.get("created_at") and hasattr(flag_dict["created_at"], "isoformat"):
                         flag_dict["created_at"] = flag_dict["created_at"].isoformat()
 
-                    override_definitions = {feature_flag.key: flag_dict}
+                    override_definitions = {evaluation_key: flag_dict}
                 except Exception as e:
                     logger.exception("Failed to serialize flag for override")
                     capture_exception(e)
@@ -5968,7 +5989,7 @@ class FeatureFlagViewSet(
                 detailed_analysis=True,
                 person_properties=person_properties,
                 only_use_override_person_properties=timestamp is not None,
-                flag_keys=[feature_flag.key],
+                flag_keys=[evaluation_key],
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
                 # A pooled connection that the service closed fails once with a reset, so retry it.
@@ -5978,7 +5999,7 @@ class FeatureFlagViewSet(
 
             # Extract the flag result from the Rust response
             flags = rust_response.get("flags", {})
-            flag_result = flags.get(feature_flag.key)
+            flag_result = flags.get(evaluation_key)
 
             # Initialize defaults
             condition_index = None
@@ -6003,6 +6024,15 @@ class FeatureFlagViewSet(
                     reason_description = reason_data.get("description") if reason_data else None
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
+                    # A failed per-flag result (e.g. a cohort the service could not
+                    # resolve) also comes back without conditions. Report it as an
+                    # evaluation error, not as the service misconfiguration the
+                    # missing-conditions branch below assumes.
+                    if timestamp and flag_result.get("failed"):
+                        return Response(
+                            {"error": f"Historical evaluation failed: {reason_description or reason}."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
                     # Extract conditions from flag result (only valid path per Rust FlagDetails contract).
                     # When ``timestamp`` is set, missing conditions almost certainly means Rust
                     # rejected the internal token and silently fell back to current-state

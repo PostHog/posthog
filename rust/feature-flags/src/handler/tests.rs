@@ -1669,6 +1669,217 @@ async fn test_fetch_and_filter_override_add_preserves_unparseable_marker() {
     );
 }
 
+/// The cached cohort list only holds cohorts the team's live flags reference,
+/// and the matcher treats a present list as complete. An override can name a
+/// cohort outside that list (a reconstructed deleted flag's cohort), so
+/// `fetch_and_filter` must drop the scoped list when an override was applied,
+/// which makes the matcher load the team's full cohort set instead. Without
+/// an override, the cached list passes through untouched.
+#[tokio::test]
+async fn test_fetch_and_filter_override_drops_scoped_cohort_list() {
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let flags = vec![mock!(FeatureFlag,
+        name: "Live flag".mock_into(),
+        id: 1,
+        key: "live-flag".mock_into(),
+        team_id: team.id,
+        filters: FlagFilters::default()
+    )];
+    let eval_metadata = EvaluationMetadata {
+        dependency_stages: vec![vec![1]],
+        flags_with_missing_deps: vec![],
+        transitive_deps: HashMap::from([(1, std::collections::HashSet::new())]),
+        ..Default::default()
+    };
+    // What Django writes when no live flag targets a cohort: an empty list,
+    // not a missing one.
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.clone(),
+        evaluation_metadata: eval_metadata,
+        cohorts: Some(vec![]),
+    };
+    let json_string = serde_json::to_string(&wrapper).unwrap();
+    let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
+    let cache_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
+    redis_client
+        .set_bytes(cache_key, pickled_bytes, None)
+        .await
+        .unwrap();
+
+    // Without an override the scoped list passes through.
+    let no_override = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(
+        no_override.cohorts.is_some(),
+        "without overrides the cached cohort list must pass through"
+    );
+
+    let override_def = json!({
+        "id": 2,
+        "team_id": team.id,
+        "name": "Reconstructed deleted flag",
+        "key": "deleted-flag",
+        "filters": { "groups": [{"properties": [], "rollout_percentage": 100}] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> =
+        HashMap::from([("deleted-flag".to_string(), override_def)]);
+
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        result.flags.iter().any(|f| f.key == "deleted-flag"),
+        "override must be added"
+    );
+    assert!(
+        result.cohorts.is_none(),
+        "an applied override must drop the scoped cohort list so the matcher loads the full set"
+    );
+}
+
+/// An added flag can depend on a flag that is itself still deleted and so
+/// absent from the merged list. The metadata recompute must mark the added
+/// flag as missing a dependency (it then fails closed), and the live flag
+/// must stay staged.
+#[tokio::test]
+async fn test_fetch_and_filter_override_add_with_missing_dependency_fails_closed() {
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let flags = vec![mock!(FeatureFlag,
+        name: "Live flag".mock_into(),
+        id: 1,
+        key: "live-flag".mock_into(),
+        team_id: team.id,
+        filters: FlagFilters::default()
+    )];
+    let eval_metadata = EvaluationMetadata {
+        dependency_stages: vec![vec![1]],
+        flags_with_missing_deps: vec![],
+        transitive_deps: HashMap::from([(1, std::collections::HashSet::new())]),
+        ..Default::default()
+    };
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.clone(),
+        evaluation_metadata: eval_metadata,
+        cohorts: None,
+    };
+    let json_string = serde_json::to_string(&wrapper).unwrap();
+    let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
+    let cache_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
+    redis_client
+        .set_bytes(cache_key, pickled_bytes, None)
+        .await
+        .unwrap();
+
+    // The added flag depends on flag id 99999, which is in no list (e.g. a
+    // dependency deleted in the same bulk delete).
+    let override_def = json!({
+        "id": 2,
+        "team_id": team.id,
+        "name": "Reconstructed deleted flag",
+        "key": "deleted-flag",
+        "filters": { "groups": [{
+            "properties": [{
+                "key": "99999",
+                "type": "flag",
+                "value": "true",
+                "operator": "flag_evaluates_to",
+            }],
+            "rollout_percentage": 100,
+        }] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> =
+        HashMap::from([("deleted-flag".to_string(), override_def)]);
+
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    let added = result
+        .flags
+        .iter()
+        .find(|f| f.key == "deleted-flag")
+        .expect("added flag must be in the list");
+    assert!(
+        result
+            .evaluation_metadata
+            .flags_with_missing_deps
+            .contains(&added.id),
+        "added flag with an unresolvable dependency must be marked missing-deps (got {:?})",
+        result.evaluation_metadata.flags_with_missing_deps
+    );
+    let staged: Vec<i32> = result
+        .evaluation_metadata
+        .dependency_stages
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
+    assert!(
+        staged.contains(&1),
+        "live flag must stay staged (stages: {staged:?})"
+    );
+}
+
 /// Two `fetch_and_filter` calls against a primed `FlagDefinitionsCache` must
 /// share the same `Arc<[FeatureFlag]>` and `Arc<EvaluationMetadata>` — i.e.
 /// `fetch_and_filter` must not deep-clone either field.

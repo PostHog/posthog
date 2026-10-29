@@ -224,22 +224,30 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
     )
 
     # Deletion state and version are resolved independently. The most recent
-    # "deleted"/"restored" entry at or before the timestamp decides existence —
-    # an "updated" entry does not, since a deleted flag's row can still receive
-    # versioned writes (and bulk deletes log "deleted" with empty changes). The
-    # most recent entry with a version change decides the version.
+    # entry that changed deletion state at or before the timestamp decides
+    # existence, while a versioned "updated" entry does not, since a deleted
+    # flag's row can still receive versioned writes (and bulk deletes log
+    # "deleted" with empty changes). The most recent entry with a version
+    # change decides the version. Deletion state comes from the activity name
+    # AND from a `deleted` field change: before #41043 (2025-11-19), soft
+    # deletes and restores through PATCH were logged as "updated" with a
+    # `deleted` change, and those legacy entries still decide existence.
     alive_confirmed = False
     version_at_timestamp: int | None = None
     for activity, detail in entries:
         changes = (detail or {}).get("changes") or []
         version_after = _get_version_after(changes)
+        deleted_after = next(
+            (change.get("after") for change in changes if change.get("field") == "deleted"),
+            None,
+        )
 
         if version_after is not None and version_at_timestamp is None:
             version_at_timestamp = version_after
 
-        if activity == "deleted" and not alive_confirmed:
+        if (activity == "deleted" or bool(deleted_after)) and not alive_confirmed:
             return None
-        if activity == "restored":
+        if activity == "restored" or (deleted_after is not None and not deleted_after):
             alive_confirmed = True
 
         if alive_confirmed and version_at_timestamp is not None:
