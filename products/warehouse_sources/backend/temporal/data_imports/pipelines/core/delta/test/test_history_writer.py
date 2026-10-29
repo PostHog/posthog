@@ -28,6 +28,7 @@ def _writer(tmp_path: Path, **kwargs: Any) -> HistoryWriter:
     return HistoryWriter(
         make_local_table_ref(str(tmp_path / "history")),
         make_local_table_ref(str(tmp_path / "staging")),
+        make_local_table_ref(str(tmp_path / "pending")),
         primary_keys=kwargs.pop("primary_keys", ["id"]),
         valid_from_column="_ph_valid_from",
         valid_to_column="_ph_valid_to",
@@ -145,6 +146,35 @@ class TestHistoryWriter:
         await _run(writer, "run-2", _batch([(1, "b", _at(2))]))
 
         assert [row[1] for row in _history(tmp_path)] == ["a", "b"]
+
+    @pytest.mark.asyncio
+    async def test_an_interrupted_close_ends_each_version_where_its_run_planned(self, tmp_path: Path) -> None:
+        writer = _writer(tmp_path)
+        await _run(writer, "run-1", _batch([(1, "a", _at(1))]))
+        # The run appends two versions, so the first one is already closed and out of the current partition.
+        await writer.append(_batch([(1, "b", _at(2))]), run_uuid="run-2", batch_index=0)
+        await writer.append(_batch([(1, "c", _at(3))]), run_uuid="run-2", batch_index=1)
+        with patch.object(deltalake.DeltaTable, "merge", side_effect=RuntimeError("crash")):
+            with pytest.raises(RuntimeError):
+                await writer.finalize()
+        # A cursor that went backwards, staged before anything re-runs the close.
+        await writer.append(_batch([(1, "z", _at(1, 15))]), run_uuid="run-3", batch_index=0)
+        await writer.finalize()
+
+        assert [(row[1], row[3]) for row in _history(tmp_path)] == [("a", _at(2)), ("b", _at(3)), ("c", None)]
+
+    @pytest.mark.asyncio
+    async def test_a_required_column_that_arrives_later_keeps_the_earlier_rows(self, tmp_path: Path) -> None:
+        writer = _writer(tmp_path)
+        later = _batch([(2, "b", _at(1))])
+        later = later.append_column(pa.field("plan", pa.string(), nullable=False), pa.array(["pro"]))
+        await _run(writer, "run-1", _batch([(1, "a", _at(1))]), later)
+
+        assert [row[0] for row in _history(tmp_path)] == [1, 2]
+
+    def test_a_key_named_like_a_close_column_is_refused(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="_ph_close_at"):
+            _writer(tmp_path, primary_keys=["_ph_close_at"])
 
     @pytest.mark.asyncio
     async def test_a_source_column_named_like_staging_metadata_is_refused(self, tmp_path: Path) -> None:

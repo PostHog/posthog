@@ -83,16 +83,19 @@ class HistoryWriter:
     A row becomes a version when its `order_column` value is greater than that of its key's newest open
     version, or when its key has no open version. Rows with the same key and order value collapse into
     the last one staged, which drops incremental re-reads and a redelivered batch. Every open version
-    that is not its key's newest closes at the next version after it, staged or open. Between the
-    append and the close a key has more than one open version, so a re-run after a crash there inserts
-    nothing it already wrote and still closes each old version at the right time. Staged rows are
-    deleted only after the close committed.
+    that is not its key's newest closes at the next version after it.
+
+    The append of new versions and the close are two commits. Each bucket records its closes in the
+    `pending` table before it appends, and `finalize` applies any recorded closes before it plans, so a
+    re-run after a crash between the two commits closes each old version where the first run planned.
+    Staged rows and recorded closes are deleted only after the close committed.
     """
 
     def __init__(
         self,
         table: "DeltaTableRef",
         staging: "DeltaTableRef",
+        pending: "DeltaTableRef",
         *,
         primary_keys: Sequence[str],
         valid_from_column: str,
@@ -109,8 +112,12 @@ class HistoryWriter:
             raise ValueError("A partitioned history table needs the name of its current partition")
         if not primary_keys:
             raise ValueError("A history table needs a primary key")
+        taken = {normalize_column_name(key) for key in primary_keys} & {_CLOSE_ORDER, _CLOSE_AT, _CLOSE_PARTITION}
+        if taken:
+            raise ValueError(f"A history table can't use {sorted(taken)} as a key, because the close writes it")
         self._table = table
         self._staging = staging
+        self._pending = pending
         self._logger = table.logger
         self._primary_keys = [normalize_column_name(key) for key in primary_keys]
         self._valid_from = valid_from_column
@@ -153,6 +160,8 @@ class HistoryWriter:
             )
             self._staging.adopt_created_table(staging_table)
         else:
+            # A new column joins as nullable, because the rows staged before it do not have it.
+            staging_table = await evolve_delta_schema(staging_table, data.schema)
             data = align_incoming_decimals_to_delta(data, staging_table.schema())
         await asyncio.to_thread(
             deltalake.write_deltalake,
@@ -176,6 +185,7 @@ class HistoryWriter:
         buckets = min(_MAX_BUCKETS, max(1, int(-(-staged_mib // self._bucket_target_mib)))) if staged_mib else 1
         staged_rows = inserted_rows = backwards_rows = 0
         closes: list[pa.Table] = []
+        await self._apply_pending_closes()
         # Read before the first append: a table this run creates holds no open version of any staged key.
         history_table = await self._table.get_delta_table()
         # A table created before partitioning stays unpartitioned, so its rows get no partition column.
@@ -211,6 +221,8 @@ class HistoryWriter:
                     )
                 plan = await asyncio.to_thread(self._plan_bucket, staged, open_versions, partition_versions, directory)
                 del staged
+                if plan.closes.num_rows:
+                    await self._record_pending_closes(plan.closes)
                 if plan.inserts.num_rows:
                     await self._append_versions(plan.inserts)
                 closes.append(plan.closes)
@@ -222,6 +234,7 @@ class HistoryWriter:
         closed_rows = all_closes.num_rows if all_closes is not None else 0
         if all_closes is not None and closed_rows:
             await self._close_versions(all_closes)
+            await self._clear_pending_closes()
         # Only after the close committed: a crash before this point leaves the rows staged for the re-run.
         await DeltaWriter(self._staging).delete_where(STAGED_BATCH_COLUMN, batch_tags)
         history_table = await self._table.get_delta_table()
@@ -236,6 +249,41 @@ class HistoryWriter:
         )
         await self._logger.ainfo("history_finalize", **dataclasses.asdict(result))
         return result
+
+    async def _apply_pending_closes(self) -> None:
+        """Finish the closes an earlier finalize recorded and did not commit."""
+        pending_table = await self._pending.get_delta_table()
+        if pending_table is None:
+            return
+        recorded = await asyncio.to_thread(pending_table.to_pyarrow_table)
+        if recorded.num_rows == 0:
+            return
+        await self._close_versions(recorded)
+        await self._clear_pending_closes()
+
+    async def _record_pending_closes(self, closes: pa.Table) -> None:
+        pending_table = await self._pending.get_delta_table()
+        if pending_table is None:
+            pending_table = await asyncio.to_thread(
+                deltalake.DeltaTable.create,
+                table_uri=await self._pending.get_table_uri(),
+                schema=closes.schema,
+                storage_options=self._pending.get_storage_options(),
+                configuration=DELTA_TABLE_PROPERTIES,
+            )
+            self._pending.adopt_created_table(pending_table)
+        else:
+            pending_table = await evolve_delta_schema(pending_table, closes.schema)
+        await asyncio.to_thread(
+            deltalake.write_deltalake, table_or_uri=pending_table, data=closes, mode="append", schema_mode="merge"
+        )
+
+    async def _clear_pending_closes(self) -> None:
+        pending_table = await self._pending.get_delta_table()
+        if pending_table is not None:
+            await execute_with_conflict_retry(
+                pending_table, lambda: pending_table.delete(), "HistoryWriter: clear pending closes", self._logger
+            )
 
     def _spill_buckets(self, dataset: ds.Dataset, buckets: int, directory: Path) -> tuple[list[Path], set[str]]:
         batch_tags: set[str] = set()
@@ -405,24 +453,23 @@ class HistoryWriter:
                 .arrow()
                 .read_all()
             )
-            # A key has more than one open version after a crash between the append and the close, and
-            # after an older writer matched null keys with `=`. Each one closes at the version after it.
+            # Each open version closes at the version after it: a newer open one, which an older writer that
+            # matched null keys with `=` can leave, or the first version this run inserts. A staged row the
+            # run does not insert is no boundary.
             close_rows = (
                 connection.execute(
                     f"""
                     WITH opens AS (
                         SELECT {keys}, ord, min(open_index) AS open_index FROM open_rows GROUP BY {keys}, ord
                     ),
-                    fresh AS (
-                        SELECT c.* FROM candidates c WHERE NOT EXISTS (
-                            SELECT 1 FROM opens o WHERE {_null_safe_keys("o", "c", key_count)} AND o.ord = c.ord
-                        )
+                    accepted AS (
+                        SELECT * FROM candidates WHERE newest IS NOT NULL AND ord > newest
                     ),
                     versions AS (
                         SELECT {keys}, ord, open_index, NULL::BIGINT AS row_index, NULL::BIGINT AS staged_row
                         FROM opens
                         UNION ALL
-                        SELECT {keys}, ord, NULL::BIGINT, row_index, staged_row FROM fresh
+                        SELECT {keys}, ord, NULL::BIGINT, row_index, staged_row FROM accepted
                     ),
                     successors AS (
                         SELECT
