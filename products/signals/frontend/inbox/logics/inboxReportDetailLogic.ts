@@ -87,7 +87,7 @@ import {
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
-import { REPORT_AI_PANEL, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
+import { REPORT_AI_PANEL, ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { isReportClaimable, reportClaimant, reportClaimRequest } from '../utils/reportClaim'
@@ -423,8 +423,32 @@ export interface inboxReportDetailLogicActions {
     createPrSuccess: () => {
         value: true
     } // inboxTaskKickoffLogic
+    discussReport: (
+        report: SignalReport,
+        reportUrl: string,
+        question: string,
+        agentQuestion?: string | undefined,
+        intent?: ReportDiscussionIntent | undefined,
+        pullRequestUrl?: string | undefined,
+        background?: boolean | undefined
+    ) => {
+        agentQuestion: string | undefined
+        background: boolean | undefined
+        intent: ReportDiscussionIntent | undefined
+        pullRequestUrl: string | undefined
+        question: string
+        report: SignalReport
+        reportUrl: string
+    } // inboxTaskKickoffLogic
     discussReportSuccess: () => {
         value: true
+    } // inboxTaskKickoffLogic
+    openReportDiscussion: (
+        report: SignalReport,
+        reportUrl: string
+    ) => {
+        report: SignalReport
+        reportUrl: string
     } // inboxTaskKickoffLogic
     openReportTask: (
         report: SignalReport,
@@ -842,7 +866,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             [
                 'alignReportDiscussion',
                 'createPrSuccess',
+                'discussReport',
                 'discussReportSuccess',
+                'openReportDiscussion',
                 'openReportTask',
                 'warmReportDiscussion',
             ],
@@ -932,7 +958,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         feedbackSaved: (feedback: SignalReportFeedbackStateApi) => ({ feedback }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         savedFeedback: [
             null as SignalReportFeedbackStateApi | null,
             {
@@ -1026,17 +1052,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                             associations.set(content.task_id, { ...derived, startedAt: artefact.created_at })
                         }
                     }
+                    let incomplete = false
                     const entries = await Promise.all(
                         [...associations.entries()].map(async ([taskId, meta]): Promise<ReportTaskEntry | null> => {
                             try {
                                 const task = await api.tasks.get(taskId)
                                 return { task, ...meta }
-                            } catch {
+                            } catch (error) {
                                 // A deleted/inaccessible task drops out of the list rather than failing the load.
+                                if (!(error instanceof ApiError && (error.status === 403 || error.status === 404))) {
+                                    incomplete = true
+                                }
                                 return null
                             }
                         })
                     )
+                    // Other failures can be transient. Sidebar alignment waits for a load that has every task.
+                    cache.reportTasksIncomplete = incomplete
                     return entries
                         .filter((entry): entry is ReportTaskEntry => entry !== null)
                         .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
@@ -2129,14 +2161,29 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.loadReportDiff({ artefactId: commit.id })
             }
         },
+        // A run or chat the user opens owns the sidebar, so a later task load must not replace it.
+        discussReport: ({ background }) => {
+            if (!background) {
+                cache.sidebarAlignmentPending = false
+            }
+        },
+        openReportDiscussion: () => {
+            cache.sidebarAlignmentPending = false
+        },
+        openReportTask: () => {
+            cache.sidebarAlignmentPending = false
+        },
         loadReportTasksSuccess: (_, __, ___, previousState) => {
             if (
-                selectors.reportTasks(previousState) === null &&
+                cache.sidebarAlignmentPending &&
                 values.selectedTab === SidePanelTab.Max &&
                 values.selectedTabOptions === REPORT_AI_PANEL &&
                 values.report
             ) {
-                const task = values.primaryTask
+                const task = cache.reportTasksIncomplete ? null : values.primaryTask
+                if (!cache.reportTasksIncomplete) {
+                    cache.sidebarAlignmentPending = false
+                }
                 if (task?.task.latest_run) {
                     actions.openReportTask(values.report, task.task.id, task.task.latest_run.id)
                 } else {
@@ -2219,6 +2266,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
         if (props.report && values.selectedTab === SidePanelTab.Max && values.selectedTabOptions === REPORT_AI_PANEL) {
+            cache.sidebarAlignmentPending = true
             actions.alignReportDiscussion(
                 props.report,
                 `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', props.report.id))}`

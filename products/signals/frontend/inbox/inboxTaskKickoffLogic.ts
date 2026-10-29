@@ -742,7 +742,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
-            if (values.reportWarmLease?.reportId !== undefined && values.reportWarmLease.reportId !== report.id) {
+            const warmReportIds = [values.reportWarmLease?.reportId, cache.warmingReportId, cache.pendingWarmReport?.id]
+            if (warmReportIds.some((id) => id && id !== report.id)) {
                 actions.releaseReportDiscussionWarm()
             }
         },

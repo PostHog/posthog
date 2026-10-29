@@ -1435,5 +1435,82 @@ describe('inboxReportDetailLogic', () => {
                 unmountKickoff()
             }
         })
+
+        it('opens the linked task once a load after a transient task failure succeeds', async () => {
+            const linkedTask = {
+                id: 'linked-task',
+                latest_run: { id: 'linked-run', status: TaskRunStatus.IN_PROGRESS },
+            }
+            let taskFetchFails = true
+            useReportTaskMocks({ [REPORT.id]: [taskRunArtefact(linkedTask.id, '2026-01-01T00:00:00Z')] }, {})
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/tasks/:id/': () =>
+                        taskFetchFails ? [500, { detail: 'Server error' }] : [200, linkedTask],
+                },
+                post: { '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': {} },
+            })
+            initKeaTests()
+            const kickoff = inboxTaskKickoffLogic()
+            const runner = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            const unmountKickoff = kickoff.mount()
+            const unmountRunner = runner.mount()
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                expect(runner.values.activeCreation).toBeNull()
+
+                taskFetchFails = false
+                await expectLogic(logic, () => logic.actions.loadReportTasks()).toFinishAllListeners()
+
+                expect(runner.values.activeCreation).toMatchObject({ taskId: 'linked-task', runId: 'linked-run' })
+            } finally {
+                logic.unmount()
+                unmountRunner()
+                unmountKickoff()
+            }
+        })
+
+        it('keeps a chat the user opens before the first task load finishes', async () => {
+            const linkedTask = {
+                id: 'linked-task',
+                latest_run: { id: 'linked-run', status: TaskRunStatus.IN_PROGRESS },
+            }
+            let releaseTask!: () => void
+            const taskGate = new Promise<void>((resolve) => {
+                releaseTask = resolve
+            })
+            useReportTaskMocks({ [REPORT.id]: [taskRunArtefact(linkedTask.id, '2026-01-01T00:00:00Z')] }, {})
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/tasks/:id/': async () => {
+                        await taskGate
+                        return [200, linkedTask]
+                    },
+                },
+            })
+            initKeaTests()
+            const kickoff = inboxTaskKickoffLogic()
+            const runner = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            const unmountKickoff = kickoff.mount()
+            const unmountRunner = runner.mount()
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            try {
+                kickoff.actions.openReportDiscussion(REPORT, 'https://example.com/report')
+                releaseTask()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.reportTasks?.map((entry) => entry.task.id)).toEqual(['linked-task'])
+                expect(runner.values.activeCreation).toBeNull()
+            } finally {
+                logic.unmount()
+                unmountRunner()
+                unmountKickoff()
+            }
+        })
     })
 })
