@@ -3307,6 +3307,10 @@ class TestIntegrationAPIKeyAccess:
         assert repos.status_code == status.HTTP_404_NOT_FOUND
         # Only the App row of the list heals its account name. The token row has no installation.
         assert heal.call_count == 1
+        # Actions other than list, retrieve and destroy do not reach the warehouse source row.
+        # `test_destroy_of_a_source_credentials_row` covers destroy.
+        source_repos = client.get(f"{base_url}/{source_row.id}/github_repos/")
+        assert source_repos.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_integrations_filtered_by_kind(self, client: HttpClient):
         client.force_login(self.user)

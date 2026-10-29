@@ -130,7 +130,7 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     resolve_aliased_oauth_kind,
 )
-from posthog.models.integration.auth_types import default_auth_type
+from posthog.models.integration.auth_types import default_auth_type, rows_without_source_marker_q
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
@@ -1625,11 +1625,12 @@ class IntegrationViewSet(
         user_id = getattr(self.request.user, "id", None)
         queryset = queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
         # The other actions (channels, github_repos, ...) call provider code that reads the row in the
-        # default shape of its kind, so they keep to rows with the default auth type. Destroy accepts
-        # every auth type, because the list shows every row, and skips provider teardown for the rest.
+        # default shape of its kind, so they keep to rows with the default auth type, and skip warehouse
+        # source rows, the same as the implicit filter of `Integration.objects`. Destroy accepts every
+        # row, because the list shows every row, and skips provider teardown for the rest.
         if self.action not in ("list", "retrieve", "destroy"):
             assert isinstance(queryset, IntegrationQuerySet)
-            queryset = queryset._with_auth(DEFAULT)
+            queryset = queryset._with_auth(DEFAULT).filter(rows_without_source_marker_q())
         return queryset
 
     def handle_exception(self, exc: Exception) -> Response:

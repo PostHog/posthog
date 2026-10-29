@@ -85,7 +85,8 @@ const SesClickEventSchema = SesCommonEventBase.extend({
         ipAddress: z.string().optional(),
         link: z.string(),
         // Echoes the `ses:tags` we set on each anchor at send time, as {name: [value]}.
-        linkTags: z.record(z.string(), z.array(z.string())).optional(),
+        // Some SES Click events send `null` here instead of omitting the field.
+        linkTags: z.record(z.string(), z.array(z.string())).nullish(),
         userAgent: z.string().optional(),
         timestamp: z.string(),
     }),

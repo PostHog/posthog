@@ -335,6 +335,12 @@ export function buildPageUrlOptions(
     return [...representativeByCleaned.entries()].map(([label, key]) => ({ key, label }))
 }
 
+const NO_HOST_FILTER: WebAnalyticsPropertyFilters[number] = {
+    type: PropertyFilterType.Event,
+    key: '$host',
+    operator: PropertyOperator.IsNotSet,
+}
+
 function createHostFilter(host: string | null): WebAnalyticsPropertyFilters {
     return host ? [{ type: PropertyFilterType.Event, key: '$host', operator: PropertyOperator.Exact, value: host }] : []
 }
@@ -349,14 +355,17 @@ export function createPageReportsFilters(
     url: string,
     stripQueryParams: boolean,
     selectedHost: string | null,
-    isPathCleaningEnabled: boolean = false
+    isPathCleaningEnabled: boolean = false,
+    hostlessMeansNoHost: boolean = false
 ): WebAnalyticsPropertyFilters {
     const filters = createUrlPropertyFilter(url, stripQueryParams)
 
     // Drop the URL's own host so the explicitly selected host wins, then apply it.
     const withSelectedHost = selectedHost
         ? [...filters.filter((filter) => filter.key !== '$host'), ...createHostFilter(selectedHost)]
-        : filters
+        : hostlessMeansNoHost && String(url ?? '').startsWith('/')
+          ? [...filters, NO_HOST_FILTER]
+          : filters
 
     return applyPathCleaningToFilters(withSelectedHost, isPathCleaningEnabled)
 }
@@ -610,7 +619,8 @@ export interface pageReportsLogicMeta {
             shouldFilterTestAccounts: boolean,
             compareFilter: CompareFilter,
             isPathCleaningEnabled: boolean,
-            selectedHost: string | null
+            selectedHost: string | null,
+            isDirectoryEnabled: boolean
         ) =>
             | {
                   avgTimeOnPageTrendQuery: InsightVizNode<TrendsQuery> | undefined
@@ -682,7 +692,8 @@ export interface pageReportsLogicMeta {
             stripQueryParams: boolean,
             shouldFilterTestAccounts: boolean,
             selectedHost: string | null,
-            isPathCleaningEnabled: boolean
+            isPathCleaningEnabled: boolean,
+            isDirectoryEnabled: boolean
         ) => (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>
         tiles: (
             queries:
@@ -967,6 +978,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 s.compareFilter,
                 s.isPathCleaningEnabled,
                 s.selectedHost,
+                s.isDirectoryEnabled,
             ],
             (
                 webAnalyticsTiles: WebAnalyticsTile[],
@@ -976,7 +988,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 shouldFilterTestAccounts: boolean,
                 compareFilter: CompareFilter,
                 isPathCleaningEnabled: boolean,
-                selectedHost: string | null
+                selectedHost: string | null,
+                isDirectoryEnabled: boolean
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
@@ -1008,7 +1021,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     pageUrl,
                     stripQueryParams,
                     selectedHost,
-                    isPathCleaningEnabled
+                    isPathCleaningEnabled,
+                    isDirectoryEnabled
                 )
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
 
@@ -1143,13 +1157,21 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts, s.selectedHost, s.isPathCleaningEnabled],
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.shouldFilterTestAccounts,
+                s.selectedHost,
+                s.isPathCleaningEnabled,
+                s.isDirectoryEnabled,
+            ],
             (
                 pageUrl: string | null,
                 stripQueryParams: boolean,
                 shouldFilterTestAccounts: boolean,
                 selectedHost: string | null,
-                isPathCleaningEnabled: boolean
+                isPathCleaningEnabled: boolean,
+                isDirectoryEnabled: boolean
             ) =>
                 (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
@@ -1186,7 +1208,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
                         properties: pageUrl
-                            ? createPageReportsFilters(pageUrl, stripQueryParams, selectedHost, isPathCleaningEnabled)
+                            ? createPageReportsFilters(
+                                  pageUrl,
+                                  stripQueryParams,
+                                  selectedHost,
+                                  isPathCleaningEnabled,
+                                  isDirectoryEnabled
+                              )
                             : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
@@ -1470,9 +1498,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     listeners: ({ actions, values }) => ({
         openPageReport: ({ source, position }) => {
             posthog.capture('web analytics page report opened', { source, row_position: position })
-            if (values.isInitialLoad) {
-                actions.loadPages('')
-            }
         },
         backToDirectory: () => {
             posthog.capture('web analytics page report back to directory', { method: 'breadcrumb' })
@@ -1487,15 +1512,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             actions.loadPages(searchTerm)
         },
         loadPages: ({ searchTerm }) => {
-            if (values.isDirectoryEnabled && !values.pageUrl) {
+            if (values.isDirectoryEnabled) {
                 return
             }
             actions.loadPagesUrls({ searchTerm })
-        },
-        setPageUrl: () => {
-            if (values.isDirectoryEnabled && values.pageUrl && values.isInitialLoad) {
-                actions.loadPages('')
-            }
         },
         setDates: () => {
             if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
