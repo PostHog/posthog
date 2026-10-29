@@ -99,6 +99,8 @@ _START_OF_UNITS = {
 # behind UTC, that midnight comes before the local midnight that the rounding chose.
 _DATE_UNITS = frozenset({"Week", "Month", "Quarter", "Year"})
 
+_UNMOVABLE_SHAPE = "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
+
 # An alias with one of these names can shadow the column in an unqualified read.
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
 
@@ -833,19 +835,21 @@ class _EventsScanSwapper(ScanVisitor):
         Any other scan without a clone cannot swap.
         """
         for select, join in _joins(resolved):
-            if not _is_events_scan(join.type) or sources.is_added(join):
+            if not _reads_events_table(join) or sources.is_added(join):
                 continue
             if not _pins_flag_calls(filter_conjuncts(select), partial(_reads_event_of, join.type), None):
                 continue
             source = sources.source_of(join)
             clone = clones.get(id(source)) if source is not None else None
-            chain = _table_chain(clone[2]) if clone is not None else None
+            if clone is None:
+                return _UNMOVABLE_SHAPE
+            chain = _table_chain(clone.join)
             if chain == ["posthog", "flag_evaluations"]:
                 # The syntactic rules, or an earlier resolved join from the same source, already swapped it.
                 continue
-            if clone is None or chain != ["events"]:
-                return "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
-            _, clone_select, clone_join = clone
+            if chain != ["events"]:
+                return _UNMOVABLE_SHAPE
+            clone_select, clone_join = clone.select, clone.join
             events_scan = EventsScan(
                 join=clone_join,
                 alias=clone_join.alias or "events",
@@ -860,14 +864,21 @@ class _EventsScanSwapper(ScanVisitor):
         return None
 
 
-# Keyed by the id of each original join. Each entry keeps its original join alive, so no other node can take its id.
-_JoinClones = dict[int, tuple[ast.JoinExpr, ast.SelectQuery, ast.JoinExpr]]
+@frozen
+class _JoinClone:
+    # Keeps the original join alive, so no other node can take the id that keys it.
+    original: ast.JoinExpr
+    select: ast.SelectQuery
+    join: ast.JoinExpr
+
+
+_JoinClones = dict[int, _JoinClone]
 
 
 def _join_clones(original: ast.AST, clone: ast.AST) -> _JoinClones:
     """Each join of `original`, with the `SelectQuery` and `JoinExpr` in its place in `clone`, a copy of it."""
     return {
-        id(join): (join, clone_select, clone_join)
+        id(join): _JoinClone(original=join, select=clone_select, join=clone_join)
         for (_, join), (clone_select, clone_join) in zip(_joins(original), _joins(clone), strict=True)
     }
 
@@ -895,11 +906,6 @@ class _JoinCollector(SyntaxVisitor):
             self.joins.append((node, join))
             join = join.next_join
         super().visit_select_query(node)
-
-
-def _is_events_scan(table_type: ast.Type | None) -> bool:
-    table_type = unwrap_table_alias_type(table_type)
-    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
 
 
 def _reads_event_of(table_type: ast.Type | None, expr: ast.Expr) -> bool:
@@ -1131,7 +1137,5 @@ def _reads_only_flag_calls_from_events(node: ast.SelectQuery) -> bool:
 
 def _reads_events_table(join: ast.JoinExpr) -> bool:
     """Whether a resolved FROM reads the events table, rather than a CTE named `events`."""
-    table_type = join.type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
+    table_type = unwrap_table_alias_type(join.type)
     return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
