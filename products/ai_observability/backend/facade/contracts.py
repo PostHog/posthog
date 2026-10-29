@@ -169,6 +169,26 @@ class TraceEvaluationResults(Contract):
     summary: TraceEvaluationSummary
 
 
+class TraceCluster(Contract):
+    run_id: str = Field(
+        description="The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id."
+    )
+    run_at: datetime = Field(description="When the run finished.")
+    job_id: str | None = Field(description="The clustering job the run belongs to, null for a run without a job.")
+    job_name: str | None
+    cluster_id: int = Field(description="The cluster's id within its run. -1 is the run's outliers.")
+    title: str | None
+    description: str | None
+    is_outlier: bool = Field(description="The trace fit no cluster in this run.")
+
+
+class TraceClusters(Contract):
+    clusters: list[TraceCluster] = Field(
+        description="The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. "
+        "Manual runs are left out. Clusters come before outliers, then newest first."
+    )
+
+
 class TraceFeedbackScore(Contract):
     id: str
     name: str | None
