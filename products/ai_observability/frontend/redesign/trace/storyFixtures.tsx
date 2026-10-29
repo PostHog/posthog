@@ -471,6 +471,7 @@ export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { st
         {
             kind: 'survey',
             id: 'submission-full',
+            nodeId: 'trace-1',
             timestamp: '2026-09-01T10:25:00Z',
             survey: answerQuality,
             answers: [
@@ -494,6 +495,7 @@ export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { st
         {
             kind: 'survey',
             id: 'submission-partial',
+            nodeId: 'trace-1',
             timestamp: '2026-09-01T10:26:00Z',
             survey: answerQuality,
             answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: false }],
@@ -505,6 +507,7 @@ export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { st
         {
             kind: 'survey',
             id: 'submission-deleted',
+            nodeId: 'trace-1',
             timestamp: '2026-09-01T10:27:00Z',
             survey: { id: '0192f2a4-5c1e-7000-8000-00000000a002', name: null },
             answers: [],
@@ -516,6 +519,7 @@ export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { st
         {
             kind: 'survey',
             id: 'submission-empty',
+            nodeId: 'trace-1',
             timestamp: '2026-09-01T10:28:00Z',
             survey: { id: '0192f2a4-5c1e-7000-8000-00000000a003', name: 'Draft survey' },
             answers: [],

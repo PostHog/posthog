@@ -173,6 +173,7 @@ export function makeSurveyResponse(overrides: Partial<TraceSurveyResponseApi> = 
     return {
         kind: 'survey',
         id: 'submission-1',
+        nodeId: 'trace-1',
         timestamp: '2026-09-01T10:18:00Z',
         survey: { id: 'survey-1', name: 'Answer quality' },
         answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: true }],

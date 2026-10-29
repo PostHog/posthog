@@ -121479,6 +121479,8 @@ export namespace Schemas {
     export interface TraceSurveyResponse {
       kind: 'survey';
       id: string;
+      /** The tree node the response targets: the trace id, as a survey response covers the whole trace. */
+      nodeId: string;
       timestamp: string;
       survey: TraceSurvey;
       answers: (TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer)[];

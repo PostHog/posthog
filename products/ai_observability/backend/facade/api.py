@@ -282,7 +282,7 @@ def get_trace_feedback(
     responses: list[contracts.TraceFeedbackText | contracts.TraceSurveyResponse] = sorted(
         [
             *(_to_feedback_text(text) for text in feedback.texts),
-            *(_to_survey_response(response) for response in survey_responses),
+            *(_to_survey_response(response, trace_id) for response in survey_responses),
         ],
         key=lambda response: response.timestamp,
     )
@@ -316,10 +316,11 @@ def _to_survey(survey: SurveyRef) -> contracts.TraceSurvey:
     return contracts.TraceSurvey(id=survey.id, name=survey.name)
 
 
-def _to_survey_response(response: LinkedSurveyResponse) -> contracts.TraceSurveyResponse:
+def _to_survey_response(response: LinkedSurveyResponse, trace_id: str) -> contracts.TraceSurveyResponse:
     return contracts.TraceSurveyResponse(
         kind="survey",
         id=response.submission_id,
+        node_id=trace_id,
         timestamp=response.submitted_at,
         survey=_to_survey(response.survey),
         answers=[_to_survey_answer(answer) for answer in response.answers],

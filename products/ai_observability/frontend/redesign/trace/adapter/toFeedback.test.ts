@@ -25,11 +25,11 @@ describe('toFeedback', () => {
                 responses: [
                     makeFeedbackText({ nodeId: 'gen-1' }),
                     makeFeedbackText({ id: 'text-2', nodeId: traceId }),
-                    makeSurveyResponse(),
+                    makeSurveyResponse({ nodeId: traceId }),
                 ],
             })
 
-            expect({ ...toStepFeedback(feedback, traceId) }).toEqual({
+            expect({ ...toStepFeedback(feedback) }).toEqual({
                 'gen-1': { scores: [score], responseCount: 1 },
                 [traceId]: { scores: [traceScore], responseCount: 2 },
             })
@@ -40,7 +40,7 @@ describe('toFeedback', () => {
         'stepFeedbackOf finds the root %s only when it has feedback',
         (traceId) => {
             const traceScore = makeFeedbackScore({ nodeId: traceId })
-            const withFeedback = toStepFeedback(makeFeedback({ scores: [traceScore], responses: [] }), traceId)
+            const withFeedback = toStepFeedback(makeFeedback({ scores: [traceScore], responses: [] }))
 
             expect(stepFeedbackOf({}, traceId)).toBeNull()
             expect(stepFeedbackOf(withFeedback, traceId)).toEqual({ scores: [traceScore], responseCount: 0 })

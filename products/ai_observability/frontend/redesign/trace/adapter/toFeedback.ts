@@ -8,12 +8,8 @@ export function toFeedbackChip(summary: TraceFeedbackSummaryApi): FeedbackChipDa
         : null
 }
 
-function nodeIdOf(response: TraceFeedbackApi['responses'][number], traceId: string): string {
-    return response.kind === 'text' ? response.nodeId : traceId
-}
-
 /** Trace-level entries sit on the root, whose id is the trace id. */
-export function toStepFeedback(feedback: TraceFeedbackApi, traceId: string): Record<string, StepFeedback> {
+export function toStepFeedback(feedback: TraceFeedbackApi): Record<string, StepFeedback> {
     // The root's key is the trace id, which is free-form, so a prototype key such as `constructor` must not resolve.
     const byStep: Record<string, StepFeedback> = Object.create(null)
     const entry = (nodeId: string): StepFeedback => (byStep[nodeId] ??= { scores: [], responseCount: 0 })
@@ -21,7 +17,7 @@ export function toStepFeedback(feedback: TraceFeedbackApi, traceId: string): Rec
         entry(score.nodeId).scores.push(score)
     }
     for (const response of feedback.responses) {
-        entry(nodeIdOf(response, traceId)).responseCount += 1
+        entry(response.nodeId).responseCount += 1
     }
     return byStep
 }
@@ -55,7 +51,7 @@ export function toFeedbackMode({
     return {
         status: 'ready',
         scores: feedback.scores.map((score) => ({ ...score, ...placement(score.nodeId) })),
-        responses: feedback.responses.map((response) => ({ ...response, ...placement(nodeIdOf(response, traceId)) })),
+        responses: feedback.responses.map((response) => ({ ...response, ...placement(response.nodeId) })),
         unanswered: feedback.unanswered,
         surveysFailed: feedback.surveyResponsesStatus === 'failed',
     }

@@ -140,7 +140,10 @@ def test_feedback_maps_scores_texts_and_survey_responses_oldest_first() -> None:
         )
 
     assert [(score.name, score.value, score.node_id) for score in feedback.scores] == [("helpfulness", "0", "gen-uuid")]
-    assert [(response.kind, response.id) for response in feedback.responses] == [("survey", "sub-1"), ("text", "text")]
+    assert [(response.kind, response.id, response.node_id) for response in feedback.responses] == [
+        ("survey", "sub-1", "trace-1"),
+        ("text", "text", "trace-1"),
+    ]
     survey_response = feedback.responses[0]
     assert isinstance(survey_response, contracts.TraceSurveyResponse)
     assert (survey_response.survey.name, survey_response.complete) == ("Answer quality", False)

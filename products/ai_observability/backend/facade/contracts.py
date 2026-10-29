@@ -231,6 +231,9 @@ TraceSurveyAnswer = Annotated[
 class TraceSurveyResponse(Contract):
     kind: Literal["survey"]
     id: str
+    node_id: str = Field(
+        description="The tree node the response targets: the trace id, as a survey response covers the whole trace."
+    )
     timestamp: datetime
     survey: TraceSurvey
     answers: list[TraceSurveyAnswer]

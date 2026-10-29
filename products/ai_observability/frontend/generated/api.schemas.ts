@@ -1557,6 +1557,8 @@ export const TraceSurveyResponseApiUnavailable = {
 export interface TraceSurveyResponseApi {
     kind: 'survey'
     id: string
+    /** The tree node the response targets: the trace id, as a survey response covers the whole trace. */
+    nodeId: string
     timestamp: string
     survey: TraceSurveyApi
     answers: (TraceThumbsAnswerApi | TraceRatingAnswerApi | TraceChoiceAnswerApi | TraceTextAnswerApi)[]
