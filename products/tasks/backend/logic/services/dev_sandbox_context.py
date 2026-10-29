@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
@@ -20,7 +20,7 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandbo
         raise RuntimeError(f"No users in organization '{team.organization.name}' (team {team.id})")
     user = membership.user
     # Validate the integration exists upfront so we fail early with a clear message.
-    gh = Integration.objects.filter(team=team, kind="github").first()
+    gh = IntegrationManager.github.oauth.find(team.id)
     if not gh:
         raise RuntimeError(
             f"No GitHub integration found for team {team.id}. "
