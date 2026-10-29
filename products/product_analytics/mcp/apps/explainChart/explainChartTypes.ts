@@ -33,7 +33,6 @@ export interface StorySeriesResult {
     label?: string
     data?: number[]
     days?: string[]
-    action?: { name?: string }
 }
 
 export interface StoryTrendsQuery {

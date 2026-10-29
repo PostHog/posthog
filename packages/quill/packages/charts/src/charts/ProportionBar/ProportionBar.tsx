@@ -4,6 +4,7 @@ import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     BarChartConfig,
     ChartLegendConfig,
@@ -37,7 +38,8 @@ export interface ProportionBarConfig {
 export interface ProportionBarProps<Meta = unknown> {
     /** One series per part, valued like a `PieChart` slice: the sum of `data`, floored at 0. */
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: ProportionBarConfig
     /** Formats a part's raw value in the legend and the default tooltip. */
     valueFormatter?: (value: number) => string
@@ -69,7 +71,7 @@ function defaultValueFormatter(value: number): string {
 
 function ProportionBarInner<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     config,
     valueFormatter = defaultValueFormatter,
     tooltip,
@@ -78,6 +80,7 @@ function ProportionBarInner<Meta = unknown>({
     dataAttr,
     onError,
 }: ProportionBarProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         barHeight = DEFAULT_BAR_HEIGHT,
         barCornerRadius = DEFAULT_CORNER_RADIUS,

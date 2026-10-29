@@ -10,6 +10,7 @@ type ReadyValues = Pick<
     traceViewAdapterLogicValues,
     | 'header'
     | 'summary'
+    | 'clustersChip'
     | 'mode'
     | 'tree'
     | 'selectedNodeId'
@@ -63,6 +64,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         header: values.header,
         summary: {
             ...values.summary,
+            clusters: values.clustersChip,
             evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
             feedback: values.feedbackChip
                 ? { chip: values.feedbackChip, onClick: () => actions.showFeedback(null, 'chip') }
@@ -125,6 +127,7 @@ export function TraceScene(): JSX.Element {
         backLink,
         header,
         summary,
+        clustersChip,
         mode,
         tree,
         selectedNodeId,
@@ -159,6 +162,7 @@ export function TraceScene(): JSX.Element {
                   {
                       header,
                       summary,
+                      clustersChip,
                       mode,
                       tree,
                       selectedNodeId,

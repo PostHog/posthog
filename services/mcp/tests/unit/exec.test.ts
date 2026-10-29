@@ -161,10 +161,11 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'help learn' })).resolves.toContain('learn <topic...>')
         })
 
-        it('directs unknown help topics to the command list', async () => {
-            await expect(createExec().handler(mockContext, { command: 'help unknown' })).rejects.toMatchObject({
+        it('directs unknown help topics to the command list and to search', async () => {
+            await expect(createExec().handler(mockContext, { command: 'help workflows' })).rejects.toMatchObject({
                 reason: 'unknown_command',
-                message: 'Unknown command: "unknown". Run "help" to list available commands.',
+                message:
+                    'Unknown command: "workflows". Run "help" to list available commands, or "search workflows" to find tools for it.',
             })
         })
     })
@@ -1773,6 +1774,54 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: `search ${alternation}` })
 
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
+        const catalogTools = [
+            makeMockTool({ name: 'metric-list', title: 'List metrics' }),
+            makeMockTool({ name: 'metric-describe', title: 'Describe a metric' }),
+            makeMockTool({ name: 'data-catalog-metric-run', title: 'Run a metric' }),
+        ]
+
+        it('leaves out the metric catalog hint when the only data-domain match is incidental', async () => {
+            const exec = createExec([
+                makeMockTool({ name: 'persons-list', title: 'List persons' }),
+                makeMockTool({ name: 'persons-retrieve', title: 'Get person' }),
+                makeMockTool({ name: 'persons-property-set', title: 'Set person properties' }),
+                makeMockTool({
+                    name: 'query-logs',
+                    title: 'Query logs',
+                    description: 'Query logs for persons-related events.',
+                }),
+                ...catalogTools,
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search persons-' })) as string)
+
+            expect(result.hint).toBeUndefined()
+        })
+
+        it('keeps the metric catalog hint when catalog order puts other matches first', async () => {
+            // searchToolsRegex filters without ranking, so description matches on unrelated
+            // tools come back ahead of the query tools a `query-` search is actually about.
+            const exec = createExec([
+                makeMockTool({ name: 'cohorts-create', title: 'Create cohort', description: 'Cohorts for a query-.' }),
+                makeMockTool({ name: 'cohorts-partial-update', title: 'Update cohort', description: 'A query- edit.' }),
+                makeMockTool({ name: 'insight-create', title: 'Create insight', description: 'Insights use query-.' }),
+                makeMockTool({ name: 'query-logs', title: 'Query logs' }),
+                ...catalogTools,
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search query-' })) as string)
+
+            expect(result.hint).toContain('metric-list')
+        })
+
+        it('keeps the metric catalog hint when a data-domain tool is a top match', async () => {
+            const exec = createExec([makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+
+            expect(result.hint).toContain('metric-list')
         })
 
         it('rejects an overly long search pattern before compiling the regex', async () => {
