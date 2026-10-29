@@ -286,13 +286,16 @@ to people authorized to process the full inputs. AI Observability and Evaluation
 Source-property rules do not automatically apply to evaluation outputs. To keep message content private:
 
 - Keep the source-property rules and separately restrict `$ai_evaluation_reasoning`.
+- Restrict `$ai_clusters` when evaluation cluster titles and descriptions may contain private content.
 - For report events, restrict `$ai_report_content`, `$ai_report_title`, and `$ai_report_citations`.
 - If outcomes are also sensitive, restrict `$ai_evaluation_result`, `$ai_evaluation_numeric_result`, and
   `$ai_evaluation_categorical_result`. Apply separate rules to sentiment properties when using sentiment evaluations.
 - Restrict Evaluations viewer access to the intended report audience. Stored report API responses follow evaluation RBAC;
   property rules on report events protect the event copy, not the stored report narrative.
 - Choose report email recipients and Slack channels with the same audience in mind. Deliveries contain report text and do
-  not check each recipient's PostHog property permissions. Disable evaluation-report Inbox sharing if its audience is broader.
+  not check each recipient's PostHog property permissions.
+- Evaluation-report Inbox summaries are suppressed when the project has any event-property denial or a denial of access
+  to the evaluation, including default, member, and role rules. Inbox copies cannot enforce those source permissions.
 
 User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
 results even when the project's default rules hide those result properties from users.
