@@ -13,6 +13,7 @@ only their transport changes. Rows come back typed as the read-only `Integration
 """
 
 import re
+import json
 import builtins
 from collections.abc import Iterable, Mapping
 from enum import Enum
@@ -563,15 +564,20 @@ class AuthAccessor(IntegrationReader):
         )
 
 
+def _same_json(a: object, b: object) -> bool:
+    # Python equality treats `1`, `1.0` and `True` as equal, but JSON stores them as different values.
+    return json.dumps(a, sort_keys=True, default=str) == json.dumps(b, sort_keys=True, default=str)
+
+
 def _patch_row(row: Integration, patch: IntegrationPatch) -> list[str]:
     """Apply `patch` to the row in memory. Returns the fields whose value changed."""
     changed: list[str] = []
     config = _patched(row.config, patch.config_patch, patch.config_remove)
-    if config != (row.config or {}):
+    if not _same_json(config, row.config or {}):
         row.config = config
         changed.append("config")
     sensitive_config = _patched(row.sensitive_config, patch.sensitive_config_patch, patch.sensitive_config_remove)
-    if sensitive_config != (row.sensitive_config or {}):
+    if not _same_json(sensitive_config, row.sensitive_config or {}):
         row.sensitive_config = sensitive_config
         changed.append("sensitive_config")
     if patch.errors is not None and patch.errors != row.errors:
@@ -614,7 +620,9 @@ class OAuthAccessor(AuthAccessor):
     async def arefresh_access_token(
         self, team_id: int, id: int, *, stale_access_token: str | None = None
     ) -> IntegrationRecord:
-        return await database_sync_to_async(self.refresh_access_token)(
+        # Not thread-sensitive: the provider call can be slow, and it must not hold the shared thread
+        # that every other sync database call of this event loop waits for. The row lock still applies.
+        return await database_sync_to_async(self.refresh_access_token, thread_sensitive=False)(
             team_id, id, stale_access_token=stale_access_token
         )
 

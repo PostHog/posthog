@@ -15,7 +15,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager, register_source_kinds, register_usage_provider, usages
-from posthog.integrations.accessors import AuthAccessor, IntegrationReader, SourceRows
+from posthog.integrations.accessors import AuthAccessor, IntegrationReader, OAuthAccessor, SourceRows
 from posthog.integrations.contracts import (
     IntegrationConflict,
     IntegrationInUse,
@@ -535,6 +535,24 @@ class TestIntegrationAccessors(BaseTest):
 
     @parameterized.expand(
         [
+            ("int_to_bool", 1, True),
+            ("bool_to_int", True, 1),
+            ("int_to_float", 1, 1.0),
+            ("zero_to_false", 0, False),
+            ("nested_int_to_bool", {"a": 1}, {"a": True}),
+        ]
+    )
+    def test_update_writes_a_value_of_another_json_type(self, _name: str, stored: object, new: object) -> None:
+        row = self.rows["github_oauth"]
+        IntegrationManager.github.oauth.update(self.team.id, row.id, config_patch={"flag": stored})
+
+        IntegrationManager.github.oauth.update(self.team.id, row.id, config_patch={"flag": new})
+
+        saved = Integration._base_manager.get(id=row.id).config["flag"]
+        assert (saved, type(saved)) == (new, type(new))
+
+    @parameterized.expand(
+        [
             ("auth_type_without_kinds", {"kinds": None, "auth_type": AuthType.TOKEN}),
             ("auth_type_with_empty_kinds", {"kinds": frozenset(), "auth_type": AuthType.TOKEN}),
         ]
@@ -791,9 +809,6 @@ class TestIntegrationAccessors(BaseTest):
         )
         upserted, was_created = async_to_sync(accessor.aupsert)(self.team.id, "made", config={"b": 2})
         updated = async_to_sync(accessor.aupdate)(self.team.id, row.id, config_patch={"x": 1}, errors="boom")
-        oauth_row = self._resend_row(refreshed_ago=800)
-        with patch.object(OauthIntegration, "refresh_access_token") as refresh:
-            refreshed = async_to_sync(IntegrationManager.resend.oauth.arefresh_access_token)(self.team.id, oauth_row.id)
 
         assert (created.config, created.sensitive_config, created.created_by_id) == (
             {"a": 1, "auth_type": "token"},
@@ -803,7 +818,18 @@ class TestIntegrationAccessors(BaseTest):
         assert (upserted.id, was_created, upserted.config) == (created.id, False, {"b": 2, "auth_type": "token"})
         assert (updated.config["x"], updated.errors) == (1, "boom")
         assert Integration._base_manager.get(id=row.id).config["x"] == 1
-        assert (refreshed.id, refresh.call_count) == (oauth_row.id, 1)
+
+    def test_async_refresh_delegates_to_the_sync_refresh(self) -> None:
+        # The async form runs in its own thread with its own connection, which cannot see the rows
+        # of this test's transaction, so the sync refresh is replaced here.
+        accessor = IntegrationManager.resend.oauth
+        row = self._resend_row(refreshed_ago=800)
+
+        with patch.object(OAuthAccessor, "refresh_access_token", autospec=True, return_value=row) as refresh:
+            refreshed = async_to_sync(accessor.arefresh_access_token)(self.team.id, row.id, stale_access_token="old")
+
+        assert refreshed is row
+        refresh.assert_called_once_with(accessor, self.team.id, row.id, stale_access_token="old")
 
 
 class TestRegistration(BaseTest):
