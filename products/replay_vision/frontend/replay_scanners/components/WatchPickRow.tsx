@@ -12,7 +12,7 @@ import { citedTextToPlainText } from '../../utils/citations'
 import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
 import { watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
-import { watchFeedRowWhy } from './WatchFeedCard'
+import { watchReasonCopy } from './WatchFeedCard'
 import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
@@ -65,7 +65,7 @@ export function WatchPickRow({ item, position, isActive, rank }: WatchPickRowPro
                         />
                     </span>
                     <span className="truncate text-xs font-normal text-secondary">
-                        {citedTextToPlainText(watchFeedRowWhy(reason), undefined)}
+                        {citedTextToPlainText(watchReasonCopy(reason), undefined)}
                     </span>
                 </span>
             </span>

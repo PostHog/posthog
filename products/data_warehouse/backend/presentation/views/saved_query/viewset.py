@@ -17,6 +17,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
@@ -26,6 +27,8 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.data_modeling.backend.facade.api import (
+    MaterializationAlreadyRunningError,
+    MaterializationEngine,
     MaterializationFailedError,
     MaterializationForbiddenError,
     MaterializationRefusedError,
@@ -109,6 +112,17 @@ class SavedQueryRunSerializer(serializers.Serializer):
         help_text=(
             "Run this view with all upstream dependencies or all downstream dependents. "
             "Omit this field to run only this view. You cannot use it with full_refresh."
+        ),
+    )
+    engine = serializers.ChoiceField(
+        choices=MaterializationEngine.choices,
+        required=False,
+        default=MaterializationEngine.CLICKHOUSE,
+        help_text=(
+            "Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. "
+            "'trino' builds the same views on the organization's managed warehouse only, and leaves the "
+            "ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed "
+            "warehouse, and 409 while another managed warehouse run of these views is in progress."
         ),
     )
 
@@ -280,7 +294,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(request=SavedQueryRunSerializer, responses={200: SavedQueryRunResponseSerializer})
+    @extend_schema(
+        request=SavedQueryRunSerializer,
+        responses={
+            200: SavedQueryRunResponseSerializer,
+            403: OpenApiResponse(
+                description="You can't edit every view in the run, or engine is 'trino' and the organization has no managed warehouse."
+            ),
+            409: OpenApiResponse(description="engine is 'trino' and a managed warehouse run is already in progress."),
+        },
+    )
     @action(
         methods=["POST"],
         detail=True,
@@ -294,14 +317,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             MissingDagNodeError,
             clear_incremental_state,
             materialize_saved_query,
+            run_trino_node_materializations,
         )
 
         body = SavedQueryRunSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
+        on_trino = body.validated_data["engine"] == MaterializationEngine.TRINO
 
-        if body.validated_data["full_refresh"]:
+        if body.validated_data["full_refresh"] and not on_trino:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
             # build on and rebuilds. Commit it before dispatch, and outside any transaction the
             # dispatch could roll back, or the worker reads the old watermark and runs
@@ -311,7 +336,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         try:
             direction = body.validated_data.get("direction")
-            if direction:
+            if direction or on_trino:
                 node = (
                     Node.objects.filter(team_id=self.team_id, saved_query_id=saved_query.id)
                     .order_by("created_at")
@@ -324,13 +349,23 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     if self.user_access_control.check_access_level_for_resource("data_catalog", required_level="viewer")
                     else frozenset({NodeType.METRIC})
                 )
-                node_ids = run_related_node_materializations(
-                    self.team_id,
-                    node.id,
-                    direction=direction,
-                    user=cast(User, request.user),
-                    hidden_types=hidden_types,
-                )
+                if on_trino:
+                    node_ids = run_trino_node_materializations(
+                        self.team_id,
+                        node.id,
+                        direction=direction,
+                        user=cast(User, request.user),
+                        full_refresh=body.validated_data["full_refresh"],
+                        hidden_types=hidden_types,
+                    )
+                else:
+                    node_ids = run_related_node_materializations(
+                        self.team_id,
+                        node.id,
+                        direction=direction,
+                        user=cast(User, request.user),
+                        hidden_types=hidden_types,
+                    )
             else:
                 node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
                 node_ids = [str(node_id)]
@@ -340,6 +375,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             )
         except MaterializationForbiddenError as error:
             raise exceptions.PermissionDenied(str(error))
+        except MaterializationAlreadyRunningError as error:
+            raise Conflict(str(error))
 
         log_activity(
             organization_id=self.team.organization_id,

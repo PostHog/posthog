@@ -176,6 +176,7 @@ export type InboxReportActionType =
     | 'resume_discussion'
     | 'restore'
     | 'create_pr'
+    | 'github_access_recovery'
     | 'copy_implementation_prompt'
     | 'refund'
     | 'open_pr'
