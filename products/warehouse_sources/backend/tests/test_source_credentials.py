@@ -245,7 +245,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     def test_undecryptable_leaf_is_unreadable_and_extra_layers_are_peeled(self) -> None:
         source, double_encrypted = self._source(), self._source()
-        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))
         foreign_ciphertext = Fernet(Fernet.generate_key()).encrypt(b"fake-password").decode()
         bad = WarehouseSourceCredentialsStore.create(source, {"host": "db.example.com", "password": foreign_ciphertext})
         peeled = WarehouseSourceCredentialsStore.create(double_encrypted, {"password": field.encrypt("fake-password")})
