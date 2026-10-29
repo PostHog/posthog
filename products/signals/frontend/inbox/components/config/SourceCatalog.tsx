@@ -36,7 +36,7 @@ export function SourceCatalog(): JSX.Element {
     }, [loading, unavailable, integrationsLoading, onboardingStateLoading, sourceCatalogViewed])
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
                     type="search"
@@ -71,7 +71,7 @@ export function SourceCatalog(): JSX.Element {
                 sourceCatalog.map((group) => (
                     <div
                         key={group.category}
-                        className="flex flex-col gap-2"
+                        className="flex flex-col gap-2 pt-2"
                         data-attr={
                             group.category === 'Recommended for you' ? 'signal-source-recommendations' : undefined
                         }
