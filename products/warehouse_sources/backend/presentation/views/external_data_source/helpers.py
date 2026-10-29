@@ -9,6 +9,8 @@ from urllib.parse import unquote, urlsplit
 
 from django.db.models import Q, QuerySet
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
@@ -614,6 +616,57 @@ def has_preserved_credentials(
             return True
 
     return False
+
+
+# The SSH tunnel fields that pick which SSH server receives the tunnel's SSH credentials.
+_SSH_TUNNEL_ENDPOINT_FIELDS = ("host", "port")
+_SSH_TUNNEL_SECRET_FIELDS = ("password", "passphrase", "private_key")
+# Migration 0807 stored the tunnel auth under this key. The config parser reads it before
+# the canonical `auth` key, so a stale block under it shadows the auth an update supplies.
+_LEGACY_SSH_TUNNEL_AUTH_KEY = "auth_type"
+
+
+def _split_ssh_tunnel_auth(tunnel: dict[str, Any], *, reject_conflict: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the tunnel without its auth keys, and its auth read from `auth` or the legacy key."""
+    auth_blocks = [tunnel[key] for key in ("auth", _LEGACY_SSH_TUNNEL_AUTH_KEY) if tunnel.get(key)]
+    if any(not isinstance(block, dict) for block in auth_blocks):
+        raise ValidationError({"job_inputs": {"ssh_tunnel": "SSH tunnel auth must be an object."}})
+    if reject_conflict and len(auth_blocks) == 2 and auth_blocks[0] != auth_blocks[1]:
+        raise ValidationError(
+            {"job_inputs": {"ssh_tunnel": "Send the SSH tunnel auth under `auth` only, not also under `auth_type`."}}
+        )
+    rest = {key: value for key, value in tunnel.items() if key not in ("auth", _LEGACY_SSH_TUNNEL_AUTH_KEY)}
+    return rest, (auth_blocks[0] if auth_blocks else {})
+
+
+def merge_ssh_tunnel(existing: Any, incoming: Any) -> dict[str, Any]:
+    """Merge a partial SSH tunnel update onto the stored tunnel, with the auth under `auth` only.
+
+    The API response omits the SSH secrets, so an update that keeps the endpoint keeps any secret
+    it does not re-supply. An update that changes the host or port must supply a new SSH secret,
+    and no stored secret carries over. Otherwise the credential check would send the stored SSH
+    password to a server that the editor picked.
+    """
+    if not isinstance(incoming, dict):
+        raise ValidationError({"job_inputs": {"ssh_tunnel": "Must be an object."}})
+    incoming_rest, incoming_auth = _split_ssh_tunnel_auth(incoming, reject_conflict=True)
+    if not isinstance(existing, dict) or not existing:
+        return {**incoming_rest, "auth": incoming_auth} if incoming_auth else incoming_rest
+
+    existing_rest, existing_auth = _split_ssh_tunnel_auth(existing, reject_conflict=False)
+    endpoint_changed = any(
+        key in incoming_rest and connection_target_changed(existing_rest.get(key), incoming_rest[key])
+        for key in _SSH_TUNNEL_ENDPOINT_FIELDS
+    )
+    if endpoint_changed and not any(incoming_auth.get(key) for key in _SSH_TUNNEL_SECRET_FIELDS):
+        raise ValidationError("Changing the SSH tunnel host or port requires re-entering your SSH credentials.")
+
+    merged_auth = {**incoming_auth} if incoming_auth else {**existing_auth}
+    if incoming_auth and not endpoint_changed:
+        for key in _SSH_TUNNEL_SECRET_FIELDS:
+            if existing_auth.get(key) and not incoming_auth.get(key):
+                merged_auth[key] = existing_auth[key]
+    return {**existing_rest, **incoming_rest, "auth": merged_auth}
 
 
 def get_direct_connection_metadata(
