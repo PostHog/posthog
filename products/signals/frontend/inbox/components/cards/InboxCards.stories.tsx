@@ -9,7 +9,15 @@ import { RankingOutcomeEnumApi } from 'products/signals/frontend/generated/api.s
 
 import { userEvent } from 'storybook/test'
 
-import { makeReport, pullRequestReports, reportTabReports, runReportsMany } from '../../__mocks__/inboxMocks'
+import {
+    makeReport,
+    myAgentClaim,
+    myClaim,
+    pullRequestReports,
+    reportTabReports,
+    runReportsMany,
+    teammateClaim,
+} from '../../__mocks__/inboxMocks'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunCard } from './AgentRunCard'
 import { CardSkeleton } from './CardSkeleton'
@@ -316,6 +324,45 @@ export const ReportCardRankingTags: Story = {
     play: async ({ canvas }) => {
         await userEvent.hover(await canvas.findByText('2.1x more likely'))
     },
+}
+
+// Under the Action sort, so the ranking pill sits in the meta row: the user's claim, their agent's
+// claim, a teammate's claim, and no claim.
+const claimedRankedReports: SignalReport[] = [
+    makeReport({
+        title: 'Retry failed webhook deliveries with backoff',
+        priority: 'P3',
+        assignee: myClaim,
+        ranking: ranking({ action: 0.62 }, { action: 6.2 }),
+    }),
+    makeReport({
+        title: 'Cache the funnel step names on the insight page',
+        priority: 'P4',
+        assignee: myAgentClaim,
+        ranking: ranking({ action: 0.31 }, { action: 1.4 }),
+    }),
+    makeReport({
+        title: 'Stop the export job timing out on large files',
+        priority: 'P2',
+        assignee: teammateClaim,
+        ranking: ranking({ action: 0.62 }, { action: 6.2 }),
+    }),
+    makeReport({
+        title: 'Show an error when an invite email bounces',
+        priority: 'P3',
+        assignee: null,
+        ranking: ranking({ action: 0.08 }, { action: 0.7 }),
+    }),
+]
+
+export const ReportCardClaims: Story = {
+    render: () => (
+        <CardList>
+            {claimedRankedReports.map((report) => (
+                <ReportCard key={report.id} report={report} rankingSortField="ranking_action" />
+            ))}
+        </CardList>
+    ),
 }
 
 export const PullRequestCards: Story = {
