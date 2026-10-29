@@ -6802,6 +6802,22 @@ snapshots:
         hash: v1.k794b7964.5272d9fc095372492de4bc666a4fd7c995c2fb3de8c859a48ddbf7dae5094c8b.VCgPn7znPvjkY-Sx_PsctneSMhp8KtDuBPxFoGjYdPA
     products-business-intelligence-scatter--read-only--light:
         hash: v1.k794b7964.21cf4e3c6d31ac5d3653d176f876dbec5894d2569bd082e4fc5117a7dbe40af3.b-Dnoj2QTxOlUnZTMZuBqQGvSNk2lnMS0V6wnY_Aud0
+    products-business-intelligence-source-health--error--dark:
+        hash: v1.k794b7964.e55e642803d235180cd19f951368d12698df3adc97164683a5f585d00374617a.10Zr7vH5JoME2gR--lXPvH1BC_YAXXhiPtG7vnNRdYs
+    products-business-intelligence-source-health--error--light:
+        hash: v1.k794b7964.351b3ec8e9639cac0f7bb8497b295601aed67f4e9aa8dca9631bd3e7f3d447ca.f3IadStFIm-AL7AWwenFn2gHGdeTKDZcKfwZhWesNWQ
+    products-business-intelligence-source-health--failing--dark:
+        hash: v1.k794b7964.70995d848776a1abd9b226114a05066bfea8ea3aca12c7db0faff84e276b7a24.UM3d0qoKL1nIiozVBEDpIWWw1mPFsCYpbGyoOhH8no4
+    products-business-intelligence-source-health--failing--light:
+        hash: v1.k794b7964.37b8fa962f0ec79ba7a8e112206eae700afd11f8425099bc81f0c6095b0b51a8.XfiSLVnO2S7c1HhG4BKjWhMcuYg1UxgdObEHepHKL2c
+    products-business-intelligence-source-health--unavailable--dark:
+        hash: v1.k794b7964.4657af431223fb9f7c94710d176568b882ab46627e625eeadd35977adcb70c20.96FcM6xFh5WcBIy-zvKetxaL5Iy1yXLfUGO7z5zwslc
+    products-business-intelligence-source-health--unavailable--light:
+        hash: v1.k794b7964.838dd4905b2bc4c870b53e2a1e7aa88a8dbc25921198384ffb7f1fd107832fec.yeITttzv_gPbpB03JhM8YZ8zc8dpV5CJvWXD_LM7D8M
+    products-business-intelligence-source-health--unchecked--dark:
+        hash: v1.k794b7964.610de38001f5bc8fd92e79912cdd1c686294d94b2ce975261251a8e3ebeb6678.vzs8c07HMykac-2_ABIVd0sGTHs5OibMmErq7wj9xuw
+    products-business-intelligence-source-health--unchecked--light:
+        hash: v1.k794b7964.112ead2222e857b3247d1f421fabeb99754fe244fbc54282f8458b5d0f254475.1w4xZj1-mrUWM0vxCo8jM5DyfAVxK9AbQ8ActvPg-2I
     products-business-intelligence-worksheet-exploration--catalog-metric-parameters--dark:
         hash: v1.k794b7964.8fefa0b4720ec5e2a555da632ceb950910aa46fd16a7bd1d40111ddb331ee3ad.ksRj5txXEFCxPL705jBaTN7m1rUiLBFrJkz3pE0Kq6s
     products-business-intelligence-worksheet-exploration--catalog-metric-parameters--light:
@@ -6827,9 +6843,9 @@ snapshots:
     products-business-intelligence-worksheet-exploration--nested-panes-narrow--light:
         hash: v1.k794b7964.10c232baf0e2d4c1afcc5fb2be5acddc52a30dc4404875e96de9c0e2070614f4.RMRmcYG-Phs-D2knyQeqbJHzqJKwrp57f9c5g1Tgd_0
     products-business-intelligence-worksheet-exploration--relationship-key-check--dark:
-        hash: v1.k794b7964.2a11a78e396147fd11cc26642853e3cc96e277c51ca2e2abed410b7b26de00b5.BCmW-8EYSpraeogrER9QgS7iPpgfF0cKuZpI9PjvKPs
+        hash: v1.k794b7964.cb23e7cb076cdbc6cd66a72153e6b3c85e51eea97e69aecc2807fe34c25e2199.uXZ6kfVfdQVC_-Vd8sPLhDP6YNfoYd9OC9MMGbWGTOw
     products-business-intelligence-worksheet-exploration--relationship-key-check--light:
-        hash: v1.k794b7964.7cadfcd686a396debfecfb0e8479f27b3e05d17a97d705d8abb3b2c232d346be.pOtL9jQKqz5nFkHkCrl_1hOAvKF5qOvCYPg2ihea0HU
+        hash: v1.k794b7964.029013456e3f15d43cc073ff61da04d5cfa1c17b99c73c632c316316241ac740.4BaeetRUMQRxDjDleygqgr-ND0w__kS9sr2aADoKOQA
     products-business-intelligence-worksheet-exploration--scatter-selection--dark:
         hash: v1.k794b7964.ee16fb7d4d6e6dc398f1c164ce88f1ac8d7226449171daa2ad74695a64b5b306.Ia7P6JWA8-O6kyHAk-a_LzZplfWxDHaDifEW5vvYXzg
     products-business-intelligence-worksheet-exploration--scatter-selection--light:
