@@ -134,14 +134,15 @@ jobs:
                         - 'packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts'
                         - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
                         - 'products/mobile/src/features/chat/objectKinds.generated.ts'
-                        - 'products/mobile/biome.json'
-                        - 'products/mobile/pnpm-lock.yaml'
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
+                        # Formatter inputs can change the generated mobile projection.
+                        - 'products/mobile/biome.json'
+                        - 'products/mobile/pnpm-lock.yaml'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'

@@ -92,9 +92,7 @@ products/isolation_baseline.txt @PostHog/team-devex
 .github/pull_request_template.md @PostHog/team-devex
 .agents/skills/writing-pr-descriptions/ @PostHog/team-devex
 
-# A merged mobile release request authorizes code on installed devices. Keep its
-# policy, signing trust root and credential-bearing workflows under the same review.
-products/mobile/releases/** @cvolzer3
-products/mobile/scripts/releases/** @PostHog/team-security
-.github/workflows/mobile-release.yml @PostHog/team-security
-.github/workflows/mobile-build.yml @PostHog/team-security
+# The mobile owner reviews app changes and the workflows that build and release it.
+products/mobile/** @cvolzer3
+products/desktop/apps/mobile/** @cvolzer3
+.github/workflows/*mobile*.yml @cvolzer3

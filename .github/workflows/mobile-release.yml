@@ -47,6 +47,8 @@ jobs:
         needs: plan
         if: needs.plan.outputs.present == 'true'
         uses: ./.github/workflows/mobile-ci.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     publish:
         needs: [plan, checks]

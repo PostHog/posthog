@@ -4,13 +4,14 @@ Three GitHub Actions workflows cover the app. They install the independent `prod
 
 ## Mobile CI
 
-`.github/workflows/mobile-ci.yml` is a reusable workflow. `pr-housekeeping.yml` calls it on every pull request, and it also runs on pushes to `master` that change `products/mobile/**` or the workflow file.
+`.github/workflows/mobile-ci.yml` is a reusable workflow. `pr-housekeeping.yml` calls it on every pull request, and `mobile-release.yml` calls it for each release commit.
+Direct pushes to `master` that match the workflow's paths only install dependencies and warm the pnpm store cache. They do not repeat validation.
 
 A `changes` job reads the pull request diff. When nothing under `products/mobile/**` (Markdown excluded), the generated Signals API types, or the workflow changed, the check job is skipped and the run ends in seconds.
 The `Mobile CI Pass` job reports a verdict on every run, so it can be a required branch-protection check.
 A trigger-level `paths:` filter cannot do this: a required check that never dispatches leaves the pull request waiting for a status that never arrives. See `/authoring-ci-workflows`.
 
-The check job runs these steps, the same commands you run locally:
+The check job runs these steps for pull requests and release commits, using the same commands you run locally:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -37,9 +38,13 @@ Details:
 - pnpm comes from `packageManager` in `products/mobile/package.json`, not from the repo root.
 - Node comes from `products/mobile/.node-version`. Keep it equal to the repo's `.nvmrc` and to `node` in `eas.json`.
 - The pnpm store cache is keyed on `products/mobile/pnpm-lock.yaml`. Pull requests only restore it. Pushes to `master` save it.
+- Change detection uses the existing paths-filter GitHub App. Both reusable-workflow callers pass `GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY` by name. The workflow creates a token with pull-request read access only for same-repository PRs; fork PRs use `GITHUB_TOKEN`. No credential value belongs in the repository.
 - A newer push to the same pull request cancels the older run.
-- The required check is `Mobile CI Pass`. The parent job id in `pr-housekeeping.yml` prefixes the check-run name, so the `master` ruleset lists it as `mobile-ci / Mobile CI Pass`. Confirm the exact name on a run before you add it.
+- Push runs use a separate concurrency group for each commit, so a later release cannot replace an earlier pending validation run. Publication stays serialized; see [release ordering and retries](RELEASING.md#receipts-ordering-and-retries).
+- After this workflow reaches `master`, ask a repository administrator through `@PostHog/team-devex` to add `mobile-ci / Mobile CI Pass` to the `master` ruleset's required status checks with GitHub Actions as its source. Keep the other required checks. YAML comments do not configure repository rules.
 - The release workflow calls Mobile CI on the merged commit. A push has no pull request diff to filter, so the checks always run there.
+
+`@cvolzer3` owns both mobile app trees and all mobile workflow files in `CODEOWNERS`, including release requests, release tooling and the public OTA certificate.
 
 The simulator demo flows do not run in CI. Run them locally before you merge a change to a screen. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
 

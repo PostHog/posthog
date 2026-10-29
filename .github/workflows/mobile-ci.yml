@@ -4,13 +4,16 @@ name: Mobile CI
 # The app is its own pnpm workspace with its own lockfile, so this workflow never
 # installs the repo root workspace.
 #
-# "Mobile CI Pass" is a required check, so it has to report on every pull request.
+# "Mobile CI Pass" reports on every pull request so repository rules can require it.
 # PR housekeeping calls this workflow on each PR event, and the changes job turns
 # the run into a no-op when the diff does not touch the app. A trigger-level
 # paths filter would leave unrelated PRs waiting for a status that never arrives.
 
 on:
     workflow_call:
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
+                required: true
     # Master pushes refresh the pnpm store cache that PR runs restore.
     push:
         branches: [master]
@@ -24,7 +27,7 @@ on:
 concurrency:
     # github.workflow is the caller's name, so the release caller and the PR
     # caller never cancel or wait on each other.
-    group: mobile-ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: mobile-ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -48,10 +51,18 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+                  permission-pull-requests: read
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push'
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       mobile:
                           - 'products/mobile/**'
@@ -66,6 +77,10 @@ jobs:
         if: needs.changes.outputs.mobile == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
+        env:
+            # Reusable workflows keep the caller's name. Only the direct master
+            # trigger warms the cache; release callers must validate their commit.
+            MOBILE_RUN_CHECKS: ${{ github.event_name != 'push' || github.workflow != 'Mobile CI' }}
         defaults:
             run:
                 working-directory: products/mobile
@@ -127,30 +142,33 @@ jobs:
                   key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
 
             - name: Typecheck
+              if: env.MOBILE_RUN_CHECKS == 'true'
               run: pnpm typecheck
 
             - name: Lint
+              if: env.MOBILE_RUN_CHECKS == 'true'
               run: pnpm lint
 
             - name: Test
+              if: env.MOBILE_RUN_CHECKS == 'true'
               run: pnpm test --ci
 
             # Workflow changes also reach branches that have not rebased onto the
             # release tooling yet. Those branches still run the existing checks.
             - name: Fetch release validation base
-              if: hashFiles('products/mobile/scripts/releases/release.mjs') != '' && (github.event.pull_request.base.sha != '' || github.event.before != '')
+              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != '' && (github.event.pull_request.base.sha != '' || github.event.before != '')
               env:
                   MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
               run: git fetch --no-tags --depth=1 --filter=blob:none origin "$MOBILE_RELEASE_BASE"
 
             - name: Validate release requests
-              if: hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
               env:
                   MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
               run: pnpm release:check
 
             - name: Test release policy
-              if: hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
               run: pnpm release:test
 
     mobile_checks:
