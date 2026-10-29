@@ -46,6 +46,8 @@ import { closestHoverSeriesKey } from './closest-hover-series'
 // and other chart types treat this as opaque; LineChart's drawStatic narrows back to it.
 interface LineChartPrivate {
     __lineChart: ScaleSet
+    /** Label → x pixel: the point scale, or the time mapping when `timeScale` is set. */
+    xPosition: (label: string) => number | undefined
 }
 
 export interface LineChartProps<Meta = unknown> {
@@ -98,6 +100,8 @@ function LineChartInner<Meta = unknown>({
         floatBaseline = false,
         yAxes,
         curve,
+        timeScale,
+        connectNulls = false,
     } = config ?? {}
     const smooth = curve === 'monotone'
     // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
@@ -162,25 +166,30 @@ function LineChartInner<Meta = unknown>({
             // a side-channel ref — every render gets a self-contained ChartScales object,
             // which avoids strict-mode / concurrent-rendering races between the createScales
             // pass and the static-draw effect.
+            const xPosition = timeScale
+                ? createTimeXPosition(timeScale, scaleLabels, dimensions)
+                : (label: string) => d3Scales.x(label)
             const lineChartPrivate: LineChartPrivate = {
                 __lineChart: d3Scales,
+                xPosition,
             }
 
             return {
-                x: (label: string) => d3Scales.x(label),
+                x: xPosition,
                 y: (value: number) => d3Scales.y(value),
                 yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
                 yAxes: yAxisScales,
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes]
+        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes, timeScale]
     )
 
     const drawStatic = useCallback(
         ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
-            const d3Scales = (scales._private as LineChartPrivate | undefined)?.__lineChart
-            if (!d3Scales) {
+            const linePrivate = scales._private as LineChartPrivate | undefined
+            const d3Scales = linePrivate?.__lineChart
+            if (!linePrivate || !d3Scales) {
                 return
             }
 
@@ -192,7 +201,7 @@ function LineChartInner<Meta = unknown>({
             const baseDrawCtx: DrawContext = {
                 ctx,
                 dimensions,
-                xScale: d3Scales.x,
+                xScale: linePrivate.xPosition,
                 yScale: d3Scales.y,
                 labels: drawLabels,
             }
@@ -215,7 +224,7 @@ function LineChartInner<Meta = unknown>({
                 dimensions,
                 labels: drawLabels,
                 series: coloredSeries,
-                xScale: d3Scales.x,
+                xScale: linePrivate.xPosition,
                 resolveYScale,
                 yValuesFor: (s) => stackedData?.get(s.key)?.top,
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
@@ -226,6 +235,7 @@ function LineChartInner<Meta = unknown>({
                 // stroke at the y-axis, instead of straddling either axis line.
                 yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
                 clipLeftEdge: axisLines.y,
+                connects: lineConnects(connectNulls, timeScale?.parse, drawLabels),
             })
 
             if (axisLineStyle) {
@@ -238,7 +248,7 @@ function LineChartInner<Meta = unknown>({
                 })
             }
         },
-        [showGrid, axisLines, stackedData, smooth]
+        [showGrid, axisLines, stackedData, smooth, connectNulls, timeScale]
     )
 
     const drawHover = useCallback(
@@ -314,4 +324,40 @@ function LineChartInner<Meta = unknown>({
             </Chart>
         </ChartLegend>
     )
+}
+
+/** Maps a label to its x pixel by time across `domain`, defaulting to the first and last label's
+ *  times. A label outside the domain, or one that does not parse, has no position. */
+function createTimeXPosition(
+    { parse, domain }: NonNullable<LineChartConfig['timeScale']>,
+    labels: string[],
+    dimensions: ChartDimensions
+): (label: string) => number | undefined {
+    const [from, to] = domain ?? [parse(labels[0] ?? ''), parse(labels[labels.length - 1] ?? '')]
+    const span = to - from
+    return (label) => {
+        const t = parse(label)
+        if (!isFinite(t) || !isFinite(span) || t < from || t > to) {
+            return undefined
+        }
+        // A zero-span domain (one label) centers it, as the point scale does.
+        const fraction = span > 0 ? (t - from) / span : 0.5
+        return dimensions.plotLeft + fraction * dimensions.plotWidth
+    }
+}
+
+/** The renderer's `connects` for `connectNulls`: neighbors only by default, every gap for `true`, and
+ *  on a time scale gaps up to a number of milliseconds. */
+function lineConnects(
+    connectNulls: LineChartConfig['connectNulls'],
+    parse: ((label: string) => number) | undefined,
+    labels: string[]
+): ((from: number, to: number) => boolean) | undefined {
+    if (connectNulls === true || (typeof connectNulls === 'number' && !parse)) {
+        return () => true
+    }
+    if (typeof connectNulls === 'number' && parse) {
+        return (from, to) => parse(labels[to]) - parse(labels[from]) <= connectNulls
+    }
+    return undefined
 }

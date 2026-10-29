@@ -300,6 +300,10 @@ export interface ChartConfig {
      *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
      *  render labels untruncated. */
     maxCategoryLabelWidth?: number
+    /** Labels to place the x-axis ticks at, instead of the data labels. Each is positioned through
+     *  `scales.x`, and `xTickFormatter` receives `(label, index)` into this array. Use it for ticks
+     *  that are not data points, such as a regular time grid on a time-scaled line chart. */
+    xTickLabels?: string[]
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
      *  the scalar `yScaleType`/`yTickFormatter`/`yAxisLabel` then describe the primary (left) axis.
@@ -515,6 +519,15 @@ export interface BarChartConfig extends ChartConfig {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Place each label at its time instead of evenly by index, so uneven spacing and gaps in time
+     *  show. `parse` returns a label's epoch milliseconds. `domain` sets the axis span in epoch
+     *  milliseconds and defaults to the first and last label; points outside it are not drawn. */
+    timeScale?: { parse: (label: string) => number; domain?: readonly [number, number] }
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. With
+     *  `timeScale`, a number bridges only gaps up to that many milliseconds between drawn points and
+     *  breaks the line across any longer gap, including a stretch of time with no labels. Without
+     *  `timeScale` a number bridges every gap. */
+    connectNulls?: boolean | number
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start

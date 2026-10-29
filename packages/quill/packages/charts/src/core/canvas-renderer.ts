@@ -25,7 +25,12 @@ export interface DrawContext {
      *  baseline minus half their stroke width, so a baseline-hugging stroke rests exactly on the
      *  axis line instead of straddling it. Pure draw-time clamp — scales and ticks are untouched. */
     yFloor?: number
+    /** Whether the line runs on from drawable point `from` to the next drawable point `to`. Defaults
+     *  to only neighbors, so a missing (non-finite) value breaks the line and the area. */
+    connects?: (from: number, to: number) => boolean
 }
+
+const connectsNeighbors = (from: number, to: number): boolean => to === from + 1
 
 /** Stroke width of series lines. Half of it is the stroke's overhang past a point, which the
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
@@ -244,23 +249,22 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
         traceSmoothPath(drawCtx, data, start, end)
         return
     }
-    let started = false
+    const connects = drawCtx.connects ?? connectsNeighbors
+    let last = -1
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const rawY = yScale(data[i])
         if (x == null || !isFinite(rawY)) {
-            // Reset so the next valid point starts a fresh subpath rather than
-            // connecting straight across the NaN gap.
-            started = false
             continue
         }
         const y = yFloor != null ? Math.min(rawY, yFloor) : rawY
-        if (!started) {
-            ctx.moveTo(x, y)
-            started = true
-        } else {
+        // A point the line doesn't connect to (across a NaN gap by default) starts a fresh subpath.
+        if (last >= 0 && connects(last, i)) {
             ctx.lineTo(x, y)
+        } else {
+            ctx.moveTo(x, y)
         }
+        last = i
     }
 }
 
@@ -273,19 +277,22 @@ interface Point {
  *  every NaN/out-of-domain point, so each run is a contiguous subpath. `yFloor` clamps each point. */
 function collectSmoothRuns(drawCtx: DrawContext, data: number[], start: number, end: number): Point[][] {
     const { xScale, yScale, labels, yFloor } = drawCtx
+    const connects = drawCtx.connects ?? connectsNeighbors
     const runs: Point[][] = []
     let run: Point[] = []
+    let last = -1
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
-            if (run.length > 0) {
-                runs.push(run)
-                run = []
-            }
             continue
         }
+        if (run.length > 0 && !connects(last, i)) {
+            runs.push(run)
+            run = []
+        }
         run.push({ x, y: yFloor != null ? Math.min(y, yFloor) : y })
+        last = i
     }
     if (run.length > 0) {
         runs.push(run)
@@ -475,11 +482,12 @@ export function drawArea(
             currentBottom = []
         }
     }
+    const connects = drawCtx.connects ?? connectsNeighbors
+    let last = -1
     for (let i = 0; i < data.length; i++) {
         const x = xScale(labels[i])
         const rawTop = yScale(data[i])
         if (x == null || !isFinite(rawTop)) {
-            breakSegment()
             continue
         }
         // Clamped like the line stroke so the area's top edge stays under it; the bottom edge
@@ -489,12 +497,19 @@ export function drawArea(
             const rawBottom = bottomValues[i]
             const yBot = rawBottom == null ? NaN : yScale(rawBottom)
             if (!isFinite(yBot)) {
-                breakSegment()
                 continue
             }
+            if (last >= 0 && !connects(last, i)) {
+                breakSegment()
+            }
+            last = i
             currentTop.push({ x, y: yTop, dataIndex: i })
             currentBottom.push({ x, y: yBot, dataIndex: i })
         } else {
+            if (last >= 0 && !connects(last, i)) {
+                breakSegment()
+            }
+            last = i
             currentTop.push({ x, y: yTop, dataIndex: i })
             currentBottom.push({ x, y: baseline, dataIndex: i })
         }
@@ -592,19 +607,25 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
     const radius = series.points?.radius
-    const isDrawable = (i: number): boolean =>
-        i >= 0 && i < data.length && xScale(labels[i]) != null && isFinite(yScale(data[i]))
+    const connects = drawCtx.connects ?? connectsNeighbors
+    const drawable: number[] = []
+    for (let i = 0; i < data.length; i++) {
+        if (xScale(labels[i]) != null && isFinite(yScale(data[i]))) {
+            drawable.push(i)
+        }
+    }
 
     ctx.fillStyle = series.color
 
-    for (let i = 0; i < data.length; i++) {
-        const x = xScale(labels[i])
+    for (let k = 0; k < drawable.length; k++) {
+        const i = drawable[k]
+        const x = xScale(labels[i]) as number
         const y = yScale(data[i])
-        if (x == null || !isFinite(y)) {
-            continue
-        }
-        // No line passes through a point without drawable neighbors, so it needs a dot to be visible.
-        const r = radius ?? (!isDrawable(i - 1) && !isDrawable(i + 1) ? ISOLATED_POINT_RADIUS : 0)
+        // No line passes through a point connected to neither drawable neighbor, so it needs a dot
+        // to be visible.
+        const isolated =
+            !(k > 0 && connects(drawable[k - 1], i)) && !(k + 1 < drawable.length && connects(i, drawable[k + 1]))
+        const r = radius ?? (isolated ? ISOLATED_POINT_RADIUS : 0)
         if (r <= 0) {
             continue
         }
@@ -1035,13 +1056,15 @@ export interface LineSeriesLayerOptions {
      *  past it. Pass the chart's `showAxisLines` — without an axis line the overhang is invisible
      *  and edge line caps are left whole. */
     clipLeftEdge?: boolean
+    /** See {@link DrawContext.connects}. */
+    connects?: (from: number, to: number) => boolean
 }
 
 /** Draw a line/area layer (clipped vertically) — the per-series area/line/points orchestration shared
  *  by LineChart and ComboChart. Callers supply the y-value source (raw vs stacked tops), the fill
  *  predicate, and the z-order; the loop, clip, and primitive calls live here. */
 export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
-    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth, yFloor, clipLeftEdge } = options
+    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth, yFloor, clipLeftEdge, connects } = options
     const yValuesFor = options.yValuesFor ?? (() => undefined)
     const bottomFor = options.bottomFor ?? ((s: ResolvedSeries) => s.fill?.lowerData)
     const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
@@ -1053,7 +1076,7 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
             return
         }
         drawArea(
-            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor },
+            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor, connects },
             s,
             yValuesFor(s),
             bottomFor(s)
@@ -1063,7 +1086,16 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
         if (s.fill?.lowerData) {
             return
         }
-        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor }
+        const drawCtx: DrawContext = {
+            ctx,
+            dimensions,
+            labels,
+            xScale,
+            yScale: resolveYScale(s),
+            smooth,
+            yFloor,
+            connects,
+        }
         drawLine(drawCtx, s, yValuesFor(s))
         drawPoints(drawCtx, s, yValuesFor(s))
     }

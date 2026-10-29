@@ -1,4 +1,4 @@
-import { type Dayjs, parseDateInTimezone } from './dayjs'
+import { dayjs, type Dayjs, parseDateInTimezone } from './dayjs'
 
 /** Bucket size for a date-based X axis. Mirrors `IntervalType` from product code without
  * coupling hog-charts to it. */
@@ -284,4 +284,41 @@ function buildVisibleBoundaries(parsedDates: Dayjs[]): Set<number> {
     }
 
     return visible
+}
+
+/** Most ticks {@link buildTimeTickLabels} emits; a finer grid steps several intervals at a time. */
+const MAX_TIME_TICKS = 400
+const APPROX_INTERVAL_MS: Record<TimeInterval, number> = {
+    second: 1000,
+    minute: 60 * 1000,
+    hour: HOUR_MS,
+    day: DAY_MS,
+    week: 7 * DAY_MS,
+    month: 30 * DAY_MS,
+    quarter: 91 * DAY_MS,
+    year: 365 * DAY_MS,
+}
+
+/** A regular grid of ISO labels from `from` to `to` (epoch ms), one per `interval` starting at
+ *  the first interval boundary in `timezone`. Feeds the ticks of a time-scaled axis that spans
+ *  beyond its data. */
+export function buildTimeTickLabels(from: number, to: number, interval: TimeInterval, timezone: string): string[] {
+    if (!isFinite(from) || !isFinite(to) || to < from) {
+        return []
+    }
+    // dayjs has no quarter unit without a plugin, so a quarter steps three months.
+    const unit = interval === 'quarter' ? 'month' : interval
+    const step =
+        Math.max(1, Math.ceil((to - from) / APPROX_INTERVAL_MS[interval] / (MAX_TIME_TICKS - 1))) *
+        (interval === 'quarter' ? 3 : 1)
+    let tick = dayjs(from).tz(timezone).startOf(unit)
+    if (tick.valueOf() < from) {
+        tick = tick.add(step, unit)
+    }
+    const labels: string[] = []
+    while (tick.valueOf() <= to) {
+        labels.push(tick.toISOString())
+        tick = tick.add(step, unit)
+    }
+    return labels
 }

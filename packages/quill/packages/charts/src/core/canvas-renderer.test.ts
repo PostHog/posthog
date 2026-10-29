@@ -121,12 +121,32 @@ describe('hog-charts canvas-renderer', () => {
                 expectedMoveTo: 0,
                 expectedLineTo: 0,
             },
-        ])('$name', ({ labels, data, gapValues, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
+            {
+                name: 'bridges the gap when connects allows it',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                gapValues: new Set([50]),
+                connects: () => true,
+                expectedBeginPath: 1,
+                expectedMoveTo: 1,
+                expectedLineTo: 1,
+            },
+            {
+                name: 'breaks between neighbors when connects refuses',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                gapValues: new Set<number>(),
+                connects: (from: number) => from !== 0,
+                expectedBeginPath: 1,
+                expectedMoveTo: 2,
+                expectedLineTo: 1,
+            },
+        ])('$name', ({ labels, data, gapValues, connects, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
             const ctx = mockCanvasContext()
             const series = makeSeries({ key: 's1', data })
             const drawCtx =
                 gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
-            drawLine(drawCtx, series)
+            drawLine({ ...drawCtx, connects }, series)
             expect(ctx.beginPath).toHaveBeenCalledTimes(expectedBeginPath)
             expect(ctx.moveTo).toHaveBeenCalledTimes(expectedMoveTo)
             expect(ctx.lineTo).toHaveBeenCalledTimes(expectedLineTo)
