@@ -110,6 +110,9 @@ export interface inboxBulkActionsLogicActions {
     reportStateChanged: () => {
         value: true
     }
+    reportWriteFailed: (reportIds: string[]) => {
+        reportIds: string[]
+    }
     selectAll: (reportIds: string[]) => {
         reportIds: string[]
     }
@@ -186,6 +189,9 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
          * the detail pane), so every mounted list reconciles itself. Persisting the change is the
          * caller's responsibility. */
         reportStateChanged: true,
+        /** Broadcast that a write to these reports failed. A write that timed out or lost its response can still
+         * have saved, so every mounted list and the open report reload from the server. */
+        reportWriteFailed: (reportIds: string[]) => ({ reportIds }),
         /** Broadcast that a report's suggested reviewers were saved, with the PostHog user uuids now on
          * it, so a list scoped to a reviewer who is no longer on the report drops the row in place. */
         reportReviewersChanged: (reportId: string, reviewerUuids: string[]) => ({ reportId, reviewerUuids }),
@@ -325,10 +331,10 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
 
             actions.clearSelection()
 
-            // Total failure: nothing was suppressed, so there's nothing for the list to drop.
             if (result.successCount === 0) {
                 lemonToast.error(formatBulkSummary(result, 'dismissed'))
                 actions.bulkDismissFailure()
+                actions.reportWriteFailed(reportIds)
                 return
             }
             // Any success (partial or full) must reload so the suppressed reports leave the list.
@@ -377,6 +383,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             if (result.successCount === 0) {
                 lemonToast.error(formatBulkSummary(result, 'resolved'))
                 actions.bulkResolveFailure()
+                actions.reportWriteFailed(reportIds)
                 return
             }
             if (result.failureCount > 0) {

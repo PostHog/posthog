@@ -42,7 +42,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
     const { changeReportState } = useActions(detailLogic)
     const { reportStateSaving, reportChecks } = useValues(detailLogic)
-    const { reportStateChanged } = useActions(inboxBulkActionsLogic)
+    const { reportStateChanged, reportWriteFailed } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
@@ -132,6 +132,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
         } catch (error: any) {
             lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
+            reportWriteFailed([report.id])
         } finally {
             setIsRestoring(false)
         }

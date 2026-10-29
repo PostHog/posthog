@@ -889,6 +889,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     listeners(({ actions, values, cache, selectors }) => ({
+        [inboxBulkActionsLogic.actionTypes.reportWriteFailed]: ({ reportIds }: { reportIds: string[] }) => {
+            const id = values.selectedReportId
+            if (id && reportIds.includes(id)) {
+                actions.loadSelectedReport({ id })
+            }
+        },
         // A claim from a list row can change the open report. Patch it the way the detail pane's own claim
         // does, which also skips the copy that pane already patched.
         [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({

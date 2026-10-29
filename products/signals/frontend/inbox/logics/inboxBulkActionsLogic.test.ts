@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -15,6 +16,21 @@ describe('inboxBulkActionsLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    // A write that timed out can still have saved, so a bulk action where every write failed must not leave the
+    // lists showing the old state.
+    it.each([
+        {
+            action: 'dismiss',
+            run: () => logic.actions.bulkDismiss({ reason: 'wontfix_irrelevant', note: '', correctedRepository: null }),
+        },
+        { action: 'resolve', run: () => logic.actions.bulkResolve('no_action_needed', '') },
+    ])('asks every surface to reload after a $action where every write failed', async ({ run }) => {
+        useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': () => [500, {}] } })
+        logic.actions.setSelectedReportIds(['r1', 'r2'])
+
+        await expectLogic(logic, run).toDispatchActions([logic.actionCreators.reportWriteFailed(['r1', 'r2'])])
     })
 
     it('toggles a report in and out of the selection', async () => {

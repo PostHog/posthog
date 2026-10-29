@@ -639,6 +639,26 @@ describe('inboxSceneLogic routing', () => {
             }
         })
 
+        // A write that timed out or lost its response can still have saved, so the open report must not keep its
+        // local copy. A failure on another report must not refetch this one.
+        test.each([
+            { failedReportId: 'report-1', fetches: 2 },
+            { failedReportId: 'report-2', fetches: 1 },
+        ])(
+            'a failed write on $failedReportId fetches the open report $fetches times',
+            async ({ failedReportId, fetches }) => {
+                const reportGet = mockReportGet()
+                mountLogic()
+                logic.actions.setSelectedReportId('report-1')
+                await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+                inboxBulkActionsLogic.actions.reportWriteFailed([failedReportId])
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(reportGet).toHaveBeenCalledTimes(fetches)
+            }
+        )
+
         it('keeps a claim made while a refresh is in flight, and takes the other fields from the refresh', async () => {
             let releaseRefresh: () => void = () => {}
             const heldRefresh = new Promise<void>((resolve) => {

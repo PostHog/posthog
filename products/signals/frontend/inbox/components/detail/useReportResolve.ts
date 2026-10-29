@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { hasOpenImplementationPr } from '../../utils/reportActions'
 import { setReportState } from '../../utils/writeTimeout'
@@ -57,6 +58,7 @@ export function useReportResolve({
                     onResolved?.()
                 } catch (error: any) {
                     lemonToast.error(error?.detail || error?.message || 'Failed to resolve report')
+                    inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([report.id])
                     // Reject so LemonDialog keeps the dialog open (the chosen reason and note survive
                     // for a retry) and captures genuine failures. Matches useReportRefund.
                     throw error
