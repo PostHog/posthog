@@ -93,3 +93,21 @@ ADD_FLAG_KEY_VALUES_BLOOM_FILTER = """
 ALTER TABLE {table_name}
 ADD INDEX IF NOT EXISTS flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1
 """
+
+
+DROP_FLAG_KEYS = """
+ALTER TABLE {table_name}
+DROP COLUMN IF EXISTS flag_keys
+"""
+
+
+DROP_FLAG_KEYS_BLOOM_FILTER = """
+ALTER TABLE {table_name}
+DROP INDEX IF EXISTS flag_keys_bloom_filter
+"""
+
+
+DROP_FLAG_KEY_VALUES_BLOOM_FILTER = """
+ALTER TABLE {table_name}
+DROP INDEX IF EXISTS flag_key_values_bloom_filter
+"""
