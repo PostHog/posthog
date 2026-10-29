@@ -103,6 +103,35 @@ describe('GuidanceEngine', () => {
         await expect(run(engine, second, [replayQuery, replayQuery])).resolves.toEqual([undefined, 'test-rule:shown'])
     })
 
+    it('counts a minted handle under the caller when the client sent none', async () => {
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
+        const minted = (id: string): ResolvedState =>
+            makeState({
+                carriedContextHandle: false,
+                requestContext: { ...makeState().requestContext, mcpConversationId: id },
+            })
+        await run(engine, minted('minted-1'), [replayQuery])
+        await expect(run(engine, minted('minted-2'), [replayQuery])).resolves.toEqual(['test-rule:shown'])
+    })
+
+    it('reports a suppressed outcome on a later call when another rule wins the threshold call', async () => {
+        const second: GuidanceRule = {
+            ...rule,
+            id: 'second-rule',
+            flag: 'mcp-guidance-second',
+            suppressIfCalled: ['read-data-schema'],
+        }
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule, second])
+        const state = makeState({ toolFeatureFlags: { [rule.flag]: true, [second.flag]: true } })
+        const schemaCall: GuidanceCall = { toolName: 'read-data-schema', args: {}, isError: false }
+        await expect(run(engine, state, [schemaCall, replayQuery, replayQuery, replayQuery])).resolves.toEqual([
+            undefined,
+            undefined,
+            'test-rule:shown',
+            'second-rule:suppressed',
+        ])
+    })
+
     it('reserves the allowance once when matching calls run concurrently', async () => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
         const state = makeState()
@@ -148,7 +177,7 @@ describe('GuidanceEngine', () => {
     it('shows the notice to a scout when the rule lists the scout preset', async () => {
         const scoutRule: GuidanceRule = { ...rule, trigger: { ...rule.trigger, presets: ['user', 'scout'] } }
         const engine = new GuidanceEngine(makeGuidanceRedis(), [scoutRule])
-        const state = makeState({ apiKeyScopes: ['signal_scout_internal:write'] })
+        const state = makeState({ apiKeyScopes: ['signal_scout_internal:write', 'internal_run:read'] })
         await expect(run(engine, state, [replayQuery, replayQuery])).resolves.toEqual([undefined, 'test-rule:shown'])
     })
 

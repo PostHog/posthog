@@ -72,6 +72,8 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state when the no-data notice blocked or warned this call. */
     noDataAction?: NoDataAction | undefined
+    /** Set on the per-call state: whether the client sent a session or conversation handle. */
+    carriedContextHandle?: boolean | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext

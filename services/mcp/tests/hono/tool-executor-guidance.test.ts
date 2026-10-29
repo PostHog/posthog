@@ -56,7 +56,8 @@ describe('ToolExecutor guidance notices', () => {
     function setup(
         mode: string,
         sqlHandler: (args: unknown) => unknown,
-        flag: string
+        flag: string,
+        callFlags = ''
     ): {
         callSql: (query: string) => Promise<SqlResult>
         capture: MockInstance<ReturnType<typeof getPostHogClient>['captureToolCall']>
@@ -91,7 +92,8 @@ describe('ToolExecutor guidance notices', () => {
         const callSql = async (
             query: string
         ): Promise<{ isError?: boolean; content: { type: string; text?: string }[] }> => {
-            const args = mode === 'exec' ? { command: `call execute-sql ${JSON.stringify({ query })}` } : { query }
+            const args =
+                mode === 'exec' ? { command: `call ${callFlags}execute-sql ${JSON.stringify({ query })}` } : { query }
             const result = await executor.handleToolCall(
                 { name: mode === 'exec' ? 'exec' : 'execute-sql', arguments: args },
                 state
@@ -115,6 +117,15 @@ describe('ToolExecutor guidance notices', () => {
             'replay-sql-to-vision',
         ])
         expect(capture.mock.calls[1]?.[0].properties?.mcp_guidance_outcome).toBe('shown')
+    })
+
+    it('keeps the JSON result as the first block when guidance fires on a --json call', async () => {
+        const { callSql } = setup('exec', () => ({ results: [[1]] }), MCP_GUIDANCE_REPLAY_VISION_FLAG, '--json ')
+        await callSql('select 1 from session_replay_events')
+        const second = await callSql('select 2 from session_replay_events')
+
+        expect(() => JSON.parse(second.content[0]?.text ?? '')).not.toThrow()
+        expect(second.content[1]?.text).toContain('Replay Vision')
     })
 
     it('stamps flag_off on the event and leaves the result alone when the flag is off', async () => {

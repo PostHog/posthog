@@ -44,10 +44,10 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
             if (canFire !== '1' || matched < Number(threshold)) {
                 return guard(0)
             }
-            if (store.has(suppressedKey!)) {
-                return guard(matched === Number(threshold) ? 2 : 0)
+            if (incr(shownKey!) > Number(maxPerSession)) {
+                return guard(0)
             }
-            return guard(incr(shownKey!) > Number(maxPerSession) ? 0 : 1)
+            return guard(store.has(suppressedKey!) ? 2 : 1)
         },
     }
 }

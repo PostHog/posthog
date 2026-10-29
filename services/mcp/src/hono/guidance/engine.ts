@@ -66,14 +66,10 @@ export function triggerMatches(rule: GuidanceRule, call: GuidanceCall): boolean 
     return true
 }
 
-// Mirrors the no-data notice audience: the people who set up and drive the agent themselves.
+// Server-minted tokens are not excluded here: scouts carry the same internal scopes as sandbox
+// runs, so each rule's `presets` decides which of them it reaches.
 function isGuidanceAudience(state: ResolvedState): boolean {
-    return !(
-        state.isImpersonated ||
-        state.suppressAnalytics ||
-        state.apiKeyScopes.includes('internal_run:read') ||
-        state.clientProfile.consumer === 'posthog_ai'
-    )
+    return !(state.isImpersonated || state.suppressAnalytics || state.clientProfile.consumer === 'posthog_ai')
 }
 
 // The flag decides only whether the text goes out: an eligible caller with the flag off is
@@ -85,7 +81,9 @@ function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): 
     )
 }
 
-// One script per rule, so a concurrent batch cannot reserve the same notice twice.
+// One script per rule, so a concurrent batch cannot reserve the same notice twice. The shown
+// key counts reports of either kind, so a suppressed outcome that loses the call to another
+// rule stays pending and is reported on the next matching call instead of being dropped.
 const RULE_STATE_SCRIPT = `
 local ttl = tonumber(ARGV[1])
 if ARGV[4] == 'suppress' then
@@ -101,16 +99,13 @@ redis.call('EXPIRE', KEYS[3], ttl)
 if ARGV[5] ~= '1' or matched < tonumber(ARGV[2]) then
     return 0
 end
-if redis.call('EXISTS', KEYS[2]) == 1 then
-    if matched == tonumber(ARGV[2]) then
-        return 2
-    end
-    return 0
-end
 local shown = redis.call('INCR', KEYS[3])
 redis.call('EXPIRE', KEYS[3], ttl)
 if shown > tonumber(ARGV[3]) then
     return 0
+end
+if redis.call('EXISTS', KEYS[2]) == 1 then
+    return 2
 end
 return 1
 `
@@ -137,7 +132,9 @@ export class GuidanceEngine {
         if (rules.length === 0) {
             return undefined
         }
-        const sessionKey = resolveSessionKey(state.requestContext)
+        // A handle the SDK minted on this call is not a session the client will keep, so a
+        // client that sends none counts under the caller fallback instead of a fresh key per call.
+        const sessionKey = state.carriedContextHandle === false ? undefined : resolveSessionKey(state.requestContext)
         const ttl = sessionKey ? SESSION_TTL_SECONDS : CALLER_TTL_SECONDS
         // The braces are a cluster hash tag, so the script can touch a rule's three keys together.
         const scope = `mcp:guidance:{${hashKey(`${state.distinctId}|${sessionKey ?? ''}`)}}`
@@ -200,8 +197,13 @@ function hashKey(value: string): string {
     return createHash('sha256').update(value).digest('base64url').slice(0, 22)
 }
 
-// Prepended on errors too: a notice that fires on repeated failures must reach the agent.
-export function prependGuidanceNotice(result: unknown, notice: GuidanceNotice | undefined): unknown {
+// Attached on errors too: a notice that fires on repeated failures must reach the agent. A JSON
+// call keeps its result as the first block, because callers parse `content[0]` as raw JSON.
+export function attachGuidanceNotice(
+    result: unknown,
+    notice: GuidanceNotice | undefined,
+    options: { jsonOutput?: boolean } = {}
+): unknown {
     if (
         !notice?.text ||
         typeof result !== 'object' ||
@@ -211,7 +213,11 @@ export function prependGuidanceNotice(result: unknown, notice: GuidanceNotice | 
         return result
     }
     const withContent = result as { content: unknown[] }
-    return { ...withContent, content: [{ type: 'text', text: notice.text }, ...withContent.content] }
+    const block = { type: 'text', text: notice.text }
+    return {
+        ...withContent,
+        content: options.jsonOutput ? [...withContent.content, block] : [block, ...withContent.content],
+    }
 }
 
 export function guidanceAnalyticsProperties(notice: GuidanceNotice | undefined): Record<string, unknown> {

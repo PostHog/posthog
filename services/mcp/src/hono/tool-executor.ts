@@ -55,6 +55,7 @@ import {
     repairArgumentNesting,
     UNRECOGNIZED_EXEC_TOKEN,
     type ExecCommandMeta,
+    type ExecInnerCallProperties,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
@@ -76,7 +77,7 @@ import {
     type GuidanceEngine,
     type GuidanceNotice,
     guidanceAnalyticsProperties,
-    prependGuidanceNotice,
+    attachGuidanceNotice,
 } from './guidance/engine'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
@@ -94,6 +95,7 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    innerOutputFormat: ExecInnerCallProperties['output_format'] | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
     /**
@@ -282,6 +284,7 @@ export class ToolExecutor {
             }
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
+        callState.carriedContextHandle = carriedContextHandle
         const callParams = { ...params, arguments: args }
 
         const targetToolName =
@@ -595,7 +598,7 @@ export class ToolExecutor {
                 output: response,
             })
 
-            return prependGuidanceNotice(response, guidance)
+            return attachGuidanceNotice(response, guidance)
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
@@ -658,11 +661,11 @@ export class ToolExecutor {
             })
 
             if (lookupMiss) {
-                return prependGuidanceNotice({ content: [{ type: 'text', text: lookupMiss.message }] }, guidance)
+                return attachGuidanceNotice({ content: [{ type: 'text', text: lookupMiss.message }] }, guidance)
             }
 
             const sessionUuid = await sessionUuidForError(state)
-            return prependGuidanceNotice(
+            return attachGuidanceNotice(
                 handleToolError(
                     error,
                     tool.name,
@@ -690,6 +693,7 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
+            innerOutputFormat: undefined,
             commandMeta: undefined,
             innerFailure: undefined,
             skillLookupMissKind: undefined,
@@ -808,7 +812,9 @@ export class ToolExecutor {
                 this.servedToolDescription(execToolName())
             )
 
-            const guided = prependGuidanceNotice(response, guidance)
+            const guided = attachGuidanceNotice(response, guidance, {
+                jsonOutput: execMetrics.innerOutputFormat === 'json',
+            })
             return execMetrics.noDataNotice ? prependNoDataNotice(guided, execMetrics.noDataNotice.text) : guided
         } catch (error: unknown) {
             const metricTool = execToolName()
@@ -855,7 +861,7 @@ export class ToolExecutor {
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
             // exec-routed failure into one opaque `exec` bucket.
-            return prependGuidanceNotice(
+            return attachGuidanceNotice(
                 handleToolError(
                     error,
                     metricTool,
@@ -982,6 +988,7 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            execMetrics.innerOutputFormat = properties.output_format
             if (!properties.success) {
                 execMetrics.innerFailure = { error: properties.error }
             }
