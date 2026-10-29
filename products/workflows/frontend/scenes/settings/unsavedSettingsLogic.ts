@@ -4,7 +4,6 @@ import { beforeUnload } from 'kea-router'
 export interface UnsavedSettingsLogicProps {
     /** Identifies the settings section, so two sections on one page track their edits apart. */
     sectionId: string
-    /** Shown when the person navigates away with edits that were never saved. */
     message: string
 }
 
@@ -32,11 +31,8 @@ export type unsavedSettingsLogicType = MakeLogicType<
     unsavedSettingsLogicMeta
 >
 
-/**
- * Guards a settings section whose edits only reach the server when a Save button is pressed.
- * Neighbouring switches and selects on the same page save themselves on change, so without a
- * prompt a typed value reads as saved and is lost on navigation.
- */
+// Switches and selects on this settings page save themselves on change, so a typed value in a
+// Save-button section reads as saved and is lost on navigation unless something asks first.
 export const unsavedSettingsLogic = kea<unsavedSettingsLogicType>([
     props({} as UnsavedSettingsLogicProps),
     key((props) => props.sectionId),

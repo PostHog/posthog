@@ -50,8 +50,7 @@ export function WorkflowsDailyLimitsSettings({
         sectionId: attrPrefix,
         message: `Leave without saving?\nThe ${unit} limits you entered will be discarded.`,
     })
-    // The guard registers its navigation interceptor on mount, and useActions alone
-    // does not mount a logic, so the prompt would never arm without this.
+    // useActions alone does not mount a logic, and the guard arms on mount.
     useMountedLogic(unsavedGuard)
     const { setHasUnsavedChanges } = useActions(unsavedGuard)
     const restrictedReason = useRestrictedArea({

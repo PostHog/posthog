@@ -23,8 +23,7 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
         sectionId: 'workflows-frequency-cap',
         message: 'Leave without saving?\nThe frequency cap you entered will be discarded.',
     })
-    // The guard registers its navigation interceptor on mount, and useActions alone
-    // does not mount a logic, so the prompt would never arm without this.
+    // useActions alone does not mount a logic, and the guard arms on mount.
     useMountedLogic(unsavedGuard)
     const { setHasUnsavedChanges } = useActions(unsavedGuard)
     const restrictedReason = useRestrictedArea({
