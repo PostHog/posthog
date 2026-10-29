@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+    chmodSync,
+    cpSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -251,6 +261,37 @@ describe('hog error-tracking upload', () => {
             code: 'no_debug_symbols',
             message: expect.stringContaining('apple/Shop.app.dSYM: '),
         })
+    })
+
+    test('--include-source leaves out sources that match an ignore glob', async () => {
+        // The fixture's DWARF names its sources under this folder.
+        const sources = '/tmp/hog-parity-native'
+        rmSync(sources, { recursive: true, force: true })
+        cpSync(join(NATIVE, '../src'), sources, { recursive: true })
+        cpSync(join(NATIVE, 'linux/checkout'), join(sources, 'bin/checkout'))
+        const plan = async (ignore: string[]): Promise<string> => {
+            const folder = project({
+                'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: sources, ignore }] } }),
+            })
+            const result = await runHog(['et', 'upload', '--dry-run', '--include-source'], {
+                env: { CLAUDECODE: '1' },
+                cwd: folder,
+                useDisk: true,
+            })
+            expect(result.exitCode).toBe(0)
+            return result.json().symbolSets[0].contentHash
+        }
+        try {
+            const all = await plan([])
+            rmSync(join(sources, 'checkout.c'))
+            const withoutCheckout = await plan([])
+            cpSync(join(NATIVE, '../src/checkout.c'), join(sources, 'checkout.c'))
+
+            expect(withoutCheckout).not.toBe(all)
+            expect(await plan(['checkout.c'])).toBe(withoutCheckout)
+        } finally {
+            rmSync(sources, { recursive: true, force: true })
+        }
     })
 
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {

@@ -727,7 +727,12 @@ function packageNative(
                 reason: `${byFile.get(kept)!.display} has the same debug ID and is at least as large, so hog uploads that one.`,
             })
     ).map((file) => {
-        const upload = nativeUpload(file, includeSource ? sourceStep(file.data, 'native', warnings) : undefined)
+        const { root } = byFile.get(file)!
+        const folder = resolve(cwd, root.path)
+        const sources = includeSource
+            ? sourceStep(file.data, 'native', warnings, (path) => isIgnored(root, folder, path))
+            : undefined
+        const upload = nativeUpload(file, sources)
         owners.set(upload, byFile.get(file)!)
         return upload
     })
@@ -740,7 +745,10 @@ function packageNative(
             const slices = dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))
             const uploads = slices.map((slice) => {
                 if (includeSource && !steps.has(slice.path)) {
-                    steps.set(slice.path, sourceStep(slice.file, 'dsym', warnings))
+                    steps.set(
+                        slice.path,
+                        sourceStep(slice.file, 'dsym', warnings, (path) => isIgnored(artifact.root, folder, path))
+                    )
                 }
                 return dsymUpload(slice, steps.get(slice.path))
             })
