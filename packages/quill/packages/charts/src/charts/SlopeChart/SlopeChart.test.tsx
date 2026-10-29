@@ -30,7 +30,7 @@ describe('SlopeChart', () => {
     it('renders empty state without crashing', () => {
         const { chart } = renderChart(<SlopeChart series={[]} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(0)
-        expect(chart.slopeValueLabels()).toHaveLength(0)
+        expect(chart.slope.valueLabels()).toHaveLength(0)
     })
 
     it('skips excluded series everywhere', () => {
@@ -47,14 +47,14 @@ describe('SlopeChart', () => {
             <SlopeChart series={series} labels={LABELS} config={{ legend: { show: true } }} theme={THEME} />
         )
         expect(chart.seriesCount).toBe(2)
-        expect(chart.slopeSeriesLabels()).not.toContain('C')
+        expect(chart.slope.seriesLabels()).not.toContain('C')
         expect(chart.legendItems().map((i) => i.label)).not.toContain('C')
     })
 
     describe('value labels', () => {
         it('shows both start and end value labels for every series by default', () => {
             const { chart } = renderChart(<SlopeChart series={SERIES} labels={LABELS} theme={THEME} />)
-            const labels = chart.slopeValueLabels()
+            const labels = chart.slope.valueLabels()
             expect(
                 labels
                     .filter((l) => l.side === 'start')
@@ -83,7 +83,7 @@ describe('SlopeChart', () => {
                 { key: 'b', label: 'B', data: [80, 20] },
             ]
             const { chart } = renderChart(<SlopeChart series={series} labels={LABELS} theme={THEME} config={config} />)
-            const sideTexts = chart.slopeValueLabels().filter((l) => l.side === side)
+            const sideTexts = chart.slope.valueLabels().filter((l) => l.side === side)
             // The toggled series (`a`) is missing from that column, the other (`b`) remains.
             const aValue = side === 'start' ? '10' : '90'
             expect(sideTexts.map((l) => l.text)).not.toContain(aValue)
@@ -101,7 +101,7 @@ describe('SlopeChart', () => {
                 { key: 'b', label: 'B', data: [80, 20] },
             ]
             const { chart } = renderChart(<SlopeChart series={series} labels={LABELS} theme={THEME} />)
-            const texts = chart.slopeValueLabels().map((l) => l.text)
+            const texts = chart.slope.valueLabels().map((l) => l.text)
             expect(texts).toEqual(expect.arrayContaining(['80', '20']))
             expect(texts).not.toContain('10')
             expect(texts).not.toContain('90')
@@ -111,7 +111,7 @@ describe('SlopeChart', () => {
             const { chart } = renderChart(
                 <SlopeChart series={SERIES} labels={LABELS} config={{ valueFormatter: (v) => `${v}%` }} theme={THEME} />
             )
-            expect(chart.slopeValueLabels().every((l) => l.text.endsWith('%'))).toBe(true)
+            expect(chart.slope.valueLabels().every((l) => l.text.endsWith('%'))).toBe(true)
         })
 
         it('keeps the computed label gutter when a margins override side is undefined', () => {
@@ -133,14 +133,14 @@ describe('SlopeChart', () => {
     describe('series labels', () => {
         it('renders a name label per series by default', () => {
             const { chart } = renderChart(<SlopeChart series={SERIES} labels={LABELS} theme={THEME} />)
-            expect(chart.slopeSeriesLabels().sort()).toEqual(['A', 'B'])
+            expect(chart.slope.seriesLabels().sort()).toEqual(['A', 'B'])
         })
 
         it('hides all name labels when showSeriesLabels is false', () => {
             const { chart } = renderChart(
                 <SlopeChart series={SERIES} labels={LABELS} config={{ showSeriesLabels: false }} theme={THEME} />
             )
-            expect(chart.slopeSeriesLabels()).toHaveLength(0)
+            expect(chart.slope.seriesLabels()).toHaveLength(0)
         })
 
         it('keeps the highest-change name and drops a colliding low-change one', () => {
@@ -150,7 +150,7 @@ describe('SlopeChart', () => {
                 { key: 'sml', label: 'Small', data: [98, 100] },
             ]
             const { chart } = renderChart(<SlopeChart series={series} labels={LABELS} theme={THEME} />)
-            expect(chart.slopeSeriesLabels()).toEqual(['Big'])
+            expect(chart.slope.seriesLabels()).toEqual(['Big'])
         })
     })
 
@@ -287,7 +287,7 @@ describe('SlopeChart', () => {
             ],
         ])('%s: value labels read the true start and end values', (_desc, series, expected) => {
             const { chart } = renderChart(<SlopeChart series={series} labels={LABELS} theme={THEME} />)
-            const labels = chart.slopeValueLabels().map((l) => ({ side: l.side, text: l.text }))
+            const labels = chart.slope.valueLabels().map((l) => ({ side: l.side, text: l.text }))
             for (const e of expected) {
                 expect(labels).toContainEqual(e)
             }
@@ -301,7 +301,7 @@ describe('SlopeChart', () => {
             const { chart } = renderChart(<SlopeChart series={series} labels={labels} theme={THEME} />)
             // Only the two ends are shown — interior points and labels are dropped.
             expect(chart.xTicks()).toEqual(['Jan', 'Apr'])
-            const values = chart.slopeValueLabels().map((l) => ({ side: l.side, text: l.text }))
+            const values = chart.slope.valueLabels().map((l) => ({ side: l.side, text: l.text }))
             expect(values).toContainEqual({ side: 'start', text: '10' })
             expect(values).toContainEqual({ side: 'end', text: '40' })
         })

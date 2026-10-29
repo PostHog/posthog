@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import {
+    createDefaultTooltipAccessor,
     type DefaultTooltipAccessor,
     findChart,
     getChartTooltip,
@@ -165,14 +166,8 @@ export const chart = {
     },
     /** Click a row inside the pinned tooltip by matching its label text. Use
      *  after `clickAtIndex` has pinned a multi-series tooltip. */
-    async clickTooltipRow(label: string | RegExp): Promise<void> {
-        const tooltip = await waitForChartTooltip()
-        // Each quill tooltip row renders its label twice — a visible copy plus an aria-hidden
-        // measurement copy used for truncation layout — so match only the visible one.
-        const matches = within(tooltip).getAllByText(label)
-        const row = matches.find((el) => !el.closest('[aria-hidden="true"]')) ?? matches[0]
-        const clickable = row.closest('[data-attr="hog-chart-tooltip-row"]') ?? row.closest('tr') ?? row
-        fireEvent.click(clickable)
+    async clickTooltipRow(label: string): Promise<void> {
+        createDefaultTooltipAccessor(await waitForChartTooltip()).clickRow(label)
     },
 }
 
