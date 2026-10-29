@@ -849,6 +849,7 @@ class TaskRunSandboxConnectionDTO:
 
 SPACE_SETUP_SCOPES = (
     "task:write",
+    "inbox:write",
     "canvas:write",
     "hog_flow:write",
     # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.

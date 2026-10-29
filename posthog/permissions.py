@@ -835,12 +835,14 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
 LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS = 60 * 60
 
 
-def _capture_legacy_scope_fallback(request: Request, view: APIView, required_scope: str, legacy_scope: str) -> None:
+def _capture_legacy_scope_fallback(
+    request: Request, view: APIView | None, required_scope: str, legacy_scope: str
+) -> None:
     """Record that a legacy scope satisfied a required scope. The events show which credentials and
     OAuth apps still depend on the legacy scope, so the entry in LEGACY_SCOPE_FALLBACKS can go."""
     client = get_authenticator_client(request.successful_authenticator)
     distinct_id = str(getattr(request.user, "distinct_id", None) or client["client_id"])
-    view_name = type(view).__name__
+    view_name = type(view).__name__ if view is not None else "unknown"
     # At most one event per caller, client, scope and view each interval, because this runs on every request.
     throttle_key = f"legacy_scope_fallback:{distinct_id}:{client['client_id']}:{required_scope}:{view_name}"
     if not cache.add(throttle_key, True, timeout=LEGACY_SCOPE_FALLBACK_EVENT_INTERVAL_SECONDS):
@@ -856,6 +858,21 @@ def _capture_legacy_scope_fallback(request: Request, view: APIView, required_sco
             "view": view_name,
         },
     )
+
+
+def scopes_missing_after_legacy_fallback(
+    request: Request, view: APIView | None, held_scopes: list[str], required_scopes: list[str]
+) -> list[str]:
+    """The required scopes that the held scopes do not cover, after LEGACY_SCOPE_FALLBACKS. When none
+    are missing, records each fallback use, so a hand-written scope check feeds the same migration
+    telemetry as APIScopePermission."""
+    missing_scopes = scopes_not_covered(held_scopes, required_scopes)
+    legacy_covered = scopes_covered_by_legacy_fallback(held_scopes, missing_scopes)
+    missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
+    if not missing_scopes:
+        for required_scope, legacy_scope in legacy_covered.items():
+            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
+    return missing_scopes
 
 
 class APIScopePermission(ScopeBasePermission):
@@ -939,15 +956,10 @@ class APIScopePermission(ScopeBasePermission):
         if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
-        missing_scopes = scopes_not_covered(key_scopes, required_scopes)
-        legacy_covered = scopes_covered_by_legacy_fallback(key_scopes, missing_scopes)
-        missing_scopes = [scope for scope in missing_scopes if scope not in legacy_covered]
+        missing_scopes = scopes_missing_after_legacy_fallback(request, view, key_scopes, required_scopes)
         if missing_scopes:
             self.message = f"API key missing required scope '{missing_scopes[0]}'"
             return False
-
-        for required_scope, legacy_scope in legacy_covered.items():
-            _capture_legacy_scope_fallback(request, view, required_scope, legacy_scope)
 
         return True
 

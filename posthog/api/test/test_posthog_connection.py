@@ -251,20 +251,34 @@ class TestPostHogConnectionForward:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_request.assert_not_called()
 
-    def test_forward_requires_caller_token_to_cover_connection_scopes(self, client: HttpClient):
-        # A scoped key that lacks the scopes the connection was granted can't wield the connection.
-        self.integration.config["granted_scopes"] = ["insight:read", "task:write"]
+    @pytest.mark.parametrize(
+        "granted_scopes,caller_scopes,forwarded",
+        [
+            (["insight:read", "task:write"], ["integration:write"], False),
+            (
+                ["task:read", "task:write", "inbox:read", "inbox:write"],
+                ["integration:write", "task:read", "task:write"],
+                True,
+            ),
+            (["task:read", "task:write", "inbox:read", "inbox:write"], ["integration:write", "inbox:write"], False),
+        ],
+    )
+    def test_forward_requires_caller_token_to_cover_connection_scopes(
+        self, client: HttpClient, granted_scopes: list[str], caller_scopes: list[str], forwarded: bool
+    ):
+        self.integration.config["granted_scopes"] = granted_scopes
         self.integration.save()
         client.force_login(self.user)
-        with patch("posthog.api.posthog_connection.get_authenticator_scopes", return_value=["integration:write"]):
+        with patch("posthog.api.posthog_connection.get_authenticator_scopes", return_value=caller_scopes):
             with patch(FORWARD_PATH) as mock_request:
+                mock_request.return_value = _mock_response(200, {"results": []})
                 response = client.post(
                     self._forward_url(),
                     {"method": "GET", "path": "api/projects/2/insights/"},
                     content_type="application/json",
                 )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        mock_request.assert_not_called()
+        assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN)
+        assert mock_request.called == forwarded
 
     def test_forward_refuses_scoped_caller_when_granted_scopes_unknown(self, client: HttpClient):
         # If the target's token response omitted `scope`, `granted_scopes` is empty and we can't bound

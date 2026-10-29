@@ -331,7 +331,7 @@ _POSTHOG_CONNECT_ALLOW_DEV = bool(settings.DEBUG or settings.TEST or settings.E2
 
 POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", *(("DEV",) if _POSTHOG_CONNECT_ALLOW_DEV else ()))
 
-POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write")
+POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write", "inbox:read", "inbox:write")
 
 POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 

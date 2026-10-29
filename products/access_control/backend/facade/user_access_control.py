@@ -130,6 +130,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # Vision alerts are configured via the scanner's access level rather than a
     # separate resource.
     "vision_alert": "replay_scanner",
+    # The inbox API scope split off `task`, but access control still governs the inbox through the
+    # `task` rules, so a member restricted on tasks stays restricted on the inbox.
+    "inbox": "task",
 }
 
 # Every scope a rule write accepts: the project, the resource types with resource-level rules,

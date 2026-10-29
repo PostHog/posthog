@@ -1312,6 +1312,7 @@ export namespace Schemas {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1371,6 +1372,7 @@ export namespace Schemas {
       FeatureFlag: 'feature_flag',
       Heatmap: 'heatmap',
       HogFlow: 'hog_flow',
+      Inbox: 'inbox',
       Insight: 'insight',
       LlmAnalytics: 'llm_analytics',
       LlmPlayground: 'llm_playground',
@@ -1433,6 +1435,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -1699,6 +1702,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground
@@ -1786,6 +1790,7 @@ export namespace Schemas {
        * * `feature_flag` - feature_flag
        * * `heatmap` - heatmap
        * * `hog_flow` - hog_flow
+       * * `inbox` - inbox
        * * `insight` - insight
        * * `llm_analytics` - llm_analytics
        * * `llm_playground` - llm_playground

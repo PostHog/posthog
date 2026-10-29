@@ -49,9 +49,9 @@ class ScannerScoutReportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # Appended to the standard stack by `TeamAndOrgViewSetMixin.get_permissions`.
     permission_classes = [ScoutCanonicalTeamAccessPermission]
     scope_object = "replay_scanner"
-    # `task` is the scope object Signals gates its own report reads on, so a token that cannot read
+    # `inbox` is the scope object Signals gates its own report reads on, so a token that cannot read
     # reports there cannot read them through a scanner either.
-    required_scopes = ["replay_scanner:read", "session_recording:read", "task:read"]
+    required_scopes = ["replay_scanner:read", "session_recording:read", "inbox:read"]
     serializer_class = ScoutReportSerializer
 
     # A scanner's roster is small, and this backs a list a person reads.

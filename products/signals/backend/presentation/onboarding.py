@@ -18,6 +18,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.onboarding import (
@@ -33,6 +34,16 @@ from products.signals.backend.facade.onboarding import (
 )
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutSuggestionItemSerializer
+
+
+def credential_may_start_tasks(request: Request) -> bool:
+    """Whether the request's credential may start a task run, as `task:write` allows.
+
+    For a write whose scope depends on the request body. Session auth has no scopes, so team
+    membership and access control gate it instead.
+    """
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["task:write"])
 
 
 class InboxOnboardingStep(models.TextChoices):
@@ -166,13 +177,13 @@ class InboxOnboardingPermission(BasePermission):
 class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, InboxOnboardingPermission]
-    scope_object = "task"
+    scope_object = "inbox"
     requires_resource_level_access = True
     serializer_class = InboxOnboardingStateSerializer
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str]:
-        return ["task:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["task:write"]
+        return ["inbox:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["inbox:write"]
 
     def _check_scout_access(self, request: Request) -> None:
         permission = ScoutCanonicalTeamAccessPermission()
@@ -229,6 +240,8 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         if any(source["source_product"] == "signals_scout" for source in serializer.validated_data["sources"]):
             self._check_scout_access(request)
+        if serializer.validated_data["automatic_implementation"] and not credential_may_start_tasks(request):
+            raise PermissionDenied("Turning on automatic implementation requires the task:write scope.")
         try:
             return Response(self._service().complete(dict(serializer.data)))
         except InboxOnboardingPermissionError as error:

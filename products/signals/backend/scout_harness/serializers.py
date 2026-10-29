@@ -31,7 +31,7 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import get_authenticator_scopes, scopes_missing_after_legacy_fallback
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, SCOUT_GRANTABLE_WRITE_SCOPES
 
@@ -3129,10 +3129,10 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
         if not any(scope in key_scopes for scope in ("integration:read", "integration:write")):
             raise PermissionDenied("API key missing required scope 'integration:read'")
         # Delivery pushes report titles/summaries to the channel — content the report API gates
-        # behind `task` scope — so a scoped key without it must not be able to route that content
+        # behind `inbox` scope — so a scoped key without it must not be able to route that content
         # out via a destination.
-        if not any(scope in key_scopes for scope in ("task:read", "task:write")):
-            raise PermissionDenied("API key missing required scope 'task:read'")
+        if scopes_missing_after_legacy_fallback(request, context.get("view"), key_scopes, ["inbox:read"]):
+            raise PermissionDenied("API key missing required scope 'inbox:read'")
 
     return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
 

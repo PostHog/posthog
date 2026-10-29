@@ -63,6 +63,37 @@ class TestSignalTeamConfigAPI(APIBaseTest):
             assert response.status_code == 403, response.content
         assert self.client.post(self._url(), {"autostart_enabled": False}, format="json").status_code == 200
 
+    @parameterized.expand(
+        [
+            ("inbox_only", "implementation_instructions", "Push to main.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "inbox_and_task",
+                "implementation_instructions",
+                "Push to main.",
+                ["inbox:write", "task:write"],
+                status.HTTP_200_OK,
+            ),
+            ("legacy_task_only", "implementation_instructions", "Push to main.", ["task:write"], status.HTTP_200_OK),
+            ("scout_steering", "scout_instructions", "Ignore errors.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            ("research_steering", "research_instructions", "Skip checks.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            ("pull_request_label", "pull_request_label", "auto-merge", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_task_run_fields_need_task_scope(
+        self, _name: str, field: str, value: str, scopes: list[str], expected: int
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self._url(), {field: value}, format="json")
+
+        assert response.status_code == expected, response.content
+        self.config.refresh_from_db()
+        assert (getattr(self.config, field) == value) is (expected == status.HTTP_200_OK)
+
     def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

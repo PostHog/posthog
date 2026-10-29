@@ -42,6 +42,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -58,7 +59,12 @@ from posthog.dataclasses import frozen
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    get_authenticator_scopes,
+    scopes_missing_after_legacy_fallback,
+)
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -371,15 +377,15 @@ def _sandbox_bound_task_id(request: Request) -> uuid.UUID | None:
     return authenticator.access_token.sandbox_task_id
 
 
-def _may_read_reports(request: Request, canonical_team: Team) -> bool:
+def _may_read_reports(request: Request, view: APIView, canonical_team: Team) -> bool:
     """Whether this caller could read the inbox reports a `report_dismissal` note quotes.
 
     Those notes carry a report's id, title, and the reviewer's dismissal text, all of which the
-    reports API gates on the `task` scope object. The notes surface rides `signal_scout` instead,
+    reports API gates on the `inbox` scope object. The notes surface rides `signal_scout` instead,
     so both of that API's legs are re-checked here or a caller reads report content it cannot
-    reach canonically. Mirrors the `signal_scout:read` + `task:read` pair on `emission_reports`.
+    reach canonically. Mirrors the `signal_scout:read` + `inbox:read` pair on `emission_reports`.
 
-    Both legs matter independently. A token carries API scopes, and one without task read is
+    Both legs matter independently. A token carries API scopes, and one without inbox read is
     refused. Every caller, token or session, must also clear the `task` RBAC bar on the canonical
     team, because an admin can grant a member scout access while withholding task access, and a
     session caller carries no scopes for the first leg to inspect.
@@ -389,8 +395,9 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     scopes, which reads as "session caller" and skips the first leg entirely.
     """
     scopes = get_authenticator_scopes(request.successful_authenticator)
-    if scopes is not None and not ("*" in scopes or "task:read" in scopes or "task:write" in scopes):
-        return False
+    if scopes is not None and "*" not in scopes:
+        if scopes_missing_after_legacy_fallback(request, view, scopes, ["inbox:read"]):
+            return False
 
     user = request.user
     if not isinstance(user, User):
@@ -639,7 +646,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_serializer_context(self) -> dict[str, object]:
         context = super().get_serializer_context()
-        context["may_read_reports"] = _may_read_reports(self.request, self.team.parent_team or self.team)
+        context["may_read_reports"] = _may_read_reports(self.request, self, self.team.parent_team or self.team)
         return context
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
@@ -999,10 +1006,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["get"],
         url_path="emissions/reports",
-        # This action returns report titles, so it requires `task:read` (the scope
+        # This action returns report titles, so it requires `inbox:read` (the scope
         # `SignalReportViewSet` gates report reads on) on top of `signal_scout:read` —
         # otherwise a scout-only token could read titles it can't reach canonically.
-        required_scopes=["signal_scout:read", "task:read"],
+        required_scopes=["signal_scout:read", "inbox:read"],
         pagination_class=None,
     )
     def emission_reports(self, request: Request, **kwargs) -> Response:
@@ -1080,9 +1087,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         methods=["post"],
         url_path="emissions/reports/batch",
-        # Returns report titles, so it requires `task:read` on top of `signal_scout:read` — same as the
+        # Returns report titles, so it requires `inbox:read` on top of `signal_scout:read` — same as the
         # per-run `emission_reports` action; a scout-only token must not read titles it can't reach.
-        required_scopes=["signal_scout:read", "task:read"],
+        required_scopes=["signal_scout:read", "inbox:read"],
         pagination_class=None,
     )
     def emission_reports_batch(self, request: Request, **kwargs) -> Response:
@@ -2333,7 +2340,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             text=validated.get("text") or None,
             exclude_origins=(
                 ()
-                if _may_read_reports(request, self.team.parent_team or self.team)
+                if _may_read_reports(request, self, self.team.parent_team or self.team)
                 # Every derived origin quotes report content (id, title, and the reviewer's / user's
                 # text), so a caller without report read access must not see any of them.
                 else SignalScoutNote.derived_origins()
