@@ -821,6 +821,13 @@ def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
     return github
 
 
+def _wait_for_github_reset(error: GitHubRateLimitError) -> ApplicationError | GitHubRateLimitError:
+    # GitHub names its reset time, at most an hour away, which can be later than the retry policy's next attempt.
+    if error.retry_after is None:
+        return error
+    return ApplicationError(str(error), next_retry_delay=datetime.timedelta(seconds=error.retry_after))
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -995,7 +1002,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
 
 
 @activity.defn
-@scoped_temporal()
+@scoped_temporal(capture_exceptions=False)
 @close_db_connections
 async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     """Fetch PR data and persist the per-turn `commit` + `pr_snapshot` artefacts; return a small meta.
@@ -1003,7 +1010,13 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     The big `pr_files` payload stays in the DB (`pr_snapshot`); downstream stages reload it by
     `(report_id, head_sha)` so it never crosses the workflow boundary.
     """
-    return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
+    try:
+        return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
+    except GitHubRateLimitError as error:
+        raise _wait_for_github_reset(error) from error
+    except Exception as error:
+        posthoganalytics.capture_exception(error)
+        raise
 
 
 def _login_to_user_id(team_id: int, login: str | None) -> int | None:
@@ -2221,13 +2234,6 @@ def _publish(input: PublishInput) -> PublishResult:
             automatic_reviewed_head_sha=input.head_sha
         )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
-
-
-def _wait_for_github_reset(error: GitHubRateLimitError) -> ApplicationError | GitHubRateLimitError:
-    # GitHub names its reset time, at most an hour away, which can be later than the retry policy's next attempt.
-    if error.retry_after is None:
-        return error
-    return ApplicationError(str(error), next_retry_delay=datetime.timedelta(seconds=error.retry_after))
 
 
 @activity.defn

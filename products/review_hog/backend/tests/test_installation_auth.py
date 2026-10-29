@@ -1,21 +1,38 @@
+from datetime import timedelta
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import Integration
 
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.temporal.activities import (
+    FetchPRDataInput,
     RemoveTriggerLabelInput,
     _installation_auth,
     _remove_trigger_label,
+    fetch_pr_data_activity,
 )
 
 # The true network boundary: first_for_team_repository probes GitHub with an authenticated
 # GET /repos/{repository} per candidate integration row.
 _CAN_ACCESS = "posthog.models.integration.github.GitHubIntegration.installation_can_access_repository"
+
+
+def _fetch_input() -> FetchPRDataInput:
+    return FetchPRDataInput(
+        team_id=1,
+        user_id=1,
+        repository="PostHog/posthog",
+        owner="PostHog",
+        repo="posthog",
+        pr_number=1,
+    )
 
 
 class TestInstallationAuth(BaseTest):
@@ -51,6 +68,35 @@ class TestInstallationAuth(BaseTest):
             _installation_auth(self.team.id, "PostHog/posthog")
 
         assert err.value.non_retryable is False
+
+
+@pytest.mark.asyncio
+async def test_fetch_waits_for_the_rate_limit_reset_without_reporting_an_unhandled_exception() -> None:
+    with (
+        patch(
+            "products.review_hog.backend.temporal.activities._fetch_and_persist",
+            side_effect=GitHubRateLimitError("limited", retry_after=3000),
+        ),
+        patch("posthoganalytics.capture_exception") as capture_exception,
+        pytest.raises(ApplicationError) as raised,
+    ):
+        await ActivityEnvironment().run(fetch_pr_data_activity, _fetch_input())
+
+    assert raised.value.next_retry_delay == timedelta(seconds=3000)
+    capture_exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fetch_reports_unexpected_errors() -> None:
+    error = RuntimeError("unexpected")
+    with (
+        patch("products.review_hog.backend.temporal.activities._fetch_and_persist", side_effect=error),
+        patch("posthoganalytics.capture_exception") as capture_exception,
+        pytest.raises(RuntimeError, match="unexpected"),
+    ):
+        await ActivityEnvironment().run(fetch_pr_data_activity, _fetch_input())
+
+    capture_exception.assert_called_once_with(error)
 
 
 class TestRemoveTriggerLabel:
