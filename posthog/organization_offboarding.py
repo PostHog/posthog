@@ -124,7 +124,8 @@ class OrganizationOffboarding:
                     )
                     field = cast(models.ForeignKey, SharingConfiguration._meta.get_field(resource.kind))
                     resource_model = cast(type[models.Model], field.related_model)
-                    locked_resource = resource_model._default_manager.select_for_update().get(
+                    # Cleanup includes soft-deleted objects hidden by the default manager.
+                    locked_resource = resource_model._base_manager.select_for_update().get(
                         **{field.target_field.name: resource_id, "team_id": resource.team_id}
                     )
                     changed = configurations.filter(enabled=True).update(enabled=False)
