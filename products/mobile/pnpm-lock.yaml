@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@posthog/react-native-plugin@2.12.6':
+    hash: a7a8a0b533050b3d0a2ae8fd1a281f4d8c26c44c2a3448f91545c2994a156da0
+    path: patches/@posthog__react-native-plugin@2.12.6.patch
+
 importers:
 
   .:
@@ -13,7 +18,7 @@ importers:
         version: 57.0.16(@expo/log-box@57.0.4)(expo@57.0.26)(react-dom@19.2.6(react@19.2.6))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))(react@19.2.6)
       '@posthog/react-native-plugin':
         specifier: 2.12.6
-        version: 2.12.6(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))(react@19.2.6)
+        version: 2.12.6(patch_hash=a7a8a0b533050b3d0a2ae8fd1a281f4d8c26c44c2a3448f91545c2994a156da0)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))(react@19.2.6)
       '@react-native-async-storage/async-storage':
         specifier: 2.2.0
         version: 2.2.0(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))
@@ -109,7 +114,7 @@ importers:
         version: 11.17.0
       posthog-react-native:
         specifier: ^4.78.4
-        version: 4.78.4(b0f2cca217693f7a418f9ff9e8d19c96)
+        version: 4.78.4(38e417092c2766d20edfa2f6285275f7)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6222,7 +6227,7 @@ snapshots:
     dependencies:
       '@posthog/types': 1.413.0
 
-  '@posthog/react-native-plugin@2.12.6(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))(react@19.2.6)':
+  '@posthog/react-native-plugin@2.12.6(patch_hash=a7a8a0b533050b3d0a2ae8fd1a281f4d8c26c44c2a3448f91545c2994a156da0)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))(react@19.2.6)':
     dependencies:
       react: 19.2.6
       react-native: 0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6)
@@ -9623,12 +9628,12 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
-  posthog-react-native@4.78.4(b0f2cca217693f7a418f9ff9e8d19c96):
+  posthog-react-native@4.78.4(38e417092c2766d20edfa2f6285275f7):
     dependencies:
       '@posthog/core': 1.55.3
       '@posthog/types': 1.413.0
     optionalDependencies:
-      '@posthog/react-native-plugin': 2.12.6(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))(react@19.2.6)
+      '@posthog/react-native-plugin': 2.12.6(patch_hash=a7a8a0b533050b3d0a2ae8fd1a281f4d8c26c44c2a3448f91545c2994a156da0)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))(react@19.2.6)
       '@react-native-async-storage/async-storage': 2.2.0(react-native@0.86.3(@babel/core@7.29.7)(@react-native/jest-preset@0.86.3(@babel/core@7.29.7)(react@19.2.6))(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.6))
       expo-application: 57.0.3(expo@57.0.26)
       expo-device: 57.0.2(expo@57.0.26)

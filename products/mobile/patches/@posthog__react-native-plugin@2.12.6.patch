@@ -1,0 +1,49 @@
+diff --git a/lib/commonjs/index.js b/lib/commonjs/index.js
+index cbc6c9fc8b15da47fbbb23884811bab892d4e8d3..ccbd213f37bce92d3f5b5251e3f9fb75045f8977 100644
+--- a/lib/commonjs/index.js
++++ b/lib/commonjs/index.js
+@@ -33,7 +33,11 @@ const PosthogReactNativePlugin = _reactNative.NativeModules.PosthogReactNativePl
+   }
+ });
+ function setup(sessionId, sdkOptions, pluginConfig = {}) {
+-  return PosthogReactNativePlugin.setup(sessionId, sdkOptions, pluginConfig);
++  // The app owns recording; native automatic starts can outlive an explicit stop.
++  return PosthogReactNativePlugin.setup(sessionId, sdkOptions, {
++    ...pluginConfig,
++    sessionReplay: { ...pluginConfig.sessionReplay, enabled: false }
++  });
+ }
+ function start(sessionId, sdkOptions, sdkReplayConfig, decideReplayConfig) {
+   return PosthogReactNativePlugin.start(sessionId, sdkOptions, sdkReplayConfig, decideReplayConfig);
+diff --git a/lib/module/index.js b/lib/module/index.js
+index 1b662f5d4d1a9b7fad3592422991b39a02be0bf5..0913618d4ce0db50acacd4b4366e715e21107c92 100644
+--- a/lib/module/index.js
++++ b/lib/module/index.js
+@@ -11,7 +11,11 @@ const PosthogReactNativePlugin = NativeModules.PosthogReactNativePlugin ? Native
+   }
+ });
+ export function setup(sessionId, sdkOptions, pluginConfig = {}) {
+-  return PosthogReactNativePlugin.setup(sessionId, sdkOptions, pluginConfig);
++  // The app owns recording; native automatic starts can outlive an explicit stop.
++  return PosthogReactNativePlugin.setup(sessionId, sdkOptions, {
++    ...pluginConfig,
++    sessionReplay: { ...pluginConfig.sessionReplay, enabled: false }
++  });
+ }
+ export function start(sessionId, sdkOptions, sdkReplayConfig, decideReplayConfig) {
+   return PosthogReactNativePlugin.start(sessionId, sdkOptions, sdkReplayConfig, decideReplayConfig);
+diff --git a/src/index.tsx b/src/index.tsx
+index 74d71db8652b95f36a0b3c33e0fc5927257667a9..07ff9c579bc501b270a3aeedda14b5df31677435 100644
+--- a/src/index.tsx
++++ b/src/index.tsx
+@@ -73,5 +73,9 @@ export function setup(
+   sdkOptions: PostHogReactNativePluginMap,
+   pluginConfig: PostHogReactNativePluginConfig = {}
+ ): Promise<void> {
+-  return PosthogReactNativePlugin.setup(sessionId, sdkOptions, pluginConfig)
++  // The app owns recording; native automatic starts can outlive an explicit stop.
++  return PosthogReactNativePlugin.setup(sessionId, sdkOptions, {
++    ...pluginConfig,
++    sessionReplay: { ...pluginConfig.sessionReplay, enabled: false },
++  })
+ }

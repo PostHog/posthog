@@ -277,6 +277,11 @@ iOS Info.plist switch disables the SDK push-open hook before JavaScript starts. 
 control whether recording starts. `startSessionRecording()` resolving does not prove recording
 is active: the SDK can retry while waiting for remote configuration. Check the received recording.
 
+The workspace patch for `@posthog/react-native-plugin@2.12.6` keeps native automatic recording disabled, including when the React Native SDK initializes replay for a manual start.
+Explicit starts still record, but an explicit stop prevents delayed remote configuration, session changes or event triggers from restarting capture.
+The patch covers the plugin's JavaScript entry points and leaves its native code unchanged.
+Keep this patch until the React Native SDK preserves manual-only recording through native initialization; `src/lib/demoReplay.sdk.test.ts` checks that boundary with the real SDK.
+
 On both iOS and Android, before allowing live-data capture:
 
 1. Launch with the replay variable absent and confirm no recording. Repeat in a store build
