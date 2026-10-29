@@ -295,6 +295,37 @@ describe('tracingSceneLogic', () => {
         resumeKeaLoadersErrors()
     })
 
+    it.each([
+        ['a comparison window drag', 'drag'],
+        ['a refresh', 'refresh'],
+    ])('keeps endpoint grouping on the full range after %s while comparing', async (_label, trigger) => {
+        silenceKeaLoadersErrors()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW]: true })
+        const filtersLogic = mountAt({ comparison: JSON.stringify({ mode: 'time', preset: 'custom' }) })
+        expect(filtersLogic.values.compareActive).toBe(true)
+
+        const aggregateSpy = jest.spyOn(api.tracing, 'aggregate')
+        logic.actions.setActiveTracingTab('endpoints')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        aggregateSpy.mockClear()
+
+        if (trigger === 'drag') {
+            filtersLogic.actions.updateComparisonWindows({ startMs: 0, endMs: 1000 }, { startMs: 2000, endMs: 3000 })
+        } else {
+            logic.actions.refreshQuery()
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(aggregateSpy).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                groupByEndpoint: true,
+                compareFilter: expect.objectContaining({ compare: false }),
+            }),
+            expect.anything()
+        )
+        resumeKeaLoadersErrors()
+    })
+
     // Same denominator guard for the bulk-restore path (back/forward, saved views): setFilters routes
     // through the data logic's runQuery, which fires a windowed aggregate while comparing. Without the
     // scene's full-range refetch the operations table would divide by the narrow compare sub-window.

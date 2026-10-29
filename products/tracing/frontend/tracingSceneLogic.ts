@@ -203,6 +203,9 @@ export interface tracingSceneLogicActions {
         traceId: string
         ts?: string | null
     } // tracingDataLogic
+    refreshQuery: () => {
+        value: true
+    } // tracingDataLogic
     runQuery: () => {
         value: true
     } // tracingDataLogic
@@ -420,6 +423,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setVisibleRowRange',
                 'handleFilterChange',
                 'applyHeatmapBrush',
+                'refreshQuery',
             ],
             tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
             [
@@ -585,6 +589,17 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             if (!values.sceneTabsEnabled && values.sceneTab !== DEFAULT_SCENE_TAB) {
                 actions.setSceneTab(DEFAULT_SCENE_TAB)
                 actions.syncUrl()
+            }
+        },
+        // The data logic refetches a windowed aggregate on these, so restore the tab's own query after it.
+        updateComparisonWindows: () => {
+            if (values.activeTracingTab !== 'traces') {
+                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
+            }
+        },
+        refreshQuery: () => {
+            if (values.activeTracingTab !== 'traces') {
+                actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
             }
         },
         setActiveTracingTab: ({ tab }) => {
