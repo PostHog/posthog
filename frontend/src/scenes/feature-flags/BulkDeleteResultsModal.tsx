@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconCheck, IconCopy, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconCopy, IconRewind, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { pluralize } from 'lib/utils/strings'
 
 import { DeletedFlagInfo, FlagRolloutState, flagSelectionLogic } from './flagSelectionLogic'
 
@@ -113,15 +114,19 @@ If there is an else branch, keep only the else body:
 }
 
 export function BulkDeleteResultsModal(): JSX.Element | null {
-    const { bulkDeleteResult, resultsModalVisible } = useValues(flagSelectionLogic)
-    const { hideResultsModal } = useActions(flagSelectionLogic)
+    const { bulkDeleteResult, resultsModalVisible, bulkRestoreResult, bulkRestoreRunning, bulkRestoreProgress } =
+        useValues(flagSelectionLogic)
+    const { hideResultsModal, bulkRestoreFlags } = useActions(flagSelectionLogic)
     const [copied, setCopied] = useState(false)
 
     if (!bulkDeleteResult || !resultsModalVisible) {
         return null
     }
 
-    const { deleted, errors } = bulkDeleteResult
+    const { errors } = bulkDeleteResult
+    // After a restore that partly failed, the lists and the cleanup prompt cover only the flags still deleted.
+    const restoredIds = new Set(bulkRestoreResult?.restoredIds ?? [])
+    const deleted = bulkDeleteResult.deleted.filter((flag) => !restoredIds.has(flag.id))
     const cleanupPrompt = generateCleanupPrompt(deleted)
 
     const handleCopyPrompt = async (): Promise<void> => {
@@ -137,12 +142,58 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
             title="Bulk deletion results"
             width={600}
             footer={
-                <LemonButton type="primary" onClick={hideResultsModal}>
-                    Done
-                </LemonButton>
+                <>
+                    {deleted.length > 0 && !bulkRestoreResult && (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconRewind />}
+                            loading={bulkRestoreRunning}
+                            onClick={() => bulkRestoreFlags(deleted)}
+                            data-attr="bulk-restore-deleted-flags"
+                        >
+                            {bulkRestoreRunning && bulkRestoreProgress
+                                ? `Restoring ${bulkRestoreProgress.done} of ${bulkRestoreProgress.total}…`
+                                : `Restore ${pluralize(deleted.length, 'flag')}`}
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        type="primary"
+                        onClick={hideResultsModal}
+                        disabledReason={bulkRestoreRunning ? 'Wait for the restore to finish' : undefined}
+                    >
+                        Done
+                    </LemonButton>
+                </>
             }
         >
             <div className="space-y-4">
+                {bulkRestoreResult && (
+                    <div className="space-y-2">
+                        {restoredIds.size > 0 && (
+                            <div className="flex items-center gap-2 text-success font-medium">
+                                <IconRewind className="text-lg" />
+                                <span>Restored {pluralize(restoredIds.size, 'flag')}</span>
+                            </div>
+                        )}
+                        {bulkRestoreResult.failed.length > 0 && (
+                            <>
+                                <div className="flex items-center gap-2 text-danger font-medium">
+                                    <IconX className="text-lg" />
+                                    <span>Failed to restore {pluralize(bulkRestoreResult.failed.length, 'flag')}</span>
+                                </div>
+                                <ul className="list-none pl-6 space-y-1">
+                                    {bulkRestoreResult.failed.map((failure) => (
+                                        <li key={failure.id} className="text-sm">
+                                            <span className="text-muted">{failure.key}:</span>
+                                            <span className="text-muted-alt"> {failure.errorMessage}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </>
+                        )}
+                    </div>
+                )}
+
                 {deleted.length > 0 && (
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 text-success font-medium">

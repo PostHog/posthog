@@ -12,6 +12,7 @@ import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { RESTORE_UNAVAILABLE_DISABLED_REASON } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { featureFlagsPartialUpdate } from 'products/feature_flags/frontend/generated/api'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
@@ -42,6 +43,17 @@ export interface BulkArchiveFailure {
 export interface BulkArchiveResult {
     archivedIds: number[]
     failed: BulkArchiveFailure[]
+}
+
+export interface BulkRestoreFailure {
+    id: number
+    key: string
+    errorMessage: string
+}
+
+export interface BulkRestoreResult {
+    restoredIds: number[]
+    failed: BulkRestoreFailure[]
 }
 
 /**
@@ -137,6 +149,29 @@ function summarizeBulkArchive(
         return { level: 'warning', message: parts.join(', ') }
     }
     return { level: 'error', message: 'No flags were archived' }
+}
+
+function summarizeBulkRestore(
+    restoredCount: number,
+    failedCount: number
+): { level: 'success' | 'warning' | 'error'; message: string } {
+    if (failedCount === 0) {
+        return { level: 'success', message: `Restored ${pluralize(restoredCount, 'flag')}` }
+    }
+    if (restoredCount > 0) {
+        return {
+            level: 'warning',
+            message: `Restored ${pluralize(restoredCount, 'flag')}, ${pluralize(failedCount, 'flag')} failed`,
+        }
+    }
+    return { level: 'error', message: 'No flags were restored' }
+}
+
+// The API refuses to restore a flag on config version 2. Say so in the words the flag page uses.
+function restoreErrorMessage(error: unknown): string {
+    return error instanceof ApiError && error.code === 'unsupported_config_version'
+        ? RESTORE_UNAVAILABLE_DISABLED_REASON
+        : errorMessageFrom(error)
 }
 
 export function errorMessageFrom(error: unknown): string {
@@ -283,6 +318,12 @@ export interface flagSelectionLogicValues {
     bulkDeleteResponse: BulkDeleteResult | null
     bulkDeleteResponseLoading: boolean
     bulkDeleteResult: BulkDeleteResult | null
+    bulkRestoreProgress: {
+        done: number
+        total: number
+    } | null
+    bulkRestoreResult: BulkRestoreResult | null
+    bulkRestoreRunning: boolean
     resultsModalVisible: boolean
 }
 
@@ -305,6 +346,13 @@ export interface flagSelectionLogicActions {
         archivedCount: number
         failedCount: number
         pendingApprovalCount: number
+    } // eventUsageLogic
+    reportFeatureFlagsBulkRestored: (
+        restoredCount: number,
+        failedCount: number
+    ) => {
+        failedCount: number
+        restoredCount: number
     } // eventUsageLogic
     loadFeatureFlags: (_?: void | undefined) => void // featureFlagsLogic
     bulkArchiveFlags: (ids: number[]) => {
@@ -343,6 +391,12 @@ export interface flagSelectionLogicActions {
             allMatching: boolean
         }
     }
+    bulkRestoreFlags: (flags: DeletedFlagInfo[]) => {
+        flags: DeletedFlagInfo[]
+    }
+    bulkRestoreFlagsFinished: (result: BulkRestoreResult | null) => {
+        result: BulkRestoreResult | null
+    }
     closeBulkCopyModal: () => {
         value: true
     }
@@ -377,6 +431,13 @@ export interface flagSelectionLogicActions {
     }
     setBulkCopyTargetProjectIds: (projectIds: number[]) => {
         projectIds: number[]
+    }
+    setBulkRestoreProgress: (
+        done: number,
+        total: number
+    ) => {
+        done: number
+        total: number
     }
     showResultsModal: (result: BulkDeleteResult) => {
         result: BulkDeleteResult
@@ -428,7 +489,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             featureFlagsLogic({}),
             ['loadFeatureFlags'],
             eventUsageLogic,
-            ['reportFeatureFlagBulkCopy', 'reportFeatureFlagsBulkArchived'],
+            ['reportFeatureFlagBulkCopy', 'reportFeatureFlagsBulkArchived', 'reportFeatureFlagsBulkRestored'],
         ],
     })),
 
@@ -447,6 +508,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
         setBulkArchiveProgress: (done: number, total: number) => ({ done, total }),
         bulkArchiveFlags: (ids: number[]) => ({ ids }),
         bulkArchiveFlagsFinished: (result: BulkArchiveResult | null) => ({ result }),
+        setBulkRestoreProgress: (done: number, total: number) => ({ done, total }),
+        bulkRestoreFlags: (flags: DeletedFlagInfo[]) => ({ flags }),
+        bulkRestoreFlagsFinished: (result: BulkRestoreResult | null) => ({ result }),
     }),
 
     reducers({
@@ -534,6 +598,28 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             {
                 bulkArchiveFlags: () => null,
                 bulkArchiveFlagsFinished: (_, { result }) => result,
+            },
+        ],
+        bulkRestoreRunning: [
+            false,
+            {
+                bulkRestoreFlags: () => true,
+                bulkRestoreFlagsFinished: () => false,
+            },
+        ],
+        bulkRestoreProgress: [
+            null as { done: number; total: number } | null,
+            {
+                bulkRestoreFlags: () => null,
+                setBulkRestoreProgress: (_, { done, total }) => ({ done, total }),
+            },
+        ],
+        bulkRestoreResult: [
+            null as BulkRestoreResult | null,
+            {
+                showResultsModal: () => null,
+                bulkRestoreFlags: () => null,
+                bulkRestoreFlagsFinished: (_, { result }) => result,
             },
         ],
     }),
@@ -647,6 +733,41 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             const { level, message } = summarizeBulkArchive(archivedIds.length, failed)
             lemonToast[level](message)
         },
+        bulkRestoreFlags: async ({ flags }) => {
+            const projectId = values.currentProjectId
+            if (!projectId || flags.length === 0) {
+                actions.bulkRestoreFlagsFinished(null)
+                return
+            }
+
+            const restoredIds: number[] = []
+            const failed: BulkRestoreFailure[] = []
+
+            actions.setBulkRestoreProgress(0, flags.length)
+            // One request per flag, the same restore the flag page sends. It undoes a delete the
+            // person just made, so it covers every deleted flag rather than stopping at a cap.
+            for (const [index, flag] of flags.entries()) {
+                try {
+                    // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
+                    await api.update(`api/projects/${projectId}/feature_flags/${flag.id}`, { deleted: false })
+                    restoredIds.push(flag.id)
+                } catch (error) {
+                    failed.push({ id: flag.id, key: flag.key, errorMessage: restoreErrorMessage(error) })
+                }
+                actions.setBulkRestoreProgress(index + 1, flags.length)
+            }
+
+            actions.bulkRestoreFlagsFinished({ restoredIds, failed })
+            actions.loadFeatureFlags()
+            actions.reportFeatureFlagsBulkRestored(restoredIds.length, failed.length)
+            // Keep the results open when something failed, so the person can see which flags are still deleted.
+            if (failed.length === 0) {
+                actions.hideResultsModal()
+            }
+
+            const { level, message } = summarizeBulkRestore(restoredIds.length, failed.length)
+            lemonToast[level](message)
+        },
         bulkCopyFlags: async () => {
             const params = values.bulkCopyParams
             const sourceProjectId = values.bulkCopySourceProjectId
@@ -727,7 +848,11 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     })),
 
     beforeUnload(({ values }) => ({
-        enabled: () => values.bulkDeleteResponseLoading || values.bulkCopyRunning || values.bulkArchiveRunning,
+        enabled: () =>
+            values.bulkDeleteResponseLoading ||
+            values.bulkCopyRunning ||
+            values.bulkArchiveRunning ||
+            values.bulkRestoreRunning,
         message: 'A bulk flag operation is in progress. Leaving may interrupt it.',
     })),
 ])
