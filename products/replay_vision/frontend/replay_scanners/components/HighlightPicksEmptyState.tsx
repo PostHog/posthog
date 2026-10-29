@@ -24,9 +24,9 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
     const { currentTeam } = useValues(teamLogic)
     const picksLogic = useMountedLogic(highlightPicksLogic)
     const { emptyStateShown } = useActions(picksLogic)
-    const { noRecordings } = useValues(highlightPicksVolumeLogic)
+    const { noRecordings, volumeEstimate, volumeEstimateLoading } = useValues(highlightPicksVolumeLogic)
     const large = size === 'large'
-    const loading = scannersLoading || quotaLoading
+    const loading = scannersLoading || quotaLoading || (volumeEstimateLoading && !volumeEstimate)
 
     const reason = loading
         ? null

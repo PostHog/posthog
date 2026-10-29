@@ -1,5 +1,6 @@
-import { LogicWrapper, MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -102,6 +103,10 @@ export const highlightPicksVolumeLogic: LogicWrapper<highlightPicksVolumeLogicTy
                         if (!teamId) {
                             return null
                         }
+                        const cached = freshSnapshot(values.cachedSnapshot, teamId)
+                        if (cached) {
+                            return cached
+                        }
                         let estimate: EstimateResponseApi | null = null
                         try {
                             estimate = await visionScannersEstimateCreate(String(teamId), {
@@ -146,12 +151,7 @@ export const highlightPicksVolumeLogic: LogicWrapper<highlightPicksVolumeLogicTy
             ],
         }),
 
-        afterMount(({ actions, values }) => {
-            const cached = freshSnapshot(values.cachedSnapshot, values.currentTeamId)
-            if (cached) {
-                actions.loadVolumeEstimateSuccess(cached)
-            } else {
-                actions.loadVolumeEstimate()
-            }
-        }),
+        subscriptions(({ actions }) => ({
+            currentTeamId: () => actions.loadVolumeEstimate(),
+        })),
     ])
