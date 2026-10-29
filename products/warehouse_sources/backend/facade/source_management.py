@@ -34,7 +34,6 @@ _LAZY = {
     "history_naming_unless_taken": "cdc.history_table",
     "pin_history_naming": "cdc.history_table",
     "pinned_history_naming": "cdc.history_table",
-    "HistoryNaming": "cdc.batcher",
     "new_history_naming": "cdc.history_table",
     "new_history_names_taken": "cdc.history_table",
     "history_table_name": "cdc.history_table",

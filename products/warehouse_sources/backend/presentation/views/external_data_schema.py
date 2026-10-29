@@ -67,7 +67,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
     AnySource,
-    HistoryNaming,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -473,12 +472,14 @@ def _refuse_reserved_columns(
     new_mode: str | None,
     new_enabled_columns: list[str] | None,
     new_primary_keys: list[str] | None,
-) -> HistoryNaming | None:
+    resulting_config: dict[str, Any],
+) -> None:
     """Capture and the history table write their own columns next to the source's, so a synced source
     column that loads under one of those names fails the sync. Only a collision this request adds is
     refused, so a table that already has one can still be edited or switched back.
 
-    Returns the naming the history table gets, or None when the new mode keeps no history table."""
+    Pins the naming the columns were checked against on `resulting_config`, so a later flag change cannot
+    refuse a column this request accepted."""
     history = None
     resolved = None
     if is_history_table_mode(new_mode) or is_history_table_mode(previous_mode):
@@ -514,7 +515,8 @@ def _refuse_reserved_columns(
             "PostHog writes. Rename the column on your database, leave it out of the synced columns, or change "
             "this table's sync method or output tables."
         )
-    return resolved if is_history_table_mode(new_mode) else None
+    if resolved is not None and is_history_table_mode(new_mode) and pinned_history_naming(instance) is None:
+        pin_history_naming(resulting_config, resolved)
 
 
 def schema_display_status(schema: ExternalDataSchema) -> str | None:
@@ -1399,7 +1401,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # can also bring a validity column into the history table.
         if (sync_type if "sync_type" in data else instance.sync_type) == ExternalDataSchema.SyncType.CDC:
             resulting_config = validated_data.get("sync_type_config", instance.sync_type_config) or {}
-            history = _refuse_reserved_columns(
+            _refuse_reserved_columns(
                 instance,
                 previous_mode=previous_cdc_table_mode,
                 previous_enabled_columns=instance.enabled_columns,
@@ -1407,11 +1409,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 new_mode=resulting_config.get("cdc_table_mode"),
                 new_enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 new_primary_keys=resulting_config.get("primary_key_columns"),
+                resulting_config=resulting_config,
             )
-            if history is not None and pinned_history_naming(instance) is None:
-                pin_history_naming(resulting_config, history)
-                instance.sync_type_config = resulting_config
-                validated_data["sync_type_config"] = resulting_config
+            instance.sync_type_config = resulting_config
+            validated_data["sync_type_config"] = resulting_config
 
         # Its table and the history table would share one name and one storage folder.
         if (

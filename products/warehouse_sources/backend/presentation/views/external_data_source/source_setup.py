@@ -59,7 +59,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSource,
     CustomSourceConfig,
     DocsFetchError,
-    HistoryNaming,
     MySQLSource,
     PostgresSource,
     RowFilterValidationError,
@@ -1424,7 +1423,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
-        new_history: HistoryNaming | None = None
+        history_naming_config_by_schema: dict[str, dict[str, Any]] = {}
         if cdc_enabled:
             cdc_table_names_by_schema: dict[str, set[str]] = {}
             cdc_schema_name_by_location: dict[tuple[str, str], str] = {}
@@ -1549,6 +1548,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         )
                     },
                 )
+            for name in history_names:
+                pin_history_naming(history_naming_config_by_schema.setdefault(name, {}), new_history)
 
         # Engine-side CDC resource setup runs after PK validation so we don't leave
         # replication state on the source for a config we're about to refuse.
@@ -1764,8 +1765,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "schema_metadata": schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
-                if new_history is not None and is_history_table_mode(cdc_table_mode):
-                    pin_history_naming(sync_type_config, new_history)
+                sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
