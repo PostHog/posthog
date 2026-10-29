@@ -21,6 +21,7 @@ export type IndexFileStore = {
 
 export type IndexWatermarkWriter = {
     write(ownedOffsets: readonly TopicPartitionOffset[], nowMs: number): Promise<void>
+    cancelWrites(partitions: readonly TopicPartition[]): void
 }
 
 export interface IndexBatcherOptions {
@@ -96,10 +97,12 @@ export class IndexBatcher {
     }
 
     /**
-     * Drops the buffered rows and offsets of revoked partitions. Their new owner reads them again from the committed
-     * offset, so writing them here would only duplicate them, and this consumer can no longer store their offsets.
+     * Drops the buffered rows and offsets of revoked partitions, and aborts their watermark writes. Their new owner reads
+     * them again from the committed offset, so writing them here would only duplicate them, and this consumer can no
+     * longer store their offsets.
      */
     public release(partitions: readonly TopicPartition[]): void {
+        this.watermarkFiles.cancelWrites(partitions)
         const keys = new Set(partitions.map(partitionKey))
         let released = 0
         for (const key of keys) {

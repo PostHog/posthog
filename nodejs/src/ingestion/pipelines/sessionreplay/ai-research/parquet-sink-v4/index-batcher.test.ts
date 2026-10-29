@@ -416,6 +416,48 @@ describe('IndexBatcher', () => {
         })
     })
 
+    it('aborts the watermark write of a partition revoked while the write is in flight, and keeps the others', async () => {
+        const failedBefore = await failedWatermarkWrites()
+        const finishWrite = new Map<string, () => void>()
+        send.mockImplementation((command: { input: PutObjectCommandInput }, options: { abortSignal: AbortSignal }) => {
+            if (!command.input.Key!.includes('/_watermarks/')) {
+                puts.push(command.input)
+                return Promise.resolve({})
+            }
+            return new Promise((resolve, reject) => {
+                options.abortSignal.addEventListener('abort', () => reject(new Error('aborted')))
+                finishWrite.set(command.input.Key!, () => {
+                    if (!options.abortSignal.aborted) {
+                        puts.push(command.input)
+                        resolve({})
+                    }
+                })
+            })
+        })
+        const batcher = makeBatcher()
+        await deliver(
+            batcher,
+            [
+                captured(1_000, message(1, 'blocks', '2026-10-15', blockRow('s1'))),
+                captured(2_000, message(1, 'blocks', '2026-10-15', blockRow('s2'), 1)),
+            ],
+            0
+        )
+
+        const flushed = batcher.flush(0)
+        while (finishWrite.size < 2) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        batcher.release([{ topic: TOPIC, partition: 1 }])
+        for (const finish of finishWrite.values()) {
+            finish()
+        }
+        await flushed
+
+        expect(watermarkPuts().map((put) => put.Key)).toEqual(['index/blocks/_watermarks/partition=0000.json'])
+        expect(await failedWatermarkWrites()).toBe(failedBefore)
+    })
+
     it('keeps a flush successful when a watermark write fails, and writes the file on a poll after the interval', async () => {
         const clock = jest.spyOn(Date, 'now').mockReturnValue(WALL_CLOCK_MS)
         const failedBefore = await failedWatermarkWrites()

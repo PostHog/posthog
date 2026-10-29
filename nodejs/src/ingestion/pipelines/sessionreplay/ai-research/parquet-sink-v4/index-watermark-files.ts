@@ -3,7 +3,7 @@
  * one Kafka partition, so a reader of the bucket can see how far the index is complete without the metrics store.
  */
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import { TopicPartitionOffset } from 'node-rdkafka'
+import { TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
 import { CaptureWatermark, CapturedData } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
@@ -30,9 +30,13 @@ function watermarkFileKey(index: V4Index, partition: number): string {
     return `index/${index}/_watermarks/partition=${String(partition).padStart(4, '0')}.json`
 }
 
-const dataKey = (topic: string, partition: number, data: CapturedData): string => `${topic}:${partition}:${data}`
+const partitionKey = (topic: string, partition: number): string => `${topic}:${partition}`
+const dataKey = (topic: string, partition: number, data: CapturedData): string =>
+    `${partitionKey(topic, partition)}:${data}`
 
 export class IndexWatermarkFiles {
+    private readonly inFlightWrites = new Map<string, AbortController>()
+
     constructor(
         private readonly s3Client: S3Client,
         private readonly bucket: string,
@@ -50,26 +54,48 @@ export class IndexWatermarkFiles {
             capturedAtMs.set(dataKey(row.topic, row.partition, row.data), row.capturedAtMs)
         }
         const writes: Promise<void>[] = []
+        const writingPartitions: string[] = []
         for (const { topic, partition, offset } of ownedOffsets) {
+            const cancellation = new AbortController()
+            this.inFlightWrites.set(partitionKey(topic, partition), cancellation)
+            writingPartitions.push(partitionKey(topic, partition))
             for (const index of ['blocks', 'images'] as const) {
                 const completeUpToCaptureMs = capturedAtMs.get(dataKey(topic, partition, INDEX_CAPTURED_DATA[index]))
                 if (completeUpToCaptureMs === undefined) {
                     continue
                 }
                 writes.push(
-                    this.put(index, watermarkFileKey(index, partition), {
-                        partition,
-                        complete_up_to_capture_ms: completeUpToCaptureMs,
-                        committed_offset: offset,
-                        written_at_ms: nowMs,
-                    })
+                    this.put(
+                        index,
+                        watermarkFileKey(index, partition),
+                        {
+                            partition,
+                            complete_up_to_capture_ms: completeUpToCaptureMs,
+                            committed_offset: offset,
+                            written_at_ms: nowMs,
+                        },
+                        cancellation.signal
+                    )
                 )
             }
         }
         await Promise.all(writes)
+        for (const partition of writingPartitions) {
+            this.inFlightWrites.delete(partition)
+        }
     }
 
-    private async put(index: V4Index, key: string, file: IndexWatermarkFile): Promise<void> {
+    /**
+     * Aborts the writes still in flight for partitions that this consumer lost, retries included, so that a slow write
+     * cannot replace a file that the new owner wrote after it.
+     */
+    public cancelWrites(partitions: readonly TopicPartition[]): void {
+        for (const { topic, partition } of partitions) {
+            this.inFlightWrites.get(partitionKey(topic, partition))?.abort()
+        }
+    }
+
+    private async put(index: V4Index, key: string, file: IndexWatermarkFile, cancelled: AbortSignal): Promise<void> {
         try {
             await this.s3Client.send(
                 new PutObjectCommand({
@@ -78,9 +104,13 @@ export class IndexWatermarkFiles {
                     Body: JSON.stringify(file),
                     ContentType: 'application/json',
                 }),
-                { abortSignal: AbortSignal.timeout(WATERMARK_PUT_TIMEOUT_MS) }
+                { abortSignal: AbortSignal.any([cancelled, AbortSignal.timeout(WATERMARK_PUT_TIMEOUT_MS)]) }
             )
         } catch (error) {
+            if (cancelled.aborted) {
+                V4ParquetSinkMetrics.incWatermarkWrite(index, 'cancelled')
+                return
+            }
             V4ParquetSinkMetrics.incWatermarkWrite(index, 'failed')
             logger.warn('🪶', 'ai_research_v4_parquet_watermark_write_failed', { key, error: String(error) })
             return

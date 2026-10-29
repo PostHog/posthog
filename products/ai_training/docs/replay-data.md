@@ -588,7 +588,7 @@ A row that the sink holds but has not written keeps the value at or below its ca
 The sink rewrites its files once every `WATERMARK_FILE_INTERVAL_MS` (`index-watermark-files.ts`), on the first flush or poll after the interval, also when no rows arrive.
 A value can rise without new rows, because the watermark also counts the rows that it finished in the last `FINISHED_WINDOW_MS` (`capture-watermark.ts`).
 Each write is a plain PUT that replaces the file.
-A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval.
+A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval. A write that the sink aborts because it lost the partition counts as `outcome="cancelled"`.
 S3 expires a file 30 days after its last write, as it does every object in the bucket.
 
 To learn how far an index is complete, a reader:
@@ -600,7 +600,7 @@ To learn how far an index is complete, a reader:
 Some limits apply:
 
 - A partition that delivers no records keeps its last value, as the gauge does, and the sink keeps rewriting its file. So a quiet partition holds the minimum down.
-- During a rebalance, the former owner's last write can land after the new owner's first write. The file then holds an older value until the new owner writes again. That value is still true. The sink cannot prevent this, because the bucket does not let it read the file that it replaces.
+- When the sink loses a partition, it aborts the partition's watermark writes that are still in flight, retries included. A write that S3 already received can still land. The new owner writes its first file only after its first flush, so the two overlap only if S3 takes longer to apply that write than the new owner takes to flush. The file then holds an older value until the new owner writes again. That value is still true. A full fence is not possible, because the bucket does not let the sink read the file that it replaces.
 - A partition that the sink has not flushed since it started to write these files has no file. A reader that needs every partition compares the number of files with the partition count of the topic.
 - The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete.
 - A reader that lists `index/blocks/` or `index/images/` for Parquet files must skip `_watermarks/`. Hive-style readers such as Spark, Athena and pyarrow datasets ignore paths that start with `_`, and a `*.parquet` glob does not match the JSON files.
