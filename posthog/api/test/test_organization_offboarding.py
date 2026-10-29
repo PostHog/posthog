@@ -387,13 +387,22 @@ class TestOrganizationOffboarding(APIBaseTest):
         hidden = Dashboard.objects.create(team=hidden_team, created_by=self.departing)
         for dashboard in (visible, hidden):
             SharingConfiguration.objects.create(team=dashboard.team, dashboard=dashboard, enabled=True)
-        assert len(self.client.get(self.url + "offboarding/").json()) == 2
+        subscription = self.subscription(creator=self.departing, recipients="private@example.com")
+        subscription.team = hidden_team
+        subscription.save(update_fields=["team"])
+        insight = Insight.objects.create(team=hidden_team, created_by=self.departing)
+        alert = AlertConfiguration.objects.create(team=hidden_team, insight=insight, created_by=self.departing)
+        assert len(self.client.get(self.url + "offboarding/").json()) == 4
         self.client.force_login(self.departing)
         response = self.client.get(self.url + "offboarding/")
         assert response.status_code == 200
         assert [item["team_id"] for item in response.json()] == [self.team.pk]
         assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
         assert not SharingConfiguration.objects.filter(dashboard__in=[visible, hidden], enabled=True).exists()
+        subscription.refresh_from_db()
+        alert.refresh_from_db()
+        assert not subscription.enabled
+        assert not alert.enabled
 
     @patch("products.alerts.backend.logic.organization_offboarding.disable_configurations")
     def test_parallel_alert_copy_cleanup_waits_for_commit(self, disable_configurations: MagicMock) -> None:
