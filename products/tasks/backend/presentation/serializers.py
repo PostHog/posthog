@@ -972,12 +972,6 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("Space not found")
         return value
 
-    def validate_github_integration(self, value):
-        """Validate that the GitHub integration belongs to the same team"""
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Integration must belong to the same team")
-        return value
-
     def validate_github_user_integration(self, value):
         """Validate that the GitHub user integration belongs to the authenticated user."""
         request = self.context.get("request")
@@ -2666,11 +2660,6 @@ class ChannelUpdateSerializer(serializers.Serializer):
     def validate_name(self, value: str) -> str:
         if tasks_facade.is_reserved_channel_name(value):
             raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
-        return value
-
-    def validate_github_integration(self, value):
-        if value is not None and value.team_id != self.context["team_id"]:
-            raise serializers.ValidationError("GitHub integration must belong to this project")
         return value
 
     def validate_repositories(self, value: list[str]) -> list[str]:

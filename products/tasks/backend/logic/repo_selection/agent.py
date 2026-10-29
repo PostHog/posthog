@@ -147,19 +147,24 @@ def resolve_team_github_integration(
     source's repository names are shown to other team members, or when the work runs under the
     team installation's bot identity — a personal connection is a cross-account leak there.
     """
-    candidates = [
-        row
-        for row in IntegrationManager.github.oauth.list(team_id)
-        # Skip integrations whose installation has been synced and confirmed empty (0 repos)
-        if not (row.repository_cache == [] and row.repository_cache_updated_at is not None)
-        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
-        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-        and row.errors != ERROR_TOKEN_REFRESH_FAILED
-        and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
-    ]
-    # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest first
-    # and `min` keeps the first of equal keys.
-    integration = min(candidates, key=_account_type_sort_key, default=None)
+    candidates = sorted(
+        (
+            row
+            for row in IntegrationManager.github.oauth.list(team_id)
+            # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
+            # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
+            if row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+        ),
+        # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest
+        # first and `sorted` is stable.
+        key=_account_type_sort_key,
+    )
+    # Skip integrations whose installation has been synced and confirmed empty (0 repos). The SDK
+    # defers the repository cache, so check it only until the first match.
+    integration = next(
+        (row for row in candidates if not (row.repository_cache_updated_at is not None and row.repository_cache == [])),
+        None,
+    )
     # Prefer the first GitHub integration from the team
     if integration is not None:
         return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)

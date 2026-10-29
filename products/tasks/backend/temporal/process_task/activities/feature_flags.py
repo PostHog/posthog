@@ -31,22 +31,23 @@ def is_slack_app_agent_design_enabled_for_task_activity(
     from products.slack_app.backend.feature_flags import is_slack_app_agent_design_enabled
     from products.tasks.backend.models import TaskRun
 
-    run_team_id = TaskRun.objects.filter(id=input.run_id).values_list("team_id", flat=True).first()
+    # One query for the team and the creator. The gate reads `integration.team`, so the joined
+    # team also saves a lazy load later.
+    run = TaskRun.objects.select_related("team", "task__created_by").filter(id=input.run_id).first()
     try:
-        if run_team_id is None:
+        if run is None:
             raise IntegrationNotFound(f"No task run {input.run_id}")
-        integration = IntegrationManager.slack.oauth.get(run_team_id, input.integration_id)
+        integration = IntegrationManager.slack.oauth.get(run.team_id, input.integration_id)
     except IntegrationNotFound:
         logger.warning("slack_app_agent_design_integration_missing", integration_id=input.integration_id)
         enabled = False
     else:
+        integration.team = run.team
         # The run's creator is the person the decision is about, so the gate resolves the
         # flag against them and an internal rollout can name people by email or cohort the
         # way every other one does. None when the run has no creator on record.
-        creator_distinct_id = (
-            TaskRun.objects.filter(id=input.run_id).values_list("task__created_by__distinct_id", flat=True).first()
-        )
-        enabled = is_slack_app_agent_design_enabled(integration, creator_distinct_id)
+        creator = run.task.created_by
+        enabled = is_slack_app_agent_design_enabled(integration, creator.distinct_id if creator else None)
 
     def _persist(state: dict[str, Any]) -> None:
         state[AGENT_DESIGN_STATE_KEY] = enabled

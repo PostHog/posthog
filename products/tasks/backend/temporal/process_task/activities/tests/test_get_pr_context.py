@@ -9,6 +9,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.models.team.team import Team
 
 from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
@@ -389,6 +390,13 @@ class TestGetGithubIntegration:
         wrapped.refresh_access_token.assert_not_called()
 
     @pytest.mark.django_db
-    def test_raises_when_integration_not_found(self, github_integration):
+    @pytest.mark.parametrize("case", ["missing_id", "other_team"])
+    def test_raises_when_integration_not_found(self, github_integration, case):
+        if case == "missing_id":
+            team_id, integration_id = github_integration.team_id, 999999999
+        else:
+            other_team = Team.objects.create(organization=github_integration.team.organization, name="Other team")
+            team_id, integration_id = other_team.id, github_integration.id
+
         with pytest.raises(IntegrationNotFound):
-            get_github_integration(github_integration.team_id, 999999999)
+            get_github_integration(team_id, integration_id)
