@@ -112,15 +112,22 @@ describe('InboxBulkSelectionBar', () => {
         expect(deleted.sort()).toEqual(sent)
     })
 
-    // A bulk claim must skip reports a person already holds, and only broadcast the claims the server took.
-    it('claims only the unclaimed reports and broadcasts the ones that succeeded', async () => {
+    // A bulk claim must skip reports a person already holds. A report a teammate claimed after the list
+    // loaded comes back 409, and its row must then show that teammate rather than offer the claim again.
+    it('claims only the unclaimed reports and reports each new holder in one broadcast', async () => {
         const claimed: string[] = []
         useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/': ({ params }) => [
+                    200,
+                    { id: params.id, assignee: teammateClaim },
+                ],
+            },
             post: {
                 '/api/projects/:team_id/signals/reports/:id/claim/': ({ params }) => {
                     claimed.push(String(params.id))
                     return params.id === 'c'
-                        ? [500, {}]
+                        ? [409, {}]
                         : [200, { id: params.id, assignee: myClaim, updated_at: '2026-06-11T11:00:00Z' }]
                 },
             },
@@ -135,7 +142,13 @@ describe('InboxBulkSelectionBar', () => {
         await expectLogic(logic, () => {
             fireEvent.click(screen.getByText('Claim'))
         })
-            .toDispatchActions([logic.actionCreators.reportClaimChanged('a', myClaim), 'bulkClaimSuccess'])
+            .toDispatchActions([
+                logic.actionCreators.reportClaimsChanged([
+                    { reportId: 'a', assignee: myClaim },
+                    { reportId: 'c', assignee: teammateClaim },
+                ]),
+                'bulkClaimSuccess',
+            ])
             .toMatchValues({ selectedReportIds: [] })
         expect(claimed.sort()).toEqual(['a', 'c'])
     })

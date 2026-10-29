@@ -1015,20 +1015,31 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         // The Claimed by you list holds only the user's claims: a release drops the row in place, and a
         // new claim reloads the list so the row joins it. Every other list updates the claim tag.
-        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId, assignee }) => {
-            const isLoaded = values.reports.some((r) => r.id === reportId)
-            if (values.scopeAssignee) {
-                const isMine = !!values.user?.uuid && assignee?.responsible_user?.uuid === values.user.uuid
-                if (!isMine && isLoaded) {
-                    actions.removeReport(reportId)
-                    return
+        // A batch of claims refreshes this list at most once, because a refresh reloads the first page.
+        [inboxBulkActionsLogic.actionTypes.reportClaimsChanged]: ({ changes }) => {
+            const loadedIds = new Set(values.reports.map((r) => r.id))
+            const userUuid = values.user?.uuid
+            let needsRefresh = false
+            for (const { reportId, assignee } of changes) {
+                const isLoaded = loadedIds.has(reportId)
+                if (values.scopeAssignee) {
+                    const isMine = !!userUuid && assignee?.responsible_user?.uuid === userUuid
+                    if (!isMine && isLoaded) {
+                        actions.removeReport(reportId)
+                        continue
+                    }
+                    if (isMine && !isLoaded) {
+                        needsRefresh = true
+                        continue
+                    }
                 }
-                if (isMine && !isLoaded) {
-                    actions.refresh()
-                    return
+                if (isLoaded) {
+                    actions.setReportAssignee(reportId, assignee)
                 }
             }
-            actions.setReportAssignee(reportId, assignee)
+            if (needsRefresh) {
+                actions.refresh()
+            }
         },
         [inboxBulkActionsLogic.actionTypes.unassignedMe]: ({ reportIds }: { reportIds: string[] }) => {
             if (values.isScopedToMe) {

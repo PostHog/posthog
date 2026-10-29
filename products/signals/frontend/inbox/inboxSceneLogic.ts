@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { reconcileById } from 'lib/utils/objects'
+import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,7 +40,7 @@ import {
     InboxReportOpenMethod,
     parseInboxReportLinkSource,
 } from './inboxAnalytics'
-import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
+import { inboxBulkActionsLogic, type ReportClaimChange } from './logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
@@ -887,6 +887,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     listeners(({ actions, values, cache, selectors }) => ({
+        // A claim from a list row or the bulk bar can land while its report is open. The detail pane
+        // reads the selected report, so patch it, then reload it: a fetch that started before the
+        // claim landed can still return the old assignee.
+        [inboxBulkActionsLogic.actionTypes.reportClaimsChanged]: ({ changes }: { changes: ReportClaimChange[] }) => {
+            const report = values.selectedReport
+            const change = report ? changes.find((c) => c.reportId === report.id) : undefined
+            if (!report || !change || objectsEqual(report.assignee ?? null, change.assignee ?? null)) {
+                return
+            }
+            actions.seedSelectedReport({ ...report, assignee: change.assignee })
+            actions.loadSelectedReport({ id: report.id })
+        },
         setRunsOpen: ({ open }) => {
             // While the Runs panel is open, refetch on a slow poll so live runs update in place. The
             // keyed disposable replaces any prior poll and is torn down on close / unmount, and

@@ -181,6 +181,24 @@ describe('reportListLogic', () => {
             }
         )
 
+        // Each refresh reloads the first page, so a bulk claim must refresh Claimed by you once, not once per report.
+        it('refreshes Claimed by you once for a batch of new claims', async () => {
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            logic.actions.setScope(INBOX_SCOPE_CLAIMED_BY_YOU)
+            await expectLogic(logic).toFinishAllListeners()
+            requestedOffsets = []
+
+            bulkLogic.actions.reportClaimsChanged([
+                { reportId: 'claimed-elsewhere-1', assignee: myClaim },
+                { reportId: 'claimed-elsewhere-2', assignee: myClaim },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedOffsets).toHaveLength(1)
+            bulkLogic.unmount()
+        })
+
         // A failed next page keeps the loaded rows and `hasMore`, and the scroll sentinel may sit
         // inside the viewport without re-firing. The flag is what surfaces the retry control, and a
         // plain `loadMore` must be able to fetch the page again.
