@@ -15,7 +15,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
-from posthog.schema_enums import EmbeddingModelName
 
 from products.signals.backend.activity_summary.logic import (
     MIN_UNITS,
@@ -28,9 +27,8 @@ from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, sum
 from products.signals.backend.activity_summary.queue import max_update_cost_usd
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, Product, RenderLimits
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL
-from products.signals.backend.activity_summary.tick import EMBEDDING_RENDERING, capture_generated
+from products.signals.backend.activity_summary.tick import capture_generated, emit_summary_embedding
 from products.signals.backend.models import SignalReportAction
-from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
 
 logger = structlog.get_logger(__name__)
 
@@ -122,19 +120,13 @@ def document_id(job: BackfillJob, exclude_inbox: bool) -> str:
 
 
 def _emit_embedding(job: BackfillJob, update: ActivitySummaryUpdate, exclude_inbox: bool) -> None:
-    # Deferred so importing this module does not load the Kafka and ClickHouse chain behind the producer.
-    from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
-
     if update.summary is None:
         return
-    emit_embedding_request(
+    emit_summary_embedding(
+        job.team_id,
         content=summary_text(update.summary),
-        team_id=job.team_id,
-        product=EMBEDDING_PRODUCT,
         document_type=BACKFILL_DOCUMENT_TYPE,
-        rendering=EMBEDDING_RENDERING,
         document_id=document_id(job, exclude_inbox),
-        models=[model.value for model in EmbeddingModelName],
         # The as-of moment, so a rerun of the same job replaces its own row.
         timestamp=job.as_of,
         metadata={
@@ -218,9 +210,7 @@ def run_backfill(
     batch_size = max(1, concurrency)
     executor = ThreadPoolExecutor(max_workers=batch_size) if batch_size > 1 else None
     try:
-        while attempted < len(jobs):
-            if cost >= max_cost_usd:
-                break
+        while attempted < len(jobs) and cost < max_cost_usd:
             batch = jobs[attempted : attempted + batch_size]
             attempted += len(batch)
             if executor is None:

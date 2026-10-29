@@ -8,6 +8,7 @@ import asyncio
 import datetime
 import dataclasses
 from collections import Counter
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -231,23 +232,42 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
     )
 
 
-def _emit_embedding(team_id: int, user_id: int) -> None:
+def emit_summary_embedding(
+    team_id: int,
+    *,
+    content: str,
+    document_type: str,
+    document_id: str,
+    timestamp: datetime.datetime,
+    metadata: dict[str, Any],
+) -> None:
     # Deferred so importing the tick does not load the Kafka and ClickHouse chain behind the producer.
     from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
 
+    emit_embedding_request(
+        content=content,
+        team_id=team_id,
+        product=EMBEDDING_PRODUCT,
+        document_type=document_type,
+        rendering=EMBEDDING_RENDERING,
+        document_id=document_id,
+        # The models of the report embeddings, so both share one vector space.
+        models=[model.value for model in EmbeddingModelName],
+        timestamp=timestamp,
+        metadata=metadata,
+    )
+
+
+def _emit_embedding(team_id: int, user_id: int) -> None:
     stored = UserActivitySummary.objects.for_team(team_id).filter(user_id=user_id).first()
     if stored is None or not stored.summary_text or stored.generated_at is None:
         return
-    emit_embedding_request(
+    emit_summary_embedding(
+        team_id,
         content=stored.summary_text,
-        team_id=team_id,
-        product=EMBEDDING_PRODUCT,
         document_type=EMBEDDING_DOCUMENT_TYPE,
-        rendering=EMBEDDING_RENDERING,
         # One vector per user per day, so an analysis can read the vector a user had on a given day.
         document_id=f"{user_id}:{stored.generated_at.date().isoformat()}",
-        # The models of the report embeddings, so both share one vector space.
-        models=[model.value for model in EmbeddingModelName],
         timestamp=stored.generated_at,
         metadata={
             "prompt_version": stored.prompt_version,

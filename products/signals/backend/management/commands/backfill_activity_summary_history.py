@@ -81,10 +81,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if options["inbox_users"] == (options["team_id"] is not None or options["user_id"] is not None):
-            raise CommandError("Give --team-id and --user-id, or --inbox-users.")
-        if not options["inbox_users"] and (options["team_id"] is None or options["user_id"] is None):
-            raise CommandError("Give both --team-id and --user-id.")
+        has_pair = options["team_id"] is not None and options["user_id"] is not None
+        has_id = options["team_id"] is not None or options["user_id"] is not None
+        if options["inbox_users"] == has_id or (has_id and not has_pair):
+            raise CommandError("Give both --team-id and --user-id, or --inbox-users alone.")
         dates = as_of_dates(options["as_of"], options["start"], options["end"], options["every_days"])
         if dates[-1] > timezone.now():
             raise CommandError("An as-of date is in the future.")

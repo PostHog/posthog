@@ -477,8 +477,7 @@ def render_as_of(
     Views come from the latest view of each object, so an object opened again after `as_of` is missing."""
     tasks, activity, views = _read_inputs(team_id, user_id, as_of - datetime.timedelta(days=limits.window_days), as_of)
     excluded: Counter[str] = Counter()
-    if exclude_products:
-        activity, views = without_products(activity, views, exclude_products, excluded)
+    activity, views = without_products(activity, views, exclude_products, excluded)
     rendered = _render(team_id, user_id, tasks, activity, views, as_of=as_of, limits=limits)
     if rendered is None:
         return None
