@@ -269,7 +269,6 @@ def start_sandbox_run(
             description=build_sandbox_prompt(question, always_on, repo_tools=repository_tools_enabled(team)),
             profile=task_profiles.BUSINESS_KNOWLEDGE,
             user_id=user_id,
-            create_pr=False,
             sandbox_environment_id=str(env_id),
             options=TaskRunOptions(
                 model=SANDBOX_MODEL,

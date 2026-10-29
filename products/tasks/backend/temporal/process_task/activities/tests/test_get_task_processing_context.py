@@ -448,6 +448,30 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
+        "stored_profile,requested,expected",
+        [
+            (None, True, True),
+            (None, False, False),
+            ("business_knowledge", True, False),
+            ("business_knowledge", False, False),
+            ("test.unregistered", True, True),
+        ],
+    )
+    def test_get_task_processing_context_lets_the_profile_turn_off_create_pr(
+        self, activity_environment, test_task, stored_profile, requested, expected
+    ):
+        test_task.profile = stored_profile
+        test_task.save(update_fields=["profile"])
+        task_run = test_task.create_run()
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id), create_pr=requested)
+        )
+
+        assert result.create_pr is expected
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
         "stored_profile,expected_profile",
         [
             (None, None),
