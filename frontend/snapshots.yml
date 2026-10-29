@@ -13532,14 +13532,6 @@ snapshots:
         hash: v1.k794b7964.dd14b980b237d45835403599922b5a4dbe14f0bae5e786dd76487cff93096c75.aV8-f7YDhPy3lgLeBKO1zS_Uc47eFg2EQ1M1WD94438
     scenes-app-marketing-analytics-search-performance--narrow-position-metrics--light:
         hash: v1.k794b7964.302b9a2bb52c07d3425985efcff3844c0553693a784eba89e03aacba6d83b9bb.P5iDi2uPTovgeY5byX3fykkaKj7ogQ89KxpzGJT2Qkg
-    scenes-app-marketing-analytics-search-performance--new-dashboard-flag-off--dark:
-        hash: v1.k794b7964.b5396b32369d9e930e3db3dcd3f7e87bfbe9e813c815be0819b4a6b3f90ae63e.-n0OMQJZ2BHjrGTarQVkOln7dl6v1tLs81vsnimxTlc
-    scenes-app-marketing-analytics-search-performance--new-dashboard-flag-off--light:
-        hash: v1.k794b7964.8fcb2ab7cbfb8600fb7b1e8484440128366c693dccf8acd1b35bc5f41ba84f0f.XFossOxDeskeQzkA-9uZqNp-B3Q49RghdBcMzvlKRE0
-    scenes-app-marketing-analytics-search-performance--new-dashboard-scene--dark:
-        hash: v1.k794b7964.9e4b85ba870d0c9e05725d24c45fe17239731b5f1f46635714958eca4ef4cb95.MB_6NmpPaehfcDT-Z5OuB5PHyQF5pPhMz61YFFTVWr0
-    scenes-app-marketing-analytics-search-performance--new-dashboard-scene--light:
-        hash: v1.k794b7964.ff64d3ffc4986c1155d80e043a325b557be78062a7b001d5f1385eb6fb42d27e.UD65IoSiuY3iNwMGe8NPzZqJzNW2F1aJd-Ybh4bYbLY
     scenes-app-marketing-analytics-search-performance--not-connected--dark:
         hash: v1.k794b7964.fc45f91fd10720c94e64d84bd64d043e472d35c7be2a2c813f98a627fbbd93be.OvmqVf3mYSyJ_wXsOKvp-LWwhymTTD6MbSikTmLg564
     scenes-app-marketing-analytics-search-performance--not-connected--light:
@@ -13621,9 +13613,9 @@ snapshots:
     scenes-app-marketing-analytics-search-performance--stale-aggregate--light:
         hash: v1.k794b7964.279550190361f59d7c4226ffb2379aa8c62705aa83fa7424937aa35a4ecf29b7.dpHtO71iXLV2f0Dhi1VC7Vbj42P9tPxYLAqTUw8Rst4
     scenes-app-marketing-analytics-search-performance--unavailable-sources--dark:
-        hash: v1.k794b7964.570ae04d578ae32b94585144dfdac1b73a7dcc22b3283277664e4299c97b09bb.ZUqv4FZd_dnvTMxf8gKKBuJFFBvJ0DviVo9K3fR2ViI
+        hash: v1.k794b7964.55b412171530e5f527e98afc773813e06d54f9cbe49d187ddce86688f90e74a1.NUIoRDOGbG2AmlDlLLsBfFPT0P5HCUgJY0QOPpCB_H8
     scenes-app-marketing-analytics-search-performance--unavailable-sources--light:
-        hash: v1.k794b7964.438cba92eb7aeaba2c1cc218dbed3560ebc299d0d239ed338e3df457199dd4be.bKVMSyNY0yyAnII1O7GS4OTyk-KH360mRFcmhuXw9DM
+        hash: v1.k794b7964.ab07d2153776302e61ccb9c699a20d0f560f381fedfee1efd46a944870fcd5f0.rWFR57-jvTVpu7Vov1AUnvayN5TtiPq4UkGF_ZAHXIU
     scenes-app-marketing-analytics-search-performance--unavailable-sources-narrow--dark:
         hash: v1.k794b7964.8b600b3b9ab3f586ba4069aa08689a3bb692c00a65ac1d5a49755c8d7629b106.ksXIMwTFbc_WDzMM18uboegdefwdLNJPq4OIwa1IBDc
     scenes-app-marketing-analytics-search-performance--unavailable-sources-narrow--light:
@@ -13737,9 +13729,9 @@ snapshots:
     scenes-app-marketing-analytics-source-setup-panel--narrow--light:
         hash: v1.k794b7964.7a77d7910281923e51f415530c9c775fe0acc2bfb001f14cbe1a64cd18bf7984.ZH3VQpU1jTt8lUeAzYAsoxyDmFwXiJ3RimsEu_galp8
     scenes-app-marketing-analytics-source-setup-panel--narrow-connection-errors--dark:
-        hash: v1.k794b7964.6075fb7687b0242fbecca79f40165d6c1c1b2bda8a564d98222417fc59d92f62.jFKEd-13sYV-UgtNicZUlTeVjKZJMp-nTb0Ac34D3g4
+        hash: v1.k794b7964.61647187261621549c854f45566bd22ead32917ec624c818da9750baff4a2477.ZUWNBM-jTxC0H-UepXBZ9TvfI3mo7qKoJoBJ0yEfq-g
     scenes-app-marketing-analytics-source-setup-panel--narrow-connection-errors--light:
-        hash: v1.k794b7964.7d69120f4dbd955af39f90c107aadab318fb0beb130eab78e87274da70b83ba2.Ml7mtBfXMTufSPJ5N95wkl9GC7L9Wy9SdVymsj7wrkA
+        hash: v1.k794b7964.ff7655b7c65580a55a1ed39062053626114c2bd30c210298a1c295a98f6531a5.VEYKf5HHR35y-JdV97VnhHZQTakgZYAvskhWzF4kDqo
     scenes-app-marketing-analytics-source-setup-panel--no-detected-platforms--dark:
         hash: v1.k794b7964.abdcd2e7b2563f5c3a10b3332f8efa3ddb78a57a6c7173ec90ec99e6176a42c0.8xGSdXLuk3l3fTvfItzd2P0I0Eybxc3QANJN8cUjTus
     scenes-app-marketing-analytics-source-setup-panel--no-detected-platforms--light:
