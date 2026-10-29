@@ -869,7 +869,7 @@ def get_teams_with_event_count_with_groups_in_period(
 def get_teams_with_mcp_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
-    # Same table, exclusions, dedup and splits as `get_teams_with_billable_event_count_in_period`,
+    # Same table, dedup and splits as `get_teams_with_billable_event_count_in_period`,
     # so the MCP count and the product analytics count agree on which events exist.
     if count_distinct:
         distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
@@ -881,7 +881,6 @@ def get_teams_with_mcp_event_count_in_period(
         SELECT team_id, count({distinct_expression}) as count
         FROM {events_read_table(use_new_events_schema(None))}
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
-            AND event NOT IN %(excluded_events)s
             AND startsWith(event, %(mcp_event_prefix)s)
         GROUP BY team_id
     """
@@ -891,7 +890,7 @@ def get_teams_with_mcp_event_count_in_period(
             begin,
             end,
             query_template,
-            {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "mcp_event_prefix": MCP_EVENT_NAME_PREFIX},
+            {"mcp_event_prefix": MCP_EVENT_NAME_PREFIX},
             num_splits=12,
         )
 
