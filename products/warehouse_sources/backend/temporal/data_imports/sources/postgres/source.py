@@ -1696,6 +1696,20 @@ class PostgresSource(
                 "division in that column or view definition (for example with a CASE or NULLIF), or "
                 "remove it from the sync, then re-enable the sync."
             ),
+            # A view, computed column, or RLS policy in the customer's own schema calls a PL/pgSQL
+            # function that does `FOREACH var IN ARRAY <expr>`, where `<expr>` evaluates to NULL for
+            # at least one row (NullValueNotAllowed, SQLSTATE 22004) — Postgres's FOREACH never
+            # accepts a null array. We only ever run `SELECT ... FROM <relation>`; the function lives
+            # in the customer's own schema and runs on every row, so it fails identically on every
+            # retry. Match the stable error text and exclude the volatile CONTEXT line naming the
+            # function and line number.
+            "FOREACH expression must not be null": (
+                "A view, column, or policy you're syncing calls a function in your database that "
+                "loops over an array with FOREACH, and that array is null for at least one row "
+                '("FOREACH expression must not be null"). Guard the function against a null array '
+                "(for example with COALESCE(expr, '{}')), or remove the affected table or view from "
+                "the sync, then re-enable the sync."
+            ),
             # A view or computed column in the customer's own schema calls a PL/pgSQL function that
             # enforces its own access check and raises a custom RAISE EXCEPTION when it finds no
             # user context — commonly a Supabase helper keyed off auth.uid(), which Supabase's
