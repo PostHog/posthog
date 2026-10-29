@@ -324,6 +324,9 @@ class ResumableSourceManager(Generic[ResumableData]):
                 return False
             for source_key in [source_base, *redis_client.scan_iter(match=f"{source_base}:*")]:
                 source_key = source_key.decode() if isinstance(source_key, bytes) else source_key
+                # The marker only stops this job continuing again. It is not a cursor to hand on.
+                if source_key.endswith(f":{_RESTARTED_NAMESPACE}"):
+                    continue
                 data = redis_client.get(source_key)
                 if not data:
                     continue

@@ -256,6 +256,18 @@ class TestContinueFromJob:
         assert next_job.continue_from_job("job-1") is False
         assert next_job.can_resume() is False
 
+    def test_a_job_restarted_from_the_first_row_leaves_nothing_for_the_next_job_to_continue(self):
+        restarted = _manager("job-1")
+        _commit(restarted, "inpay_gone")
+        restarted.restart_from_first_row()
+        next_job = _manager("job-2")
+
+        assert next_job.continue_from_job("job-1") is False
+
+        assert next_job.can_resume() is False
+        _commit(_manager("job-0"), "ch_100")
+        assert next_job.continue_from_job("job-0") is True
+
     def test_clear_job_state_drops_every_namespace_of_the_job_only(self):
         job = _manager("job-1")
         _commit(job, "ch_100")
