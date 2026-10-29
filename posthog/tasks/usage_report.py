@@ -868,7 +868,7 @@ def get_teams_with_event_count_with_groups_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_mcp_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
-) -> list[tuple[int, int]]:
+) -> TeamUsageRows:
     # Same table, dedup and splits as `get_teams_with_billable_event_count_in_period`,
     # so the MCP count and the product analytics count agree on which events exist.
     if count_distinct:
