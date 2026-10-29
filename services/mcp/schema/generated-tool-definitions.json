@@ -11448,11 +11448,11 @@
         }
     },
     "persons-property-set": {
-        "description": "Set a single property on a person. The property is updated asynchronously via the event pipeline ($set). Returns 202 Accepted.",
+        "description": "Set properties on a person. Pass key and value for one property, or properties for up to 1000 in a single request, which is one call and one $set event instead of one call per property. Properties are updated asynchronously via the event pipeline ($set). Returns 202 Accepted.",
         "category": "Persons",
         "feature": "persons",
-        "summary": "Set person property",
-        "title": "Set person property",
+        "summary": "Set person properties",
+        "title": "Set person properties",
         "required_scopes": ["person:write"],
         "api_operations": ["POST /api/projects/{project_id}/persons/{id}/update_property/"],
         "annotations": {
