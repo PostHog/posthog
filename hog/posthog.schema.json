@@ -66,12 +66,38 @@
             "description": "Settings for `hog error-tracking`."
         },
         "languages": {
-            "description": "Typed SDK settings that `posthog-cli exp schema pull` writes. hog leaves them alone.",
+            "description": "The typed SDKs `hog schema pull` generates, by language. posthog-cli reads the same entries.",
             "type": "object",
             "propertyNames": {
                 "type": "string"
             },
-            "additionalProperties": {}
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "output_path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Where the generated module goes, relative to posthog.json."
+                    },
+                    "schema_hash": {
+                        "description": "The hash of the event definitions the module was generated from.",
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "description": "When the module was last generated.",
+                        "type": "string"
+                    },
+                    "event_count": {
+                        "description": "How many events the module types.",
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                    }
+                },
+                "required": ["output_path"],
+                "additionalProperties": false,
+                "description": "One generated SDK. `hog schema pull` writes it."
+            }
         }
     },
     "additionalProperties": false,
