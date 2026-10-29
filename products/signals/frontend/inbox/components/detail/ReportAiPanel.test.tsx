@@ -41,10 +41,18 @@ describe('ReportAiPanel', () => {
     })
 
     it('shows the report composer once a report is open', () => {
-        logic.actions.openReportDiscussion(makeReport({ id: 'report-1' }), 'https://app/report-1')
+        logic.actions.openReportDiscussion(
+            makeReport({ id: 'report-1', title: 'Paginate the reviewers endpoint' }),
+            'https://app/report-1'
+        )
 
         render(<ReportAiPanel panelId="panel" />)
 
+        expect(screen.getByText('Working on report:')).toBeInTheDocument()
+        expect(screen.getByRole('link', { name: 'Open report: Paginate the reviewers endpoint' })).toHaveAttribute(
+            'href',
+            'https://app/report-1'
+        )
         expect(screen.getByTestId('report-composer')).toBeInTheDocument()
         expect(screen.queryByText('No report selected')).not.toBeInTheDocument()
     })
