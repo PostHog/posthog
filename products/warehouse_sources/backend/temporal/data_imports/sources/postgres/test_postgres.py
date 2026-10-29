@@ -10398,6 +10398,21 @@ class TestRlsActiveFromConnErrorHandling:
         assert result == {}
         capture_mock.assert_called_once()
 
+    def test_recovery_conflict_error_is_not_captured(self):
+        # A hot-standby recovery conflict cancelling this catalog query is the same transient
+        # condition the main read path already retries (`get_rows` via `_is_recovery_conflict_error`).
+        # This best-effort lookup has no retry loop of its own: degrade quietly rather than flooding
+        # error tracking with a condition that isn't a bug.
+        conn = self._conn_raising(
+            psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
     def test_pooler_login_cooldown_error_is_not_captured(self):
         # A Postgres-wire-compatible source backed by DuckDB's `postgres_query()` (e.g. DuckLake's
         # duckgres bridge) can surface a transient PgBouncer server_login_retry cooldown wrapped in
