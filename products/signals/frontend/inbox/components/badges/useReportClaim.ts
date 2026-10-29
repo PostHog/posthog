@@ -18,20 +18,18 @@ function claimTooltip(kind: string, name: string | null): string {
     if (kind === 'agent') {
         return name ? `${name}'s agent is working on this` : 'Your agent is working on this'
     }
-    if (kind === 'task') {
-        return name ? `A task ${name} started is working on this` : 'A task you started is working on this'
-    }
     return name ? `${name} is working on this` : 'You claimed this report'
 }
 
 /**
- * Who answers for a report's claim, or null when nobody claimed it. A claim by an MCP agent or an
- * internal task counts for the person who answers for it, and the tooltip says which.
+ * Who is working on a report, or null when no person claimed it. A claim by an MCP agent counts for
+ * the person who directed it. An internal task claim shows nothing: auto-start runs tasks as a suggested
+ * reviewer, so naming that person would claim work they never took on.
  */
 export function useReportClaim(assignee: SignalReport['assignee']): ReportClaim | null {
     const { user } = useValues(userLogic)
     const person = assignee?.responsible_user
-    if (!assignee || !person) {
+    if (!assignee || !person || assignee.kind === 'task') {
         return null
     }
     const isMine = !!user?.uuid && person.uuid === user.uuid
