@@ -134,7 +134,7 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
 }
 
 function stackContributors(series: ResolvedSeries[]): ResolvedSeries[] {
-    return series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
+    return series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay && s.stacked !== false)
 }
 
 function bandValuesAt(contributors: ResolvedSeries[], dIdx: number): number[] {
@@ -177,7 +177,10 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     if (isPercent) {
         return out
     }
-    const visible = series.filter((s) => !s.visibility?.excluded && s.visibility?.valueLabel !== false)
+    // A series kept out of the stack draws at its own value, so it is not part of the total.
+    const visible = series.filter(
+        (s) => !s.visibility?.excluded && s.visibility?.valueLabel !== false && s.stacked !== false
+    )
     if (visible.length === 0) {
         return out
     }
