@@ -355,9 +355,9 @@ export async function upload(
         }
     }
 
-    const read = injected
-        ? { pairs: injected.pairs, artifacts: injected.owners }
-        : readPairs(selection, options, skipped)
+    // Metro bundles upload through their composed maps, so upload never reads their own pairs.
+    const jsOnly = { ...selection, artifacts: selection.artifacts.filter((artifact) => artifact.kind === 'js') }
+    const read = injected ? { pairs: injected.pairs, artifacts: injected.owners } : readPairs(jsOnly, options, skipped)
     read.pairs = read.pairs.filter((pair) => read.artifacts.get(pair)?.kind === 'js')
     let targets: { pair: SourcePair; target: CleanupTarget }[] = []
     const chunkIds = new Map<SourcePair, string>()
@@ -578,13 +578,16 @@ export async function upload(
     let deletedMaps: string[] = []
     if (options.deleteAfter && jsUploadable) {
         const rootPaths = selection.roots.map((root) => resolve(selection.cwd, root.path))
-        const cleanup = cleanUp([
-            // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
-            ...targets
-                .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
-                .map(({ target }) => target),
-            ...cssTargets(listFiles(selection.roots, selection.cwd), rootPaths, options.publicPathPrefix, warnings),
-        ])
+        const cleanup = cleanUp(
+            [
+                // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
+                ...targets
+                    .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
+                    .map(({ target }) => target),
+                ...cssTargets(listFiles(selection.roots, selection.cwd), options.publicPathPrefix, warnings),
+            ],
+            rootPaths
+        )
         deletedMaps = cleanup.deletedMaps.map((path) => relative(realpathSync(selection.cwd), path))
         warnings.push(...cleanup.warnings)
     }
@@ -728,7 +731,12 @@ function packageNative(
                 reason: `${byFile.get(kept)!.display} has the same debug ID and is at least as large, so hog uploads that one.`,
             })
     ).map((file) => {
-        const upload = nativeUpload(file, includeSource ? sourceStep(file.data, 'native', warnings) : undefined)
+        const { root } = byFile.get(file)!
+        const folder = resolve(cwd, root.path)
+        const sources = includeSource
+            ? sourceStep(file.data, 'native', warnings, (path) => isIgnored(root, folder, path))
+            : undefined
+        const upload = nativeUpload(file, sources)
         owners.set(upload, byFile.get(file)!)
         return upload
     })
@@ -741,7 +749,10 @@ function packageNative(
             const slices = dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))
             const uploads = slices.map((slice) => {
                 if (includeSource && !steps.has(slice.path)) {
-                    steps.set(slice.path, sourceStep(slice.file, 'dsym', warnings))
+                    steps.set(
+                        slice.path,
+                        sourceStep(slice.file, 'dsym', warnings, (path) => isIgnored(artifact.root, folder, path))
+                    )
                 }
                 return dsymUpload(slice, steps.get(slice.path))
             })
