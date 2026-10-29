@@ -2148,6 +2148,7 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
 class Breakdown1(StrEnum):
     KEYWORD = "keyword"
     PAGE = "page"
+    SEARCH_TERM = "search_term"
 
 
 class Platform(StrEnum):
