@@ -213,13 +213,13 @@ const HIDDEN_TYPES_NODES: DataModelingNode[] = [
     mockNode({ id: 'orders', name: 'orders', type: 'table' }),
     mockNode({ id: 'customers', name: 'customers', type: 'table' }),
     mockNode({ id: 'payments', name: 'payments', type: 'table' }),
-    mockNode({ id: 'enriched_orders', name: 'enriched_orders', type: 'view' }),
+    mockNode({ id: 'enriched_orders', name: 'enriched_orders', type: 'matview' }),
     mockNode({ id: 'orders_api', name: 'orders_api', type: 'endpoint' }),
     mockNode({ id: 'revenue_api', name: 'revenue_api', type: 'endpoint' }),
     mockNode({ id: 'churn_api', name: 'churn_api', type: 'endpoint' }),
     mockNode({ id: 'weekly_orders', name: 'weekly_orders', type: 'metric', metric_id: 'metric-weekly' }),
-    mockNode({ id: 'revenue_summary', name: 'revenue_summary', type: 'matview', user_tag: 'finance' }),
-    mockNode({ id: 'monthly_report', name: 'monthly_report', type: 'view' }),
+    mockNode({ id: 'revenue_summary', name: 'revenue_summary', type: 'view', user_tag: 'finance' }),
+    mockNode({ id: 'monthly_report', name: 'monthly_report', type: 'matview' }),
     mockNode({ id: 'forecast_api', name: 'forecast_api', type: 'endpoint' }),
     ...MANY_HIDDEN_METRICS,
 ]
@@ -234,7 +234,7 @@ const HIDDEN_TYPES_EDGES: DataModelingEdge[] = [
     ...MANY_HIDDEN_METRICS.map((metric) => mockEdge(`summary-${metric.id}`, 'revenue_summary', metric.id)),
 ]
 const HIDDEN_TYPES_VISIBLE_IDS = new Set(
-    HIDDEN_TYPES_NODES.filter((node) => ['table', 'matview', 'endpoint'].includes(node.type)).map((node) => node.id)
+    HIDDEN_TYPES_NODES.filter((node) => ['table', 'view', 'endpoint'].includes(node.type)).map((node) => node.id)
 )
 const HIDDEN_TYPES_BRIDGING = bridgeHiddenNodes(
     HIDDEN_TYPES_EDGES,

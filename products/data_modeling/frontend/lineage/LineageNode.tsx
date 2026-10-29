@@ -287,7 +287,6 @@ function CollapsedLineageNode({ data }: { data: LineageNodeData }): JSX.Element 
                 )}
                 <NodeHandles handles={data.handles} />
                 <span aria-hidden="true">⋯</span>
-                {hiddenCount > 0 && <HiddenDownstreamBadge count={hiddenCount} />}
             </div>
         </Tooltip>
     )
