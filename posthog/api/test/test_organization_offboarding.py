@@ -214,3 +214,19 @@ class TestOrganizationOffboarding(APIBaseTest):
             assert not share.enabled
         unrelated_share.refresh_from_db()
         assert unrelated_share.enabled
+
+    @parameterized.expand([("dashboard",), ("insight",), ("notebook",), ("recording",)])
+    def test_removal_revokes_hidden_soft_deleted_resources(self, kind: str) -> None:
+        model = {"dashboard": Dashboard, "insight": Insight, "notebook": Notebook, "recording": SessionRecording}[kind]
+        resource = model.objects.create(
+            team=self.team, deleted=True, **({"session_id": "deleted-recording"} if kind == "recording" else {})
+        )
+        share = SharingConfiguration.objects.create(
+            team=self.team, **{kind: resource}, enabled=True, shared_by=self.departing
+        )
+        assert self.client.get(self.url + "offboarding/").json() == []
+        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        resource.deleted = False
+        resource.save(update_fields=["deleted"])
+        share.refresh_from_db()
+        assert not share.enabled

@@ -32,7 +32,9 @@ class OrganizationOffboarding:
         self.organization_id = str(membership.organization_id)
         self.user_id = membership.user_id
 
-    def _public_resources(self, resource_kind: PublicResourceKind) -> list[OffboardingResource]:
+    def _public_resources(
+        self, resource_kind: PublicResourceKind, *, include_deleted: bool = False
+    ) -> list[OffboardingResource]:
         kind = resource_kind.kind
         related_to_member = Q(shared_by_id=self.user_id)
         if kind != "recording":
@@ -43,7 +45,6 @@ class OrganizationOffboarding:
                 team__organization_id=self.organization_id,
                 **{f"{kind}__isnull": False},
             )
-            .exclude(**{f"{kind}__deleted": True})
             .filter(related_to_member)
             .annotate(
                 has_unprotected_link=Exists(
@@ -68,6 +69,8 @@ class OrganizationOffboarding:
             )
             .order_by("-created_at")
         )
+        if not include_deleted:
+            configurations = configurations.exclude(**{f"{kind}__deleted": True})
         resources: dict[str, OffboardingResource] = {}
         for configuration in configurations.iterator(chunk_size=200):
             resource = cast(models.Model, getattr(configuration, kind))
@@ -97,15 +100,19 @@ class OrganizationOffboarding:
             )
         return list(resources.values())
 
-    def resources(self) -> list[OffboardingResource]:
-        resources = [resource for kind in PUBLIC_RESOURCE_KINDS for resource in self._public_resources(kind)]
+    def resources(self, *, include_deleted: bool = False) -> list[OffboardingResource]:
+        resources = [
+            resource
+            for kind in PUBLIC_RESOURCE_KINDS
+            for resource in self._public_resources(kind, include_deleted=include_deleted)
+        ]
         return sorted(resources, key=lambda resource: (resource.name, resource.id))
 
     def remove(self, keep: set[str]) -> None:
         if self.membership.level == OrganizationMembership.Level.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
-            for resource in self.resources():
+            for resource in self.resources(include_deleted=True):
                 if resource.id not in keep:
                     resource_id = resource.id.split(":", 3)[3]
                     configurations = SharingConfiguration.objects.filter(
