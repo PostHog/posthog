@@ -10,7 +10,8 @@ from collections.abc import Iterable, Sequence
 import structlog
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import SignalTeamConfig
 
@@ -53,7 +54,7 @@ def repositories_missing_from_installations(team_id: int, repositories: Sequence
     if not repositories:
         return []
     reachable: set[str] = set()
-    for integration in Integration.objects.filter(team_id=team_id, kind="github"):
+    for integration in IntegrationManager.github.oauth.list(team_id):
         github = GitHubIntegration(integration, source="signals_implementation_repositories", priority=Priority.NORMAL)
         try:
             cached = github.list_all_cached_repositories()
