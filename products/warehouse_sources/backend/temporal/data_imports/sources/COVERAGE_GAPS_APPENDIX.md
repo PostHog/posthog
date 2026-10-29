@@ -6406,9 +6406,9 @@ Diffed against: <https://developer.instantly.ai/api-reference/openapi.json>
 - [x] `POST /api/v2/accounts/warmup-analytics` — read-shaped per-account warmup health scores (medium)
 - [x] `GET /api/v2/inbox-placement-analytics + /inbox-placement-reports` — inbox vs spam placement results per deliverability test (medium)
 - [x] `GET /api/v2/audit-logs` — workspace change history for attribution and compliance (medium)
-- [ ] `GET /api/v2/campaigns/analytics/overview` — aggregate campaign KPI rollup (low)
-- [ ] `GET /api/v2/workspace-members` — membership lookup for user IDs on campaigns and leads (low)
-- [ ] `GET /api/v2/lead-lists/{id}/verification-stats` — email verification quality per lead list (low)
+- [x] `GET /api/v2/campaigns/analytics/overview` — aggregate campaign KPI rollup (low). Added as `campaign_analytics_overview`, one row per campaign.
+- [x] `GET /api/v2/workspace-members` — membership lookup for user IDs on campaigns and leads (low). Added as `workspace_members`.
+- [x] `GET /api/v2/lead-lists/{id}/verification-stats` — email verification quality per lead list (low). Added as `lead_list_verification_stats`.
 
 Note: Full OpenAPI 3.1 spec is public and unauthenticated. Note /leads and /leads/list are POST-only search endpoints (already used by the source); /charges-style write endpoints excluded.
 
