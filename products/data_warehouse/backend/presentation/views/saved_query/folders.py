@@ -1,7 +1,7 @@
 """Saved-query folders: the serializer and the viewset that organize views in the SQL editor."""
 
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Count, IntegerField, OuterRef, Subquery
@@ -11,13 +11,15 @@ from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.helpers.impersonation import is_impersonated
+from posthog.models import User
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.data_modeling.backend.facade.api import delete_saved_query
+from products.data_modeling.backend.facade.api import delete_saved_query_by_id
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
 
@@ -117,12 +119,15 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
                     f"Cannot delete this folder because these views still have dependencies outside the folder: {', '.join(blocked_names)}"
                 )
 
-            self._delete_in_dependency_order(saved_queries)
+            self._delete_in_dependency_order(
+                saved_queries, user=cast(User, request.user), was_impersonated=is_impersonated(request)
+            )
             folder.delete()
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
-    @staticmethod
-    def _delete_in_dependency_order(saved_queries: list[DataWarehouseSavedQuery]) -> None:
+    def _delete_in_dependency_order(
+        self, saved_queries: list[DataWarehouseSavedQuery], *, user: User, was_impersonated: bool
+    ) -> None:
         """Delete dependents before their sources; the caller has already ruled out outside dependents."""
         from products.data_modeling.backend.facade.api import HasDependentsError
 
@@ -131,7 +136,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
             deleted_ids: list[uuid.UUID] = []
             for saved_query_id, saved_query in remaining.items():
                 try:
-                    delete_saved_query(saved_query)
+                    delete_saved_query_by_id(self.team_id, saved_query.id, user=user, was_impersonated=was_impersonated)
                     deleted_ids.append(saved_query_id)
                 except HasDependentsError:
                     continue
