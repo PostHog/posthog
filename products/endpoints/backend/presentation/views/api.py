@@ -64,7 +64,7 @@ from products.data_modeling.backend.facade.api import (
     describe_dependents,
 )
 from products.data_modeling.backend.facade.contracts import Dependent
-from products.data_modeling.backend.facade.models import DataModelingJob, Node
+from products.data_modeling.backend.facade.models import DataModelingJob
 from products.endpoints.backend.facade.api import (
     EndpointCrudService,
     EndpointExecutionService,
@@ -336,11 +336,7 @@ class EndpointViewSet(
         latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
         latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
         return queryset.select_related("saved_query", "team").prefetch_related(
-            Prefetch(
-                "saved_query__node_set",
-                queryset=Node.objects.only("saved_query_id", "properties"),
-                to_attr="prefetched_frequency_nodes",
-            ),
+            EndpointVersion.frequency_nodes_prefetch(),
             Prefetch("saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"),
             Prefetch(
                 "saved_query__datamodelingjob_set",

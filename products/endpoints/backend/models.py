@@ -292,12 +292,26 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         self.bucket_overrides = bucket_overrides
         self.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
+    # Attribute that `frequency_nodes_prefetch` fills and `data_freshness_seconds` reads.
+    FREQUENCY_NODES_ATTR = "prefetched_frequency_nodes"
+
+    @classmethod
+    def frequency_nodes_prefetch(cls, saved_query_path: str = "saved_query") -> models.Prefetch:
+        """Prefetch the nodes holding the declared freshness target, for use with `data_freshness_seconds`."""
+        from products.data_modeling.backend.facade.models import Node
+
+        return models.Prefetch(
+            f"{saved_query_path}__node_set",
+            queryset=Node.objects.only("saved_query_id", "properties"),
+            to_attr=cls.FREQUENCY_NODES_ATTR,
+        )
+
     @property
     def data_freshness_seconds(self) -> int:
-        if self.saved_query is None:
+        if self.saved_query_id is None:
             return self.cache_ttl_seconds
 
-        nodes = getattr(self.saved_query, "prefetched_frequency_nodes", None)
+        nodes = getattr(self.saved_query, self.FREQUENCY_NODES_ATTR, None)
         if nodes is None:
             target = declared_targets_by_saved_query(self.team_id or self.endpoint.team_id, [self.saved_query_id]).get(
                 str(self.saved_query_id)
