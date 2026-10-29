@@ -317,6 +317,7 @@ def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, s
         None,
     )
     assert run.output["gate_attestation"] == {"attested": False, "reason": "gate_failed"}
+    assert run.gate_result is not None
     assert run.gate_result["attestation"]["reason"] == "gate_failed"
     assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
     (review,) = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
