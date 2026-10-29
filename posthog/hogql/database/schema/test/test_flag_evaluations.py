@@ -81,6 +81,7 @@ PROBE_DISTINCT_IDS = "(SELECT 'probe-distinct-id' AS id) AS d"
 UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN = (
     f"SELECT count() FROM events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id WHERE {FLAG_CALL_CONJUNCTS}"
 )
+UNQUALIFIED_FLAG_CALLS_SELECT = parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN)
 
 
 def _create_flag_calls_expression(team: Team) -> str:
@@ -796,6 +797,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "query_built_without_source_positions",
                 clear_locations(parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN)),
                 [(1,)],
+            ),
+            (
+                "union_of_one_select_object_twice",
+                ast.SelectSetQuery.create_from_queries([UNQUALIFIED_FLAG_CALLS_SELECT] * 2, "UNION ALL"),
+                [(1,), (1,)],
             ),
             (
                 "union_of_one_parsed_template_twice",

@@ -828,7 +828,7 @@ class _EventsScanSwapper(ScanVisitor):
     def swap_scans_found_by_type(self, resolved: ast.AST, sources: JoinSources, clones: "_JoinClones") -> str | None:
         """Swap each events scan in the clone whose counterpart in `resolved`, the resolved original, has a WHERE or
         PREWHERE that pins `event` to flag calls, such as a scan joined after another table. `sources` holds the
-        original join of each resolved join, and `clones` holds the clone of each original join. Returns why one of
+        original join of each resolved join, and `clones` holds the clones of each original join. Returns why one of
         them cannot swap, or None.
 
         A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading events.
@@ -840,27 +840,35 @@ class _EventsScanSwapper(ScanVisitor):
             if not _pins_flag_calls(filter_conjuncts(select), partial(_reads_event_of, join.type), None):
                 continue
             source = sources.source_of(join)
-            clone = clones.get(id(source)) if source is not None else None
-            if clone is None:
+            source_clones = clones.get(id(source), []) if source is not None else []
+            if not source_clones:
                 return _UNMOVABLE_SHAPE
-            chain = _table_chain(clone.join)
-            if chain == ["posthog", "flag_evaluations"]:
-                # The syntactic rules, or an earlier resolved join from the same source, already swapped it.
-                continue
-            if chain != ["events"]:
-                return _UNMOVABLE_SHAPE
-            clone_select, clone_join = clone.select, clone.join
-            events_scan = EventsScan(
-                join=clone_join,
-                alias=clone_join.alias or "events",
-                # The clone is unresolved, so only a name qualified with this scan's alias can count as a read of it.
-                has_other_sources=True,
-                flag_key_compares_as_string=self.flag_key_compares_as_string,
-            )
-            refusal = events_scan.shape_refusal(clone_select)
-            if refusal is not None:
-                return refusal
-            self._swap(clone_select, events_scan, filter_conjuncts(clone_select))
+            # A query can hold one node in several places, such as one SELECT in two branches of a UNION. Cloning
+            # copies each place apart, so one original join can have several clones, and each one has to swap.
+            for clone in source_clones:
+                refusal = self._swap_clone(clone)
+                if refusal is not None:
+                    return refusal
+        return None
+
+    def _swap_clone(self, clone: "_JoinClone") -> str | None:
+        chain = _table_chain(clone.join)
+        if chain == ["posthog", "flag_evaluations"]:
+            # The syntactic rules, or an earlier resolved join from the same source, already swapped it.
+            return None
+        if chain != ["events"]:
+            return _UNMOVABLE_SHAPE
+        events_scan = EventsScan(
+            join=clone.join,
+            alias=clone.join.alias or "events",
+            # The clone is unresolved, so only a name qualified with this scan's alias can count as a read of it.
+            has_other_sources=True,
+            flag_key_compares_as_string=self.flag_key_compares_as_string,
+        )
+        refusal = events_scan.shape_refusal(clone.select)
+        if refusal is not None:
+            return refusal
+        self._swap(clone.select, events_scan, filter_conjuncts(clone.select))
         return None
 
 
@@ -872,15 +880,15 @@ class _JoinClone:
     join: ast.JoinExpr
 
 
-_JoinClones = dict[int, _JoinClone]
+_JoinClones = dict[int, list[_JoinClone]]
 
 
 def _join_clones(original: ast.AST, clone: ast.AST) -> _JoinClones:
-    """Each join of `original`, with the `SelectQuery` and `JoinExpr` in its place in `clone`, a copy of it."""
-    return {
-        id(join): _JoinClone(original=join, select=clone_select, join=clone_join)
-        for (_, join), (clone_select, clone_join) in zip(_joins(original), _joins(clone), strict=True)
-    }
+    """Each join of `original`, with the `SelectQuery` and `JoinExpr` in each of its places in `clone`, a copy of it."""
+    clones: _JoinClones = {}
+    for (_, join), (clone_select, clone_join) in zip(_joins(original), _joins(clone), strict=True):
+        clones.setdefault(id(join), []).append(_JoinClone(original=join, select=clone_select, join=clone_join))
+    return clones
 
 
 def _table_chain(join: ast.JoinExpr) -> list[str | int] | None:
