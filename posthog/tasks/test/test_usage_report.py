@@ -72,6 +72,7 @@ from posthog.tasks.usage_report import (
     get_instance_metadata,
     get_self_driving_credits_used_in_period_for_orgs,
     get_teams_with_ai_credits_used_in_period,
+    get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_event_count_with_groups_in_period,
     get_teams_with_logs_distinct_patterns_in_period,
@@ -6370,14 +6371,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             ("posthog-ruby-mcp", "ruby_mcp_events", "ruby_events"),
         ]
     )
-    def test_mcp_tool_calls_are_deduplicated_and_remain_billable_events(
+    def test_mcp_tool_calls_are_deduplicated_and_excluded_from_product_analytics_events(
         self, sdk_type: str, metric_name: str, parent_metric: str
     ) -> None:
         reporting_end = self.end + relativedelta(days=1)
         billable_result_before = get_teams_with_billable_event_count_in_period(
             self.begin, reporting_end, count_distinct=True
         )
-        baseline_count = billable_result_before[0][1]
+        enhanced_persons_result_before = get_teams_with_billable_enhanced_persons_event_count_in_period(
+            self.begin, reporting_end, count_distinct=True
+        )
 
         tool_call_event_uuid = _create_event(
             event="$mcp_tool_call",
@@ -6417,7 +6420,13 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
         event_metrics = get_all_event_metrics_in_period(self.begin, reporting_end)
 
-        self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
+        self.assertEqual(billable_result_after, billable_result_before)
+        self.assertEqual(
+            get_teams_with_billable_enhanced_persons_event_count_in_period(
+                self.begin, reporting_end, count_distinct=True
+            ),
+            enhanced_persons_result_before,
+        )
         self.assertEqual(
             get_teams_with_mcp_event_count_in_period(self.begin, reporting_end),
             [(self.team.id, 3)],
@@ -6527,7 +6536,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             timestamp=self.begin + relativedelta(hours=1),
             properties={"$group_0": "org:1"},
         )
-        for event in ["grouped_event", "$feature_flag_called", "$exception", "$ai_generation"]:
+        for event in ["grouped_event", "$feature_flag_called", "$exception", "$ai_generation", "$mcp_tool_call"]:
             _create_event(
                 event_uuid=grouped_event_uuid if event == "grouped_event" else None,
                 event=event,
