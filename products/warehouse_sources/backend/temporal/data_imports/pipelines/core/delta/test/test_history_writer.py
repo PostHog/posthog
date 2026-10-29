@@ -192,6 +192,8 @@ class TestHistoryWriter:
             # The next run stages a newer version before anything re-runs the interrupted close.
             ((deltalake.DeltaTable, "merge"), True),
             ((DeltaWriter, "delete_where"), False),
+            # After the closes are recorded and before their versions are appended.
+            ((HistoryWriter, "_append_versions"), False),
         ],
     )
     @pytest.mark.asyncio
@@ -208,6 +210,8 @@ class TestHistoryWriter:
         changed = _batch([(key, "b", _at(2)) for key in range(20)])
         await writer.append(changed, run_uuid="run-2", batch_index=0)
         await writer.append(changed, run_uuid="run-2", batch_index=0)
+        # A lookback re-read of the versions run-1 wrote.
+        await writer.append(_batch([(key, "a", _at(1)) for key in range(20)]), run_uuid="run-2", batch_index=1)
 
         with patch.object(*crash_point, side_effect=RuntimeError("crash")):
             with pytest.raises(RuntimeError):

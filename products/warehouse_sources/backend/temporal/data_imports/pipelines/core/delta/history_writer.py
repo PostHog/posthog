@@ -1,4 +1,5 @@
 import json
+import uuid
 import asyncio
 import tempfile
 import dataclasses
@@ -55,6 +56,12 @@ _DUCKDB_MEMORY_LIMIT = "1GB"
 _CLOSE_ORDER = "_ph_close_order"
 _CLOSE_AT = "_ph_close_at"
 _CLOSE_PARTITION = "_ph_close_partition"
+# A recorded close whose bucket appended versions names that append, and the history table version
+# before it, so a re-run applies the close only once the append is in the table's log.
+_CLOSE_APPEND = "_ph_close_append"
+_CLOSE_SINCE = "_ph_close_since"
+_CLOSE_COLUMNS = (_CLOSE_ORDER, _CLOSE_AT, _CLOSE_PARTITION, _CLOSE_APPEND, _CLOSE_SINCE)
+_APPEND_METADATA_KEY = "history_append"
 
 
 @frozen
@@ -88,6 +95,7 @@ class HistoryWriter:
     The append of new versions and the close are two commits. Each bucket records its closes in the
     `pending` table before it appends, and `finalize` applies any recorded closes before it plans, so a
     re-run after a crash between the two commits closes each old version where the first run planned.
+    A recorded close whose append never committed is dropped, and the re-run plans that bucket again.
     Staged rows and recorded closes are deleted only after the close committed.
     """
 
@@ -112,7 +120,7 @@ class HistoryWriter:
             raise ValueError("A partitioned history table needs the name of its current partition")
         if not primary_keys:
             raise ValueError("A history table needs a primary key")
-        taken = {normalize_column_name(key) for key in primary_keys} & {_CLOSE_ORDER, _CLOSE_AT, _CLOSE_PARTITION}
+        taken = {normalize_column_name(key) for key in primary_keys} & set(_CLOSE_COLUMNS)
         if taken:
             raise ValueError(f"A history table can't use {sorted(taken)} as a key, because the close writes it")
         self._table = table
@@ -188,6 +196,8 @@ class HistoryWriter:
         await self._apply_pending_closes()
         # Read before the first append: a table this run creates holds no open version of any staged key.
         history_table = await self._table.get_delta_table()
+        since = history_table.version() if history_table is not None else -1
+        finalize_id = uuid.uuid4().hex
         # A table created before partitioning stays unpartitioned, so its rows get no partition column.
         partition_versions = self._partition_column is not None and (
             history_table is None or self._partitioned(history_table)
@@ -221,10 +231,11 @@ class HistoryWriter:
                     )
                 plan = await asyncio.to_thread(self._plan_bucket, staged, open_versions, partition_versions, directory)
                 del staged
+                append_tag = f"{finalize_id}:{index}" if plan.inserts.num_rows else None
                 if plan.closes.num_rows:
-                    await self._record_pending_closes(plan.closes)
-                if plan.inserts.num_rows:
-                    await self._append_versions(plan.inserts)
+                    await self._record_pending_closes(plan.closes, append_tag, since)
+                if append_tag is not None:
+                    await self._append_versions(plan.inserts, append_tag)
                 closes.append(plan.closes)
                 inserted_rows += plan.inserts.num_rows
                 backwards_rows += plan.backwards_rows
@@ -258,10 +269,26 @@ class HistoryWriter:
         recorded = await asyncio.to_thread(pending_table.to_pyarrow_table)
         if recorded.num_rows == 0:
             return
-        await self._close_versions(recorded)
+        tags = recorded.column(_CLOSE_APPEND)
+        committed = await self._committed_appends(pc.min(recorded.column(_CLOSE_SINCE)).as_py())
+        # A close without an append ends a version at one that was already open, so it always applies.
+        applies = pc.or_(pc.is_null(tags), pc.is_in(tags, pa.array(sorted(committed), pa.string())))
+        recorded = recorded.filter(applies).drop_columns([_CLOSE_APPEND, _CLOSE_SINCE])
+        if recorded.num_rows:
+            await self._close_versions(recorded)
         await self._clear_pending_closes()
 
-    async def _record_pending_closes(self, closes: pa.Table) -> None:
+    async def _committed_appends(self, since: int) -> set[str]:
+        history_table = await self._table.get_delta_table()
+        if history_table is None:
+            return set()
+        commits = await asyncio.to_thread(history_table.history, max(1, history_table.version() - since))
+        return {str(commit[_APPEND_METADATA_KEY]) for commit in commits if _APPEND_METADATA_KEY in commit}
+
+    async def _record_pending_closes(self, closes: pa.Table, append_tag: str | None, since: int) -> None:
+        closes = closes.append_column(
+            pa.field(_CLOSE_APPEND, pa.string()), pa.array([append_tag] * closes.num_rows, pa.string())
+        ).append_column(_CLOSE_SINCE, pa.repeat(pa.scalar(since, pa.int64()), closes.num_rows))
         pending_table = await self._pending.get_delta_table()
         if pending_table is None:
             pending_table = await asyncio.to_thread(
@@ -507,7 +534,7 @@ class HistoryWriter:
             closes = closes.append_column(_CLOSE_PARTITION, _month(close_at))
         return _BucketPlan(inserts=inserts, closes=closes, backwards_rows=backwards_rows)
 
-    async def _append_versions(self, inserts: pa.Table) -> None:
+    async def _append_versions(self, inserts: pa.Table, append_tag: str) -> None:
         history_table = await self._table.get_delta_table()
         if history_table is None:
             history_table = await asyncio.to_thread(
@@ -528,6 +555,7 @@ class HistoryWriter:
             data=inserts,
             mode="append",
             schema_mode="merge",
+            commit_properties=deltalake.CommitProperties(custom_metadata={_APPEND_METADATA_KEY: append_tag}),
         )
 
     async def _close_versions(self, closes: pa.Table) -> None:
