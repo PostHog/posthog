@@ -25,6 +25,7 @@ type ReadyValues = Pick<
     | 'searchBox'
     | 'matchingNodeIds'
     | 'highlightQuery'
+    | 'matchStepCount'
 >
 
 interface ReadyActions {
@@ -72,6 +73,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         search: { ...values.searchBox, onQueryChange: actions.setQuery, onStep: actions.stepMatch },
         matchingNodeIds: values.matchingNodeIds,
         highlightQuery: values.highlightQuery,
+        matchStepCount: values.matchStepCount,
     }
 }
 
@@ -100,6 +102,7 @@ export function TraceScene(): JSX.Element {
         searchBox,
         matchingNodeIds,
         highlightQuery,
+        matchStepCount,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -124,6 +127,7 @@ export function TraceScene(): JSX.Element {
                       searchBox,
                       matchingNodeIds,
                       highlightQuery,
+                      matchStepCount,
                   },
                   actions
               )

@@ -8,10 +8,11 @@ export interface TraceSplitViewProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
-    detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery'> | null
+    detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery' | 'matchStepCount'> | null
     evalOutcomes: Record<string, EvalRollupOutcome>
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
+    matchStepCount?: number
 }
 
 export function TraceSplitView({
@@ -23,6 +24,7 @@ export function TraceSplitView({
     evalOutcomes,
     matchingNodeIds = null,
     highlightQuery = null,
+    matchStepCount = 0,
 }: TraceSplitViewProps): JSX.Element {
     return (
         <div className="@container">
@@ -35,11 +37,17 @@ export function TraceSplitView({
                         onPrefetchNode={onPrefetchNode}
                         evalOutcomes={evalOutcomes}
                         matchingNodeIds={matchingNodeIds}
+                        matchStepCount={matchStepCount}
                     />
                 </aside>
                 <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(100vh-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">
                     {detail ? (
-                        <NodeDetail {...detail} onSelectNode={onSelectNode} highlightQuery={highlightQuery} />
+                        <NodeDetail
+                            {...detail}
+                            onSelectNode={onSelectNode}
+                            highlightQuery={highlightQuery}
+                            matchStepCount={matchStepCount}
+                        />
                     ) : (
                         <p className="m-0 text-secondary">Select a step to see its details.</p>
                     )}

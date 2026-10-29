@@ -25,10 +25,11 @@ export interface NodeDetailProps {
     onSelectNode: (nodeId: string) => void
     actions?: ReactNode
     highlightQuery?: string | null
+    matchStepCount?: number
 }
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
-    const highlightRef = useSearchHighlight(props.highlightQuery ?? null)
+    const highlightRef = useSearchHighlight(props.highlightQuery ?? null, props.matchStepCount)
     return (
         <div className="flex min-w-0 flex-col gap-2" ref={highlightRef}>
             <NodeDetailHeader node={props.node} actions={props.actions} />

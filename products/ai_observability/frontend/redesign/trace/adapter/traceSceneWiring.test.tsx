@@ -43,12 +43,18 @@ const answeredGeneration = makeNodeDetail({
     },
     ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
 })
+const askedGeneration = makeNodeDetail({
+    id: 'gen-1',
+    properties: { $ai_input: [{ role: 'user', content: 'Is my invoice right?' }] },
+    ioKeys: { input: '$ai_input' },
+})
+const nodeDetails: Record<string, typeof answeredGeneration> = { 'gen-1': askedGeneration, 'gen-2': answeredGeneration }
 let nodeRequests: string[] = []
 const nodeMock = {
     [NODE_URL]: ({ params }: { params: Record<string, unknown> }) => {
         const nodeId = decodeIdSegment(String(params.node_id))
         nodeRequests.push(nodeId)
-        return [200, nodeId === 'gen-2' ? answeredGeneration : makeNodeDetail({ id: nodeId })]
+        return [200, nodeDetails[nodeId] ?? makeNodeDetail({ id: nodeId })]
     },
 }
 const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
@@ -117,7 +123,7 @@ describe('TraceScene', () => {
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
         })
 
-        it('searches from the header, fades the steps without a match and steps to the match', async () => {
+        it('searches from the header, fades the steps without a match and steps to the match in view', async () => {
             const { container, findAllByText, findByText } = renderNewView()
             const treeRow = async (name: string): Promise<Element> => {
                 const row = (await findAllByText(name))
@@ -141,9 +147,17 @@ describe('TraceScene', () => {
             expect((await treeRow('gen-2')).className).toContain('opacity-50')
             expect((await treeRow('gen-1')).className).not.toContain('opacity-50')
 
+            const scrollIntoView = jest.spyOn(Element.prototype, 'scrollIntoView')
+
             fireEvent.keyDown(input, { key: 'Enter' })
 
-            await waitFor(async () => expect((await treeRow('gen-1')).getAttribute('aria-current')).toBe('true'))
+            const matchedRow = await treeRow('gen-1')
+            await waitFor(() => expect(matchedRow.getAttribute('aria-current')).toBe('true'))
+            const firstHighlight = await findByText('Is my invoice right?')
+            await waitFor(() =>
+                expect(scrollIntoView.mock.contexts).toEqual(expect.arrayContaining([matchedRow, firstHighlight]))
+            )
+            scrollIntoView.mockRestore()
         })
 
         it('opens the failing step on its Evals tab from the evals chip', async () => {

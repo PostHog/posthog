@@ -21,7 +21,7 @@ export interface TraceViewReadyProps {
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     onSelectFromView: (id: string) => void
-    detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery'> | null
+    detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery' | 'matchStepCount'> | null
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
     search?: TraceSearchBoxProps | null
@@ -29,6 +29,8 @@ export interface TraceViewReadyProps {
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
+    /** Changes on each step to a match, which scrolls the selected step and its first highlight into view. */
+    matchStepCount?: number
 }
 
 export type TraceViewProps =
@@ -58,6 +60,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     evalOutcomes={props.evalOutcomes}
                     matchingNodeIds={props.matchingNodeIds}
                     highlightQuery={props.highlightQuery}
+                    matchStepCount={props.matchStepCount}
                 />
             ) : props.mode === 'thread' ? (
                 <Thread

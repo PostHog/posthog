@@ -100,6 +100,7 @@ export interface traceViewAdapterLogicValues {
     gitBranch: GitBranchChipProps | null
     header: TraceHeaderProps
     highlightQuery: string | null
+    matchStepCount: number
     matchingNodeIds: ReadonlySet<string> | null
     mode: TraceMode
     readySearchResults: TraceSearchResultsApi | null
@@ -315,6 +316,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             },
         ],
         detailTab: ['messages' as NodeDetailTab, { setDetailTab: (_, { tab }) => tab }],
+        matchStepCount: [0, { stepMatch: (count) => count + 1 }],
     }),
     selectors({
         selectedNodeId: [

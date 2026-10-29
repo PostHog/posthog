@@ -1,6 +1,6 @@
 import './traceSearchHighlight.scss'
 
-import { RefCallback, useEffect, useState } from 'react'
+import { RefCallback, useEffect, useRef, useState } from 'react'
 
 // pinned: the stylesheet styles `::highlight(trace-view-search)`
 const HIGHLIGHT_NAME = 'trace-view-search'
@@ -55,24 +55,33 @@ export function highlightRanges(container: HTMLElement, query: string): Range[] 
     return ranges
 }
 
+function findOrCreateHighlight(highlights: HighlightRegistry): Highlight {
+    const highlight = highlights.get(HIGHLIGHT_NAME) ?? new Highlight()
+    highlights.set(HIGHLIGHT_NAME, highlight)
+    return highlight
+}
+
 /**
  * Marks each case-insensitive occurrence of the query in the text of the element the returned ref is attached to,
- * without changing the DOM.
+ * without changing the DOM. When `revealKey` changes, the first occurrence scrolls into view once it renders.
  */
-export function useSearchHighlight(query: string | null): RefCallback<HTMLElement> {
+export function useSearchHighlight(query: string | null, revealKey: number = 0): RefCallback<HTMLElement> {
     const [element, setElement] = useState<HTMLElement | null>(null)
+    const revealedKey = useRef(0)
     useEffect(() => {
-        if (!element || !query || typeof CSS === 'undefined' || !CSS.highlights) {
+        if (!element || !query) {
             return
         }
-        const highlights = CSS.highlights
-        const highlight = highlights.get(HIGHLIGHT_NAME) ?? new Highlight()
-        highlights.set(HIGHLIGHT_NAME, highlight)
+        const highlight = typeof CSS !== 'undefined' && CSS.highlights ? findOrCreateHighlight(CSS.highlights) : null
         let ranges: Range[] = []
         const mark = (): void => {
-            ranges.forEach((range) => highlight.delete(range))
+            ranges.forEach((range) => highlight?.delete(range))
             ranges = highlightRanges(element, query)
-            ranges.forEach((range) => highlight.add(range))
+            ranges.forEach((range) => highlight?.add(range))
+            if (ranges.length > 0 && revealedKey.current !== revealKey) {
+                revealedKey.current = revealKey
+                ranges[0].startContainer.parentElement?.scrollIntoView({ block: 'nearest' })
+            }
         }
         mark()
         // Steps load and tabs switch inside the container after the query is set.
@@ -80,8 +89,8 @@ export function useSearchHighlight(query: string | null): RefCallback<HTMLElemen
         observer.observe(element, { childList: true, subtree: true, characterData: true })
         return () => {
             observer.disconnect()
-            ranges.forEach((range) => highlight.delete(range))
+            ranges.forEach((range) => highlight?.delete(range))
         }
-    }, [element, query])
+    }, [element, query, revealKey])
     return setElement
 }

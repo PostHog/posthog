@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 import { IconWarning } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -17,6 +19,8 @@ export interface TraceTreeRowProps {
     evalOutcomes: Record<string, EvalRollupOutcome>
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
+    /** Changes on each step to a match, which scrolls the selected row into view. */
+    matchStepCount?: number
 }
 
 export function TraceTreeRow({
@@ -27,13 +31,21 @@ export function TraceTreeRow({
     onPrefetchNode,
     evalOutcomes,
     matchingNodeIds = null,
+    matchStepCount = 0,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
+    const rowRef = useRef<HTMLButtonElement>(null)
+    useEffect(() => {
+        if (isSelected && matchStepCount > 0) {
+            rowRef.current?.scrollIntoView({ block: 'nearest' })
+        }
+    }, [isSelected, matchStepCount])
     // Node ids come from free-form trace ids, so a name like "constructor" would read an inherited property.
     const evalOutcome = Object.hasOwn(evalOutcomes, node.id) ? evalOutcomes[node.id] : null
     return (
         <li>
             <button
+                ref={rowRef}
                 type="button"
                 onClick={() => onSelectNode(node.id)}
                 onMouseEnter={() => onPrefetchNode(node.id)}
@@ -76,6 +88,7 @@ export function TraceTreeRow({
                             onPrefetchNode={onPrefetchNode}
                             evalOutcomes={evalOutcomes}
                             matchingNodeIds={matchingNodeIds}
+                            matchStepCount={matchStepCount}
                         />
                     ))}
                 </ul>
