@@ -13,7 +13,7 @@ use rdkafka::ClientConfig;
 use tracing::warn;
 
 use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
-use crate::partitions::PartitionOwnership;
+use crate::partitions::{PartitionOwnership, SplitClaim};
 use crate::store::durability::stage::staging_path;
 use crate::store::durability::{CheckpointLineage, DurabilityConfig, NotAnOrdinalPod, PodOrdinal};
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
@@ -332,6 +332,12 @@ pub struct Config {
     #[envconfig(from = "COHORT_POD_COUNT", default = "1")]
     pub cohort_pod_count: NonZeroU16,
 
+    /// The pod count before a reshard, which must divide `COHORT_POD_COUNT`. While it is set, each
+    /// pod whose ordinal is below it keeps its store, and every other pod takes its partitions over
+    /// from the pod that owned them. Remove it once the reshard is done.
+    #[envconfig(from = "COHORT_RESHARD_FROM_POD_COUNT")]
+    pub cohort_reshard_from_pod_count: Option<NonZeroU16>,
+
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
@@ -455,6 +461,14 @@ pub struct Config {
     #[envconfig(from = "COHORT_MAX_BACKGROUND_JOBS", default = "0")]
     pub cohort_max_background_jobs: i32,
 
+    /// Size at which RocksDB rolls its info `LOG` file.
+    #[envconfig(from = "COHORT_MAX_LOG_FILE_SIZE_BYTES", default = "268435456")]
+    pub cohort_max_log_file_size_bytes: NonZeroUsize,
+
+    /// Number of info `LOG` files RocksDB keeps.
+    #[envconfig(from = "COHORT_KEEP_LOG_FILE_NUM", default = "10")]
+    pub cohort_keep_log_file_num: NonZeroUsize,
+
     /// TTL in days for `cf_person_records`: a compaction filter drops a person record whose
     /// `last_seen_ms` is older than this. `0` (the default) disables it — no filter is installed, so a
     /// persisted record never ages out. Attached to `cf_person_records` only; `cf_behavioral` eviction
@@ -556,7 +570,7 @@ pub struct Config {
     pub checkpoint_max_upload_buffers: usize,
 
     /// Retries per S3 operation before giving up.
-    #[envconfig(default = "3")]
+    #[envconfig(default = "10")]
     pub checkpoint_s3_max_retries: usize,
 
     /// Total timeout for one S3 operation including retries (secs).
@@ -599,13 +613,6 @@ pub struct Config {
     /// Average rate one upload may read from the store's disk (bytes per second).
     #[envconfig(default = "67108864")]
     pub checkpoint_upload_max_bytes_per_sec: u64,
-
-    /// Budget for the final checkpoint on a graceful stop, from the drain to the end of its upload
-    /// (secs). Past it the upload is cancelled, but an S3 request in flight runs to its end, so the
-    /// checkpoint component's shutdown window is the hard limit. An upload stopped before its
-    /// `metadata.json` leaves the last finished upload the newest restorable one.
-    #[envconfig(default = "45")]
-    pub checkpoint_final_upload_timeout_secs: u64,
 }
 
 /// librdkafka consumer fetch-queue bounds: an aggregate byte cap across all partitions and a
@@ -814,7 +821,6 @@ impl Config {
             local_checkpoint_max_staleness: self.checkpoint_local_max_staleness(),
             full_upload_interval: Duration::from_secs(self.checkpoint_full_upload_interval_secs),
             upload_max_bytes_per_sec: self.checkpoint_upload_max_bytes_per_sec,
-            final_upload_timeout: Duration::from_secs(self.checkpoint_final_upload_timeout_secs),
         }
     }
 
@@ -937,7 +943,7 @@ impl Config {
             !self.checkpoint_s3_bucket.is_empty(),
             "CHECKPOINT_ENABLED requires CHECKPOINT_S3_BUCKET.",
         );
-        let knobs: [(&str, u64); 14] = [
+        let knobs: [(&str, u64); 13] = [
             ("CHECKPOINT_INTERVAL_MS", self.checkpoint_interval_ms),
             (
                 "CHECKPOINT_S3_UPLOAD_INTERVAL_MS",
@@ -982,10 +988,6 @@ impl Config {
             (
                 "CHECKPOINT_IMPORT_TIMEOUT_SECS",
                 self.checkpoint_import_timeout_secs,
-            ),
-            (
-                "CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS",
-                self.checkpoint_final_upload_timeout_secs,
             ),
             (
                 "CHECKPOINT_UPLOAD_MAX_BYTES_PER_SEC",
@@ -1043,10 +1045,28 @@ impl Config {
         ))
     }
 
-    /// The partitions this pod owns: pod `ordinal` of `COHORT_POD_COUNT`, over
-    /// `COHORT_PARTITION_COUNT` partitions. Only a single pod may run without `POD_NAME`: every
-    /// pod without it would take ordinal 0, and they would all own the same partitions.
-    pub fn partition_ownership(&self) -> anyhow::Result<PartitionOwnership> {
+    /// This pod's split and its place in a reshard: pod `ordinal` of `COHORT_POD_COUNT`, over
+    /// `COHORT_PARTITION_COUNT` partitions, resharded from `COHORT_RESHARD_FROM_POD_COUNT` pods
+    /// when that is set.
+    pub fn split_claim(&self) -> anyhow::Result<SplitClaim> {
+        ensure!(
+            self.cohort_reshard_from_pod_count.is_none()
+                || self.checkpoint_enabled
+                || !self.durable_restore_enabled,
+            "COHORT_RESHARD_FROM_POD_COUNT with DURABLE_RESTORE_ENABLED requires CHECKPOINT_ENABLED: \
+             without checkpoints each child starts empty while its parent deletes the partitions it \
+             gave away",
+        );
+        SplitClaim::new(
+            self.partition_ownership()?,
+            self.cohort_reshard_from_pod_count,
+        )
+        .context("COHORT_RESHARD_FROM_POD_COUNT must divide COHORT_POD_COUNT and be below it")
+    }
+
+    /// The partitions this pod owns. Only a single pod may run without `POD_NAME`: every pod
+    /// without it would take ordinal 0, and they would all own the same partitions.
+    fn partition_ownership(&self) -> anyhow::Result<PartitionOwnership> {
         let ordinal = match self
             .pod_ordinal()
             .context("POD_NAME must end in a StatefulSet ordinal, or be unset outside Kubernetes")?
@@ -1106,6 +1126,8 @@ impl Config {
             compact_on_deletion: self.cohort_compact_on_deletion_enabled,
             periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
             max_background_jobs: self.cohort_max_background_jobs,
+            max_log_file_size_bytes: self.cohort_max_log_file_size_bytes,
+            keep_log_file_num: self.cohort_keep_log_file_num,
             person_record_ttl_days: self.cohort_person_record_ttl_days,
             ownership,
             ..StoreConfig::default()
@@ -1286,6 +1308,7 @@ mod tests {
             kafka_cascade_consumer_group: "cohort-stream-cascade".to_string(),
             pod_name: None,
             cohort_pod_count: NonZeroU16::MIN,
+            cohort_reshard_from_pod_count: None,
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
             cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
@@ -1311,6 +1334,8 @@ mod tests {
             cohort_compact_on_deletion_enabled: true,
             cohort_periodic_compaction_seconds: 0,
             cohort_max_background_jobs: 0,
+            cohort_max_log_file_size_bytes: NonZeroUsize::new(268_435_456).unwrap(),
+            cohort_keep_log_file_num: NonZeroUsize::new(10).unwrap(),
             cohort_person_record_ttl_days: 0,
             cohort_store_offload_mode: OffloadMode::All,
             cohort_store_event_read_permits: 16,
@@ -1330,7 +1355,7 @@ mod tests {
             checkpoint_max_concurrent_uploads: 40,
             checkpoint_max_concurrent_downloads: 40,
             checkpoint_max_upload_buffers: 40,
-            checkpoint_s3_max_retries: 3,
+            checkpoint_s3_max_retries: 10,
             checkpoint_s3_operation_timeout_secs: 120,
             checkpoint_s3_attempt_timeout_secs: 20,
             checkpoint_local_max_staleness_secs: 7200,
@@ -1339,7 +1364,6 @@ mod tests {
             checkpoint_import_timeout_secs: 7200,
             checkpoint_full_upload_interval_secs: 86_400,
             checkpoint_upload_max_bytes_per_sec: 64 * 1024 * 1024,
-            checkpoint_final_upload_timeout_secs: 45,
             cohort_seed_consumer_enabled: false,
             cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
             kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
@@ -1669,9 +1693,9 @@ mod tests {
     }
 
     #[test]
-    fn partition_ownership_comes_from_the_pod_count_and_the_pod_name_ordinal() {
+    fn the_split_claim_comes_from_the_pod_count_the_pod_name_ordinal_and_the_reshard_marker() {
         type Env = &'static [(&'static str, &'static str)];
-        let cases: [(Env, Result<&str, &str>); 6] = [
+        let cases: [(Env, Result<&str, &str>); 9] = [
             (&[], Ok("pod 0 of 1 over 64 partitions")),
             (
                 &[
@@ -1696,19 +1720,44 @@ mod tests {
                 Err("not below"),
             ),
             (&[("POD_NAME", "cohort-stream-processor")], Err("POD_NAME")),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "1"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Ok("pod 1 of 2 over 64 partitions, resharded from pod 0 of 1 over 64 partitions"),
+            ),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "1"),
+                    ("DURABLE_RESTORE_ENABLED", "true"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Err("requires CHECKPOINT_ENABLED"),
+            ),
+            (
+                &[
+                    ("COHORT_POD_COUNT", "2"),
+                    ("COHORT_RESHARD_FROM_POD_COUNT", "4"),
+                    ("POD_NAME", "cohort-stream-processor-1"),
+                ],
+                Err("must raise the pod count"),
+            ),
         ];
         for (env, expected) in cases {
             let env = env
                 .iter()
                 .map(|&(key, value)| (key.to_string(), value.to_string()))
                 .collect();
-            let ownership = Config::init_from_hashmap(&env)
+            let claim = Config::init_from_hashmap(&env)
                 .unwrap()
-                .partition_ownership()
-                .map(|ownership| ownership.to_string())
+                .split_claim()
+                .map(|claim| claim.to_string())
                 .map_err(|err| format!("{err:#}"));
-            match (ownership, expected) {
-                (Ok(ownership), Ok(expected)) => assert_eq!(ownership, expected, "{env:?}"),
+            match (claim, expected) {
+                (Ok(claim), Ok(expected)) => assert_eq!(claim, expected, "{env:?}"),
                 (Err(err), Err(expected)) => assert!(err.contains(expected), "{env:?}: {err}"),
                 (actual, expected) => panic!("{env:?}: got {actual:?}, expected {expected:?}"),
             }
@@ -2040,7 +2089,7 @@ mod tests {
         enabled().validate_startup().unwrap();
 
         type Misconfigure = fn(&mut Config);
-        let cases: [(&str, Misconfigure, &str); 10] = [
+        let cases: [(&str, Misconfigure, &str); 9] = [
             (
                 "no bucket",
                 |c| c.checkpoint_s3_bucket.clear(),
@@ -2050,11 +2099,6 @@ mod tests {
                 "a zero interval",
                 |c| c.checkpoint_interval_ms = 0,
                 "CHECKPOINT_INTERVAL_MS",
-            ),
-            (
-                "a zero final upload budget",
-                |c| c.checkpoint_final_upload_timeout_secs = 0,
-                "CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS",
             ),
             (
                 "a relative checkpoint dir",
@@ -2190,7 +2234,6 @@ mod tests {
         config.checkpoint_import_timeout_secs = 90;
         config.checkpoint_full_upload_interval_secs = 3601;
         config.checkpoint_upload_max_bytes_per_sec = 1024;
-        config.checkpoint_final_upload_timeout_secs = 12;
 
         let durability = config.durability_config();
         assert_eq!(durability.local_checkpoint_dir, "/data/ckpt");
@@ -2221,7 +2264,6 @@ mod tests {
         );
         assert_eq!(durability.full_upload_interval, Duration::from_secs(3601));
         assert_eq!(durability.upload_max_bytes_per_sec, 1024);
-        assert_eq!(durability.final_upload_timeout, Duration::from_secs(12));
     }
 
     #[test]
@@ -2561,6 +2603,8 @@ mod tests {
         assert!(defaults.cohort_compact_on_deletion_enabled);
         assert_eq!(defaults.cohort_periodic_compaction_seconds, 0);
         assert_eq!(defaults.cohort_max_background_jobs, 0);
+        assert_eq!(defaults.cohort_max_log_file_size_bytes.get(), 268_435_456);
+        assert_eq!(defaults.cohort_keep_log_file_num.get(), 10);
         assert_eq!(defaults.partition_channel_buffer, 128);
 
         let env: std::collections::HashMap<String, String> = [
@@ -2569,6 +2613,8 @@ mod tests {
             ("COHORT_COMPACT_ON_DELETION_ENABLED", "false"),
             ("COHORT_PERIODIC_COMPACTION_SECONDS", "3600"),
             ("COHORT_MAX_BACKGROUND_JOBS", "2"),
+            ("COHORT_MAX_LOG_FILE_SIZE_BYTES", "1048576"),
+            ("COHORT_KEEP_LOG_FILE_NUM", "3"),
             ("PARTITION_CHANNEL_BUFFER", "256"),
         ]
         .into_iter()
@@ -2580,6 +2626,8 @@ mod tests {
         assert!(!config.cohort_compact_on_deletion_enabled);
         assert_eq!(config.cohort_periodic_compaction_seconds, 3600);
         assert_eq!(config.cohort_max_background_jobs, 2);
+        assert_eq!(config.cohort_max_log_file_size_bytes.get(), 1_048_576);
+        assert_eq!(config.cohort_keep_log_file_num.get(), 3);
         assert_eq!(config.partition_channel_buffer, 256);
     }
 
@@ -2591,6 +2639,8 @@ mod tests {
         config.cohort_compact_on_deletion_enabled = false;
         config.cohort_periodic_compaction_seconds = 3600;
         config.cohort_max_background_jobs = 2;
+        config.cohort_max_log_file_size_bytes = NonZeroUsize::new(1_048_576).unwrap();
+        config.cohort_keep_log_file_num = NonZeroUsize::new(3).unwrap();
 
         let store = config.store_config(PartitionOwnership::single(64));
         assert_eq!(store.block_cache_bytes, 3_221_225_472);
@@ -2598,6 +2648,8 @@ mod tests {
         assert!(!store.compact_on_deletion);
         assert_eq!(store.periodic_compaction_seconds, 3600);
         assert_eq!(store.max_background_jobs, 2);
+        assert_eq!(store.max_log_file_size_bytes.get(), 1_048_576);
+        assert_eq!(store.keep_log_file_num.get(), 3);
     }
 
     #[test]

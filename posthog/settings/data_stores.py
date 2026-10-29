@@ -298,6 +298,7 @@ elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
+
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
@@ -638,6 +639,24 @@ WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
 # key for the same reason as the scout one. The dev/test value must match the plugin server's minting default.
 WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_VISION_REQUEST_JWT_SECRET", "local-dev-workflow-vision-request-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Add to static cohort" step calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET",
+        "local-dev-workflow-add-to-static-cohort-jwt" if DEBUG or TEST else "",
+    )
+)
+
+# Signs the tokens a workflow's "Opt out of messages" step calls back with. The dev/test value must match the
+# plugin server's minting default.
+WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET",
+        "local-dev-workflow-message-opt-out-jwt" if DEBUG or TEST else "",
+    )
 )
 
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal

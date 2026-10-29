@@ -47,6 +47,7 @@ from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
 from prometheus_client import Histogram
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
@@ -61,7 +62,7 @@ from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 from posthog.run_mode import run_mode
 from posthog.security.url_validation import has_ambiguous_authority
-from posthog.stable_chunks import persist_stable_chunks_choice, stable_chunks_for_request
+from posthog.stable_chunks import stable_chunks_for_request
 
 from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 
@@ -494,17 +495,23 @@ def flags_for_app_evaluation_context(
 ) -> dict[str, Any] | None:
     """
     Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
-    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts.
+    from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts, and it
+    also returns disabled flags and server-only flags, which /flags never sends to a browser.
     """
     # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
     if flags is None:
         return None
-    excluded = {
-        definition["key"]
-        for definition in definitions or []
-        if definition.get("evaluation_contexts") and APP_EVALUATION_CONTEXT not in definition["evaluation_contexts"]
-    }
+    excluded = {definition["key"] for definition in definitions or [] if not _app_evaluates_flag(definition)}
     return {key: value for key, value in flags.items() if key not in excluded}
+
+
+def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
+    contexts = definition.get("evaluation_contexts")
+    return (
+        definition.get("active", True) is not False
+        and definition.get("evaluation_runtime") != "server"
+        and (not contexts or APP_EVALUATION_CONTEXT in contexts)
+    )
 
 
 @frozen
@@ -670,18 +677,8 @@ def _build_template_context(
     # Set the frontend app context
     # nosemgrep: api-query-param-underscore -- shipped public API param, a rename breaks clients
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
-        from posthog.api.team.team_serializer import TeamSerializer
-        from posthog.api.user import UserSerializer
-        from posthog.models.user_home_settings import UserHomeSettings
-        from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
-
-        from products.access_control.backend.facade.user_access_control import (
-            ACCESS_CONTROL_RESOURCES,
-            UserAccessControl,
-        )
 
         with tracer.start_as_current_span("template.preflight"):
             preflight_payload = json.loads(preflight_check(request).getvalue())
@@ -707,73 +704,21 @@ def _build_template_context(
             ).data
         elif request.user.pk:
             user = cast("User", request.user)
-
-            user_permissions = UserPermissions(user=user, team=user.team)
-            user_access_control = UserAccessControl(user=user, team=user.team)
-            team = user.team
-            if team and not user_access_control.has_project_access:
-                user.current_team = None
-                user.team = None
-                user.save(update_fields=["current_team"])
-                user_permissions = UserPermissions(user=user, team=None)
-                user_access_control = UserAccessControl(user=user, team=None)
-            with tracer.start_as_current_span("template.rbac.effective"):
-                effective_access: dict[str, Any] = {}
-                for resource in ACCESS_CONTROL_RESOURCES:
-                    with tracer.start_as_current_span(f"template.rbac.effective.{resource}"):
-                        effective_access[resource] = user_access_control.effective_access_level_for_resource(resource)
-                posthog_app_context["effective_resource_access_control"] = effective_access
-            with tracer.start_as_current_span("template.rbac.levels"):
-                resource_access: dict[str, Any] = {}
-                for resource in ACCESS_CONTROL_RESOURCES:
-                    with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
-                        access = user_access_control.access_level_for_resource(resource)
-                        resource_access[resource] = access.access_level if access else None
-                posthog_app_context["resource_access_control"] = resource_access
-
-            with tracer.start_as_current_span("template.user_serializer"):
-                user_serialized = UserSerializer(
-                    request.user,
-                    context={
-                        "request": request,
-                        "user_permissions": user_permissions,
-                        "user_access_control": user_access_control,
-                    },
-                    many=False,
-                )
-                posthog_app_context["current_user"] = user_serialized.data
-                posthog_distinct_id = user_serialized.data.get("distinct_id")
-
-            if user.team:
-                with tracer.start_as_current_span("template.team_serializer"):
-                    team_serialized = TeamSerializer(
-                        user.team,
-                        context={
-                            "request": request,
-                            "user_permissions": user_permissions,
-                            "user_access_control": user_access_control,
-                        },
-                        many=False,
+            variant = deferred_app_context_variant(request, user) if template_name == "index.html" else None
+            if variant:
+                posthog_app_context["deferred_app_context_variant"] = variant
+            if variant == "test":
+                # The page fetches the user's data from `app_context` while its JS loads.
+                posthog_app_context["deferred"] = True
+                posthog_distinct_id = user.distinct_id
+            else:
+                add_user_app_context(request, posthog_app_context)
+                posthog_distinct_id = posthog_app_context["current_user"].get("distinct_id")
+                if posthog_distinct_id:
+                    # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
+                    posthog_bootstrap["featureFlags"] = feature_flag_bootstrap(
+                        user, posthog_app_context["current_user"]
                     )
-                    posthog_app_context["current_team"] = team_serialized.data
-
-                with tracer.start_as_current_span("template.project_serializer"):
-                    project_serialized = ProjectSerializer(
-                        user.team.project,
-                        context={"request": request, "user_permissions": user_permissions},
-                        many=False,
-                    )
-                    posthog_app_context["current_project"] = project_serialized.data
-                posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
-                event_info = get_default_event_info(user.team)
-                posthog_app_context["default_event_name"] = event_info["default_event_name"]
-                posthog_app_context["has_pageview"] = event_info["has_pageview"]
-                posthog_app_context["has_screen"] = event_info["has_screen"]
-                posthog_app_context["has_person_email"] = get_has_person_email(user.team)
-
-                with tracer.start_as_current_span("template.user_home_settings"):
-                    home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
-                    posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
 
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view).
     # A key absent from this list never reaches `window.POSTHOG_APP_CONTEXT`, so the scene that reads it
@@ -789,23 +734,6 @@ def _build_template_context(
 
     context["posthog_app_context"] = posthog_app_context
 
-    if posthog_distinct_id:
-        user = cast("User", request.user)
-        identity = _flag_identity(posthog_app_context["current_user"], user.date_joined.isoformat())
-
-        with tracer.start_as_current_span("template.feature_flag_bootstrap"):
-            feature_flags = posthoganalytics.get_all_flags(
-                posthog_distinct_id,
-                only_evaluate_locally=True,
-                person_properties=identity.person_properties,
-                groups=identity.groups,
-                group_properties=identity.group_properties,
-            )
-        # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
-        posthog_bootstrap["featureFlags"] = flags_for_app_evaluation_context(
-            feature_flags, posthoganalytics.feature_flag_definitions()
-        )
-
     # This allows immediate flag availability on the frontend, atleast for flags
     # that don't depend on any person properties. To get these flags, add person properties to the
     # `get_all_flags` call above.
@@ -819,7 +747,7 @@ def _build_template_context(
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
             is_authenticated
         )
-        stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
+        stable_chunks = stable_chunks_for_request(request)
         if stable_chunks:
             context["stable_chunks"] = True
             context["stable_chunks_importmap"] = stable_chunks.import_map_json(
@@ -884,6 +812,136 @@ def _build_template_context(
     return context
 
 
+DEFERRED_APP_CONTEXT_FLAG = "deferred-app-context"
+DEFERRED_APP_CONTEXT_PARAM = "deferred_app_context"
+
+
+def deferred_app_context_variant(request: HttpRequest, user: "User") -> Optional[str]:
+    """
+    The variant of the app page. "test" leaves out the user's data and fetches it from `app_context` instead.
+    None means the user is outside the experiment.
+    The query param wins over the experiment, so a lab run can pick a side and a failed fetch can reload without it.
+    """
+    param = request.GET.get(DEFERRED_APP_CONTEXT_PARAM)
+    if param is not None:
+        return "test" if param == "1" else "control"
+    try:
+        variant = posthoganalytics.get_feature_flag(
+            DEFERRED_APP_CONTEXT_FLAG,
+            str(user.distinct_id),
+            person_properties={"email": user.email},
+            only_evaluate_locally=True,
+            # The SDK would report every signed-in user, so only the experiment's users are reported below.
+            send_feature_flag_events=False,
+        )
+        if isinstance(variant, str):
+            posthoganalytics.capture(
+                "$feature_flag_called",
+                distinct_id=str(user.distinct_id),
+                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
+            )
+            return variant
+        return None
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+
+def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Optional[dict[str, Any]]:
+    distinct_id = current_user.get("distinct_id")
+    if not distinct_id:
+        return None
+    identity = _flag_identity(current_user, user.date_joined.isoformat())
+    with tracer.start_as_current_span("template.feature_flag_bootstrap"):
+        feature_flags = posthoganalytics.get_all_flags(
+            distinct_id,
+            only_evaluate_locally=True,
+            person_properties=identity.person_properties,
+            groups=identity.groups,
+            group_properties=identity.group_properties,
+        )
+    return flags_for_app_evaluation_context(feature_flags, posthoganalytics.feature_flag_definitions())
+
+
+def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, Any]) -> None:
+    """Adds the signed-in user's user, team, project and access data to the app context."""
+    from posthog.api.project import ProjectSerializer
+    from posthog.api.team.team_serializer import TeamSerializer
+    from posthog.api.user import UserSerializer
+    from posthog.models.user_home_settings import UserHomeSettings
+    from posthog.user_permissions import UserPermissions
+
+    from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
+
+    user = cast("User", request.user)
+
+    user_permissions = UserPermissions(user=user, team=user.team)
+    user_access_control = UserAccessControl(user=user, team=user.team)
+    team = user.team
+    if team and not user_access_control.has_project_access:
+        user.current_team = None
+        user.team = None
+        user.save(update_fields=["current_team"])
+        user_permissions = UserPermissions(user=user, team=None)
+        user_access_control = UserAccessControl(user=user, team=None)
+    with tracer.start_as_current_span("template.rbac.effective"):
+        effective_access: dict[str, Any] = {}
+        for resource in ACCESS_CONTROL_RESOURCES:
+            with tracer.start_as_current_span(f"template.rbac.effective.{resource}"):
+                effective_access[resource] = user_access_control.effective_access_level_for_resource(resource)
+        posthog_app_context["effective_resource_access_control"] = effective_access
+    with tracer.start_as_current_span("template.rbac.levels"):
+        resource_access: dict[str, Any] = {}
+        for resource in ACCESS_CONTROL_RESOURCES:
+            with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
+                access = user_access_control.access_level_for_resource(resource)
+                resource_access[resource] = access.access_level if access else None
+        posthog_app_context["resource_access_control"] = resource_access
+
+    with tracer.start_as_current_span("template.user_serializer"):
+        user_serialized = UserSerializer(
+            request.user,
+            context={
+                "request": request,
+                "user_permissions": user_permissions,
+                "user_access_control": user_access_control,
+            },
+            many=False,
+        )
+        posthog_app_context["current_user"] = user_serialized.data
+
+    if user.team:
+        with tracer.start_as_current_span("template.team_serializer"):
+            team_serialized = TeamSerializer(
+                user.team,
+                context={
+                    "request": request,
+                    "user_permissions": user_permissions,
+                    "user_access_control": user_access_control,
+                },
+                many=False,
+            )
+            posthog_app_context["current_team"] = team_serialized.data
+
+        with tracer.start_as_current_span("template.project_serializer"):
+            project_serialized = ProjectSerializer(
+                user.team.project,
+                context={"request": request, "user_permissions": user_permissions},
+                many=False,
+            )
+            posthog_app_context["current_project"] = project_serialized.data
+        posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
+        event_info = get_default_event_info(user.team)
+        posthog_app_context["default_event_name"] = event_info["default_event_name"]
+        posthog_app_context["has_pageview"] = event_info["has_pageview"]
+        posthog_app_context["has_screen"] = event_info["has_screen"]
+        posthog_app_context["has_person_email"] = get_has_person_email(user.team)
+
+        with tracer.start_as_current_span("template.user_home_settings"):
+            home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
+            posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
+
+
 def render_template(
     template_name: str,
     request: HttpRequest,
@@ -906,7 +964,6 @@ def render_template(
         response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
-    persist_stable_chunks_choice(request, response)
 
     return response
 
@@ -1984,7 +2041,41 @@ def filters_override_requested_by_client(
 
     if isinstance(request_filters, dict):
         request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
+    validate_filters_override(request_filters)
     return {**dashboard_filters, **request_filters}
+
+
+def validate_filters_override(request_filters: Any) -> None:
+    from posthog.schema import DashboardFilter
+
+    from posthog.hogql_queries.apply_dashboard_filters import (
+        dashboard_filter_from_dict,
+        normalize_dashboard_filters_properties,
+    )
+
+    if not isinstance(request_filters, dict):
+        raise serializers.ValidationError({"filters_override": "filters_override must be a JSON object."})
+
+    try:
+        dashboard_filter_from_dict(normalize_dashboard_filters_properties(request_filters))
+    except PydanticValidationError as e:
+        accepted_keys = ", ".join(DashboardFilter.model_fields)
+        unknown_keys = sorted(
+            {
+                str(error["loc"][0])
+                for error in e.errors()
+                if error["type"] == "extra_forbidden" and len(error["loc"]) == 1
+            }
+        )
+        if unknown_keys:
+            detail = f"Unknown key(s) in filters_override: {', '.join(unknown_keys)}. Accepted keys: {accepted_keys}."
+        else:
+            first_error = e.errors()[0]
+            location = ".".join(str(part) for part in first_error["loc"])
+            detail = f"Invalid value in filters_override at '{location}': {first_error['msg']}."
+        raise serializers.ValidationError({"filters_override": detail})
+    except ValueError as e:
+        raise serializers.ValidationError({"filters_override": f"Invalid value in filters_override: {e}."})
 
 
 def variables_override_requested_by_client(
@@ -2481,8 +2572,7 @@ def to_json(obj: dict) -> bytes:
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
-    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)
 
 
 def get_current_user_from_thread() -> Optional["User"]:

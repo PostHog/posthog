@@ -302,7 +302,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             type="feature_flag",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.key or "Untitled",
-            href=f"/feature_flags/{self.id}",
+            href=f"/feature-flags/{self.id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,

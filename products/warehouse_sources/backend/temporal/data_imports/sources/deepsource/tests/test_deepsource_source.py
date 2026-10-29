@@ -46,7 +46,6 @@ class TestDeepsourceNonRetryableErrors:
                 "auth_401",
                 "401 Client Error: Unauthorized for url: https://api.deepsource.com/graphql/ (DeepSource API: Authentication required)",
             ),
-            ("forbidden_403", "403 Client Error: Forbidden for url: https://api.deepsource.com/graphql/"),
             ("account_missing", "DeepSource account not found: 'acme' (GITHUB). Check the account login..."),
         ]
     )

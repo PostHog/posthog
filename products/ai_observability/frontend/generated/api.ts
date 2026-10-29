@@ -16,7 +16,9 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesRetrieveParams,
+    AiObservabilityTracesSummaryCreateParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
@@ -48,8 +50,13 @@ import type {
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
+    EvaluationRunsApi,
     EvaluationsBackfillsListParams,
     EvaluationsListParams,
+    EvaluationsOverviewApi,
+    EvaluationsOverviewRetrieveParams,
+    EvaluationsRunsRetrieveParams,
+    EvaluationsScoreDistributionRetrieveParams,
     ExperimentReceiptApi,
     ExperimentSubmissionApi,
     InstrumentationCheckActionApi,
@@ -130,6 +137,7 @@ import type {
     ScoreDefinitionNewVersionApi,
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
+    ScoreHistogramApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
@@ -142,8 +150,12 @@ import type {
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
+    TraceEvaluationResultsApi,
+    TraceNodeDetailApi,
     TraceReviewApi,
     TraceReviewCreateApi,
+    TraceSummaryApi,
+    TraceSummaryRequestApi,
     TranslateRequestApi,
     UploadReceiptApi,
     UploadSubmissionApi,
@@ -670,6 +682,118 @@ export const aiObservabilityTracesRetrieve = async (
     return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesEvaluationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/evaluations/`
+}
+
+/**
+ * A trace's evaluation results, newest first and at most 250, each with its outcome and label ready to render,
+ * plus a roll-up of the latest run of each evaluation on each node.
+ */
+export const aiObservabilityTracesEvaluationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceEvaluationResultsApi> => {
+    return apiMutator<TraceEvaluationResultsApi>(getAiObservabilityTracesEvaluationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesNodesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/`
+}
+
+/**
+ * One node of a trace: its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata.
+ */
+export const aiObservabilityTracesNodesRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeDetailApi> => {
+    return apiMutator<TraceNodeDetailApi>(getAiObservabilityTracesNodesRetrieveUrl(projectId, id, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesSummaryRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/summary/`
+}
+
+/**
+ * The trace's AI summary: pending while it is written, then ready with links to its steps, or failed with the reason. A summary is kept for an hour and shown only to users whose property access matches the requester's.
+ */
+export const aiObservabilityTracesSummaryRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceSummaryApi> => {
+    return apiMutator<TraceSummaryApi>(getAiObservabilityTracesSummaryRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesSummaryCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesSummaryCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/summary/`
+}
+
+/**
+ * Request an AI summary of the trace. A ready summary is returned as is unless `regenerate` is set; otherwise a job starts writing one, or the request joins the job already writing it.
+ */
+export const aiObservabilityTracesSummaryCreate = async (
+    projectId: string,
+    id: string,
+    traceSummaryRequestApi?: TraceSummaryRequestApi,
+    params?: AiObservabilityTracesSummaryCreateParams,
+    options?: RequestInit
+): Promise<TraceSummaryApi> => {
+    return apiMutator<TraceSummaryApi>(getAiObservabilityTracesSummaryCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceSummaryRequestApi),
     })
 }
 
@@ -1403,6 +1527,106 @@ export const evaluationsDestroy = async (projectId: string, id: string, options?
     return apiMutator<unknown>(getEvaluationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getEvaluationsRunsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: EvaluationsRunsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/${id}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/${id}/runs/`
+}
+
+/**
+ * One evaluation's latest graded runs in a period, newest first, optionally only the passed or failed ones.
+ */
+export const evaluationsRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: EvaluationsRunsRetrieveParams,
+    options?: RequestInit
+): Promise<EvaluationRunsApi> => {
+    return apiMutator<EvaluationRunsApi>(getEvaluationsRunsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationsScoreDistributionRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: EvaluationsScoreDistributionRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/${id}/score_distribution/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/${id}/score_distribution/`
+}
+
+/**
+ * How one numeric evaluation's scores in a period spread across its configured scale.
+ */
+export const evaluationsScoreDistributionRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: EvaluationsScoreDistributionRetrieveParams,
+    options?: RequestInit
+): Promise<ScoreHistogramApi> => {
+    return apiMutator<ScoreHistogramApi>(getEvaluationsScoreDistributionRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationsOverviewRetrieveUrl = (projectId: string, params?: EvaluationsOverviewRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/overview/`
+}
+
+/**
+ * Each evaluation's results over a period, compared with the period of equal length before it.
+ */
+export const evaluationsOverviewRetrieve = async (
+    projectId: string,
+    params?: EvaluationsOverviewRetrieveParams,
+    options?: RequestInit
+): Promise<EvaluationsOverviewApi> => {
+    return apiMutator<EvaluationsOverviewApi>(getEvaluationsOverviewRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

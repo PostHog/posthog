@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
 use cohort_core::seed::CoverageStartMs;
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -227,6 +228,7 @@ impl EventDispatcher {
     /// dispatch ceiling only for what lands. Events for a partition in `held` (already paused behind an
     /// older holdover) skip the send and are returned to queue behind it. Returns the un-dispatched
     /// events per partition for the caller to hold and pause.
+    #[hotpath::measure(impl_type = "EventDispatcher")]
     pub fn dispatch_events_nonblocking(
         &self,
         batch: Vec<ConsumedEvent>,
@@ -657,13 +659,14 @@ impl EventDispatcher {
         counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
     }
 
-    /// Delete the on-disk slices of every partition `ownership` does not own. The store opens only
-    /// under the ownership it was written under, or adopts it, so at one pod this deletes nothing.
-    pub(crate) async fn reclaim_unowned_slices(&self, ownership: &PartitionOwnership) {
+    /// Delete the on-disk slices of every partition `ownership` does not own, and return how many
+    /// held any key. The store opens only under the ownership it was written under, or adopts it,
+    /// so at one pod this deletes nothing.
+    pub(crate) async fn reclaim_unowned_slices(&self, ownership: &PartitionOwnership) -> u64 {
         let mut wiped = 0u64;
         for partition in (0..ownership.partition_count()).filter(|&p| !ownership.owns(p)) {
             match self.handle.delete_partition(partition).await {
-                Ok(()) => wiped += 1,
+                Ok(held_keys) => wiped += u64::from(held_keys),
                 Err(err) => warn!(
                     partition,
                     error = %err, "failed to reclaim unowned-partition state at boot"
@@ -679,6 +682,7 @@ impl EventDispatcher {
             partition_count = ownership.partition_count(),
             "durable restore: boot staleness sweep complete"
         );
+        wiped
     }
 
     /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot, before
@@ -971,9 +975,10 @@ impl CohortStreamEventsConsumer {
             }
             (_, Some(restore)) => {
                 self.recover().await;
+                self.wait_for_capture(&restore).await;
                 let mut resume = ResumePoints::default();
                 let topic = InputTopic::new(self.topic.as_str());
-                resume.rewind_to(&restore.plan().positions(&topic, &self.claimed.ownership()));
+                resume.rewind_to(&restore.plan().positions(&topic));
                 BootPhase::Rewinding {
                     resume,
                     restore: Box::new(restore),
@@ -1053,6 +1058,27 @@ impl CohortStreamEventsConsumer {
         self.dispatcher
             .eager_redrive_pending_transfers_on_boot(&self.dispatcher.owned_set())
             .await;
+    }
+
+    /// Nothing polls or folds while this host's clock reads before the checkpoint's capture, so no
+    /// fold emits a version below the outputs that made the restored state. The source pod can emit
+    /// more after the capture, and only the wall clocks of the two hosts order those outputs before
+    /// this pod's. A shutdown ends the wait.
+    async fn wait_for_capture(&self, restore: &PendingRestore) {
+        let captured_at = restore.captured_at();
+        while let Ok(wait) = (captured_at - Utc::now()).to_std() {
+            warn!(
+                %captured_at,
+                wait_secs = wait.as_secs(),
+                "this host's clock reads before the restored checkpoint's capture; holding off \
+                 dispatch until it passes",
+            );
+            tokio::select! {
+                biased;
+                _ = self.handle.shutdown_recv() => return,
+                _ = tokio::time::sleep(wait) => {}
+            }
+        }
     }
 
     /// Seek every owned partition back to its resume point, finish the restore, then go live. Any
@@ -1216,6 +1242,7 @@ impl CohortStreamEventsConsumer {
         gauge!(PENDING_HELD_EVENTS).set(backpressure.held_message_count() as f64);
     }
 
+    #[hotpath::measure(impl_type = "CohortStreamEventsConsumer")]
     async fn consume_batch(&self) -> ConsumeOutcome {
         let mut outcome = ConsumeOutcome {
             events: Vec::with_capacity(self.recv_batch_size),
@@ -1835,7 +1862,7 @@ mod tests {
             PartitionOwnership::new(NonZeroU16::new(2).unwrap(), PodOrdinal::STANDALONE, 4)
                 .unwrap();
 
-        dispatcher.reclaim_unowned_slices(&pod_zero_of_two).await;
+        assert_eq!(dispatcher.reclaim_unowned_slices(&pod_zero_of_two).await, 2);
 
         assert_eq!(
             (0..4u16)
@@ -1843,6 +1870,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [true, false, true, false],
         );
+        assert_eq!(dispatcher.reclaim_unowned_slices(&pod_zero_of_two).await, 0);
     }
 
     #[tokio::test]

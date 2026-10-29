@@ -76,7 +76,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -372,14 +372,7 @@ def _gateway_blocklist_block(
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
         refused = False
-    if not refused and not wizard_identity_blocked(
-        distinct_id=str(request.user.distinct_id),
-        email=request.user.email,
-        surface="oauth_authorize",
-        user_uuid=str(request.user.uuid),
-        organization_ids=[str(organization_id) for organization_id in organization_ids],
-        team_ids=scoped_team_ids or [],
-    ):
+    if not refused:
         return None
     return Response(
         {"error": "access_denied", "error_description": WIZARD_BLOCKED_DETAIL},
@@ -2396,6 +2389,7 @@ def _active_access_token_response(
     scoped_teams: list[int],
     scoped_organizations: list[str],
     application: OAuthApplication | None,
+    sandbox_task_id: uuid.UUID | None = None,
 ) -> JsonResponse:
     """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
     data: dict[str, Any] = {
@@ -2410,6 +2404,16 @@ def _active_access_token_response(
     if application:
         data["client_id"] = application.client_id
         data["client_name"] = application.name
+    if sandbox_task_id is not None:
+        # The policy resolves API routes, which import these views.
+        from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415
+
+        data["sandbox_task_id"] = str(sandbox_task_id)
+        # The MCP server hides and refuses every tool outside this list. The API enforces the
+        # same list per operation, so a client that ignores it gains nothing.
+        held_tools = resolve_scout_held_tools(sandbox_task_id=sandbox_task_id)
+        if held_tools is not None:
+            data["mcp_allowed_tools"] = sorted(held_tools)
     return JsonResponse(data)
 
 
@@ -2621,6 +2625,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 scoped_teams=access_token.scoped_teams or [],
                 scoped_organizations=access_token.scoped_organizations or [],
                 application=access_token.application,
+                sandbox_task_id=access_token.sandbox_task_id,
             )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has

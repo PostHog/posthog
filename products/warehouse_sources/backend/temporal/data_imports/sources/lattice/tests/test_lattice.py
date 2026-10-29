@@ -156,3 +156,46 @@ class TestReviewCycleFanout:
         assert [(row["review_cycle_id"], row["id"]) for row in result.rows] == [
             (cycle, "r1") for cycle in expected_cycles
         ]
+
+
+class TestUserFanout:
+    @pytest.mark.parametrize(
+        "endpoint, child_row, expected_row_fields",
+        [
+            ("user_tasks", {"id": "t1"}, {"id": "t1"}),
+            (
+                "user_custom_attributes",
+                {"customAttribute": {"id": "ca1", "name": "Office"}, "customAttributeValue": {"id": "cv1"}},
+                {"custom_attribute_id": "ca1", "custom_attribute_value_id": "cv1"},
+            ),
+            # A row missing its nested objects must still sync rather than fail the run.
+            (
+                "user_custom_attributes",
+                {"customAttribute": None},
+                {"custom_attribute_id": None, "custom_attribute_value_id": None},
+            ),
+        ],
+    )
+    def test_fans_out_over_users(
+        self, endpoint: str, child_row: dict[str, Any], expected_row_fields: dict[str, Any]
+    ) -> None:
+        child_path = {"user_tasks": "tasks", "user_custom_attributes": "customAttributes"}[endpoint]
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"id": "u1"}, {"id": "u2"}]),
+                _response([child_row]),
+                _response([child_row]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [url.split("?")[0] for url in result.urls] == [
+            "https://api.latticehq.com/v1/users",
+            f"https://api.latticehq.com/v1/user/u1/{child_path}",
+            f"https://api.latticehq.com/v1/user/u2/{child_path}",
+        ]
+        # Each row carries its user so the composite primary key stays unique across users.
+        assert [row["user_id"] for row in result.rows] == ["u1", "u2"]
+        for row in result.rows:
+            assert {key: row[key] for key in expected_row_fields} == expected_row_fields

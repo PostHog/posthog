@@ -37,6 +37,7 @@ import {
     IconList,
     IconListCheck,
     IconListTree,
+    IconLetter,
     IconLive,
     IconLlmAnalytics,
     IconLlmPromptManagement,
@@ -66,6 +67,7 @@ import {
     IconSend,
     IconServer,
     IconShuffle,
+    IconSignal,
     IconSpotlight,
     IconStack,
     IconStar,
@@ -254,6 +256,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconSend />,
         iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
     },
+    transactional: {
+        icon: <IconLetter />,
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
+    },
     notebook: {
         icon: <IconNotebook />,
         iconColor: ['var(--color-product-notebooks-light)', 'var(--color-product-notebooks-dark)'],
@@ -406,6 +412,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     stamphog: {
         icon: <IconStamphog />,
+    },
+    uptime_monitoring: {
+        icon: <IconSignal />,
     },
     exports: {
         icon: <IconDownload />,

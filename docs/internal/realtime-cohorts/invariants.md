@@ -95,9 +95,12 @@ Most of these are not enforced by a single test, and a violation usually shows u
 **12. A redelivered event changes nothing.**
 
 - Why: input is at least once.
-- Kept by: per-row replay marks, the highest firehose offset applied from each firehose partition.
-- Assumes: one person's events from one firehose partition arrive in offset order.
-  An event overtaken by a later one from the same firehose partition is skipped as a replay.
+- Kept by: per-row replay marks, the highest offset applied from each source partition, and the shuffler's partition numbering, which gives each input topic its own source partitions.
+- Assumes: one person's events from one source partition arrive in offset order.
+  An event overtaken by a later one from the same source partition is skipped as a replay.
+- Assumes: each event reaches the pipeline on only one input topic.
+  An event that arrives on two topics has a different source partition on each, so it is folded twice.
+- See [live evaluation](live-evaluation.md#replay-safety).
 - Limit: the marks live inside their row.
   Once the sweep deletes a row, or the person record time-to-live expires a record, a redelivered old event is folded again.
 
@@ -203,6 +206,8 @@ Most of these are not enforced by a single test, and a violation usually shows u
   Every outcome write is fenced by the dispatch epoch, and `reconcile_observed_at` is written last.
 - Limit: the proof covers planned days, not persons.
   Raising the seeder's band count while a run is seeding leaves persons unscanned, and every chunk still confirms.
+- Limit: a chunk skips a person's tile on a condition where only the newest day counts, once a newer day's chunk of the run has scanned that person.
+  If the newer chunk fails and the person's events on its day are deleted before the retry, neither day sends the person, and every chunk still confirms.
 - See [completion and readiness](completion-and-readiness.md).
 
 **26. A readiness stamp vouches only for the definition its run replayed.**
@@ -265,6 +270,7 @@ It does not rule out duplicates: a store that loses unflushed writes, or is wipe
 Reconcile repairs lost output, not lost state.
 It re-tells the rows the store holds.
 An event that Stage 1 skipped needs a later seed that covers it, and a person whose first Stage 2 row was never written needs a seed or a leaf flip that touches them.
+A person seed that changes nothing still recomposes a composed cohort with no row for the person, so a cohort added over already-seeded leaves gets its rows from its own run.
 
 The system is built on one bargain: live paths favor speed and may lose a change, and every backfill ends with a reconcile that re-tells everything the store holds.
 Anything that stops reconcile from running, or from covering a cohort, leaves downstream wrong with no signal.

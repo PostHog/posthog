@@ -165,7 +165,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `write_scopes` — defaults to `["notebook:write"]`: the scout reads the project and writes its findings, its memory, and notebooks.
   `notebook:write` reaches every notebook in the project, not only the ones the scout made. Send `[]` (or drop it from the list) for a scout that should write nothing but its findings and memory. Unlike the other scopes, a run keeps it when its author no longer resolves and it acts as another project member.
-  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `customer_task:write`, `llm_skill:write`, `warehouse_view:write`, `warehouse_table:write`, `replay_scanner:write`, or `canvas:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `customer_task:write`, `llm_skill:write`, `warehouse_view:write`, `warehouse_table:write`, `replay_scanner:write`, `canvas:write`, or `experiment:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
   The body of such a scout follows the maintainer / steward pattern in `references/scout-patterns.md`: a curated inventory, a write ladder (do-and-log, do-verify-report, hand-to-a-human), a per-run change cap, and a rolling maintenance report naming every object changed.
   Each scope is project-wide and covers update and delete of every object of its kind, not only the ones the scout made, so grant only what the scout's body actually tends, and say in the body what it may change and when.
   `llm_skill:write` is the one to think twice about: custom scouts are skills in the same store, so a scout holding it can edit a sibling scout's body, or the body it runs from itself. Grant it to a scout whose job really is tending a set of skills, name that set in the body, and say there that the scouts are off limits unless tending them is the job.
@@ -174,6 +174,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   `customer_task:write` covers every Customer analytics task in the project, including tasks assigned to other people: create, update (status, due date, assignee), archive, and restore archived tasks, with no delete. Say in the body whose tasks the scout tends, and whether it may reassign one.
   Customer analytics tasks are still behind the `customer-analytics-customer-tasks` feature flag. On a project without it the task tools do not exist and the grant does nothing, so do not grant it there.
   `canvas:write` reaches every canvas in a public space and every canvas the acting user created: publish, layout, runtime state, and soft-delete of the acting user's own canvases. A scout run cannot create a canvas, because a scout task has no space to file one in. Create the canvas first, name its id in the body, and follow the one-canvas maintainer variant in `references/scout-patterns.md`. Each published version records the run's task, so version history shows which run published it.
+  `experiment:write` is the one grant that changes what end users see. It reaches every experiment in the project: create, edit, duplicate, archive, launch, pause, resume, end, and reset. Launch and pause turn the linked feature flag on and off. A scout cannot delete an experiment, copy one to another project, migrate a legacy one, or open a flag cleanup pull request. Without `feature_flag:write`, which no scout can hold yet, it also cannot ship a variant or change the variants, rollout, or holdout once an experiment has launched or its flag is on. So a scout sets up drafts and ends experiments, and a person ships them. Say in the body which experiments the scout tends, and which lifecycle changes it may make without a person asking.
   Only the person the scout's runs act as (whoever authored it) or a project admin can set the field, and grants are activity-logged. A scoped API key must itself carry each scope it grants.
   A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
@@ -242,6 +243,35 @@ The scout closes the loop in its run summary (which notes it acted on and how) a
 Choosing between a note and an edit: a note is the right tool for _this project, right now_ steering and for trying a nudge before committing to it; a skill edit is the right tool once the steer is permanent policy (a disqualifier, a threshold, a scope change).
 A note that you keep re-leaving is a skill edit waiting to happen — promote it.
 Note lifecycle stays with humans: scouts never delete notes, so retire acted-on notes yourself (or set `expires_at` up front) to keep the channel high-signal.
+
+## Workflow-triggered runs
+
+A workflow's "Run scout" step starts a run when an event fires, for example a new GitHub issue or a pull request.
+Every run's prompt names how it started in _Your run identity_: `triggered_by` is `schedule`, `manual`, `workflow`, or `check` (`experiment` on a private trial run).
+A workflow run also carries `trigger_workflow_id`, the id of the workflow that fired.
+Branch on that value in the body ("if `triggered_by` is `workflow` ...") rather than on whether a note is present.
+
+What the run sees depends on the step's note:
+
+- **With a note**, the harness makes the subject the note names the run's first job.
+  The run handles that subject completely before anything else: it investigates, decides, files a report or records why it rejected the subject, and writes the memory the body asks for.
+  The scout's routine is optional on that run.
+  If the body says nothing about workflow-triggered runs, the run skips the routine and leaves it to the schedule.
+- **Without a note**, the run is told a workflow started it and that nothing names the event.
+  It runs the body as it would on a schedule, unless the body says what to do on a workflow-triggered run.
+
+Write a workflow-triggered section in the body when the default is wrong for the scout.
+For example, "on a workflow-triggered run, also refresh the label cache", or "on a workflow-triggered run with no note, only check the last hour".
+
+**Incremental state needs a full pass.**
+A run that skipped its routine or cut it short must leave cursors, baselines, and "last swept" markers as they were, and write memory only about the subject it handled.
+The harness tells every workflow run with a note this.
+Name the scout's own incremental keys in the body, because only the body knows which scratchpad entries a partial pass must not move.
+
+**Write the step's note from identifiers.**
+Use a pull request number, an issue URL, or an alert id, for example `Issue #{event.properties.issue_number}`.
+Do not paste a title, a body, or other free text from the event.
+The scout reads the note as untrusted input, and an identifier gives it something to look up with its own tools.
 
 ## Test loop
 

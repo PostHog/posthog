@@ -13,21 +13,6 @@ class TestLeverSource:
         self.config = LeverSourceConfig(api_key="test_api_key")
 
     @pytest.mark.parametrize(
-        "expected_key",
-        [
-            "401 Client Error: Unauthorized for url: https://api.lever.co",
-            "403 Client Error: Forbidden for url: https://api.lever.co",
-        ],
-    )
-    def test_non_retryable_errors_includes_lever_key(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
-
-    def test_non_retryable_errors_matches_observed_error_message(self):
-        observed_error = "401 Client Error: Unauthorized for url: https://api.lever.co/v1/opportunities?limit=100"
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
         "other_vendor_error",
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",

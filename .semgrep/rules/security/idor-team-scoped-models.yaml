@@ -70,11 +70,11 @@ rules:
                               |ActionSelectorMatchChange
                               |AEOCitationCheck
                               |AEOPrompt
+                              |AEOPromptVersion
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
-                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -86,6 +86,7 @@ rules:
                               |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
+                              |InsightAlertInvestigation
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -125,6 +126,7 @@ rules:
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
+                              |ConversionRecommendationRun
                               |Conversation
                               |ConversationDelivery
                               |ConversationDeliveryPart
@@ -142,6 +144,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |TodayHighlights
+                              |TodayPulsePins
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -181,6 +184,7 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventFilterPipelineOverride
                               |EventStream
                               |EventStreamMember
                               |ErrorTrackingAlert
@@ -192,6 +196,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingIssueSummary
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -322,6 +327,7 @@ rules:
                               |ObjectMediaPreview
                               |OfflineEvaluationResult
                               |OfflineEvaluationResultPayload
+                              |OfflineEvaluationUsageLedger
                               |OfflineExperiment
                               |OfflineExperimentItem
                               |OfflineExperimentItemPayload
@@ -330,6 +336,7 @@ rules:
                               |PluginConfig
                               |ProductBrief
                               |ProductTour
+                              |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
@@ -344,7 +351,9 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationAnchorSimilarity
                               |ReplayObservationFeedDismissal
+                              |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
                               |ReplayObservationRequest
@@ -352,6 +361,9 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
+                              |ReplayScannerFeedGroup
+                              |ReplayScannerSearchTheme
+                              |ReplayScannerSemanticCenter
                               |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
@@ -379,10 +391,13 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalFirstReportNotification
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportCheck
+                              |SignalReportMonitoringAttempt
+                              |SignalReportMonitoringResult
                               |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
@@ -391,6 +406,8 @@ rules:
                               |SignalReportSuggestedReviewer
                               |SignalReportTask
                               |SignalReportTrackerIssue
+                              |SignalReviewerExclusion
+                              |SignalReviewerExclusionRevision
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -402,10 +419,14 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |LegacySignalSpend
+
+                              |AnomalyScoringState
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SlackThreadJoin
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -414,8 +435,11 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryHold
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
+                              |AlertDestination
+                              |SupabaseAuthEmailConfig
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -455,7 +479,10 @@ rules:
                               |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
+                              |UptimeMonitor
                               |UserInterview
+                              |UserActivitySummaryQueueState
+                              |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
@@ -475,6 +502,7 @@ rules:
                               |WizardSession
                               |WizardWorker
                               |WorkflowIdea
+                              |WorkflowImport
                               |WorkflowProposal
                           )$
                 - focus-metavariable: $SINK
@@ -546,7 +574,6 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
-                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -558,6 +585,7 @@ rules:
                         |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
+                        |InsightAlertInvestigation
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
@@ -597,6 +625,7 @@ rules:
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
+                        |ConversionRecommendationRun
                         |Conversation
                         |ConversationDelivery
                         |ConversationDeliveryPart
@@ -614,6 +643,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |TodayHighlights
+                        |TodayPulsePins
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -653,6 +683,7 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |EventStream
                         |EventStreamMember
                         |ErrorTrackingAlert
@@ -664,6 +695,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingIssueSummary
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -784,6 +816,7 @@ rules:
                         |ObjectMediaPreview
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
+                        |OfflineEvaluationUsageLedger
                         |OfflineExperiment
                         |OfflineExperimentItem
                         |OfflineExperimentItemPayload
@@ -792,6 +825,7 @@ rules:
                         |PluginConfig
                         |ProductBrief
                         |ProductTour
+                        |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
@@ -806,7 +840,9 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationAnchorSimilarity
                         |ReplayObservationFeedDismissal
+                        |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
                         |ReplayObservationRequest
@@ -814,6 +850,9 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
+                        |ReplayScannerFeedGroup
+                        |ReplayScannerSearchTheme
+                        |ReplayScannerSemanticCenter
                         |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
@@ -841,10 +880,13 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportCheck
+                        |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
@@ -853,6 +895,8 @@ rules:
                         |SignalReportSuggestedReviewer
                         |SignalReportTask
                         |SignalReportTrackerIssue
+                        |SignalReviewerExclusion
+                        |SignalReviewerExclusionRevision
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
@@ -864,10 +908,14 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |LegacySignalSpend
+
+                        |AnomalyScoringState
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SlackThreadJoin
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -876,8 +924,11 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryHold
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
+                        |AlertDestination
+                        |SupabaseAuthEmailConfig
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -916,7 +967,10 @@ rules:
                         |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
+                        |UptimeMonitor
                         |UserInterview
+                        |UserActivitySummaryQueueState
+                        |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
@@ -936,6 +990,7 @@ rules:
                         |WizardSession
                         |WizardWorker
                         |WorkflowIdea
+                        |WorkflowImport
                         |WorkflowProposal
                     )$
           # Exclude when team filter is present
@@ -1027,6 +1082,7 @@ rules:
                         |ColumnConfiguration
                         |Conversation
                         |ConversationRestoreToken
+                        |ConversionRecommendationRun
                         |CoreEvent
                         |CoreMemory
                         |CustomerJourney
@@ -1077,6 +1133,7 @@ rules:
                         |EvaluationReport
                         |Event
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1136,6 +1193,7 @@ rules:
                         |ObjectMediaPreview
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
+                        |OfflineEvaluationUsageLedger
                         |OfflineExperiment
                         |OfflineExperimentItem
                         |OfflineExperimentItemPayload
@@ -1178,9 +1236,12 @@ rules:
                         |SessionRecordingViewed
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
                         |SignalReport
                         |SignalReportArtefact
                         |SignalReportCheck
+                        |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportSlackThread
                         |SignalReportTask
                         |SignalSourceConfig
@@ -1641,6 +1702,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |DevGatewayToken
                               |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
@@ -1649,6 +1711,7 @@ rules:
                               |MCPServerInstallation
                               |Reminder
                               |SessionRecordingViewed
+                              |UserActivitySummary
                               |UserFacetSettings
                               |UserHomeSettings
                               |UserScenePersonalisation
@@ -1715,6 +1778,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |DevGatewayToken
                         |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
@@ -1722,6 +1786,7 @@ rules:
                         |KernelRuntime
                         |Reminder
                         |SessionRecordingViewed
+                        |UserActivitySummary
                         |UserFacetSettings
                         |UserHomeSettings
                         |UserScenePersonalisation

@@ -74,6 +74,8 @@ async def analyze_team_activity(inputs: SuggestInputs) -> SuggestResult:
 
 @temporalio.activity.defn
 async def start_generation_activity(inputs: GenerateInputs) -> str | None:
+    if inputs.template_id is not None:
+        return inputs.template_id
     request = generation.GenerationRequest(
         key=inputs.request.key,
         name=inputs.request.name,

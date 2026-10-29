@@ -28,7 +28,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
+from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -646,6 +646,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
 
+            # A test run of an unsaved function takes template_id from the caller, and the template decides
+            # which reserved functions the code may call, so it gets the same check as a create.
+            is_unsaved_test = (
+                instance is None and self.context.get("view") and self.context["view"].action == "invocations"
+            )
+            if is_unsaved_test:
+                self._validate_template_is_creatable(template)
+
         if is_create:
             # Set defaults for new functions
             data["inputs_schema"] = data.get("inputs_schema") or []
@@ -1221,6 +1229,16 @@ class HogFunctionViewSet(
             span = trace.get_current_span()
             span.set_attribute("hog_function.search.result_count", results_len)
             span.set_attribute("hog_function.search.empty", results_len == 0)
+        return response
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        response = Response(self.get_serializer(instance).data)
+        if get_event_source(request) == EventSource.TERRAFORM:
+            try:
+                instance.record_terraform_read()
+            except Exception as e:
+                capture_exception(e)
         return response
 
     @staticmethod

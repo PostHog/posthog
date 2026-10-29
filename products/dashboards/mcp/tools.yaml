@@ -19,10 +19,12 @@ tools:
         enrich_url: '{id}'
         title: Create dashboard
         description: >
-            Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
-            from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context
-            — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation,
-            see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.
+            Create a new dashboard. Provide a name and optional description, tags, and pinned status. All viewers see
+            the description at the top of the dashboard. Write one or two short sentences for them, about 30 words. Skip
+            it when the name already says it. Do not write agent notes. Can also create from a template or duplicate an
+            existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to
+            fetch the actual data for each insight. To add widget tiles after creation, see
+            dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.
 
             Load the building-a-dashboard skill before you create or change a dashboard. It covers when to update an
             existing dashboard instead, which insights to reuse, and how to lay out the tiles.
@@ -31,7 +33,9 @@ tools:
             weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive:
             an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search
             notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few
-            metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.
+            metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard. After
+            substantial visual changes, check the final saved dashboard once if browser access is already available.
+            Skip browser checks for small edits.
         agent_note:
             If you have not loaded the building-a-dashboard skill in this conversation, load it now, before you add
             tiles. Consider offering the user a recurring delivery of this dashboard as a next step, but only when the
@@ -57,6 +61,7 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+            - group_titles
         response:
             exclude:
                 - user_access_level
@@ -150,7 +155,8 @@ tools:
             or editing guidance. PostHog's Data Catalog is the semantic layer. Before you reference a reusable metric,
             call metric-list and metric-describe. If no governed definition exists, use data-catalog-metric-create
             instead of writing the definition in `agent_context`. Authenticated dashboard APIs return agent context;
-            shared and exported dashboards omit it.
+            shared and exported dashboards omit it. After substantial visual changes, check the final saved dashboard
+            once if browser access is already available. Skip browser checks for small edits.
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -299,15 +305,25 @@ tools:
             'json' for raw query results. 'optimized' output is bounded so a wide dashboard fits in context: a tile's
             table is held to max_result_chars characters by keeping its header and both ends and dropping rows from the
             middle, held down further by whatever the response has left of its overall budget, and tiles past that
-            budget are not run. To fit more of what you need into that budget, in order: pass tile_ids to run only the
-            tiles you care about; pass filters_override={"interval": "day"} (or "week"/"month") to turn a long run of
-            hourly buckets into fewer, wider rows, which also cuts the query cost; raise max_result_chars (200 or more),
-            or pass 0 for a tile's whole table. 'json' is unbounded, so pair it with tile_ids. Supports
+            budget are not run. To fit more of what you need into that budget, in order: pass dashboard_tile_ids to run
+            only the tiles you care about; pass filters_override={"interval": "day"} (or "week"/"month") to turn a long
+            run of hourly buckets into fewer, wider rows, which also cuts the query cost; raise max_result_chars (200 or
+            more), or pass 0 for a tile's whole table. 'json' is unbounded, so pair it with dashboard_tile_ids. Supports
             variables_override and filters_override query params to run insights with one-off overrides without
             persisting; see the parameter descriptions for the exact JSON shape required.
         param_overrides:
+            tile_ids:
+                input_schema: DashboardInsightTileIdsSchema
+                aliases:
+                    - tile_ids
             id:
                 cast: string-int
+                aliases:
+                    - dashboard_id
+                    - dashboardId
+        rename_params:
+            tile_ids: dashboard_tile_ids
+        reads_ingested_data: events
     dashboard-reorder-tiles:
         operation: dashboards_reorder_tiles_create
         enabled: true
@@ -327,6 +343,8 @@ tools:
             each tile's `layouts` with dashboard-update instead. This tool repacks only the tiles in `tile_order`. To
             repack the whole dashboard, include every tile ID. Tiles omitted from `tile_order` keep their positions and
             can overlap the repacked tiles. This tool does not set different sizes or positions for individual tiles.
+            After substantial visual changes, check the final saved dashboard once if browser access is already
+            available. Skip browser checks for small edits.
     dashboard-templates-list:
         operation: dashboard_templates_list
         enabled: true
@@ -427,7 +445,9 @@ tools:
         title: Update dashboard
         description: >
             Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned
-            status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs,
+            status, tags, and filters. All viewers see the description at the top of the dashboard. If you change it,
+            rewrite it in one or two short sentences, or clear it when the name already says it. Do not append revision
+            history or agent notes. After you create or add insight tiles, call dashboard-get to get their tile IDs,
             then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This
             works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set
             each tile's width and height for its content and importance. Width can be any whole number from 1 to 12,
@@ -435,16 +455,19 @@ tools:
             replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are
             stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one
             request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use
-            dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same
-            `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus
-            the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer
-            dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the
-            group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title,
-            which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the
-            best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to
-            remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned
-            tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each
-            insight.
+            dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. This tool
+            does not change a widget tile's own settings (`config`, `name`, `description`): use
+            dashboard-widgets-batch-update for that. To group tiles, give each tile in the group the same `group_key`.
+            Set each group's settings in `groups`, a map from group key to settings that replaces the stored map:
+            `title`, `collapsed` to start the group closed, and `color` for a colored dot before the heading (blue,
+            purple, green, yellow, orange, red, or null for no dot). Viewers see each group as a band that they can open
+            and close. Viewers who do not have bands yet, and shared dashboards, see only the group title above its
+            tiles. Put tiles that viewers check less often in a group that starts closed. To mark a tile, set its
+            `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog
+            on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use
+            dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use
+            dashboard-insights-run to fetch the actual data for each insight. After substantial visual changes, check
+            the final saved dashboard once if browser access is already available. Skip browser checks for small edits.
         exclude_params:
             - creation_mode
             - is_shared
@@ -454,9 +477,16 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+            - group_titles
+            - tiles.*.widget
         param_overrides:
             id:
                 cast: string-int
+            tiles:
+                description: >
+                    Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set
+                    its grid position and size. To change a widget tile's config, name, or description, use
+                    dashboard-widgets-batch-update.
         response:
             exclude:
                 - user_access_level
@@ -541,7 +571,8 @@ tools:
             Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's
             Data Catalog is the semantic layer. Use data-catalog-metric-create or data-catalog-metric-update for
             canonical metric definitions instead of writing them in `agent_context`. Only the fields you provide are
-            updated; omitted fields are left unchanged.
+            updated; omitted fields are left unchanged. After substantial visual changes, check the final saved
+            dashboard once if browser access is already available. Skip browser checks for small edits.
         param_overrides:
             id:
                 cast: string-int
@@ -556,10 +587,11 @@ tools:
             idempotent: true
         title: List dashboard widget catalog
         description: >
-            List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before
-            dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys
-            under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and
-            optional widgetFilters).
+            List registered dashboard widget types with labels, descriptions, and per-type config_schema. Pass
+            `widget_type` (one type or a list) to get only the types you will write; the full catalog is large, so omit
+            it only when you still need to pick a type. The valid `widget_type` values are listed in this tool's schema.
+            Each type documents its own config keys under config_schema (shared keys include limit, orderBy,
+            orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).
     dashboard-widgets-batch-add:
         operation: dashboards_widgets_batch_create
         enabled: true
@@ -572,13 +604,17 @@ tools:
         enrich_url: '{params.id}'
         title: Add dashboard widgets
         description: >
-            Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call
-            dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an
-            array of payloads (widget_type, config, optional name, description, layouts). Config shape is per
-            widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter
-            entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are
+            Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Before writing a
+            config, call dashboard-widget-catalog-list with `widget_type` set to the types you will add, to read their
+            config_schema. The valid widget_type values are in this tool's schema. Pass `widgets` as an array of
+            payloads (widget_type, config, optional name, description, layouts). This schema does not list config keys:
+            build each config from the config_schema of its widget_type in the catalog. widgetFilters, when supported,
+            is a map of filter id to property filter entries. An invalid config returns a 400 that names each invalid
+            field. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are
             omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles —
-            to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).
+            to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed). After
+            substantial visual changes, check the final saved dashboard once if browser access is already available.
+            Skip browser checks for small edits.
         param_overrides:
             id:
                 cast: string-int
@@ -597,11 +633,13 @@ tools:
             Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget
             settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified
             by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change.
-            Only the fields you provide per widget are updated; omitted fields are left unchanged. Optionally pass
-            `widget_type` to get the typed config shape; widget_type is immutable. Config shape is per widget_type — see
-            dashboard-widget-catalog-list. All updates succeed or fail together. Tile placement (layout,
-            show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new
-            widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.
+            Only the fields you provide per widget are updated; omitted fields are left unchanged. A config update
+            replaces only the top-level keys you send. This schema does not list config keys: read the config_schema of
+            the tile's widget_type from dashboard-widget-catalog-list, passing `widget_type` to fetch only that type.
+            All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use
+            dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add;
+            to remove one, use dashboard-delete-tile. After substantial visual changes, check the final saved dashboard
+            once if browser access is already available. Skip browser checks for small edits.
         param_overrides:
             id:
                 cast: string-int
@@ -625,6 +663,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        reads_ingested_data: events
     dashboards-bulk-delete:
         operation: dashboards_bulk_delete_create
         enabled: true

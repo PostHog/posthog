@@ -67,7 +67,6 @@ revenue_analytics
 signals
 skills
 slack_app
-subscriptions
 surveys
 tasks
 tracing

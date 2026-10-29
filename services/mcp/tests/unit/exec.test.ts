@@ -8,6 +8,7 @@ import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
@@ -528,6 +529,9 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })).resolves.toEqual(
                 JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
             )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool --confirm --json' })).resolves.toEqual(
+                JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+            )
         })
 
         it('keeps UI data in structuredContent (not _meta) when the tool has no formatted table', async () => {
@@ -724,16 +728,25 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.output_tokens).not.toBe(calls[1]!.properties.output_tokens)
         })
 
-        it('passes inline JSON arguments to the inner tool', async () => {
+        it.each([
+            'call --json mock-tool {"name":"foo","tags":["a","b"]}',
+            'call mock-tool --json {"name":"foo","tags":["a","b"]}',
+            'call mock-tool {"name":"foo","tags":["a","b"]} --json',
+            'call mock-tool --confirm {"name":"foo","tags":["a","b"]} --json',
+        ])('passes inline JSON arguments to the inner tool for %s', async (command) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), tags: z.array(z.string()) }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
-            const result = await exec.handler(mockContext, {
-                command: 'call --json mock-tool {"name":"foo","tags":["a","b"]}',
-            })
+            const result = await exec.handler(mockContext, { command })
             expect(JSON.parse(result as string)).toEqual({ name: 'foo', tags: ['a', 'b'] })
+        })
+
+        it('reads a flag after the tool name when no JSON follows it', async () => {
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call mock-tool --json' })
+            expect(JSON.parse(result as string)).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
         it('preserves quote-heavy and multi-line content in inline JSON', async () => {
@@ -1187,8 +1200,12 @@ describe('exec tool', () => {
 
         it.each([
             ['proposed', { status: 'proposed', is_drifted: false }, "'/data-catalog/metrics/{name}'"],
-            ['drifted proposed', { status: 'proposed', is_drifted: true }, 'Do not present this as the answer'],
-            ['drifted approved', { status: 'approved', is_drifted: true }, 'Do not present this as the answer'],
+            [
+                'drifted proposed',
+                { status: 'proposed', is_drifted: true },
+                '(<url>), not yet approved, and its source insight',
+            ],
+            ['drifted approved', { status: 'approved', is_drifted: true }, '(<url>), approved, and its source insight'],
             ['deprecated', { status: 'deprecated', is_drifted: false }, 'Do not present this as the answer'],
         ])('marks a %s metric result noncanonical', async (_label, envelope, guidance) => {
             const exec = metricRunExec({ ...envelope, results: [[42]] })
@@ -1878,6 +1895,27 @@ describe('exec tool', () => {
         })
     })
 
+    describe('held tool set', () => {
+        const heldTools = new Set(['notebooks-create-markdown'])
+        const exec = createExec([makeMockTool({ name: 'notebooks-create-markdown' })], undefined, { heldTools })
+
+        // An unknown-tool reply sends the agent to `search` for another way to reach the operation.
+        it.each(['info notebooks-create', 'schema notebooks-create', 'call notebooks-create {}'])(
+            'refuses a catalog tool outside the held set as not granted on %s',
+            async (command) => {
+                await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
+                    reason: 'tool_not_granted',
+                })
+            }
+        )
+
+        it('still reports a name the catalog does not have as unknown', async () => {
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toMatchObject({
+                reason: 'unknown_tool',
+            })
+        })
+    })
+
     describe('flag-gated tool redirects', () => {
         const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
 
@@ -1970,6 +2008,7 @@ describe('exec tool', () => {
             ['self-driving-inbox-get', 'inbox-reports-list'],
             ['experiment-get-all', 'experiment-list'],
             ['llma-tagger-create', 'llma-evaluation-create'],
+            ['vision-scanners-suggest-tags', 'vision-scanners-update'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -2039,9 +2078,15 @@ describe('exec tool', () => {
                 apiToken: 'unrecognized-token',
                 recovery: 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.',
             },
+            {
+                apiToken: 'pha_test',
+                oauthClientId: CHATGPT_APP_OAUTH_CLIENT_ID,
+                recovery:
+                    'If the user already reconnected and approved all access, this tool is not available through the app yet.',
+            },
         ])(
-            'gives the scope recovery step for the connection credential ($apiToken)',
-            async ({ apiToken, recovery }) => {
+            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId)',
+            async ({ apiToken, oauthClientId, recovery }) => {
                 const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
                 const scopeGated = [
                     {
@@ -2051,7 +2096,18 @@ describe('exec tool', () => {
                         missingScopes: ['endpoint:write'],
                     },
                 ]
-                const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, scopeGated)
+                const exec = createExecTool(
+                    [makeMockTool()],
+                    context,
+                    'desc',
+                    'cmd',
+                    undefined,
+                    undefined,
+                    scopeGated,
+                    {
+                        oauthClientId,
+                    }
+                )
 
                 await expect(exec.handler(context, { command: 'call endpoint-create {}' })).rejects.toThrow(recovery)
                 const search = JSON.parse(

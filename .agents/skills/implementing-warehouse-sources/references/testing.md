@@ -34,7 +34,7 @@ The shared tests live in `sources/tests/test_source_catalog_invariants.py`, `tes
 
 | Do not test                                                                                                                                | Why                                                                                    |
 | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| That an error string matches a key of `get_non_retryable_errors()`, e.g. `assert any(p in msg for p in source.get_non_retryable_errors())` | The test copies the pattern into the message, so it restates the dict                  |
+| That an error string matches a key of `get_non_retryable_errors()`, e.g. `assert any(p in msg for p in source.get_non_retryable_errors())` | `test_source_error_contract.py` classifies the real errors of every source             |
 | `get_schemas(names=[...])` filtering, or the sync modes it builds, when `get_schemas` is one `build_endpoint_schemas(...)` call            | `common/test_source_schema.py` covers the helper                                       |
 | `get_documented_tables()` output                                                                                                           | The catalog invariants cover it                                                        |
 | A `source_for_pipeline` that forwards its config to the transport                                                                          | The forwarding has no branch                                                           |

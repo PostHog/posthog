@@ -5,6 +5,7 @@ from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
+from uuid import UUID
 
 from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
@@ -32,6 +33,7 @@ else:
 
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import RoleMembership
 
 from .contracts import ObjectAccessRef
 from .enums import ResolvedAccessSourceSubjectValue, ResolvedAccessSourceValue
@@ -455,6 +457,60 @@ class UserAccessControl:
             organization_id = str(team.organization_id)
 
         self._organization_id = organization_id
+
+    @classmethod
+    def for_user_ids(cls, *, user_ids: Iterable[int], team: Team) -> dict[int, "UserAccessControl"]:
+        memberships = list(
+            OrganizationMembership.objects.filter(
+                organization_id=team.organization_id, user_id__in=set(user_ids)
+            ).select_related("user", "organization")
+        )
+        if not memberships:
+            return {}
+
+        roles_by_user: dict[int, list[UUID]] = defaultdict(list)
+        if memberships[0].organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            for user_id, role_id in (
+                RoleMembership.objects.filter(
+                    user_id__in=[member.user_id for member in memberships], role__organization_id=team.organization_id
+                )
+                .valid_for_authorization()
+                .values_list("user_id", "role_id")
+            ):
+                roles_by_user[user_id].append(role_id)
+
+        default_rules: list[AccessControl] = []
+        rules_by_member: dict[UUID, list[AccessControl]] = defaultdict(list)
+        rules_by_role: dict[UUID, list[AccessControl]] = defaultdict(list)
+        if EE_AVAILABLE and memberships[0].organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            for rule in AccessControl.objects.filter(team_id=team.id).filter(
+                Q(organization_member__isnull=True, role__isnull=True)
+                | Q(organization_member_id__in=[member.id for member in memberships], role__isnull=True)
+                | Q(
+                    organization_member__isnull=True,
+                    role_id__in={role_id for roles in roles_by_user.values() for role_id in roles},
+                )
+            ):
+                if rule.organization_member_id is not None:
+                    rules_by_member[rule.organization_member_id].append(rule)
+                elif rule.role_id is not None:
+                    rules_by_role[rule.role_id].append(rule)
+                else:
+                    default_rules.append(rule)
+
+        access_by_user: dict[int, UserAccessControl] = {}
+        for member in memberships:
+            access = cls(user=member.user, team=team)
+            role_ids = roles_by_user[member.user_id]
+            access.__dict__["_organization_membership"] = member
+            access.__dict__["_user_role_ids"] = role_ids
+            access.__dict__["_cached_access_controls"] = [
+                *default_rules,
+                *rules_by_member.get(member.id, []),
+                *(rule for role_id in role_ids for rule in rules_by_role.get(role_id, [])),
+            ]
+            access_by_user[member.user_id] = access
+        return access_by_user
 
     def allowed_object_ids(
         self, resource: str, team_id: int, required_level: str, resolve: Callable[[], frozenset]

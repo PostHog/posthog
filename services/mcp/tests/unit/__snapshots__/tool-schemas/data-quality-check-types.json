@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "subject_type": {
+            "description": "Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.",
+            "enum": ["metric", "posthog_table", "table", "view"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

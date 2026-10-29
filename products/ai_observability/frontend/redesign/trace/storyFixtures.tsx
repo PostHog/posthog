@@ -1,8 +1,21 @@
 import type { Decorator } from '@storybook/react'
 
-import type { TraceNodeApi, TraceNodeStatsApi, TraceTimelineRowApi } from '../../generated/api.schemas'
+import type {
+    TraceNodeApi,
+    TraceNodeStatsApi,
+    TraceSummaryContentApi,
+    TraceTimelineRowApi,
+} from '../../generated/api.schemas'
 import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
-import { ConversationTurn, EvalResult, MessagePart, NodeProperties, ThreadMessage } from './types'
+import {
+    ConversationTurn,
+    EvalResult,
+    EvalRollupOutcome,
+    EvalsChipData,
+    MessagePart,
+    NodeProperties,
+    ThreadMessage,
+} from './types'
 
 export const FIXTURE_STATS: TraceNodeStatsApi = {
     costUsd: 0.0021,
@@ -339,29 +352,12 @@ export const FIXTURE_EVALS: EvalResult[] = [
         isBackfill: false,
         target: null,
     },
-    {
-        id: 'e-tone',
-        name: 'Tone',
-        href: '/evaluations/tone',
-        outcome: 'error',
-        label: 'Error',
-        reasoning: 'The judge model returned an empty response.',
-        timestamp: EVAL_TIMESTAMP,
-        isBackfill: false,
-        target: null,
-    },
-    {
-        id: 'e-policy',
-        name: 'Follows billing policy',
-        href: '/evaluations/follows-billing-policy',
-        outcome: 'pending',
-        label: 'Running',
-        reasoning: null,
-        timestamp: EVAL_TIMESTAMP,
-        isBackfill: false,
-        target: null,
-    },
 ]
+
+/** The roll-up of `FIXTURE_EVALS`: three passes, one fail, and the unrated and skipped runs. */
+export const FIXTURE_EVALS_CHIP: EvalsChipData = { passed: 3, graded: 4, unrated: 2 }
+
+export const FIXTURE_EVAL_OUTCOMES: Record<string, EvalRollupOutcome> = { 'gen-answer': 'fail' }
 
 export const FIXTURE_TRACE_EVALS: EvalResult[] = FIXTURE_EVALS.map((result) => ({
     ...result,
@@ -407,6 +403,25 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
     },
     thread: { status: 'ready', turns: [FIXTURE_TURN], activeTurnId: FIXTURE_TURN.id },
     timeline: { rows: FIXTURE_TIMELINE_ROWS, totalMs: 2310 },
+}
+
+export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
+    title: 'Billing question answered from invoice history',
+    bullets: [
+        { text: 'The user asks why their latest invoice is higher than the one before.', nodeId: 'gen-answer' },
+        { text: 'The agent searches the billing records for seat changes in the period.', nodeId: 'span-search' },
+        {
+            text: 'Two seats were added mid-cycle, and the prorated charge for them explains the whole difference between the two invoices.',
+            nodeId: 'gen-answer',
+        },
+        { text: 'The answer cites the seat change dates.', nodeId: null },
+    ],
+    notes: [
+        { text: 'The retrieval step returned three documents but the answer uses only one.', nodeId: 'span-retrieve' },
+    ],
+    flow: 'question → retrieve-context → search-billing → answer\n                      └─→ 3 documents found ✓',
+    model: 'gpt-4.1-mini',
+    generatedAt: '2026-09-01T10:20:00Z',
 }
 
 export function withWidth(px: number): Decorator {

@@ -8,6 +8,12 @@
 /// matches messages produced with the same key by any standard Kafka client.
 pub fn partition_for_person(team_id: i64, person_id: i64, num_partitions: u32) -> u32 {
     assert!(num_partitions > 0, "num_partitions must be > 0");
+    person_hash(team_id, person_id) % num_partitions
+}
+
+/// The non-negative hash `partition_for_person` reduces modulo the partition
+/// count, for callers that ask the same key's partition under several counts.
+pub fn person_hash(team_id: i64, person_id: i64) -> u32 {
     // i64 max string length is 20 chars. Two i64s + ':' = 41 bytes max.
     let mut buf = [0u8; 41];
     let len = {
@@ -16,16 +22,19 @@ pub fn partition_for_person(team_id: i64, person_id: i64, num_partitions: u32) -
         write!(cursor, "{team_id}:{person_id}").unwrap();
         cursor.position() as usize
     };
-    partition_for_key(&buf[..len], num_partitions)
+    key_hash(&buf[..len])
 }
 
 /// Kafka's default partitioner for a keyed record, which Node's
 /// `murmur2Partition` and librdkafka's `murmur2_random` both reproduce.
 pub fn partition_for_key(key: &[u8], num_partitions: u32) -> u32 {
     assert!(num_partitions > 0, "num_partitions must be > 0");
+    key_hash(key) % num_partitions
+}
+
+fn key_hash(key: &[u8]) -> u32 {
     // Kafka's toPositive: hash & 0x7fffffff
-    let positive = (kafka_murmur2(key) & 0x7fffffff) as u32;
-    positive % num_partitions
+    (kafka_murmur2(key) & 0x7fffffff) as u32
 }
 
 /// Kafka-compatible murmur2 hash.

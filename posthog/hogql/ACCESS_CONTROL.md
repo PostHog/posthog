@@ -89,6 +89,10 @@ For these, denied objects are filtered out of the results.
 
 At print time the printer appends a guard that excludes the user's denied object IDs by primary key — effectively `WHERE <id> NOT IN (<denied ids>)`.
 Child tables filter on the parent's FK — e.g. `system.dashboard_tiles` uses `access_control_id_field="dashboard_id"`.
+A table whose rows can also be denied by a rule on another object overrides `PostgresTable.blocked_object_ids`.
+`system.data_warehouse_tables` does this: it resolves each table through its source, as described in [how a table's access level resolves](#how-a-tables-access-level-resolves), so denying a source also hides its tables there.
+A child table drops the creator exemption by default, because its rows carry no creator of the parent.
+A child table that must keep it overrides `PostgresTable.creator_owned_object_ids`: `system.data_modeling_jobs` returns the views the reader created, so the creator of a denied view still sees its jobs.
 
 When rows are filtered, the response carries a warning: "Results may exclude {resources} you don't have access to".
 
@@ -186,6 +190,7 @@ They're masked when the query is printed to ClickHouse SQL, so a restricted read
 
 - **Explicit reads** (`properties.email`) are replaced with `NULL`, and the resolver refuses to back them with a materialized column — `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 - **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeysPool(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
+- **Unrestricted key reads** (`properties.$browser`, `JSONExtractString(properties, '$browser')`) read the stored String blob without `JSONDropKeysPool`, because dropping keys cannot change their value. A read keeps the mask when its key overlaps a restricted key by dot segment (`customer` against a restricted `customer.ssn`), or when the key is an integer position — `key_read_overlaps_restriction()` in `posthog/hogql/restricted_properties.py`.
 
 Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
 
@@ -195,6 +200,8 @@ Native event JSON stores a flat dotted key such as `customer.ssn` under the path
 
 Native reads of a parent containing restricted children use the masked JSON document instead of a raw subcolumn. This also covers multi-key `JSONHas` calls with computed keys. Unrestricted siblings remain readable.
 A JSON function whose first key is computed per row reads the masked `properties` document, and the masked `temporary_properties` document on rows where the key names a moved property, so a restricted property stays unreadable through a computed key.
+
+Person property restrictions also apply inside event `$set` and `$set_once` containers, including native `%2E` key spellings. Restricted values read as `NULL` and are removed from blob reads; unrestricted siblings stay readable.
 
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
 

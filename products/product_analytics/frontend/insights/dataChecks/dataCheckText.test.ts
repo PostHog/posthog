@@ -27,10 +27,11 @@ const passed: InsightDataCheckApi = {
 const BOT_RULE = { key: '$virt_traffic_type', type: 'event', operator: 'is_not', value: ['AI Agent', 'Bot'] }
 
 describe('dataCheckText', () => {
-    it.each<[string, Partial<InsightDataCheckApi>, boolean, string]>([
+    it.each<[string, Partial<InsightDataCheckApi>, boolean, boolean, string]>([
         [
             'a skipped check with its reason',
             { level: 'skipped', skip_reason: 'read_limit', events: null, share: null },
+            false,
             false,
             'Not checked, because it would read more data than it is allowed',
         ],
@@ -38,17 +39,27 @@ describe('dataCheckText', () => {
             'a passed check that found a few events, from a sample',
             { events: 1234, share: 0.001, scaled: true },
             false,
+            false,
             'Almost none (about 1,234 events)',
         ],
         [
             'internal users on an insight that filters them out',
             { key: 'internal_users', method: 'counted' },
             true,
+            false,
             'Filtered out',
+        ],
+        [
+            'internal users on an insight that filters them out, with team emails the filter misses',
+            { key: 'internal_users', method: 'counted', missed_by_filter: 40, distinct_emails: 32 },
+            true,
+            false,
+            'Filtered out, except 32 users',
         ],
         [
             'a finding from a sample',
             { level: 'problem', events: 4000, share: 0.4, scaled: true },
+            false,
             false,
             'About 40% of these events',
         ],
@@ -56,10 +67,25 @@ describe('dataCheckText', () => {
             'a finding too small for a share',
             { key: 'local_development', level: 'warning', method: 'counted', events: 60, share: 0.001 },
             false,
+            false,
             '60 of these events',
         ],
-    ])('words the result of %s', (_name, check, filtersTestAccounts, expected) => {
-        expect(dataCheckText({ ...passed, ...check }, filtersTestAccounts).result).toEqual(expected)
+        [
+            'bots on an insight whose internal and test users filter removes them',
+            { level: 'skipped', skip_reason: 'filtered_by_traffic_type', events: null, share: null },
+            true,
+            true,
+            'Filtered out',
+        ],
+        [
+            'bots on an insight with its own traffic type filter',
+            { level: 'skipped', skip_reason: 'filtered_by_traffic_type', events: null, share: null },
+            true,
+            false,
+            "Not checked, because this insight's filters already choose which traffic types to keep",
+        ],
+    ])('words the result of %s', (_name, check, filtersTestAccounts, filterRemovesBots, expected) => {
+        expect(dataCheckText({ ...passed, ...check }, filtersTestAccounts, filterRemovesBots).result).toEqual(expected)
     })
 
     it.each<[string, Partial<InsightDataCheckApi>, boolean, boolean, FilterCheckParts]>([
@@ -84,8 +110,11 @@ describe('dataCheckText', () => {
                     count: 14,
                     noun: 'user',
                     examples: ['sam@example.com', 'qa@example.com'],
-                    fallback: "Your team's emails",
-                    excludeLabel: 'Exclude these users',
+                    fallback: 'Some users',
+                    predicate: "have emails that match your team, but none of your filter's rules remove them.",
+                    explanation:
+                        "An email matches your team when it's on the same domain as someone in your organization, " +
+                        'or looks like a test account, such as test@ or name+qa@.',
                 },
             },
         ],
@@ -122,7 +151,8 @@ describe('dataCheckText', () => {
                     noun: 'bot',
                     examples: ['Googlebot', 'Ahrefs'],
                     fallback: 'Bot events',
-                    excludeLabel: 'Exclude these bots',
+                    predicate: "aren't caught by your internal and test users filter.",
+                    explanation: null,
                 },
             },
         ],

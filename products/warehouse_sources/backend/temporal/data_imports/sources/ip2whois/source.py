@@ -86,6 +86,7 @@ Each sync looks up every configured domain once and replaces the table with the 
                     ),
                     SourceFieldInputConfig(
                         name="domains",
+                        sync_setting=True,
                         label="Domains",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
@@ -113,7 +114,8 @@ Each sync looks up every configured domain once and replaces the table with the 
             # Account-level API errors returned in the JSON error envelope (exhausted monthly quota,
             # disabled account, and anything else that isn't specific to a single domain) are raised as
             # IP2WhoisAPIError. These are deterministic within a run, so fail fast rather than retry.
-            "IP2WHOIS API error": "Your IP2WHOIS request was rejected by the API — the account may be disabled or the monthly lookup quota exhausted. Check your IP2WHOIS dashboard, then reconnect or resync.",
+            "IP2WHOIS API error [": "Your IP2WHOIS request was rejected by the API. The account may be disabled or the monthly lookup quota used up. Check your IP2WHOIS dashboard, then reconnect or resync.",
+            "IP2WHOIS API error: unexpected status": "Your IP2WHOIS request was rejected by the API. The account may be disabled or the monthly lookup quota used up. Check your IP2WHOIS dashboard, then reconnect or resync.",
         }
 
     def get_schemas(

@@ -20,8 +20,32 @@ class TestOmnisendSource:
         ("api_version", "expected_tables"),
         [
             (OMNISEND_V3, {"contacts", "campaigns", "carts", "orders", "products", "categories"}),
-            (OMNISEND_2026_03_15, {"contacts", "campaigns", "products", "categories"}),
-            (None, {"contacts", "campaigns", "products", "categories"}),
+            (
+                OMNISEND_2026_03_15,
+                {
+                    "contacts",
+                    "campaigns",
+                    "products",
+                    "categories",
+                    "automations",
+                    "segments",
+                    "analytics_reports",
+                    "analytics_statistics",
+                },
+            ),
+            (
+                None,
+                {
+                    "contacts",
+                    "campaigns",
+                    "products",
+                    "categories",
+                    "automations",
+                    "segments",
+                    "analytics_reports",
+                    "analytics_statistics",
+                },
+            ),
         ],
     )
     def test_schemas_follow_the_pinned_version(self, api_version: str | None, expected_tables: set[str]) -> None:

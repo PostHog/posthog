@@ -246,6 +246,17 @@ export interface DestinationConnectionTestResponseApi {
     steps: DestinationConnectionTestStepApi[]
 }
 
+export interface DestinationConnectLinkApi {
+    /** The destination type the link is for. */
+    destination_type: string
+    /** The integration kind the page creates. */
+    integration_kind: string
+    /** Full URL to share with the user. It opens the connection form for this integration kind in PostHog, so credentials never pass through the agent or the chat. */
+    connect_url: string
+    /** Next steps for the agent to relay to the user. */
+    instructions: string
+}
+
 /**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
@@ -972,6 +983,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
+ * * `CloudflareD1` - CloudflareD1
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -1237,6 +1249,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `ReplyIo` - ReplyIo
  * * `RetailExpress` - RetailExpress
  * * `Retently` - Retently
+ * * `Retreaver` - Retreaver
  * * `RevolutMerchant` - RevolutMerchant
  * * `RocketChat` - RocketChat
  * * `Rocketlane` - Rocketlane
@@ -1688,6 +1701,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
  * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
  * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsDocumentDB` - AwsDocumentDB
  * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
  * * `AwsGuardduty` - AwsGuardduty
  * * `AwsHealth` - AwsHealth
@@ -2175,6 +2189,15 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `GoogleAdMob` - GoogleAdMob
  * * `Klar` - Klar
  * * `ConectoCRM` - ConectoCRM
+ * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
+ * * `FileUpload` - FileUpload
+ * * `Dripify` - Dripify
+ * * `AwsS3Tables` - AwsS3Tables
+ * * `Beacons` - Beacons
+ * * `WooPayments` - WooPayments
+ * * `Soniox` - Soniox
+ * * `Nango` - Nango
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2378,6 +2401,7 @@ export const ExternalDataSourceTypeEnumApi = {
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
+    CloudflareD1: 'CloudflareD1',
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
@@ -2643,6 +2667,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ReplyIo: 'ReplyIo',
     RetailExpress: 'RetailExpress',
     Retently: 'Retently',
+    Retreaver: 'Retreaver',
     RevolutMerchant: 'RevolutMerchant',
     RocketChat: 'RocketChat',
     Rocketlane: 'Rocketlane',
@@ -3094,6 +3119,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AwsCostAndUsageReport: 'AwsCostAndUsageReport',
     AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
     AwsCostExplorer: 'AwsCostExplorer',
+    AwsDocumentDB: 'AwsDocumentDB',
     AwsGlueDataCatalog: 'AwsGlueDataCatalog',
     AwsGuardduty: 'AwsGuardduty',
     AwsHealth: 'AwsHealth',
@@ -3581,6 +3607,15 @@ export const ExternalDataSourceTypeEnumApi = {
     GoogleAdMob: 'GoogleAdMob',
     Klar: 'Klar',
     ConectoCRM: 'ConectoCRM',
+    CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
+    FileUpload: 'FileUpload',
+    Dripify: 'Dripify',
+    AwsS3Tables: 'AwsS3Tables',
+    Beacons: 'Beacons',
+    WooPayments: 'WooPayments',
+    Soniox: 'Soniox',
+    Nango: 'Nango',
 } as const
 
 /**
@@ -3926,6 +3961,7 @@ export interface ExternalDataSourceCreateApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -4191,6 +4227,7 @@ export interface ExternalDataSourceCreateApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -4642,6 +4679,7 @@ export interface ExternalDataSourceCreateApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -5128,7 +5166,16 @@ export interface ExternalDataSourceCreateApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -5839,6 +5886,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -6104,6 +6152,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -6555,6 +6604,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -7041,7 +7091,16 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7325,6 +7384,7 @@ export interface DatabaseSchemaRequestApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -7590,6 +7650,7 @@ export interface DatabaseSchemaRequestApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -8041,6 +8102,7 @@ export interface DatabaseSchemaRequestApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -8527,7 +8589,16 @@ export interface DatabaseSchemaRequestApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -8735,6 +8806,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -9000,6 +9072,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -9451,6 +9524,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -9937,7 +10011,16 @@ export interface DirectConnectionSourceOptionApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -9991,6 +10074,11 @@ export interface DraftCustomManifestResponseApi {
      * @nullable
      */
     error: string | null
+}
+
+export interface ExternalDataSourceExistsApi {
+    /** Whether the project has any accessible external data sources. */
+    exists: boolean
 }
 
 /**
@@ -10199,6 +10287,7 @@ export interface SourcePreviewRequestApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -10464,6 +10553,7 @@ export interface SourcePreviewRequestApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -10915,6 +11005,7 @@ export interface SourcePreviewRequestApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -11401,7 +11492,16 @@ export interface SourcePreviewRequestApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11644,6 +11744,7 @@ export interface SourceSetupApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -11909,6 +12010,7 @@ export interface SourceSetupApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -12360,6 +12462,7 @@ export interface SourceSetupApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -12846,7 +12949,16 @@ export interface SourceSetupApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13096,6 +13208,7 @@ export interface SourceCredentialCreateApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -13361,6 +13474,7 @@ export interface SourceCredentialCreateApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -13812,6 +13926,7 @@ export interface SourceCredentialCreateApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -14298,7 +14413,16 @@ export interface SourceCredentialCreateApi {
      * * `Testomatio` - Testomatio
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
-     * * `ConectoCRM` - ConectoCRM */
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -14581,6 +14705,134 @@ export interface SourceConfigMapResponseApi {
     [key: string]: SourceConfigResponseApi
 }
 
+/**
+ * * `slack` - slack
+ * * `webhook` - webhook
+ * * `teams` - teams
+ * * `discord` - discord
+ * * `pagerduty` - pagerduty
+ */
+export type WarehouseAlertDestinationTypeEnumApi =
+    (typeof WarehouseAlertDestinationTypeEnumApi)[keyof typeof WarehouseAlertDestinationTypeEnumApi]
+
+export const WarehouseAlertDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Discord: 'discord',
+    Pagerduty: 'pagerduty',
+} as const
+
+/**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface WarehouseAlertDestinationApi {
+    /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty */
+    type: WarehouseAlertDestinationTypeEnumApi
+    /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+    enabled: boolean
+    /** Integration ID of the Slack workspace. Set when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Set when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable Slack channel name. Set when type=slack. */
+    slack_channel_name?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+    /** PagerDuty integration key reduced to its last four characters. */
+    pagerduty_routing_key?: string
+    /** Severity of the PagerDuty incident.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region the events go to.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface WarehouseAlertCreateDestinationApi {
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty */
+    type: WarehouseAlertDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+    webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface WarehouseAlertDestinationCreatedApi {
+    /** HogFunction IDs created for the destination, one per event kind. */
+    hog_function_ids: string[]
+}
+
+export interface WarehouseAlertDeleteDestinationApi {
+    /**
+     * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
+}
+
 export interface WarehouseColumnStatisticsApi {
     readonly id: string
     /** ID of the data warehouse table this column belongs to. */
@@ -14631,6 +14883,40 @@ export type ExternalDataDestinationsListParams = {
      */
     offset?: number
 }
+
+export type ExternalDataDestinationsConnectLinkRetrieveParams = {
+    /**
+     * The destination type to connect, e.g. 'Snowflake' or 'S3'.
+     *
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     * @minLength 1
+     */
+    destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType
+    /**
+     * Which integration kind to connect when the type accepts more than one. Only S3 does: 'aws-s3' (the default) or 's3-compatible' for MinIO, Wasabi, R2, GCS and similar.
+     * @minLength 1
+     */
+    integration_kind?: string
+}
+
+export type ExternalDataDestinationsConnectLinkRetrieveDestinationType =
+    (typeof ExternalDataDestinationsConnectLinkRetrieveDestinationType)[keyof typeof ExternalDataDestinationsConnectLinkRetrieveDestinationType]
+
+export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
+    Redshift: 'Redshift',
+    Snowflake: 'Snowflake',
+    BigQuery: 'BigQuery',
+    Postgres: 'Postgres',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    S3: 'S3',
+} as const
 
 export type ExternalDataSchemasListParams = {
     /**

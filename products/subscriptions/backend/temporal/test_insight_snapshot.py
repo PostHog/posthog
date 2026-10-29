@@ -3,10 +3,15 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from posthog.caching.insight_result import InsightResult
 
-from products.subscriptions.backend.temporal.insight_snapshot import _has_comparison_enabled, _serialize_insight_result
+from products.subscriptions.backend.temporal.insight_snapshot import (
+    _has_comparison_enabled,
+    _serialize_insight_result,
+    build_insight_delivery_snapshot,
+)
 
 
 def _build_insight_result(**overrides) -> InsightResult:
@@ -105,3 +110,22 @@ def test_serialize_insight_result_handles_decimal_and_date():
 
     reparsed = json.loads(json.dumps(serialized))
     assert reparsed["result"] == [["1.5", "2026-04-20"]]
+
+
+@pytest.mark.parametrize("source", [None, {"kind": "EventsQuery", "after": "-24h"}])
+def test_event_snapshot_accepts_a_nullable_source(source: dict | None) -> None:
+    query = {"kind": "EventsQuery", "source": source}
+    insight = MagicMock(id=1, short_id="sample", name="Activity", description="")
+    insight.get_effective_query.return_value = query
+    with (
+        patch("products.subscriptions.backend.temporal.insight_snapshot._default_query_hash", return_value="hash"),
+        patch(
+            "products.subscriptions.backend.temporal.insight_snapshot._execute_and_serialize_insight_query",
+            return_value={"query_results": {"result": []}},
+        ),
+    ):
+        snapshot = build_insight_delivery_snapshot(
+            insight=insight, team=MagicMock(), dashboard=None, tile=None, user=None
+        )
+
+    assert snapshot["query_date_range"] == {"date_from": "-24h", "date_to": "now"}

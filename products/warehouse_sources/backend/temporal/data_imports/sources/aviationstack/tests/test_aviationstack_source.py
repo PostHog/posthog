@@ -60,7 +60,6 @@ class TestAviationstackSource:
 
     @parameterized.expand(
         [
-            ("http_unauthorized", "401 Client Error: Unauthorized for url: https://api.aviationstack.com"),
             ("body_invalid_key", "aviationstack API error [invalid_access_key]"),
             ("body_usage_limit", "aviationstack API error [usage_limit_reached]"),
             ("body_function_restricted", "aviationstack API error [function_access_restricted]"),

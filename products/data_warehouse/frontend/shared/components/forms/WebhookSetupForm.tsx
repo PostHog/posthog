@@ -193,18 +193,26 @@ export function WebhookSetupForm({
         )
     }
 
+    // A failed request returns no URL, so even a manual-only source needs the error and a retry.
+    const webhookUrlMissing = !webhookResult?.webhook_url
+
     return (
         <WebhookSetupCard>
             <h3 className="text-lg font-semibold">Manual webhook setup for {sourceName}</h3>
-            {(!manualOnly || !!autoCreationBlockedReason) && (
+            {(!manualOnly || !!autoCreationBlockedReason || webhookUrlMissing) && (
                 <LemonBanner type="warning">
-                    {autoCreationBlockedReason || webhookResult?.error || 'Could not create the webhook automatically.'}
+                    {(webhookUrlMissing && webhookResult?.error) ||
+                        autoCreationBlockedReason ||
+                        webhookResult?.error ||
+                        'Could not create the webhook automatically.'}
                 </LemonBanner>
             )}
-            {!manualOnly && (
+            {(!manualOnly || webhookUrlMissing) && (
                 <div className="flex flex-col items-start gap-2">
                     <p className="m-0">
-                        Automatic setup can fail for a temporary reason. Try again, or set the webhook up by hand below.
+                        {manualOnly
+                            ? 'PostHog could not generate the webhook URL. Try again to get one.'
+                            : 'Automatic setup can fail for a temporary reason. Try again, or set the webhook up by hand below.'}
                     </p>
                     <LemonButton type="secondary" onClick={onCreateWebhook}>
                         Try again

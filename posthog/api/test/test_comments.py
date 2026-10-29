@@ -20,7 +20,13 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url, extract_plain_text_from_rich_content
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.redis import get_client
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, resolve_scopes
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    SIGNALS_APP_CLIENT_ID_DEV,
+    create_oauth_access_token_for_user,
+    resolve_scopes,
+)
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
@@ -238,7 +244,8 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert saved.status_code == status.HTTP_201_CREATED
 
-    def test_task_comments_list_artifacts_comments_and_one_comment(self) -> None:
+    @parameterized.expand([ARRAY_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV])
+    def test_task_comments_list_artifacts_comments_and_one_comment(self, client_id: str) -> None:
         task = self._task_artifact_target()
         task_run_model = apps.get_model("tasks", "TaskRun")
         task_run_model.objects.create(
@@ -254,7 +261,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             content="Canvas created",
             payload={
                 "canvas_name": "Research canvas",
-                "canvas_url": f"https://app.posthog.com/code/canvas/channel/{canvas_id}",
+                "canvas_url": f"https://app.posthog.com/project/{self.team.id}/code/canvas/channel/{canvas_id}",
             },
         )
         root = Comment.objects.create(
@@ -287,7 +294,19 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             source_comment=root,
             content="Malformed state is still a reply",
         )
-        client = self._sandbox_task_comment_client(task.id)
+        client = self._sandbox_task_comment_client(task.id, client_id=client_id)
+        if client_id == POSTHOG_AI_APP_CLIENT_ID_DEV:
+            task.origin_product = "signal_report"
+            task.save(update_fields=["origin_product"])
+            with mock.patch("posthog.temporal.oauth.get_instance_region", return_value=None):
+                token = create_oauth_access_token_for_user(
+                    task.created_by,
+                    task.team_id,
+                    scopes=["task:read", "comment:read"],
+                    application="posthog_ai",
+                    sandbox_task_id=task.id,
+                )
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
         artifacts = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/artifacts/")
         assert artifacts.status_code == status.HTTP_200_OK
@@ -623,9 +642,10 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_task_comments_ask_legacy_sandboxes_to_restart(self) -> None:
+    @parameterized.expand([ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV])
+    def test_task_comments_ask_legacy_sandboxes_to_restart(self, client_id: str) -> None:
         task = self._task_artifact_target()
-        client = self._sandbox_task_comment_client()
+        client = self._sandbox_task_comment_client(client_id=client_id)
 
         response = client.get(
             f"/api/projects/{self.team.id}/tasks/{task.id}/artifacts/",
@@ -634,10 +654,11 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "Restart the task" in str(response.json())
 
-    def test_task_comments_reject_an_alternate_task_url_for_the_same_user(self) -> None:
+    @parameterized.expand([ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV])
+    def test_task_comments_reject_an_alternate_task_url_for_the_same_user(self, client_id: str) -> None:
         bound_task = self._task_artifact_target()
         other_task = self._task_artifact_target()
-        client = self._sandbox_task_comment_client(bound_task.id)
+        client = self._sandbox_task_comment_client(bound_task.id, client_id=client_id)
 
         response = client.get(
             f"/api/projects/{self.team.id}/tasks/{other_task.id}/artifacts/",
@@ -645,9 +666,9 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_task_comments_reject_a_posthog_ai_sandbox_token(self) -> None:
+    def test_task_comments_reject_an_unrecognized_oauth_application(self) -> None:
         task = self._task_artifact_target()
-        client = self._sandbox_task_comment_client(task.id, client_id=POSTHOG_AI_APP_CLIENT_ID_DEV)
+        client = self._sandbox_task_comment_client(task.id, client_id="unrelated-client")
 
         response = client.get(
             f"/api/projects/{self.team.id}/tasks/{task.id}/artifacts/",
@@ -655,9 +676,10 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_task_comments_require_comment_read_scope(self) -> None:
+    @parameterized.expand([ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV])
+    def test_task_comments_require_comment_read_scope(self, client_id: str) -> None:
         task = self._task_artifact_target()
-        client = self._sandbox_task_comment_client(task.id, scopes="task:read")
+        client = self._sandbox_task_comment_client(task.id, client_id=client_id, scopes="task:read")
 
         response = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
 
@@ -2540,7 +2562,14 @@ class TestCommentHelperFunctions(SimpleTestCase):
             ("without_slug_insight", "Insight", "456", "", "/insights/456#panel=discussion"),
             ("without_slug_dashboard", "Dashboard", "789", "", "/dashboard/789#panel=discussion"),
             ("without_slug_replay", "Replay", "rec_123", "", "/replay/rec_123#panel=discussion"),
-            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature_flags/10#panel=discussion"),
+            ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature-flags/10#panel=discussion"),
+            (
+                "without_slug_replay_observation",
+                "ReplayObservation",
+                "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+                "",
+                "/replay-vision/observations/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b#panel=discussion",
+            ),
             ("unknown_scope_fallback", "UnknownScope", "123", "", "#panel=discussion"),
             # item_id is client-supplied free text — mrkdwn/URL control chars must be encoded.
             (

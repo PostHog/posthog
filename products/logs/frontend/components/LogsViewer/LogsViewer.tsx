@@ -14,7 +14,7 @@ import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/Log
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters, LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
-import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
+import { LogsFacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/LogsFacetRail'
 import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
@@ -55,6 +55,7 @@ export interface LogsViewerProps {
     defaultSparklineCollapsed?: boolean
     // A panel embedded under other keyboard controls leaves focus where it is.
     autoFocusSearch?: boolean
+    keyboardShortcutsEnabled?: boolean
 }
 
 export function LogsViewer({
@@ -68,6 +69,7 @@ export function LogsViewer({
     defaultFacetRailCollapsed,
     defaultSparklineCollapsed,
     autoFocusSearch = true,
+    keyboardShortcutsEnabled = true,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
@@ -84,6 +86,7 @@ export function LogsViewer({
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
                                         autoFocusSearch={autoFocusSearch}
+                                        keyboardShortcutsEnabled={keyboardShortcutsEnabled}
                                         scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
@@ -108,11 +111,13 @@ function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
     autoFocusSearch,
+    keyboardShortcutsEnabled,
     scope,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
     autoFocusSearch: boolean
+    keyboardShortcutsEnabled: boolean
     scope: LogsViewerScope
 }): JSX.Element {
     const {
@@ -197,7 +202,7 @@ function LogsViewerContent({
 
     // Handle keyboard scroll with keydown/keyup for smooth 60fps scrolling
     useEffect(() => {
-        if (!isFocused || wrapBody || isTraceDialogOpen) {
+        if (!keyboardShortcutsEnabled || !isFocused || wrapBody || isTraceDialogOpen) {
             return
         }
 
@@ -228,7 +233,7 @@ function LogsViewerContent({
             window.removeEventListener('keyup', handleKeyUp)
             stopScrolling()
         }
-    }, [isFocused, wrapBody, isTraceDialogOpen, startScrolling, stopScrolling])
+    }, [keyboardShortcutsEnabled, isFocused, wrapBody, isTraceDialogOpen, startScrolling, stopScrolling])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
@@ -251,8 +256,8 @@ function LogsViewerContent({
     )
 
     // The trace dialog opens over the viewer, so the viewer's keys stop while it is open.
-    const listKeysEnabled = keyboardNavEnabled && !isTraceDialogOpen
-    const focusedListKeysEnabled = isFocused && !isTraceDialogOpen
+    const listKeysEnabled = keyboardShortcutsEnabled && keyboardNavEnabled && !isTraceDialogOpen
+    const focusedListKeysEnabled = keyboardShortcutsEnabled && isFocused && !isTraceDialogOpen
 
     useKeyboardHotkeys(
         {
@@ -307,6 +312,7 @@ function LogsViewerContent({
             },
         },
         [
+            keyboardShortcutsEnabled,
             isFocused,
             keyboardNavEnabled,
             isTraceDialogOpen,
@@ -419,7 +425,7 @@ function LogsViewerContent({
     // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
     // row of [facet rail | display bar (operate on the data) + the log lists].
     return (
-        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+        <div className="@container/facet-rail-host flex flex-col gap-2 h-full" data-attr="logs-viewer">
             <LogsQueryBar
                 showSavedViewsButton={showSavedViewsButton}
                 showFullScreenButton={showFullScreenButton}
@@ -427,9 +433,9 @@ function LogsViewerContent({
                 scope={scope}
             />
             {sparklineSection}
-            <div className="flex flex-row gap-2 flex-1 min-h-0">
-                {!facetRailCollapsed && <FacetRail id={id} />}
-                <div className="flex flex-col gap-2 flex-1 min-w-0">
+            <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
+                {!facetRailCollapsed && <LogsFacetRail id={id} />}
+                <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                     {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
                 </div>
             </div>

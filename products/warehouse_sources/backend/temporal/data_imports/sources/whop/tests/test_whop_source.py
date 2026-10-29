@@ -25,8 +25,6 @@ class TestWhopSource:
                 "?first=100&company_id=biz_example | api error: code=bad_request",
                 True,
             ),
-            ("429 Client Error: Too Many Requests for url: https://api.whop.com/api/v1/payments", False),
-            ("503 Server Error: Service Unavailable for url: https://api.whop.com/api/v1/payments", False),
         ],
     )
     def test_a_rejected_request_stops_the_sync_and_an_overload_does_not(self, observed_error, non_retryable):

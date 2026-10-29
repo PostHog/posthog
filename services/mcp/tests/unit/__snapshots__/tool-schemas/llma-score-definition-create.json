@@ -175,6 +175,11 @@
             "maxLength": 255,
             "type": "string"
         },
+        "short_name": {
+            "description": "Optional compact label. Blank uses the full name.",
+            "maxLength": 40,
+            "type": "string"
+        },
         "tags": {
             "description": "Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.",
             "items": {

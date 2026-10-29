@@ -94,8 +94,6 @@ class TestZendeskSunshineSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://nibbles.zendesk.com/api/sunshine/objects/types",
-            "403 Client Error: Forbidden for url: https://nibbles.zendesk.com/api/sunshine/objects/records",
             "404 Client Error: Not Found for url: https://nibbles.zendesk.com/api/sunshine/objects/types",
         ],
     )

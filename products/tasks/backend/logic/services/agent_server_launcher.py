@@ -37,6 +37,7 @@ from products.tasks.backend.logic.services.agentsh import (
     generate_policy_yaml,
     read_gh_guard_script,
 )
+from products.tasks.backend.logic.services.local_skills import verify_eval_skills
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.memory_watchdog import (
     MEMORY_WATCHDOG_MISSING_MARKER,
@@ -50,6 +51,7 @@ from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
+    ExecutionResult,
     SandboxBase,
     build_agent_runtime_env_prefix,
     build_agent_server_capability_probe,
@@ -59,6 +61,7 @@ from products.tasks.backend.logic.services.sandbox import (
     health_check_timeout_seconds,
     wait_for_health_check,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError, raise_startup_failure
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -213,6 +216,7 @@ class AgentServerPreflight:
     reused: bool
     capabilities: frozenset[str]
     memory_watchdog_missing: bool = False
+    launch_prepared: bool = False
 
     def supports(self, capability: str) -> bool:
         return capability in self.capabilities
@@ -221,6 +225,16 @@ class AgentServerPreflight:
 def build_agent_server_preflight_script(
     *, probe_health: bool, executable_paths: tuple[str, ...], probe_memory_watchdog: bool = False
 ) -> str:
+    lines = build_agent_server_preflight_lines(
+        probe_health=probe_health, executable_paths=executable_paths, probe_memory_watchdog=probe_memory_watchdog
+    )
+    lines.append("exit 0")
+    return "\n".join(lines)
+
+
+def build_agent_server_preflight_lines(
+    *, probe_health: bool, executable_paths: tuple[str, ...], probe_memory_watchdog: bool = False
+) -> list[str]:
     lines = [
         f"if ! chmod +x {shlex.quote(path)}; then exit {AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE}; fi"
         for path in executable_paths
@@ -246,8 +260,7 @@ def build_agent_server_preflight_script(
                 AGENT_SERVER_FREE_PORT_SCRIPT,
             ]
         )
-    lines.append("exit 0")
-    return "\n".join(lines)
+    return lines
 
 
 CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER = "claude_credential_unavailable"
@@ -329,7 +342,6 @@ class AgentServerLaunchMixin(SandboxBase):
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
@@ -355,7 +367,6 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_url=event_ingest_url,
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
-            peer_messaging=peer_messaging,
             pi_acp_conversation=pi_acp_conversation,
             unset_bedrock=self.disable_direct_bedrock,
         )
@@ -556,9 +567,6 @@ class AgentServerLaunchMixin(SandboxBase):
     def _agent_server_reuse_enabled(self) -> bool:
         return True
 
-    def _on_agent_server_reused(self) -> None:
-        return None
-
     def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
         executable_paths = self._install_agent_server_launch_files()
         result = self.execute_in_task_filesystem(
@@ -574,6 +582,11 @@ class AgentServerLaunchMixin(SandboxBase):
             ),
             timeout_seconds=AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
         )
+        return self._read_agent_server_preflight(result, executable_paths, allowed_domains)
+
+    def _read_agent_server_preflight(
+        self, result: ExecutionResult, executable_paths: tuple[str, ...], allowed_domains: list[str] | None
+    ) -> AgentServerPreflight:
         if result.exit_code == AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE:
             raise SandboxExecutionError(
                 "Failed to set permissions on required sandbox file",
@@ -603,7 +616,6 @@ class AgentServerLaunchMixin(SandboxBase):
         if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in lines:
             if allowed_domains is None or self._agentsh_daemon_is_healthy():
                 logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
-                self._on_agent_server_reused()
                 return AgentServerPreflight(reused=True, capabilities=capabilities)
             self._free_agent_server_port()
         return AgentServerPreflight(
@@ -637,6 +649,13 @@ class AgentServerLaunchMixin(SandboxBase):
         start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
         if launch_result.exit_code != 0:
             health_duration_ms = _health_duration_ms(launch_result.stdout)
+            try:
+                raise_startup_failure(launch_result.stdout, self.id)
+            except AgentServerStartupError as error:
+                error.context.update(start_and_health_ms=start_and_health_ms)
+                if wait_for_health and health_duration_ms is not None:
+                    error.context.update(health_poll_ms=health_duration_ms)
+                raise
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
                 credential_error = self._credential_unavailable_error(
@@ -703,12 +722,12 @@ class AgentServerLaunchMixin(SandboxBase):
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
+        before_launch: Callable[[], None] | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -721,15 +740,20 @@ class AgentServerLaunchMixin(SandboxBase):
         # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
         # and the agent reads its skill directories when a session starts, not when the server does.
         preflight = self._agent_server_preflight(allowed_domains)
+        verify_eval_skills(self)
         if preflight.reused:
             return 0 if wait_for_health else None
+
+        if before_launch:
+            before_launch()
 
         repo_path: str | None = None
         if repository:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        self._prepare_agent_server_launch(allowed_domains)
+        if not preflight.launch_prepared:
+            self._prepare_agent_server_launch(allowed_domains)
         memory_watchdog_ready = self._install_memory_watchdog(preflight)
 
         codex_run_token_file = CODEX_RUN_TOKEN_FILE if codex_run_token else None
@@ -789,7 +813,6 @@ class AgentServerLaunchMixin(SandboxBase):
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
                 benjamin_enabled=benjamin_enabled,
-                peer_messaging=peer_messaging,
                 pi_acp_conversation=pi_acp_conversation,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,

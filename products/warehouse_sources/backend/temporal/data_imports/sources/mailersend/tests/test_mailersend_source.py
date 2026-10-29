@@ -43,18 +43,6 @@ class TestGetSchemas:
         assert schemas[endpoint].supports_append is supports_append
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            "500 Server Error: Internal Server Error for url: https://api.mailersend.com/v1/domains",
-            "HTTPSConnectionPool(host='api.mailersend.com', port=443): Read timed out.",
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, error: str) -> None:
-        non_retryable = MailerSendSource().get_non_retryable_errors()
-        assert not any(key in error for key in non_retryable)
-
-
 class TestResumableWiring:
     @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_source_for_pipeline_plumbs_arguments(self) -> None:

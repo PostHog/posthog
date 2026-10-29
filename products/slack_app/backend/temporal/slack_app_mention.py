@@ -23,8 +23,6 @@ from products.slack_app.backend.temporal.types import (
 )
 
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
-# The legacy child workflow ID branch is gone. deprecate_patch keeps runs that recorded the marker replayable.
-_PATCH_ID_MENTION_PROCESSING_ID_RENAME = "slack-app-mention-processing-id-rename-2026-10"
 # Dedup keys carried across continue_as_new. Bounded so the carry-over payload
 # stays small; old keys only matter for Slack retries, which arrive within
 # minutes of the original event.
@@ -178,7 +176,6 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
         retries that outlive this instance's dedup keys.
         """
-        workflow.deprecate_patch(_PATCH_ID_MENTION_PROCESSING_ID_RENAME)
         child_id = derive_mention_workflow_id(message)
         try:
             # The default parent close policy (terminate) is deliberate: an

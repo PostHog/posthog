@@ -88,16 +88,6 @@ class TestNotionSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.notion.com/v1/search",),
-            ("403 Client Error: Forbidden for url: https://api.notion.com/v1/users",),
-        ]
-    )
-    def test_non_retryable_errors_match(self, error_message: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(pattern in error_message for pattern in non_retryable)
-
-    @parameterized.expand(
-        [
             (
                 "admin_token_rejected",
                 "401 Client Error: Unauthorized for url: https://api.notion.com/admin/v1/spaces/ws-1/groups",

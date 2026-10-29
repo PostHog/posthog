@@ -4,14 +4,13 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
-
 import requests
 from requests_oauthlib import OAuth1
 
 from posthog.dataclasses import frozen
 from posthog.models.integration.model import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -95,14 +94,13 @@ class TwitterAdsClient:
         secret = integration.sensitive_config.get("oauth_token_secret")
         if not token or not secret:
             raise ValueError(MISSING_INTEGRATION)
-        if not settings.TWITTER_ADS_CONSUMER_KEY or not settings.TWITTER_ADS_CONSUMER_SECRET:
+        consumer = credentials_service.get_secrets(["TWITTER_ADS_CONSUMER_KEY", "TWITTER_ADS_CONSUMER_SECRET"])
+        consumer_key = consumer["TWITTER_ADS_CONSUMER_KEY"]
+        consumer_secret = consumer["TWITTER_ADS_CONSUMER_SECRET"]
+        if not consumer_key or not consumer_secret:
             raise ValueError(MISSING_APP)
-        self.session = make_tracked_session(
-            allow_redirects=False, redact_values=(token, secret, settings.TWITTER_ADS_CONSUMER_SECRET)
-        )
-        self.session.auth = OAuth1(
-            settings.TWITTER_ADS_CONSUMER_KEY, settings.TWITTER_ADS_CONSUMER_SECRET, token, secret
-        )
+        self.session = make_tracked_session(allow_redirects=False, redact_values=(token, secret, consumer_secret))
+        self.session.auth = OAuth1(consumer_key, consumer_secret, token, secret)
         self.base_url = f"https://ads-api.x.com/{api_version}"
 
     def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
@@ -221,8 +219,13 @@ class TwitterAdsClient:
                         {
                             "entity": STATS_TABLES[table],
                             "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            "start_time": start_time.isoformat().replace("+00:00", "Z"),
-                            "end_time": end_time.isoformat().replace("+00:00", "Z"),
+                            # A bare date tells X to resolve midnight-to-midnight in the account's
+                            # own timezone itself. An account on a half-hour-offset timezone (e.g.
+                            # IST) never lands on a whole UTC hour, so sending our own UTC
+                            # conversion here gets a 400 ("whole hours" requirement) that this
+                            # sidesteps entirely.
+                            "start_time": start.isoformat(),
+                            "end_time": window_end.isoformat(),
                             "granularity": "DAY",
                             "placement": placement,
                             "metric_groups": "ENGAGEMENT,BILLING",

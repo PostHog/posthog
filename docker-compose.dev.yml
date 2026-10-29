@@ -729,10 +729,14 @@ services:
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
         depends_on:
+            etcd:
+                condition: service_healthy
             db:
                 condition: service_healthy
             kafka:
                 condition: service_started
+            personhog-etcd-init:
+                condition: service_completed_successfully
         profiles:
             - ingestion
 
@@ -752,12 +756,19 @@ services:
         profiles:
             - ingestion
 
-    # Seeds the partition count the leaders and routers coordinate under;
+    # Seeds the changelog config the personhog services read at boot;
     # idempotent, and the same key bin/mprocs.yaml writes for hogli runs.
     personhog-etcd-init:
         image: quay.io/coreos/etcd:v3.6.8
         restart: 'no'
-        entrypoint: ['etcdctl', '--endpoints=http://etcd:2379', 'put', '/personhog/config/total_partitions', '4']
+        entrypoint:
+            [
+                'etcdctl',
+                '--endpoints=http://etcd:2379',
+                'put',
+                '/personhog/config/changelog',
+                '{"topic":"personhog_updates","partitions":4,"epoch":1,"writer_group":"personhog-writer","draining":[]}',
+            ]
         depends_on:
             etcd:
                 condition: service_healthy

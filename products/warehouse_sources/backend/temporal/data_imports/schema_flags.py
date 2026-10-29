@@ -19,6 +19,12 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
+# A source sends a replace scope (see `ReplaceScope`) only while this flag is on for the schema. The
+# flag stays off until the loaders that apply a scope are live, because an older loader ignores the
+# scope and fails the keyless batch.
+REPLACE_ROWS_BY_FILE_FLAG = "warehouse-replace-rows-by-file"
+
+
 def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
     """Evaluate a rollout flag for this schema.
 

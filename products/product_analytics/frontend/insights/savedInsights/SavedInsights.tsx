@@ -2,24 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis, IconHeart, IconHeartFilled, IconTrash } from '@posthog/icons'
-import {
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-    Tooltip as QuillTooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
 
 import 'scenes/saved-insights/SavedInsights.scss'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
-import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -37,12 +25,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { SavedInsightsEmptyState, SavedInsightsErrorState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { isDraftInsightRow } from 'scenes/saved-insights/draftInsight'
 import { InsightIcon } from 'scenes/saved-insights/InsightIcon'
@@ -59,7 +44,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, SavedInsightsTabs } from '~/types'
 
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
-import { HomeDashboardStarterModal } from 'products/product_analytics/frontend/insights/home/HomeDashboardStarterModal'
+import { homeDashboardChoiceLogic } from 'products/product_analytics/frontend/insights/home/homeDashboardChoiceLogic'
+import { HomeDashboardMenu } from 'products/product_analytics/frontend/insights/home/HomeDashboardMenu'
+import { HomeDashboardModals } from 'products/product_analytics/frontend/insights/home/HomeDashboardModals'
 import { HomeTab } from 'products/product_analytics/frontend/insights/home/HomeTab'
 import { NewInsightButton } from 'products/product_analytics/frontend/insights/newInsightMenu/NewInsightMenu'
 import { NewInsightShortcuts } from 'products/product_analytics/frontend/insights/newInsightMenu/newInsightsMenu'
@@ -100,20 +87,9 @@ export function SavedInsights(): JSX.Element {
 
     const { currentProjectId } = useValues(projectLogic)
     const { notificationCount } = useValues(productAnalyticsNotificationsLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { currentTeam } = useValues(teamLogic)
     const summarizeInsight = useSummarizeInsight()
-    const dashboardChoiceLogic = sceneDashboardChoiceModalLogic({ scene: Scene.ProductAnalyticsHomeTab })
-    const { isOpen: homeDashboardModalOpen, dashboardChoiceView } = useValues(dashboardChoiceLogic)
-    const {
-        closeSceneDashboardChoiceModal,
-        setSceneDashboardChoice,
-        showDashboardPicker,
-        showSceneDashboardChoiceModal,
-        showStarterOptions,
-    } = useActions(dashboardChoiceLogic)
-    const { isLoading: dashboardCreationLoading } = useValues(newDashboardLogic)
-    const { addDashboard, setAsHomeTabDashboardAfterCreation, showNewDashboardModal } = useActions(newDashboardLogic)
+    const { openHomeDashboardStarter, restorePostHogHome } = useActions(homeDashboardChoiceLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { tab } = filters
@@ -328,49 +304,23 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
-    const openHomeDashboardStarter = (): void => {
-        showStarterOptions()
-        showSceneDashboardChoiceModal()
-    }
-
-    const createHomeDashboardWithAI = (): void => {
-        if (dashboardCreationLoading) {
-            return
-        }
-        closeSceneDashboardChoiceModal()
-        setAsHomeTabDashboardAfterCreation(true, true)
-        addDashboard({
-            name: 'My product analytics dashboard',
-            description: '',
-            show: false,
-            useTemplate: '',
-            _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
-        })
-    }
-
-    const openHomeDashboardTemplates = (): void => {
-        closeSceneDashboardChoiceModal()
-        setAsHomeTabDashboardAfterCreation(true)
-        showNewDashboardModal()
-    }
-
-    const restorePostHogHome = (): void => {
-        setSceneDashboardChoice(null)
-        closeSceneDashboardChoiceModal()
-    }
-
     const homeDashboardActions =
         tab === SavedInsightsTabs.Home && showHomeTab ? (
             currentTeam?.home_tab_dashboard ? (
                 <LemonMenu
                     items={[
                         {
+                            label: 'Open dashboard',
+                            to: urls.dashboard(currentTeam.home_tab_dashboard),
+                            'data-attr': 'home-tab-open-dashboard',
+                        },
+                        {
                             label: 'Change Home dashboard',
                             onClick: openHomeDashboardStarter,
                             'data-attr': 'home-tab-choose-dashboard',
                         },
                         {
-                            label: 'Use PostHog Home',
+                            label: 'Use default dashboard',
                             onClick: restorePostHogHome,
                             'data-attr': 'home-tab-restore-posthog-home',
                         },
@@ -417,41 +367,7 @@ export function SavedInsights(): JSX.Element {
                             <NewInsightButton compact={tab === SavedInsightsTabs.Home && showHomeTab} />
                             {currentTeam?.home_tab_dashboard && tab === SavedInsightsTabs.Home && showHomeTab && (
                                 <div className="@min-[48rem]/saved-insights:hidden">
-                                    <DropdownMenu>
-                                        <QuillTooltip>
-                                            <TooltipTrigger
-                                                delay={0}
-                                                render={
-                                                    <DropdownMenuTrigger
-                                                        render={
-                                                            <Button
-                                                                size="icon"
-                                                                aria-label="Home dashboard options"
-                                                                data-attr="home-tab-dashboard-options"
-                                                            />
-                                                        }
-                                                    />
-                                                }
-                                            >
-                                                <IconEllipsis />
-                                            </TooltipTrigger>
-                                            <TooltipContent>Home dashboard options</TooltipContent>
-                                        </QuillTooltip>
-                                        <DropdownMenuContent align="end" className="min-w-48">
-                                            <DropdownMenuItem
-                                                onClick={openHomeDashboardStarter}
-                                                data-attr="home-tab-choose-dashboard"
-                                            >
-                                                Change Home dashboard
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem
-                                                onClick={restorePostHogHome}
-                                                data-attr="home-tab-restore-posthog-home"
-                                            >
-                                                Use PostHog Home
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
+                                    <HomeDashboardMenu />
                                 </div>
                             )}
                         </>
@@ -502,22 +418,7 @@ export function SavedInsights(): JSX.Element {
             {tab === SavedInsightsTabs.Home && showHomeTab ? (
                 <>
                     <HomeTab dashboardActions={homeDashboardActions} />
-                    <HomeDashboardStarterModal
-                        isOpen={homeDashboardModalOpen && dashboardChoiceView === 'starter'}
-                        onClose={closeSceneDashboardChoiceModal}
-                        onTalkToAI={createHomeDashboardWithAI}
-                        onStartFromTemplate={openHomeDashboardTemplates}
-                        onChooseExisting={showDashboardPicker}
-                        hasCustomDashboard={!!currentTeam?.home_tab_dashboard}
-                        onRestorePostHogHome={restorePostHogHome}
-                        restoringPostHogHome={currentTeamLoading}
-                        creatingWithAI={dashboardCreationLoading}
-                        aiDisabledReason={
-                            !dataProcessingAccepted &&
-                            (dataProcessingApprovalDisabledReason ?? 'Approve AI data processing to use PostHog AI')
-                        }
-                    />
-                    <SceneDashboardChoiceModal scene={Scene.ProductAnalyticsHomeTab} />
+                    <HomeDashboardModals />
                     <NewDashboardModal redirectAfterCreation={false} />
                 </>
             ) : tab === SavedInsightsTabs.Notifications ? (

@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use personhog_coordination::changelog::LiveChangelog;
 use personhog_proto::personhog::types::v1::LifecycleOpType;
 
 use crate::config::{IdentityTables, OutboxWrites};
@@ -150,9 +151,8 @@ pub struct DeleteDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
     leader_call_concurrency: usize,
-    /// The leaders' partition count, which decides which victims share a
-    /// fence call.
-    num_partitions: u32,
+    /// Read per batch so a flip takes effect on the next fence call.
+    changelog: LiveChangelog,
     outbox_writes: OutboxWrites,
 }
 
@@ -161,17 +161,17 @@ impl DeleteDriver {
         leader: Arc<dyn LifecycleLeader>,
         tables: IdentityTables,
         leader_call_concurrency: usize,
-        num_partitions: u32,
+        changelog: LiveChangelog,
         outbox_writes: OutboxWrites,
     ) -> Self {
         tables.validate().expect("invalid identity table set");
-        assert!(num_partitions > 0, "num_partitions must be > 0");
+        assert!(changelog.partitions() > 0, "num_partitions must be > 0");
         Self {
             leader,
             tables,
             // Clamped to 1: a zero-width buffered stream never polls.
             leader_call_concurrency: leader_call_concurrency.max(1),
-            num_partitions,
+            changelog,
             outbox_writes,
         }
     }
@@ -180,7 +180,7 @@ impl DeleteDriver {
         LeaderCalls::new(
             self.leader.as_ref(),
             self.leader_call_concurrency,
-            self.num_partitions,
+            self.changelog.partitions(),
         )
     }
 }

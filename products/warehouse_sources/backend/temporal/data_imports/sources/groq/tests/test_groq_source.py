@@ -37,14 +37,3 @@ class TestGroqSource:
             ok, message = GroqSource().validate_credentials(_make_config(), team_id=1)
         assert ok is expected_ok
         assert message == expected_message
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.groq.com"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.groq.com"),
-        ]
-    )
-    def test_non_retryable_errors_cover_auth_failures(self, _name: str, expected_key: str) -> None:
-        errors = GroqSource().get_non_retryable_errors()
-        assert expected_key in errors
-        assert errors[expected_key]

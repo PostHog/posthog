@@ -28,10 +28,7 @@ class TestTrustPilotSource:
 
     @parameterized.expand(
         [
-            "429 Client Error: Too Many Requests for url: https://api.trustpilot.com/v1/business-units/x/reviews",
-            "500 Server Error: Internal Server Error for url: https://api.trustpilot.com/v1/business-units/x",
             "HTTP 503 from the OAuth2 token endpoint",
-            "HTTPSConnectionPool(host='api.trustpilot.com', port=443): Read timed out.",
         ],
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):

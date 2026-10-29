@@ -35,6 +35,7 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
+    CohortPropertyFilter,
     CohortType,
     FeatureFlagGroupType,
     FeatureFlagType,
@@ -70,6 +71,7 @@ import {
     dependencyActionLabel,
     dependencyDisabledReason,
     featureFlagLogic,
+    flagWentLive,
     hasDirectFlagDependency,
     hasMultipleVariantsActive,
     hasStaticCohortDependency,
@@ -290,44 +292,86 @@ describe('featureFlagLogic', () => {
     })
 
     describe('stale list-cache reconciliation on mount', () => {
-        it('refreshes a cache-painted flag so active reflects the server, not the stale list cache', async () => {
-            logic.unmount()
+        it.each([
+            {
+                cohortChange: 'deleted',
+                listMarkers: {},
+                serverMarkers: { cohort_name: 'Frequent buyers', cohort_deleted: true },
+                expectedDeletedCohortFilters: [
+                    expect.objectContaining({ value: 5, cohort_name: 'Frequent buyers', cohort_deleted: true }),
+                ],
+            },
+            {
+                cohortChange: 'restored',
+                listMarkers: { cohort_name: 'Frequent buyers', cohort_deleted: true },
+                serverMarkers: { cohort_name: 'Frequent buyers' },
+                expectedDeletedCohortFilters: [],
+            },
+        ])(
+            'refreshes a cache-painted flag so active and cohort markers reflect the server after the cohort was $cohortChange',
+            async ({ listMarkers, serverMarkers, expectedDeletedCohortFilters }) => {
+                logic.unmount()
 
-            useMocks({
-                get: {
-                    '/api/projects/:projectId/feature_flags/': () => [
-                        200,
-                        { results: [{ ...MOCK_FEATURE_FLAG, active: false }], count: 1 },
-                    ],
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
-                        200,
-                        { ...MOCK_FEATURE_FLAG, active: true },
-                    ],
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
-                        200,
-                        MOCK_FEATURE_FLAG_STATUS,
-                    ],
-                },
-            })
+                // The cohort changed after the list loaded, so the list copy and the server copy mark it differently.
+                const cohortCondition: CohortPropertyFilter = {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: 5,
+                    operator: PropertyOperator.In,
+                }
+                const withCohortCondition = (properties: CohortPropertyFilter[]): FeatureFlagFilters => ({
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [{ properties, rollout_percentage: 100, variant: null }],
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:projectId/feature_flags/': () => [
+                            200,
+                            {
+                                results: [
+                                    {
+                                        ...MOCK_FEATURE_FLAG,
+                                        active: false,
+                                        filters: withCohortCondition([{ ...cohortCondition, ...listMarkers }]),
+                                    },
+                                ],
+                                count: 1,
+                            },
+                        ],
+                        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                            200,
+                            {
+                                ...MOCK_FEATURE_FLAG,
+                                active: true,
+                                filters: withCohortCondition([{ ...cohortCondition, ...serverMarkers }]),
+                            },
+                        ],
+                        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]:
+                            () => [200, MOCK_FEATURE_FLAG_STATUS],
+                    },
+                })
 
-            featureFlagsLogic.mount()
-            featureFlagsLogic.actions.loadFeatureFlags()
-            await expectLogic(featureFlagsLogic).toFinishAllListeners()
-            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(false)
+                featureFlagsLogic.mount()
+                featureFlagsLogic.actions.loadFeatureFlags()
+                await expectLogic(featureFlagsLogic).toFinishAllListeners()
+                expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(false)
 
-            logic = featureFlagLogic({ id: 1 })
-            logic.mount()
+                logic = featureFlagLogic({ id: 1 })
+                logic.mount()
 
-            await expectLogic(logic)
-                .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
-                .toFinishAllListeners()
+                await expectLogic(logic)
+                    .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+                    .toFinishAllListeners()
 
-            expect(logic.values.featureFlag.active).toBe(true)
-            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
-            expect(lemonToast.info).not.toHaveBeenCalled()
+                expect(logic.values.featureFlag.active).toBe(true)
+                expect(logic.values.deletedCohortFilters).toEqual(expectedDeletedCohortFilters)
+                expect(logic.values.isFormDirty).toBe(false)
+                expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
+                expect(lemonToast.info).not.toHaveBeenCalled()
 
-            featureFlagsLogic.unmount()
-        })
+                featureFlagsLogic.unmount()
+            }
+        )
 
         // The agent path surfaces its failures through this same loader, so its rethrow must not
         // reach this one.
@@ -1270,6 +1314,120 @@ describe('featureFlagLogic', () => {
         const FILLING = { ...COHORT, is_calculating: true, errors_calculating: 0 }
         const READY = { ...COHORT, is_calculating: false, errors_calculating: 0 }
         const FAILED = { ...COHORT, is_calculating: false, errors_calculating: 1 }
+
+        const everyone = (rollout: number | null, active = true): any => ({
+            id: 1,
+            active,
+            filters: { groups: [{ properties: [], rollout_percentage: rollout }] },
+        })
+        const groupSet = { properties: [], rollout_percentage: 100, aggregation_group_type_index: 0 }
+
+        it.each([
+            { scenario: 'a raise to 100%', before: everyone(50), after: everyone(100), live: true },
+            {
+                scenario: 'enabling a flag already at 100%',
+                before: everyone(100, false),
+                after: everyone(100),
+                live: true,
+            },
+            {
+                scenario: 'a null rollout, which means everyone',
+                before: everyone(0),
+                after: everyone(null),
+                live: true,
+            },
+            { scenario: 'a second save at 100%', before: everyone(100), after: everyone(100), live: false },
+            {
+                scenario: 'the first save of a new flag at 100%',
+                before: { ...everyone(100), id: null },
+                after: everyone(100),
+                live: true,
+            },
+            {
+                scenario: 'a flag gated by early access enrollment',
+                before: everyone(0),
+                after: { ...everyone(100), filters: { ...everyone(100).filters, feature_enrollment: true } },
+                live: false,
+            },
+            {
+                scenario: 'a 100% set that aggregates by group in a person flag',
+                before: everyone(0),
+                after: { ...everyone(0), filters: { groups: [groupSet] } },
+                live: false,
+            },
+            {
+                scenario: 'a raise to 100% from a 100% set that aggregates by group',
+                before: { ...everyone(0), filters: { groups: [groupSet] } },
+                after: everyone(100),
+                live: true,
+            },
+            {
+                scenario: 'a 100% set that aggregates by group and stops evaluation early',
+                before: everyone(0),
+                after: { ...everyone(0), filters: { early_exit: true, groups: [groupSet] } },
+                live: false,
+            },
+            { scenario: 'a partial rollout', before: everyone(0), after: everyone(99), live: false },
+            {
+                scenario: '100% of a targeted group only',
+                before: everyone(0),
+                after: {
+                    active: true,
+                    filters: {
+                        groups: [
+                            {
+                                properties: [{ key: 'email', type: 'person', value: 'x', operator: 'icontains' }],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                },
+                live: false,
+            },
+            {
+                scenario: 'a 100% set behind a 0% set',
+                before: everyone(0),
+                after: {
+                    active: true,
+                    filters: {
+                        groups: [
+                            { properties: [], rollout_percentage: 0 },
+                            { properties: [], rollout_percentage: 100 },
+                        ],
+                    },
+                },
+                live: true,
+            },
+            {
+                scenario: 'a 100% set behind a 0% set that stops evaluation early',
+                before: everyone(0),
+                after: {
+                    active: true,
+                    filters: {
+                        early_exit: true,
+                        groups: [
+                            { properties: [], rollout_percentage: 0 },
+                            { properties: [], rollout_percentage: 100 },
+                        ],
+                    },
+                },
+                live: false,
+            },
+            {
+                scenario: 'a multivariate flag',
+                before: everyone(0),
+                after: { ...everyone(100), filters: { ...everyone(100).filters, multivariate: { variants: [] } } },
+                live: false,
+            },
+            {
+                scenario: 'a group-targeted flag',
+                before: everyone(0),
+                after: { ...everyone(100), filters: { ...everyone(100).filters, aggregation_group_type_index: 0 } },
+                live: false,
+            },
+        ])('offers the launch broadcast after $scenario: $live', ({ before, after, live }) => {
+            expect(flagWentLive(before, after)).toBe(live)
+        })
 
         it.each([
             {
@@ -5354,41 +5512,41 @@ describe('the editor a flag opens in', () => {
         expect(await editorKind(id, editorEnabled, search)).toBe(expected)
     })
 
-    // The editor builds its draft from the stored rules and would throw on, or drop, what it cannot represent.
+    const V2_FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`
+    const EXPERIMENT_RULE = {
+        id: 'rule-split',
+        rule_type: 'experiment',
+        targeting: { properties: [] },
+        paused: false,
+        variants: [
+            { key: 'control', weight: 50, value: false },
+            { key: 'test', weight: 50, value: true },
+        ],
+        rollout_percentage: 100,
+        on_rollout_miss: 'continue',
+        assignment_algorithm: 'sha1_60_v1',
+        assign_by: 'person',
+        seed: 'stored-seed',
+    }
+
     it.each([
         ['a string return type', { return_type: 'string', default_value: 'control' }],
-        ['group assignment', { aggregation_group_type_index: 0 }],
+        ['an experiment rule', { rules: [EXPERIMENT_RULE] }],
         [
-            'an experiment rule',
-            {
-                rules: [
-                    {
-                        id: 'rule-experiment',
-                        rule_type: 'experiment',
-                        targeting: { properties: [] },
-                        paused: false,
-                        variants: [
-                            { key: 'control', weight: 50, value: false },
-                            { key: 'test', weight: 50, value: true },
-                        ],
-                        rollout_percentage: 100,
-                        on_rollout_miss: 'continue',
-                        assignment_algorithm: 'sha1_60_v1',
-                        assign_by: 'person',
-                        seed: 'stored-seed',
-                    },
-                ],
-            },
+            'an experiment rule with a holdout',
+            { rules: [{ ...EXPERIMENT_RULE, holdout: { seed: 'holdout-seed', exclusion_percentage: 5 } }] },
         ],
+    ])('a v2 flag with %s opens the rules v2 editor', async (_label, filters) => {
+        useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })
+        expect(await editorKind(7, true)).toBe('rules_v2')
+    })
+
+    // The editor would drop, or rewrite on save, what it cannot represent.
+    it.each([
+        ['a number return type', { return_type: 'number', default_value: 1 }],
+        ['group assignment', { aggregation_group_type_index: 0 }],
     ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
-        useMocks({
-            get: {
-                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [
-                    200,
-                    { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } },
-                ],
-            },
-        })
+        useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })
         expect(await editorKind(7, true)).toBeNull()
     })
 })

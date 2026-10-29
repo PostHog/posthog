@@ -13,7 +13,6 @@ from products.data_modeling.backend.facade import api as data_modeling_facade
 from ...facade.enums import SubjectType, SuiteRunTrigger
 from ...logic import posthog_tables
 from ...logic.checks import live_subject_checks
-from ...logic.flags import get_data_quality_checks_flag_for_team_id
 from ...logic.subject_schedules import SubjectScheduleKey, SubjectSchedules, selected_subject_ids
 from ...models import DataQualityCheck, DataQualitySuiteRun
 from ..contracts import PreparedSuite, RunCheckSuiteInputs
@@ -38,26 +37,13 @@ async def prepare_check_suite_activity(inputs: RunCheckSuiteInputs) -> PreparedS
 
 
 def _prepare(inputs: RunCheckSuiteInputs, *, schedule_enabled: bool = True) -> PreparedSuite:
-    checks = _select_checks(inputs) if _checks_enabled(inputs.team_id) and schedule_enabled else []
+    checks = _select_checks(inputs) if schedule_enabled else []
     suite_run = _suite_run(inputs)
 
     check_ids = [str(check_id) for check_id in checks]
     batches = [check_ids[start : start + CHECKS_PER_BATCH] for start in range(0, len(check_ids), CHECKS_PER_BATCH)]
     LOGGER.info("Prepared check suite", suite_run_id=str(suite_run.id), checks=len(check_ids), batches=len(batches))
     return PreparedSuite(suite_run_id=str(suite_run.id), batches=batches)
-
-
-def _checks_enabled(team_id: int) -> bool:
-    """Fail on a flag the lookup could not read, rather than read it as off.
-
-    An off flag is a kill switch and must still stop the suite. An unreadable flag is a transient
-    fault, and treating it as off would consume a scheduled occurrence, stamp a run that validated
-    nothing, and report success. Raising lets the activity retry.
-    """
-    enabled = get_data_quality_checks_flag_for_team_id(team_id)
-    if enabled is None:
-        raise RuntimeError(f"Could not read the data quality checks flag for team {team_id}.")
-    return enabled
 
 
 def _suite_run(inputs: RunCheckSuiteInputs) -> DataQualitySuiteRun:
