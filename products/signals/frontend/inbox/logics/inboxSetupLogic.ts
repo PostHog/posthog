@@ -314,7 +314,8 @@ export interface inboxSetupLogicMeta {
             scoutConfigs: SignalScoutConfigApi[] | null,
             sources: InboxSetupSource[],
             currentTeam: TeamPublicType | TeamType | null,
-            productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
+            productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>,
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
         ) => ScoutSuggestionItemApi[]
         scoutChoices: (
             suggestions: ScoutSuggestionItemApi[],
