@@ -180,7 +180,21 @@
     // List each workflow from that file's `workflows` section here
     {
       matchManagers: ['github-actions'],
-      matchFileNames: ['.github/workflows/ci-paths-filter.yml'],
+      matchFileNames: [
+        '.github/workflows/ci-actionlint.yml',
+        '.github/workflows/ci-clickhouse-util-udfs.yml',
+        '.github/workflows/ci-depot-action-mirrors.yml',
+        '.github/workflows/ci-dev-setup.yml',
+        '.github/workflows/ci-duplication.yml',
+        '.github/workflows/ci-hobby-installer.yml',
+        '.github/workflows/ci-hogql-language-service.yml',
+        '.github/workflows/ci-livestream-tui.yml',
+        '.github/workflows/ci-livestream.yml',
+        '.github/workflows/ci-paths-filter.yml',
+        '.github/workflows/ci-phrocs.yml',
+        '.github/workflows/dev-sandbox-selftest.yml',
+        '.github/workflows/pnpm-store-cache.yml',
+      ],
       enabled: false,
     },
     // The sandbox images and the Modal slim image rebuild only when this pin changes,

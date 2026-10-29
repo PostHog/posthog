@@ -27,7 +27,8 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
             - name: Fetch PR base for the clone baseline
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
@@ -45,7 +46,8 @@ jobs:
                       fi
                   done
                   git merge-base "origin/$BASE_REF" HEAD || echo "merge-base unresolved at depth $depth; the lint falls back to the base tip"
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
             - name: Lint for new duplication

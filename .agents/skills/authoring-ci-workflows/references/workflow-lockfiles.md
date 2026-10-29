@@ -3,7 +3,9 @@
 Read this before changing a workflow listed in `.github/workflows/actions.lock`, its action dependencies, or the lockfile itself.
 
 The lockfile's `workflows` section lists the onboarded workflows.
-Onboard another workflow in its own change, and add it to the Renovate exclusion in `.github/renovate.json5` in that change.
+Onboard workflows in a change that does nothing else, and add each one to the Renovate exclusion in `.github/renovate.json5` in that change.
+Onboard only workflows that a pull request runs directly.
+GitHub does not document which lockfile entries apply to a reusable workflow, and a workflow that runs only on `master` gets its first locked run there.
 
 ## Update and verify
 
