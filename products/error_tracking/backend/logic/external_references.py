@@ -256,7 +256,7 @@ def create_external_reference(
         # Containment (not equality) also matches references the create flow stored
         # with extra provider keys alongside the identifier.
         existing = ErrorTrackingExternalReference.objects.filter(
-            issue=issue, integration=integration, external_context__contains=identifier_context
+            issue=issue, integration_id=integration.id, external_context__contains=identifier_context
         ).first()
         if existing is not None:
             updated_context = {
@@ -273,7 +273,7 @@ def create_external_reference(
             LinearIntegration(integration).create_attachment(stored_context["id"], attachment_url)
         return ErrorTrackingExternalReference.objects.create(
             issue=issue,
-            integration=integration,
+            integration_id=integration.id,
             external_context=stored_context,
         ), True
 
@@ -302,7 +302,7 @@ def create_external_reference(
     created_context["title"] = title
     return ErrorTrackingExternalReference.objects.create(
         issue=issue,
-        integration=integration,
+        integration_id=integration.id,
         external_context=created_context,
     ), True
 

@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from email.utils import parseaddr
@@ -65,7 +66,7 @@ class CalendarBackfillPage:
     counts: CalendarSyncCounts
 
 
-def get_calendar_sync_interval(config: dict) -> int:
+def get_calendar_sync_interval(config: Mapping[str, Any]) -> int:
     value = config.get(SYNC_INTERVAL_CONFIG_KEY)
     return value if type(value) is int and value in ALLOWED_SYNC_INTERVALS else 60
 

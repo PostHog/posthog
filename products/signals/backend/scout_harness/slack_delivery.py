@@ -848,7 +848,7 @@ def post_scout_report_to_slack(
         scout_report_slack_message(
             team_id=report.team_id,
             report_id=str(report.id),
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             target=channel_id,
         )
         if edit_note is None
@@ -912,7 +912,7 @@ def post_scout_report_to_slack(
         reply_ts = []
         if thread_ts:
             record_report_slack_thread(
-                slack_workspace_id=integration.integration_id,
+                slack_workspace_id=integration.integration_id or "",
                 team_id=report.team_id,
                 report_id=str(report.id),
                 integration_id=integration.id,
@@ -929,7 +929,7 @@ def post_scout_report_to_slack(
     def _record_reply_ts(posted: list[str]) -> None:
         record_scout_report_slack_replies(
             team_id=report.team_id,
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             channel=conversation,
             thread_ts=str(thread_ts),
             reply_ts=posted,

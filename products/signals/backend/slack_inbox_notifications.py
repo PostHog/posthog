@@ -597,7 +597,7 @@ def _reviewer_destination(
     if own_config is not None:
         if not _meets_min_priority(priority, own_config.slack_notification_min_priority):
             return None
-        integration = own_config.slack_notification_integration
+        integration: IntegrationRecord | None = own_config.slack_notification_integration
         channel = own_config.slack_notification_channel
         is_team_channel = False
     elif team_integration is not None and team_channel:
@@ -704,7 +704,7 @@ def _deliver_route_notification(
             # Recorded before the evidence replies, so a failure posting those still leaves the
             # thread resolvable back to the report.
             record_report_slack_thread(
-                slack_workspace_id=route.integration.integration_id,
+                slack_workspace_id=route.integration.integration_id or "",
                 team_id=report.team_id,
                 report_id=str(report.id),
                 integration_id=route.integration.id,

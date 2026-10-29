@@ -164,7 +164,7 @@ def save_webhook_config(
         )
 
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
-    config.webhook_integration_id = integration.id
+    config.webhook_integration_id = integration.id if integration else None
     config.webhook_enabled = enabled
     config.save(update_fields=["webhook_integration", "webhook_enabled"])
 
@@ -207,7 +207,7 @@ def save_track_config(
         )
 
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
-    config.track_integration_id = integration.id
+    config.track_integration_id = integration.id if integration else None
     config.track_enabled = enabled
     config.save(update_fields=["track_integration", "track_enabled"])
 

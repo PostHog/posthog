@@ -1,11 +1,12 @@
 import re
 from datetime import datetime
 from functools import partial
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Model
 from django.utils import timezone
 
 import requests
@@ -198,7 +199,7 @@ def _integration(
             "integration_id", "Select an available GitHub integration for this project."
         )
     if user_access_control is not None and not user_access_control.check_access_level_for_object(
-        integration, required_level="viewer"
+        cast(Model, integration), required_level="viewer"
     ):
         raise FeatureRequestValidationError("integration_id", "Select a GitHub integration you can access.")
     return integration
@@ -324,7 +325,7 @@ def link_feature_request_github(
                 "issue_url", "This request already has a GitHub issue. Unlink it before adding another."
             )
     integration = _integration(team_id, input.integration_id, user_access_control=user_access_control)
-    installation_id = integration.integration_id
+    installation_id = integration.integration_id or ""
     with bound_contextvars(
         team_id=team_id,
         feature_request_id=str(feature_request_id),
@@ -345,7 +346,7 @@ def link_feature_request_github(
         link = FeatureRequestGitHubLink.objects.for_team(team_id).create(
             team_id=team_id,
             feature_request=request,
-            integration=integration,
+            integration_id=integration.id,
             installation_id=installation_id,
             repository=repository,
             issue_number=issue_number,

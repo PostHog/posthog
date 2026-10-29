@@ -152,7 +152,7 @@ async def deliver_email(
 
 
 def _resolve_slack_integration(subscription: Subscription) -> IntegrationRecord | None:
-    integration = subscription.integration
+    integration: IntegrationRecord | None = subscription.integration
     if integration is not None and integration.kind != "slack":
         LOGGER.warning(
             "deliver_subscription.invalid_integration_kind",

@@ -172,7 +172,7 @@ def _claim_tracker_issue(
         report_id=report_id,
         defaults={
             "team_id": team_id,
-            "integration": target.integration,
+            "integration_id": target.integration.id,
             "provider": target.integration.kind,
             "status": SignalReportTrackerIssue.Status.PENDING,
         },
