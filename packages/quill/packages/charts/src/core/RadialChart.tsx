@@ -119,9 +119,6 @@ export function RadialChart<Meta = unknown>({
         dimensions,
         scales,
         series: coloredSeries,
-        // No x-axis category labels in a radial chart; preserve the contract by passing []. Slice
-        // labels live in the SliceLabels overlay, which reads from the radial layout directly.
-        labels: [],
         hoverIndex,
         hoverPosition: null,
         theme,

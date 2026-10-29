@@ -14607,6 +14607,51 @@ export namespace Schemas {
       has_membership_data: boolean;
     }
 
+    export interface PRLLMSpend {
+      /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+      cost_usd: number;
+      /** Total input (prompt) tokens across the attributed generations. */
+      input_tokens: number;
+      /** Total output (completion) tokens across the attributed generations. */
+      output_tokens: number;
+      /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+      generations: number;
+      /** Total prompt tokens read from the provider's prompt cache across the attributed generations ($ai_cache_read_input_tokens). Not included in input_tokens. */
+      cache_read_input_tokens: number;
+      /** Total prompt tokens written to the provider's prompt cache across the attributed generations ($ai_cache_creation_input_tokens). Not included in input_tokens. */
+      cache_creation_input_tokens: number;
+      /** Largest prompt any single attributed generation sent: input plus cache read plus cache write tokens. */
+      peak_context_tokens: number;
+    }
+
+    export interface AuthorPRLLMSpend {
+      /** Agent LLM token spend attributed to this pull request, by the same rule as `pr_cost`, or null when no generation matched. */
+      llm_spend: PRLLMSpend | null;
+      /** Pull request number. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Pull request state: open, closed, or merged.
+       *
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      state: PRStateEnum;
+      /** The pull request's head branch, which attribution joins on. */
+      head_branch: string;
+      /** When the pull request was opened. */
+      created_at: string;
+    }
+
+    export interface AuthorLLMSpendList {
+      /** The author's pull requests active in the window, newest first, capped at `limit`. Each spend covers the pull request's whole attribution window, so it can include spend from before date_from. */
+      items: AuthorPRLLMSpend[];
+      /** True when more pull requests matched than `limit`. */
+      truncated: boolean;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
+    }
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -20757,6 +20802,16 @@ export namespace Schemas {
       B2b: 'b2b',
       B2c: 'b2c',
       Other: 'other',
+    } as const;
+
+    /**
+     * Change data capture engine of a source type, which picks its CDC setup form and status panel.
+     */
+    export type CDCEngine = typeof CDCEngine[keyof typeof CDCEngine];
+
+
+    export const CDCEngine = {
+      Postgres: 'postgres',
     } as const;
 
     export interface CICardSummary {
@@ -65842,11 +65897,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum = typeof IntegrationAuthTypeEnum[keyof typeof IntegrationAuthTypeEnum];
+
+
+    export const IntegrationAuthTypeEnum = {
+      Oauth: 'oauth',
+      Token: 'token',
+      Credentials: 'credentials',
+    } as const;
+
+    /**
      * Standard Integration serializer.
      */
     export interface IntegrationConfig {
       readonly id: number;
       kind: IntegrationKindEnum;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -67447,6 +67522,17 @@ export namespace Schemas {
       count: number;
       /** Matching ordinary skills in relevance order. */
       results: LLMSkillSearchResult[];
+    }
+
+    export interface LLMSpendCoverage {
+      /** Total cost in USD of the $ai_generation events stamped with this repository ($ai_git_repo) in the window. Generations with no repository stamp are not counted. */
+      cost_usd: number;
+      /** The part of cost_usd that the branch and session attribution credits to a pull request. A generation credited to several pull requests counts once. */
+      attributed_cost_usd: number;
+      /** Number of $ai_generation events in cost_usd. */
+      generations: number;
+      /** Number of $ai_generation events in attributed_cost_usd. */
+      attributed_generations: number;
     }
 
     export interface LLMTaggerConfig {
@@ -76088,17 +76174,6 @@ export namespace Schemas {
        * * `github_actions` - GitHub Actions
        * * `depot_ci` - Depot CI */
       ci_engine?: CIEngineEnum | null;
-    }
-
-    export interface PRLLMSpend {
-      /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
-      cost_usd: number;
-      /** Total input (prompt) tokens across the attributed generations. */
-      input_tokens: number;
-      /** Total output (completion) tokens across the attributed generations. */
-      output_tokens: number;
-      /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
-      generations: number;
     }
 
     export interface PRCostSummary {
@@ -88882,6 +88957,12 @@ export namespace Schemas {
     export interface PatchedIntegrationConfig {
       readonly id?: number;
       kind?: IntegrationKindEnum;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type?: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -94906,11 +94987,18 @@ export namespace Schemas {
       success: boolean;
     }
 
+    /**
+     * Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event.
+     */
+    export type PersonUpdatePropertyRequestProperties = { [key: string]: unknown };
+
     export interface PersonUpdatePropertyRequest {
-      /** The property key to set. */
-      key: string;
+      /** The property key to set. Pair it with 'value' to set one property. */
+      key?: string;
       /** The property value. Can be a string, number, boolean, or object. */
-      value: unknown;
+      value?: unknown;
+      /** Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event. */
+      properties?: PersonUpdatePropertyRequestProperties;
     }
 
     export interface _Summary {
@@ -112034,6 +112122,8 @@ export namespace Schemas {
       /** Vendor API docs or changelog URL, or null when the vendor publishes none. */
       apiDocsUrl?: string | null;
       deprecatedVersions: SourceVersionDeprecation[];
+      /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
+      cdcEngine?: CDCEngine | null;
       /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
       tables?: SourceDocumentedTable[] | null;
     }
@@ -121566,6 +121656,20 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    export interface TraceSearchMatch {
+      /** A step whose stored data contains the query. The root's id is the trace id. */
+      nodeId: string;
+      /** How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too. */
+      count: number;
+    }
+
+    export interface TraceSearchResults {
+      /** Occurrences of the query across every matching step. */
+      total: number;
+      /** Matching steps in tree order, the root first. Steps without a match are left out. */
+      matches: TraceSearchMatch[];
+    }
+
     export type TraceSummaryStatusEnum = typeof TraceSummaryStatusEnum[keyof typeof TraceSummaryStatusEnum];
 
 
@@ -130041,6 +130145,19 @@ export namespace Schemas {
     timestamp_hint?: string;
     };
 
+    export type AiObservabilityTracesSearchRetrieveParams = {
+    /**
+     * The text to find in the trace's steps, ignoring case.
+     * @minLength 1
+     * @maxLength 200
+     */
+    q: string;
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
     export type AiObservabilityTracesSummaryCreateParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
@@ -133106,6 +133223,33 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsAuthorLlmSpendParams = {
+    /**
+     * GitHub handle whose pull requests to list.
+     */
+    author: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Maximum pull requests to return, 1 to 200. Defaults to 100.
+     */
+    limit?: number;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
     /**
      * GitHub handle whose CI spend to break down.
@@ -133464,6 +133608,25 @@ export namespace Schemas {
       GithubActions: 'github_actions',
       DepotCi: 'depot_ci',
     } as const;
+
+    export type EngineeringAnalyticsLlmSpendCoverageParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
 
     export type EngineeringAnalyticsMasterFailuresParams = {
     /**

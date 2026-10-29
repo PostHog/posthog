@@ -1,5 +1,5 @@
 import { waitFor } from '@testing-library/react'
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -32,6 +32,7 @@ const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/eval
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const CREATED_AT = '2026-09-01T10:15:00Z'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
+const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 
 const answeredGeneration = makeNodeDetail({
@@ -52,6 +53,7 @@ describe('traceViewAdapterLogic', () => {
     let clusterRequests: string[]
     let clustersStatus: number
     let feedbackStatus: number
+    let searchStatus: number
     let summaryRequests: number
     let evaluations: TraceEvaluationResultsApi
 
@@ -69,6 +71,7 @@ describe('traceViewAdapterLogic', () => {
         clusterRequests = []
         clustersStatus = 200
         feedbackStatus = 200
+        searchStatus = 200
         summaryRequests = 0
         evaluations = makeEvaluationResults()
         useMocks({
@@ -93,6 +96,19 @@ describe('traceViewAdapterLogic', () => {
                 },
                 [FEEDBACK_URL]: () =>
                     feedbackStatus === 200 ? [200, makeFeedback()] : [feedbackStatus, { detail: 'Server error.' }],
+                [SEARCH_URL]: () =>
+                    searchStatus === 200
+                        ? [
+                              200,
+                              {
+                                  total: 3,
+                                  matches: [
+                                      { nodeId: 'gen-1', count: 2 },
+                                      { nodeId: 'gen-2', count: 1 },
+                                  ],
+                              },
+                          ]
+                        : [searchStatus, { detail: 'Search timed out.' }],
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -117,6 +133,7 @@ describe('traceViewAdapterLogic', () => {
     afterEach(() => {
         resumeKeaLoadersErrors()
         logic.unmount()
+        resumeKeaLoadersErrors()
         jest.restoreAllMocks()
     })
 
@@ -356,6 +373,120 @@ describe('traceViewAdapterLogic', () => {
                 feedbackCountByNodeId: {},
                 feedbackMode: { status: 'error' },
             })
+    })
+
+    it('reads the search from the link and keeps the list it came from', async () => {
+        mountAt({ search: 'invoice', back_to: 'generations' })
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                searchBox: expect.objectContaining({ query: 'invoice', status: 'ready', total: 3 }),
+                backLink: expect.objectContaining({ label: 'Back to generations' }),
+            })
+    })
+
+    it('writes the settled search to the URL once, keeping the selection and the other params', async () => {
+        mountAt({ back_to: 'generations', timestamp: '2026-09-01T10:15:00Z' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        const replace = jest.spyOn(router.actions, 'replace')
+
+        await expectLogic(logic, () => {
+            logic.actions.setQuery('two')
+            logic.actions.setQuery('two words + 50%')
+        })
+            .toDispatchActions(['setQuery', 'setQuery'])
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['setQuery'])
+
+        expect(replace).toHaveBeenCalledTimes(1)
+        expect(router.values.searchParams).toEqual({
+            back_to: 'generations',
+            timestamp: '2026-09-01T10:15:00Z',
+            search: 'two words + 50%',
+            event: 'gen-1',
+        })
+        expect(logic.values.selectedNodeId).toBe('gen-1')
+    })
+
+    it.each(['1.50', '[draft]'])('keeps the typed search %s when the browser restores its URL', async (query) => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setQuery(query)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const { pathname, search } = router.values.location
+
+        // Back and forward decode the URL again, as a page load does.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname,
+                search,
+                searchParams: decodeParams(search, '?'),
+                hash: '',
+                hashParams: {},
+                url: `${pathname}${search}`,
+            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.query).toBe(query)
+    })
+
+    it('steps to the next match from another mode and shows it in spans', async () => {
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setMode('thread')
+
+        await expectLogic(logic, () => logic.actions.stepMatch('next')).toMatchValues({
+            mode: 'spans',
+            selectedNodeId: 'gen-1',
+            searchBox: expect.objectContaining({ position: 1 }),
+        })
+    })
+
+    it('keeps the selection in the URL while a search is active', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        logic.actions.setQuery('invoice')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.stepMatch('next')
+        expect(router.values.searchParams).toMatchObject({ search: 'invoice', event: 'gen-2' })
+
+        logic.actions.selectNode('span-1')
+        expect(router.values.searchParams).toMatchObject({ search: 'invoice', event: 'span-1' })
+    })
+
+    it('steps to the first match from a mode that does not show the selected step', async () => {
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        logic.actions.setMode('thread')
+
+        expect(logic.values.searchBox.position).toBeNull()
+
+        logic.actions.stepMatch('next')
+        expect(logic.values).toMatchObject({ mode: 'spans', selectedNodeId: 'gen-1' })
+    })
+
+    it('drops the previous matches when a newer search fails', async () => {
+        silenceKeaLoadersErrors()
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        searchStatus = 504
+
+        logic.actions.setQuery('refund')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.stepMatch('next')
+
+        expect(logic.values).toMatchObject({
+            matchingNodeIds: null,
+            selectedNodeId: 'trace-1',
+            searchBox: expect.objectContaining({ status: 'error', failure: 'too_slow', matchingSteps: 0 }),
+        })
     })
 
     it('the Summary mode reads the summary on open, and a step link leaves it for that step in spans', async () => {

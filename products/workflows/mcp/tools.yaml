@@ -60,6 +60,10 @@ tools:
         inject_body:
             origin_product: broadcasts
         url_prefix: /broadcasts
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-convert-to-broadcast:
         operation: hog_flows_convert_to_broadcast
         enabled: true
@@ -120,6 +124,10 @@ tools:
             least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
         hooks: workflows/broadcastLinkHooks
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-data-suggestions-create:
         operation: workflow_data_suggestions_build
         enabled: true
@@ -218,6 +226,10 @@ tools:
             Throw away a workflow's staged draft without touching the live config. Idempotent — discarding when nothing
             is staged is a no-op. Returns the workflow.
         ui_app: workflow
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-email-drafts-create:
         operation: workflow_data_suggestions_build_for_events
         enabled: true
@@ -484,9 +496,14 @@ tools:
             email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
             server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
             nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
-            reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over
-            workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in
-            sync. For library templates use workflows-patch-email-template instead.
+            reaches real people until workflows-publish. The updated workflow is returned without step inputs; read one
+            back with workflows-get. Prefer this over workflows-patch-graph update_action for email content - it's
+            smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template
+            instead.
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-patch-graph:
         operation: hog_flows_graph_partial_update
         enabled: true
@@ -507,10 +524,14 @@ tools:
             validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing
             changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch
             copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until
-            workflows-publish. The full updated workflow is returned, so you don't need to re-fetch before the next
-            edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
-            {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with
-            workflows-test-run after patching.
+            workflows-publish. The updated workflow is returned without step inputs, so you can confirm every step's id
+            and type without re-fetching; read a step's inputs back with workflows-get. When adding or editing a
+            conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not
+            {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-publish:
         operation: hog_flows_publish_create
         enabled: true
@@ -533,6 +554,10 @@ tools:
             delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing are normal, not a sign of a failed publish.
+        response:
+            exclude:
+                - workflow.actions.*.config.inputs
+                - workflow.draft.actions.*.config.inputs
     workflows-reputation-get:
         operation: hog_flows_reputation_retrieve
         enabled: true
@@ -579,6 +604,10 @@ tools:
             in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace
             it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their
             positions.
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-sending-rules-get:
         operation: workflow_sending_rules_retrieve
         enabled: true
@@ -710,6 +739,10 @@ tools:
             - edges
         ui_app: workflow
         hooks: workflows/broadcastLinkHooks
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-update-schedule:
         operation: hog_flows_schedules_partial_update
         enabled: true
