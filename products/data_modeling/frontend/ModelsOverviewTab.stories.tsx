@@ -323,3 +323,8 @@ export const FirstView: Story = {
         },
     },
 }
+
+export const FirstViewNarrow: Story = {
+    ...FirstView,
+    decorators: [inMainContent('w-128')],
+}
