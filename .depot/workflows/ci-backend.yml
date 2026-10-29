@@ -1150,8 +1150,8 @@ jobs:
                       /tmp/temporal-sdk-python-*
                       /tmp/temporal-test-server-sdk-python-*
                       !/tmp/*.downloading
-                  key: temporal-test-servers-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
-                  restore-keys: temporal-test-servers-v2-${{ runner.os }}-${{ runner.arch }}-
+                  key: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
+                  restore-keys: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
             - name: Set up needed files
@@ -3243,8 +3243,8 @@ jobs:
                       /tmp/temporal-sdk-python-*
                       /tmp/temporal-test-server-sdk-python-*
                       !/tmp/*.downloading
-                  key: temporal-test-servers-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
-                  restore-keys: temporal-test-servers-v2-${{ runner.os }}-${{ runner.arch }}-
+                  key: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
+                  restore-keys: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-
             - name: Set up Node.js for canvas builder
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
