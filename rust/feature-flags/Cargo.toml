@@ -121,6 +121,7 @@ assert-json-diff = { workspace = true }
 common-s3 = { path = "../common/s3", features = ["mock-client"] }
 reqwest = { workspace = true }
 futures = "0.3.30"
+tempfile = "3"
 test-case = "3.3.1"
 tokio = { workspace = true, features = ["test-util"] }
 tokio-util = { workspace = true }

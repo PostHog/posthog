@@ -194,6 +194,16 @@ class TestOfflineEvaluationService(TestCase):
         self.assertEqual(new_ledger.organization_id, other_organization.id)
         self.assertEqual(new_ledger.quantity, 1)
 
+    def test_privileged_result_deletion_removes_retry_identity_but_not_recorded_usage(self) -> None:
+        self.ingestion.upload(self.experiment.id, self.submission)
+        OfflineEvaluationResult.objects.for_team(self.team.id).all().delete()
+        replay = self.ingestion.upload(self.experiment.id, self.submission)
+        self.assertTrue(replay.results[0].created)
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)),
+            [1, 1],
+        )
+
     def test_child_environment_keeps_the_entire_experiment_graph_and_hosted_links(self) -> None:
         child = Team.objects.create(organization=self.team.organization, parent_team=self.team)
         lifecycle = OfflineExperimentService(team_id=child.id, user_access_control=None)
@@ -591,23 +601,34 @@ class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
         finally:
             connection.close()
 
-    def test_concurrent_duplicate_uploads_return_the_same_result(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_concurrent_duplicate_uploads_return_the_same_result(self, overlapping: bool) -> None:
+        second_submission = self.submission
+        if overlapping:
+            new_item = replace(self.submission.items[0], id=uuid4())
+            second_submission = UploadSubmission(
+                items=[new_item],
+                results=[replace(self.submission.results[0], item_id=new_item.id), self.submission.results[0]],
+            )
         second_started = Event()
         with ThreadPoolExecutor(max_workers=1) as executor:
             with transaction.atomic():
                 first = self.ingestion.upload(self.experiment.id, self.submission)
                 pending = executor.submit(
                     self._run_second_operation,
-                    lambda: self.ingestion.upload(self.experiment.id, self.submission),
+                    lambda: self.ingestion.upload(self.experiment.id, second_submission),
                     second_started,
                 )
                 self.assertTrue(second_started.wait(timeout=10))
             second = pending.result(timeout=10)
 
         assert isinstance(second, UploadReceipt)
-        self.assertEqual(second.results, [replace(first.results[0], created=False)])
-        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 1)
-        self.assertEqual(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).get().quantity, 1)
+        self.assertEqual(second.results[-1], replace(first.results[0], created=False))
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2 if overlapping else 1)
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)),
+            [1, 1] if overlapping else [1],
+        )
 
     def test_concurrent_experiment_creation_returns_one_identity(self) -> None:
         submission = ExperimentSubmission(id=uuid4(), name="Retried creation", started_at=self.experiment.started_at)
