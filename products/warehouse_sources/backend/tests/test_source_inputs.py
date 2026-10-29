@@ -298,7 +298,7 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
         with self._flag(return_value=True):
             source = self._create(inputs, source_type=source_type)
 
-        assert IntegrationManager.any.list(self.team.pk) == []
+        assert IntegrationManager.any.with_source_rows().list(self.team.pk) == []
         assert REF not in SourceInputsStore.load(source)
 
     @parameterized.expand(
