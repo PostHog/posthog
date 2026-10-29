@@ -11,6 +11,7 @@ from posthog.integrations.accessors import (
     IntegrationManagerBase,
     IntegrationReader,
     KindAccessor,
+    OAuthAccessor,
 )
 from posthog.integrations.enums import AuthType
 
@@ -82,7 +83,7 @@ class ApnsKind(KindAccessor):
 
 class AppleAdsKind(KindAccessor):
     kind = "apple-ads"
-    oauth = AuthAccessor(kind="apple-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="apple-ads")  # the default
     credentials = AuthAccessor(kind="apple-ads", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"apple-ads"}))
 
@@ -107,13 +108,13 @@ class AzureBlobKind(KindAccessor):
 
 class BingAdsKind(KindAccessor):
     kind = "bing-ads"
-    oauth = AuthAccessor(kind="bing-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="bing-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"bing-ads"}))
 
 
 class ClickupKind(KindAccessor):
     kind = "clickup"
-    oauth = AuthAccessor(kind="clickup", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="clickup")  # the default
     token = AuthAccessor(kind="clickup", auth_type=AuthType.TOKEN)
     any = IntegrationReader(kinds=frozenset({"clickup"}))
 
@@ -157,7 +158,7 @@ class FirebaseKind(KindAccessor):
 
 class GithubKind(KindAccessor):
     kind = "github"
-    oauth = AuthAccessor(kind="github", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="github")  # the default
     token = AuthAccessor(kind="github", auth_type=AuthType.TOKEN)
     any = IntegrationReader(kinds=frozenset({"github"}))
 
@@ -170,19 +171,19 @@ class GitlabKind(KindAccessor):
 
 class GoogleAdsKind(KindAccessor):
     kind = "google-ads"
-    oauth = AuthAccessor(kind="google-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="google-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"google-ads"}))
 
 
 class GoogleAnalyticsKind(KindAccessor):
     kind = "google-analytics"
-    oauth = AuthAccessor(kind="google-analytics", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="google-analytics")  # the default
     any = IntegrationReader(kinds=frozenset({"google-analytics"}))
 
 
 class GoogleCalendarKind(KindAccessor):
     kind = "google-calendar"
-    oauth = AuthAccessor(kind="google-calendar", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="google-calendar")  # the default
     any = IntegrationReader(kinds=frozenset({"google-calendar"}))
 
 
@@ -206,75 +207,75 @@ class GooglePubsubKind(KindAccessor):
 
 class GoogleSearchConsoleKind(KindAccessor):
     kind = "google-search-console"
-    oauth = AuthAccessor(kind="google-search-console", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="google-search-console")  # the default
     any = IntegrationReader(kinds=frozenset({"google-search-console"}))
 
 
 class GoogleSheetsKind(KindAccessor):
     kind = "google-sheets"
-    oauth = AuthAccessor(kind="google-sheets", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="google-sheets")  # the default
     credentials = AuthAccessor(kind="google-sheets", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"google-sheets"}))
 
 
 class HelpscoutKind(KindAccessor):
     kind = "helpscout"
-    oauth = AuthAccessor(kind="helpscout", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="helpscout")  # the default
     any = IntegrationReader(kinds=frozenset({"helpscout"}))
 
 
 class HubspotKind(KindAccessor):
     kind = "hubspot"
-    oauth = AuthAccessor(kind="hubspot", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="hubspot")  # the default
     any = IntegrationReader(kinds=frozenset({"hubspot"}))
 
 
 class InstagramKind(KindAccessor):
     kind = "instagram"
-    oauth = AuthAccessor(kind="instagram", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="instagram")  # the default
     any = IntegrationReader(kinds=frozenset({"instagram"}))
 
 
 class IntercomKind(KindAccessor):
     kind = "intercom"
-    oauth = AuthAccessor(kind="intercom", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="intercom")  # the default
     any = IntegrationReader(kinds=frozenset({"intercom"}))
 
 
 class JiraKind(KindAccessor):
     kind = "jira"
-    oauth = AuthAccessor(kind="jira", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="jira")  # the default
     token = AuthAccessor(kind="jira", auth_type=AuthType.TOKEN)
     any = IntegrationReader(kinds=frozenset({"jira"}))
 
 
 class LinearKind(KindAccessor):
     kind = "linear"
-    oauth = AuthAccessor(kind="linear", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="linear")  # the default
     any = IntegrationReader(kinds=frozenset({"linear"}))
 
 
 class LinkedinAdsKind(KindAccessor):
     kind = "linkedin-ads"
-    oauth = AuthAccessor(kind="linkedin-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="linkedin-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"linkedin-ads"}))
 
 
 class MetaAdsKind(KindAccessor):
     kind = "meta-ads"
-    oauth = AuthAccessor(kind="meta-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="meta-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"meta-ads"}))
 
 
 class PardotKind(KindAccessor):
     kind = "pardot"
-    oauth = AuthAccessor(kind="pardot", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="pardot")  # the default
     any = IntegrationReader(kinds=frozenset({"pardot"}))
 
 
 class PinterestAdsKind(KindAccessor):
     kind = "pinterest-ads"
-    oauth = AuthAccessor(kind="pinterest-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="pinterest-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"pinterest-ads"}))
 
 
@@ -286,19 +287,19 @@ class PostgresqlKind(KindAccessor):
 
 class PosthogKind(KindAccessor):
     kind = "posthog"
-    oauth = AuthAccessor(kind="posthog", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="posthog")  # the default
     any = IntegrationReader(kinds=frozenset({"posthog"}))
 
 
 class RedditAdsKind(KindAccessor):
     kind = "reddit-ads"
-    oauth = AuthAccessor(kind="reddit-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="reddit-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"reddit-ads"}))
 
 
 class ResendKind(KindAccessor):
     kind = "resend"
-    oauth = AuthAccessor(kind="resend", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="resend")  # the default
     token = AuthAccessor(kind="resend", auth_type=AuthType.TOKEN)
     any = IntegrationReader(kinds=frozenset({"resend"}))
 
@@ -311,26 +312,26 @@ class S3CompatibleKind(KindAccessor):
 
 class SalesforceKind(KindAccessor):
     kind = "salesforce"
-    oauth = AuthAccessor(kind="salesforce", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="salesforce")  # the default
     any = IntegrationReader(kinds=frozenset({"salesforce"}))
 
 
 class SlackKind(KindAccessor):
     kind = "slack"
-    oauth = AuthAccessor(kind="slack", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="slack")  # the default
     token = AuthAccessor(kind="slack", auth_type=AuthType.TOKEN)
     any = IntegrationReader(kinds=frozenset({"slack"}))
 
 
 class SlackPosthogCodeKind(KindAccessor):
     kind = "slack-posthog-code"
-    oauth = AuthAccessor(kind="slack-posthog-code", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="slack-posthog-code")  # the default
     any = IntegrationReader(kinds=frozenset({"slack-posthog-code"}))
 
 
 class SnapchatKind(KindAccessor):
     kind = "snapchat"
-    oauth = AuthAccessor(kind="snapchat", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="snapchat")  # the default
     any = IntegrationReader(kinds=frozenset({"snapchat"}))
 
 
@@ -342,14 +343,14 @@ class SnowflakeKind(KindAccessor):
 
 class StripeKind(KindAccessor):
     kind = "stripe"
-    oauth = AuthAccessor(kind="stripe", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="stripe")  # the default
     token = AuthAccessor(kind="stripe", auth_type=AuthType.TOKEN)
     any = IntegrationReader(kinds=frozenset({"stripe"}))
 
 
 class TiktokAdsKind(KindAccessor):
     kind = "tiktok-ads"
-    oauth = AuthAccessor(kind="tiktok-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="tiktok-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"tiktok-ads"}))
 
 
@@ -361,20 +362,20 @@ class TwilioKind(KindAccessor):
 
 class TwitterAdsKind(KindAccessor):
     kind = "twitter-ads"
-    oauth = AuthAccessor(kind="twitter-ads", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="twitter-ads")  # the default
     any = IntegrationReader(kinds=frozenset({"twitter-ads"}))
 
 
 class VercelKind(KindAccessor):
     kind = "vercel"
-    oauth = AuthAccessor(kind="vercel", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="vercel")  # the default
     token = AuthAccessor(kind="vercel", auth_type=AuthType.TOKEN)
     any = IntegrationReader(kinds=frozenset({"vercel"}))
 
 
 class YoutubeAnalyticsKind(KindAccessor):
     kind = "youtube-analytics"
-    oauth = AuthAccessor(kind="youtube-analytics", auth_type=AuthType.OAUTH)  # the default
+    oauth = OAuthAccessor(kind="youtube-analytics")  # the default
     any = IntegrationReader(kinds=frozenset({"youtube-analytics"}))
 
 

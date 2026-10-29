@@ -18,14 +18,10 @@ from collections.abc import Mapping
 from posthog.integrations import accessors, source_kinds, usages
 from posthog.integrations.enums import AuthType
 from posthog.integrations.kinds_generated import GeneratedIntegrationManager
-from posthog.models.integration.model import Integration
-
-# The Django model for now. A later change makes it a frozen record, so callers must not call
-# `.save()` or `.delete()` on it, and must write through the SDK.
-IntegrationRecord = Integration
 
 IntegrationReader = accessors.IntegrationReader
 AuthAccessor = accessors.AuthAccessor
+OAuthAccessor = accessors.OAuthAccessor
 SourceKindAccessor = accessors.SourceKindAccessor
 UsageProvider = usages.UsageProvider
 

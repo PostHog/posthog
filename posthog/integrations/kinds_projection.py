@@ -26,6 +26,7 @@ from posthog.integrations.accessors import (
     IntegrationManagerBase,
     IntegrationReader,
     KindAccessor,
+    OAuthAccessor,
 )
 from posthog.integrations.enums import AuthType
 '''
@@ -45,7 +46,12 @@ def _kind_class(kind: str, spec: KindSpec) -> list[str]:
         if auth_type not in spec.supported:
             continue
         note = "  # the default" if auth_type == spec.default else ""
-        lines.append(f'    {auth_type.value} = AuthAccessor(kind="{kind}", auth_type=AuthType.{auth_type.name}){note}')
+        if auth_type == AuthType.OAUTH:
+            lines.append(f'    oauth = OAuthAccessor(kind="{kind}"){note}')
+        else:
+            lines.append(
+                f'    {auth_type.value} = AuthAccessor(kind="{kind}", auth_type=AuthType.{auth_type.name}){note}'
+            )
     lines.append(f'    any = IntegrationReader(kinds=frozenset({{"{kind}"}}))')
     return lines
 

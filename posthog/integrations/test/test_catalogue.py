@@ -12,7 +12,7 @@ from hogli_commands.projections import PROJECTIONS, OutputFormatter, ProjectionR
 from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager
-from posthog.integrations.accessors import AuthAccessor, IntegrationReader
+from posthog.integrations.accessors import AuthAccessor, IntegrationReader, OAuthAccessor
 from posthog.integrations.catalogue import KINDS
 from posthog.integrations.contracts import UnsupportedIntegrationFilter
 from posthog.integrations.enums import AuthType
@@ -98,7 +98,8 @@ class TestCatalogue(SimpleTestCase):
         present = {auth_type for auth_type in AuthType if hasattr(accessor, auth_type.value)}
 
         assert present == KINDS[kind].supported
-        assert all(type(getattr(accessor, auth_type.value)) is AuthAccessor for auth_type in present)
+        expected = {AuthType.OAUTH: OAuthAccessor, AuthType.TOKEN: AuthAccessor, AuthType.CREDENTIALS: AuthAccessor}
+        assert all(type(getattr(accessor, auth_type.value)) is expected[auth_type] for auth_type in present)
         assert type(accessor.any) is IntegrationReader
 
     @parameterized.expand(
@@ -106,7 +107,7 @@ class TestCatalogue(SimpleTestCase):
             ("create",),
             ("upsert",),
             ("update",),
-            ("update_atomically",),
+            ("refresh_access_token",),
             ("update_by_external_id",),
             ("acreate",),
             ("aupdate",),
@@ -115,7 +116,7 @@ class TestCatalogue(SimpleTestCase):
     def test_any_readers_have_no_writes(self, method: str) -> None:
         assert not hasattr(IntegrationManager.any, method)
         assert not hasattr(IntegrationManager.stripe.any, method)
-        assert hasattr(IntegrationManager.stripe.token, method)
+        assert hasattr(IntegrationManager.stripe.oauth, method)
 
     @parameterized.expand(
         [
@@ -162,11 +163,19 @@ IntegrationManager.github.credentials
 IntegrationManager.any.update(1, 2, errors="")
 IntegrationManager.postgresql.oauth
 IntegrationManager.stripe.any.upsert(1, "x", config={})
+row = IntegrationManager.github.oauth.get(1, 2)
+row.save()
+row.delete()
+row.config["x"] = 1
+row.objects
+IntegrationManager.github.token.refresh_access_token(1, 2)
+row.config.get("x")
+IntegrationManager.resend.oauth.refresh_access_token(1, 2, stale_access_token="t").sensitive_config
 """
 
 
 @pytest.mark.timeout(300)
-def test_mypy_rejects_unsupported_auth_types_and_writes_through_any(
+def test_mypy_rejects_unsupported_auth_types_writes_through_any_and_row_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # mypy also searches the working directory, which would pull in the whole repo.
@@ -205,4 +214,9 @@ def test_mypy_rejects_unsupported_auth_types_and_writes_through_any(
         (11, '"IntegrationReader" has no attribute "update"'),
         (12, '"PostgresqlKind" has no attribute "oauth"'),
         (13, '"IntegrationReader" has no attribute "upsert"'),
+        (15, '"IntegrationRecord" has no attribute "save"'),
+        (16, '"IntegrationRecord" has no attribute "delete"'),
+        (17, 'Unsupported target for indexed assignment ("Mapping[str, Any]")'),
+        (18, '"IntegrationRecord" has no attribute "objects"'),
+        (19, '"AuthAccessor" has no attribute "refresh_access_token"'),
     ], stdout + stderr

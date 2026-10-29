@@ -12,6 +12,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
@@ -446,6 +447,15 @@ class Integration(models.Model):
 
 # `setattr`, because the type of `objects` is the manager, not its descriptor.
 setattr(Integration, "objects", ManagerDescriptor(Integration._implicit_default_auth_objects))  # noqa: B010
+
+
+def integration_model(record: IntegrationRecord) -> Integration:
+    """The model behind a row of the integrations SDK.
+
+    The SDK returns its rows as the read-only `IntegrationRecord`, and they are model instances at
+    runtime. Only the per-kind adapters next to the model use it, because they still write the row.
+    """
+    return cast(Integration, record)
 
 
 def defer_repository_cache_fields[QuerySetT: models.QuerySet[Integration]](queryset: QuerySetT) -> QuerySetT:

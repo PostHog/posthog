@@ -2,17 +2,19 @@
 
 An accessor holds a scope: the kinds, the auth type, and whether it sees warehouse source rows. Every
 operation reads or writes only rows in that scope. No accessor sees warehouse source rows unless the
-caller asks for them with `with_source_rows()` or uses `IntegrationManager.source(kind)`. `IntegrationReader` has the reads and the deletes.
-`AuthAccessor` adds the writes, and exists only for one kind with one auth type, because a new row
-has exactly one auth type.
+caller asks for them with `with_source_rows()` or uses `IntegrationManager.source(kind)`.
+`IntegrationReader` has the reads and the deletes. `AuthAccessor` adds the writes, and exists only for
+one kind with one auth type, because a new row has exactly one auth type. `OAuthAccessor` adds the
+token refresh.
 
-No operation returns a queryset. The integration rows move to a separate service later, so the
-operations here are the whole contract, and only their transport changes.
+No operation returns a queryset, and no operation runs caller code inside its transaction. The
+integration rows move to a separate service later, so the operations here are the whole contract, and
+only their transport changes. Rows come back typed as the read-only `IntegrationRecord`.
 """
 
 import re
 import builtins
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from enum import Enum
 from typing import ClassVar, Literal
 
@@ -27,6 +29,7 @@ from posthog.integrations.contracts import (
     IntegrationInUse,
     IntegrationNotFound,
     IntegrationPatch,
+    IntegrationRecord,
     IntegrationUsage,
     UnknownIntegrationKind,
     UnsupportedAuthType,
@@ -37,6 +40,7 @@ from posthog.integrations.source_kinds import is_source_kind
 from posthog.integrations.usages import integration_usages
 from posthog.models.integration.auth_types import ANY, AUTH_TYPE_CONFIG_KEY, default_auth_type, kind_auth_types
 from posthog.models.integration.model import Integration, IntegrationQuerySet, defer_repository_cache_fields
+from posthog.models.integration.oauth import OauthIntegration
 from posthog.sync import database_sync_to_async
 
 # The SDK writes these keys itself. A caller cannot set, remove or filter on them.
@@ -195,14 +199,18 @@ class IntegrationReader:
             raise ValueError("This accessor reads only warehouse source rows")
         return IntegrationReader(kinds=self._kinds, auth_type=self._auth_type, source_rows=SourceRows.INCLUDE)
 
-    def get(self, team_id: int, id: int) -> Integration:
-        """The row with this id. Raises `IntegrationNotFound` when the row is not in the scope."""
+    def _row(self, team_id: int, id: int, *, lock: bool = False) -> Integration:
+        rows = self._team_rows(team_id)
         try:
-            return self._team_rows(team_id).get(id=id)
+            return (rows.select_for_update() if lock else rows).get(id=id)
         except (Integration.DoesNotExist, ValueError, TypeError) as error:
             raise IntegrationNotFound(f"No integration {id!r} in {self!r} for team {team_id}") from error
 
-    def get_many(self, team_id: int, ids: Iterable[int]) -> dict[int, Integration]:
+    def get(self, team_id: int, id: int) -> IntegrationRecord:
+        """The row with this id. Raises `IntegrationNotFound` when the row is not in the scope."""
+        return self._row(team_id, id)
+
+    def get_many(self, team_id: int, ids: Iterable[int]) -> dict[int, IntegrationRecord]:
         """The rows with these ids, keyed by id. Ids that are not in the scope are missing from the result."""
         return {row.id: row for row in self._team_rows(team_id).filter(id__in=list(ids))}
 
@@ -213,7 +221,7 @@ class IntegrationReader:
         team_ids: Iterable[int] | None = None,
         external_id: str | None = None,
         where: Mapping[str, ConfigValue] | None = None,
-    ) -> Integration | None:
+    ) -> IntegrationRecord | None:
         """The oldest row with this external id and these config values, or None.
 
         Pass `team_id` or `team_ids`, not both. An empty `team_ids` finds nothing.
@@ -227,7 +235,7 @@ class IntegrationReader:
         external_id: str | None = None,
         where: Mapping[str, ConfigValue] | None = None,
         newest_first: bool = False,
-    ) -> builtins.list[Integration]:
+    ) -> builtins.list[IntegrationRecord]:
         order = ("-created_at", "-id") if newest_first else ("created_at", "id")
         return list(self._matching(team_id, external_id, where).order_by(*order))
 
@@ -244,7 +252,7 @@ class IntegrationReader:
 
     def list_by_external_id(
         self, external_id: str, *, team_ids: Iterable[int] | None = None
-    ) -> builtins.list[Integration]:
+    ) -> builtins.list[IntegrationRecord]:
         """Rows of every team with this external id, for example the teams that share one GitHub installation.
 
         Raises `ValueError` on `IntegrationManager.any`, because the result would mix providers.
@@ -254,7 +262,7 @@ class IntegrationReader:
             rows = rows.filter(team_id__in=list(team_ids))
         return list(rows.order_by("created_at", "id"))
 
-    def get_by_external_id(self, external_id: str, id: int) -> Integration:
+    def get_by_external_id(self, external_id: str, id: int) -> IntegrationRecord:
         """The row with this id and this external id, in any team.
 
         For a callback that names both, such as a GitHub installation and one of its rows. Raises
@@ -281,7 +289,7 @@ class IntegrationReader:
 
     def delete(self, team_id: int, id: int, *, ignore_usages: bool = False) -> None:
         """Delete the row. Raises `IntegrationInUse` when other objects use it, unless `ignore_usages`."""
-        row = self.get(team_id, id)
+        row = self._row(team_id, id)
         if not ignore_usages:
             usages = integration_usages(team_id, row.id)
             if usages:
@@ -302,10 +310,10 @@ class IntegrationReader:
                 deleted += 1
         return deleted
 
-    async def aget(self, team_id: int, id: int) -> Integration:
+    async def aget(self, team_id: int, id: int) -> IntegrationRecord:
         return await database_sync_to_async(self.get)(team_id, id)
 
-    async def aget_many(self, team_id: int, ids: Iterable[int]) -> dict[int, Integration]:
+    async def aget_many(self, team_id: int, ids: Iterable[int]) -> dict[int, IntegrationRecord]:
         return await database_sync_to_async(self.get_many)(team_id, list(ids))
 
     async def afind(
@@ -315,7 +323,7 @@ class IntegrationReader:
         team_ids: Iterable[int] | None = None,
         external_id: str | None = None,
         where: Mapping[str, ConfigValue] | None = None,
-    ) -> Integration | None:
+    ) -> IntegrationRecord | None:
         return await database_sync_to_async(self.find)(
             team_id, team_ids=None if team_ids is None else list(team_ids), external_id=external_id, where=where
         )
@@ -327,7 +335,7 @@ class IntegrationReader:
         external_id: str | None = None,
         where: Mapping[str, ConfigValue] | None = None,
         newest_first: bool = False,
-    ) -> builtins.list[Integration]:
+    ) -> builtins.list[IntegrationRecord]:
         return await database_sync_to_async(self.list)(
             team_id, external_id=external_id, where=where, newest_first=newest_first
         )
@@ -387,7 +395,7 @@ class AuthAccessor(IntegrationReader):
         config: Mapping[str, object],
         sensitive_config: Mapping[str, object] | None = None,
         created_by_id: int | None = None,
-    ) -> Integration:
+    ) -> IntegrationRecord:
         """Create a row. The SDK writes `config["auth_type"]` when the auth type is not the kind's default.
 
         Raises `IntegrationConflict` when the team already has a row of the kind with this external id.
@@ -418,7 +426,7 @@ class AuthAccessor(IntegrationReader):
         config: Mapping[str, object],
         sensitive_config: Mapping[str, object] | None = None,
         created_by_id: int | None = None,
-    ) -> tuple[Integration, bool]:
+    ) -> tuple[IntegrationRecord, bool]:
         """Create the row with this external id, or replace the config of the existing one.
 
         Returns the row and True when it is new. Raises `IntegrationConflict` when a row with this
@@ -461,7 +469,7 @@ class AuthAccessor(IntegrationReader):
         sensitive_config_patch: Mapping[str, object] | None = None,
         sensitive_config_remove: Iterable[str] = (),
         errors: str | None = None,
-    ) -> Integration:
+    ) -> IntegrationRecord:
         """Merge `config_patch` into the config and drop the keys in `config_remove`. `errors=None` keeps the errors."""
         patch = IntegrationPatch(
             config_patch=dict(config_patch or {}),
@@ -470,18 +478,12 @@ class AuthAccessor(IntegrationReader):
             sensitive_config_remove=tuple(sensitive_config_remove),
             errors=errors,
         )
-        return self.update_atomically(team_id, id, lambda _row: patch)
-
-    def update_atomically(
-        self, team_id: int, id: int, change: Callable[[Integration], IntegrationPatch]
-    ) -> Integration:
-        """Lock the row, call `change` with it, and apply the patch that `change` returns, in one transaction."""
+        _checked_config_keys([*patch.config_patch, *patch.config_remove])
         with transaction.atomic():
-            try:
-                row = self._team_rows(team_id).select_for_update().get(id=id)
-            except (Integration.DoesNotExist, ValueError, TypeError) as error:
-                raise IntegrationNotFound(f"No integration {id!r} in {self!r} for team {team_id}") from error
-            _apply(row, change(row))
+            row = self._row(team_id, id, lock=True)
+            update_fields = _patch_row(row, patch)
+            if update_fields:
+                row.save(update_fields=update_fields)
             return row
 
     def update_by_external_id(self, external_id: str, patch: IntegrationPatch) -> int:
@@ -517,7 +519,7 @@ class AuthAccessor(IntegrationReader):
         config: Mapping[str, object],
         sensitive_config: Mapping[str, object] | None = None,
         created_by_id: int | None = None,
-    ) -> Integration:
+    ) -> IntegrationRecord:
         return await database_sync_to_async(self.create)(
             team_id,
             external_id=external_id,
@@ -534,7 +536,7 @@ class AuthAccessor(IntegrationReader):
         config: Mapping[str, object],
         sensitive_config: Mapping[str, object] | None = None,
         created_by_id: int | None = None,
-    ) -> tuple[Integration, bool]:
+    ) -> tuple[IntegrationRecord, bool]:
         return await database_sync_to_async(self.upsert)(
             team_id, external_id, config=config, sensitive_config=sensitive_config, created_by_id=created_by_id
         )
@@ -549,7 +551,7 @@ class AuthAccessor(IntegrationReader):
         sensitive_config_patch: Mapping[str, object] | None = None,
         sensitive_config_remove: Iterable[str] = (),
         errors: str | None = None,
-    ) -> Integration:
+    ) -> IntegrationRecord:
         return await database_sync_to_async(self.update)(
             team_id,
             id,
@@ -559,11 +561,6 @@ class AuthAccessor(IntegrationReader):
             sensitive_config_remove=tuple(sensitive_config_remove),
             errors=errors,
         )
-
-    async def aupdate_atomically(
-        self, team_id: int, id: int, change: Callable[[Integration], IntegrationPatch]
-    ) -> Integration:
-        return await database_sync_to_async(self.update_atomically)(team_id, id, change)
 
 
 def _patch_row(row: Integration, patch: IntegrationPatch) -> list[str]:
@@ -583,11 +580,43 @@ def _patch_row(row: Integration, patch: IntegrationPatch) -> list[str]:
     return changed
 
 
-def _apply(row: Integration, patch: IntegrationPatch) -> None:
-    _checked_config_keys([*patch.config_patch, *patch.config_remove])
-    update_fields = _patch_row(row, patch)
-    if update_fields:
-        row.save(update_fields=update_fields)
+class OAuthAccessor(AuthAccessor):
+    """Reads and writes of the OAuth rows of one kind, and the refresh of their access tokens."""
+
+    def __init__(self, *, kind: str, source_rows: SourceRows = SourceRows.EXCLUDE) -> None:
+        super().__init__(kind=kind, auth_type=AuthType.OAUTH, source_rows=source_rows)
+
+    def refresh_access_token(
+        self, team_id: int, id: int, *, stale_access_token: str | None = None
+    ) -> IntegrationRecord:
+        """Refresh the access token of the row when it expires soon, and return the row.
+
+        The refresh holds a lock on the row. Some providers rotate the refresh token on each refresh
+        and revoke the grant when a token is spent twice, so two workers must not refresh one row at
+        the same time. The second worker waits for the lock, and then gets the token that the first
+        worker stored.
+
+        Pass `stale_access_token` to refresh also when that token is still the stored access token,
+        for example after the provider refused it. When the row has another token, the row comes back
+        without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
+        Raises `ValueError` when the kind has no OAuth token refresh.
+        """
+        if self._kind not in OauthIntegration.supported_kinds:
+            raise ValueError(f"Integration kind {self._kind!r} has no OAuth token refresh")
+        with transaction.atomic():
+            row = self._row(team_id, id, lock=True)
+            oauth = OauthIntegration(row)
+            stale = stale_access_token is not None and row.access_token == stale_access_token
+            if stale or oauth.access_token_expired():
+                oauth.refresh_access_token()
+            return row
+
+    async def arefresh_access_token(
+        self, team_id: int, id: int, *, stale_access_token: str | None = None
+    ) -> IntegrationRecord:
+        return await database_sync_to_async(self.refresh_access_token)(
+            team_id, id, stale_access_token=stale_access_token
+        )
 
 
 class KindAccessor:

@@ -1,3 +1,4 @@
+import time
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -7,27 +8,31 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.integrations import usages
+from posthog.integrations import IntegrationManager, register_source_kinds, register_usage_provider, usages
 from posthog.integrations.accessors import AuthAccessor, IntegrationReader, SourceRows
 from posthog.integrations.contracts import (
     IntegrationConflict,
     IntegrationInUse,
     IntegrationNotFound,
     IntegrationPatch,
+    IntegrationRecord,
     IntegrationUsage,
     UnknownIntegrationKind,
     UnsupportedAuthType,
     UnsupportedIntegrationFilter,
 )
 from posthog.integrations.enums import AuthType
-from posthog.integrations.manager import IntegrationManager, register_source_kinds, register_usage_provider
 from posthog.models import Team
 from posthog.models.integration import ANY, Integration, auth_types
 from posthog.models.integration.auth_types import default_auth_type, kind_auth_types
 from posthog.models.integration.model import IntegrationQuerySet
+from posthog.models.integration.oauth import OauthIntegration
 
 MARKER = "warehouse_source_type"
 
@@ -66,7 +71,7 @@ class TestIntegrationAccessors(BaseTest):
             team=self.other_team, kind="github", integration_id="github_oauth", config={}
         )
 
-    def _names(self, rows: list[Integration]) -> set[str]:
+    def _names(self, rows: Iterable[IntegrationRecord]) -> set[str]:
         return {row.integration_id for row in rows if row.team_id == self.team.id and row.integration_id}
 
     @parameterized.expand(
@@ -294,12 +299,7 @@ class TestIntegrationAccessors(BaseTest):
             ("list", lambda self, a: a.list(self.team.id)),
             ("list_by_external_id", lambda self, a: a.list_by_external_id("github_oauth")),
             ("get_by_external_id", lambda self, a: [a.get_by_external_id("github_oauth", self.other_row.id)]),
-            (
-                "update_atomically",
-                lambda self, a: [
-                    a.update_atomically(self.team.id, self.rows["github_oauth"].id, lambda row: IntegrationPatch())
-                ],
-            ),
+            ("update", lambda self, a: [a.update(self.team.id, self.rows["github_oauth"].id, errors="")]),
             ("upsert_of_an_existing_row", lambda self, a: [a.upsert(self.team.id, "github_oauth", config={})[0]]),
         ]
     )
@@ -419,7 +419,7 @@ class TestIntegrationAccessors(BaseTest):
             self.team.id, "new", config={"b": 2}, sensitive_config={"token": "t"}, created_by_id=self.user.id
         )
 
-        again.refresh_from_db()
+        again = Integration._base_manager.get(id=again.id)
         assert (created, created_again, again.id) == (True, False, row.id)
         assert (again.config, again.sensitive_config, again.created_by_id) == (
             {"b": 2, "auth_type": "token"},
@@ -551,19 +551,67 @@ class TestIntegrationAccessors(BaseTest):
         with self.assertRaises(IntegrationNotFound):
             IntegrationManager.github.oauth.update(self.team.id, self.rows["github_token"].id, errors="")
 
-    def test_update_atomically_passes_the_locked_row(self) -> None:
-        row = self.rows["github_oauth"]
-        seen: list[Integration] = []
+    def _resend_row(self, *, refreshed_ago: int) -> Integration:
+        return Integration.objects._with_auth(ANY).create(
+            team=self.team,
+            kind="resend",
+            integration_id="resend-account",
+            config={"expires_in": 900, "refreshed_at": int(time.time()) - refreshed_ago},
+            sensitive_config={"access_token": "old", "refresh_token": "r1"},
+        )
 
-        def change(current: Integration) -> IntegrationPatch:
-            seen.append(current)
-            return IntegrationPatch(config_patch={"count": current.config.get("count", 0) + 1})
+    @parameterized.expand(
+        [
+            ("expired", 800, None, True),
+            ("fresh", 10, None, False),
+            ("fresh_but_the_caller_holds_the_stored_token", 10, "old", True),
+            ("fresh_and_another_worker_rotated_the_token", 10, "older", False),
+            ("expired_and_another_worker_rotated_the_token", 800, "older", True),
+        ]
+    )
+    def test_refresh_access_token_refreshes_only_when_needed(
+        self, _name: str, refreshed_ago: int, stale_access_token: str | None, refreshes: bool
+    ) -> None:
+        row = self._resend_row(refreshed_ago=refreshed_ago)
 
-        IntegrationManager.github.oauth.update_atomically(self.team.id, row.id, change)
-        updated = IntegrationManager.github.oauth.update_atomically(self.team.id, row.id, change)
+        def rotate(oauth: OauthIntegration) -> None:
+            oauth.integration.sensitive_config = {"access_token": "new", "refresh_token": "r2"}
+            oauth.integration.save()
 
-        assert [current.id for current in seen] == [row.id, row.id]
-        assert updated.config["count"] == 2
+        with (
+            patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=rotate) as refresh,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            result = IntegrationManager.resend.oauth.refresh_access_token(
+                self.team.id, row.id, stale_access_token=stale_access_token
+            )
+
+        expected_token = "new" if refreshes else "old"
+        assert refresh.call_count == (1 if refreshes else 0)
+        assert (result.id, result.sensitive_config["access_token"]) == (row.id, expected_token)
+        assert Integration._base_manager.get(id=row.id).sensitive_config["access_token"] == expected_token
+        assert any("FOR UPDATE" in query["sql"] for query in queries.captured_queries)
+
+    @parameterized.expand(
+        [
+            ("kind_without_a_refresh", lambda: IntegrationManager.github.oauth, "github_oauth", ValueError),
+            ("row_of_another_kind", lambda: IntegrationManager.stripe.oauth, "github_oauth", IntegrationNotFound),
+            (
+                "row_with_another_auth_type",
+                lambda: IntegrationManager.stripe.oauth,
+                "stripe_token",
+                IntegrationNotFound,
+            ),
+        ]
+    )
+    def test_refresh_access_token_raises(
+        self, _name: str, accessor: Callable[[], Any], row_name: str, error: type[Exception]
+    ) -> None:
+        with patch.object(OauthIntegration, "refresh_access_token") as refresh:
+            with self.assertRaises(error):
+                accessor().refresh_access_token(self.team.id, self.rows[row_name].id)
+
+        refresh.assert_not_called()
 
     @parameterized.expand(
         [
@@ -743,9 +791,9 @@ class TestIntegrationAccessors(BaseTest):
         )
         upserted, was_created = async_to_sync(accessor.aupsert)(self.team.id, "made", config={"b": 2})
         updated = async_to_sync(accessor.aupdate)(self.team.id, row.id, config_patch={"x": 1}, errors="boom")
-        atomic = async_to_sync(accessor.aupdate_atomically)(
-            self.team.id, row.id, lambda current: IntegrationPatch(config_patch={"y": current.config["x"] + 1})
-        )
+        oauth_row = self._resend_row(refreshed_ago=800)
+        with patch.object(OauthIntegration, "refresh_access_token") as refresh:
+            refreshed = async_to_sync(IntegrationManager.resend.oauth.arefresh_access_token)(self.team.id, oauth_row.id)
 
         assert (created.config, created.sensitive_config, created.created_by_id) == (
             {"a": 1, "auth_type": "token"},
@@ -754,8 +802,8 @@ class TestIntegrationAccessors(BaseTest):
         )
         assert (upserted.id, was_created, upserted.config) == (created.id, False, {"b": 2, "auth_type": "token"})
         assert (updated.config["x"], updated.errors) == (1, "boom")
-        assert atomic.config["y"] == 2
-        assert Integration._base_manager.get(id=row.id).config["y"] == 2
+        assert Integration._base_manager.get(id=row.id).config["x"] == 1
+        assert (refreshed.id, refresh.call_count) == (oauth_row.id, 1)
 
 
 class TestRegistration(BaseTest):

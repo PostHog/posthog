@@ -9,9 +9,9 @@ from rest_framework import serializers
 from rest_framework.fields import empty, get_attribute
 from rest_framework.relations import PKOnlyObject
 
-from posthog.integrations.contracts import IntegrationNotFound
+from posthog.integrations.contracts import IntegrationNotFound, IntegrationRecord
 from posthog.integrations.enums import AuthType
-from posthog.integrations.manager import IntegrationManager, IntegrationRecord
+from posthog.integrations.manager import IntegrationManager
 
 
 @extend_schema_field(OpenApiTypes.INT)
@@ -91,4 +91,8 @@ class IntegrationReferenceField(serializers.Field):
         return super().get_attribute(instance)
 
     def to_representation(self, value: IntegrationRecord | PKOnlyObject | int) -> int:
-        return value if isinstance(value, int) else value.pk
+        if isinstance(value, int):
+            return value
+        if isinstance(value, PKOnlyObject):
+            return value.pk
+        return value.id
