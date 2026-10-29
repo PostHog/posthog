@@ -199,6 +199,39 @@ describe('reportListLogic', () => {
             bulkLogic.unmount()
         })
 
+        // The page that lands extends the rows it read before the request, which predate a claim made meanwhile.
+        it('keeps a claim that lands while the next page loads', async () => {
+            let release: () => void = () => {}
+            const pageHeld = new Promise<void>((resolve) => (release = resolve))
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async () => {
+                        await pageHeld
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                next: null,
+                                previous: null,
+                                results: SECOND_PAGE,
+                            },
+                        ]
+                    },
+                },
+            })
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+
+            logic.actions.loadMore()
+            bulkLogic.actions.reportClaimsChanged([{ reportId: FIRST_PAGE[0].id, assignee: myClaim }])
+            release()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)?.assignee).toEqual(myClaim)
+            bulkLogic.unmount()
+        })
+
         // A failed next page keeps the loaded rows and `hasMore`, and the scroll sentinel may sit
         // inside the viewport without re-firing. The flag is what surfaces the retry control, and a
         // plain `loadMore` must be able to fetch the page again.

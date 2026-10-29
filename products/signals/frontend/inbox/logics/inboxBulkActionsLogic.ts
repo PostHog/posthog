@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -44,17 +45,25 @@ function formatUnassignSummary({ successCount, failureCount }: BulkActionResult)
     return failureCount === 0 ? unassigned : `${unassigned}, ${failureCount} failed`
 }
 
-function formatClaimSummary({ successCount, failureCount }: BulkActionResult, conflictCount: number): string {
-    const summary =
-        successCount === 0
-            ? `Couldn't claim ${pluralize(failureCount, 'report')}`
-            : failureCount === 0
-              ? `Claimed ${pluralize(successCount, 'report')}`
-              : `Claimed ${pluralize(successCount, 'report')}, ${failureCount} failed`
-    if (conflictCount > 0) {
-        return `${summary}. Someone else already claimed ${pluralize(conflictCount, 'report')}.`
+/** Claims a bulk action sends at once. Each claim is a transactional write on the server. */
+export const BULK_CLAIM_CONCURRENCY = 4
+
+function formatClaimSummary(claimedCount: number, changedCount: number, failedCount: number): string {
+    const parts: string[] = []
+    if (claimedCount > 0) {
+        parts.push(`Claimed ${pluralize(claimedCount, 'report')}`)
     }
-    return successCount === 0 ? `${summary}. Try again.` : summary
+    if (changedCount > 0) {
+        parts.push(
+            changedCount === 1
+                ? '1 report changed before it could be claimed'
+                : `${changedCount} reports changed before they could be claimed`
+        )
+    }
+    if (failedCount > 0) {
+        parts.push(`Couldn't claim ${pluralize(failedCount, 'report')}. Try again.`)
+    }
+    return parts.join('. ')
 }
 
 /** One report's new claim. `assignee` is null once the claim is released. */
@@ -493,8 +502,13 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 bulkSize: reports.length,
             })
             const projectId = String(values.currentTeamId)
+            const requests = new ConcurrencyController(BULK_CLAIM_CONCURRENCY)
             const results = await Promise.allSettled(
-                reports.map((report) => signalsReportsClaim(projectId, report.id, reportClaimRequest(report, true)))
+                reports.map((report) =>
+                    requests.run({
+                        fn: () => signalsReportsClaim(projectId, report.id, reportClaimRequest(report, true)),
+                    })
+                )
             )
             const changes: ReportClaimChange[] = []
             const conflictedIds: string[] = []
@@ -506,12 +520,17 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 }
             })
             const successCount = changes.length
-            // A 409 means someone claimed the report after the list loaded. Read who holds it now, so
-            // the row stops offering a claim that the server refuses.
-            const current = await Promise.allSettled(conflictedIds.map((id) => signalsReportsRetrieve(projectId, id)))
+            // A 409 means the report changed after the list loaded: someone claimed it, or its status no
+            // longer allows a claim. Read it again, so the row stops offering a claim the server refuses.
+            const current = await Promise.allSettled(
+                conflictedIds.map((id) => requests.run({ fn: () => signalsReportsRetrieve(projectId, id) }))
+            )
+            const loadedStatus = new Map(reports.map((report) => [report.id, report.status]))
+            let statusChanged = false
             current.forEach((outcome, index) => {
                 if (outcome.status === 'fulfilled') {
                     changes.push({ reportId: conflictedIds[index], assignee: outcome.value.assignee })
+                    statusChanged ||= outcome.value.status !== loadedStatus.get(conflictedIds[index])
                 }
             })
             const result: BulkActionResult = { successCount, failureCount: reports.length - successCount }
@@ -520,7 +539,15 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             if (changes.length > 0) {
                 actions.reportClaimsChanged(changes)
             }
-            const summary = formatClaimSummary(result, conflictedIds.length)
+            // A report in a new status belongs to another section, so every list reconciles with the server.
+            if (statusChanged) {
+                actions.reportStateChanged()
+            }
+            const summary = formatClaimSummary(
+                successCount,
+                conflictedIds.length,
+                result.failureCount - conflictedIds.length
+            )
             if (result.failureCount > 0) {
                 lemonToast.error(summary)
             } else {

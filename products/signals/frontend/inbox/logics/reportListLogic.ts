@@ -26,7 +26,6 @@ import type {
     SignalReportMetricSnapshotsApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { createdAfterForWindow } from '../filterOptions'
 import { captureInboxReportAction, type InboxReportActionSurface, setInboxServedRanker } from '../inboxAnalytics'
 import {
@@ -43,7 +42,7 @@ import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from 
 import { reportClaimRequest } from '../utils/reportClaim'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
-import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { inboxBulkActionsLogic, type ReportClaimChange } from './inboxBulkActionsLogic'
 import { buildSignalReportListSortParams, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
 import { prCiStatusLogic } from './prCiStatusLogic'
@@ -346,12 +345,8 @@ export interface reportListLogicActions {
         reportId: string
         surface: InboxReportActionSurface
     }
-    setReportAssignee: (
-        reportId: string,
-        assignee: SignalReport['assignee']
-    ) => {
-        assignee: SignalReportAssigneeApi | null | undefined
-        reportId: string
+    setReportAssignees: (changes: ReportClaimChange[]) => {
+        changes: ReportClaimChange[]
     }
     setReportClaimed: (
         report: SignalReport,
@@ -505,7 +500,7 @@ export const reportListLogic = kea<reportListLogicType>([
         }),
         setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
-        setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
+        setReportAssignees: (changes: ReportClaimChange[]) => ({ changes }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
         // Ask the server for the newest snapshot of the metrics these rows show. Best effort: a
@@ -567,6 +562,9 @@ export const reportListLogic = kea<reportListLogicType>([
                     // those removals, so filter them out or a removed report comes back when the page lands.
                     const removedWhilePending = new Set<string>()
                     cache.removedWhilePageLoads = removedWhilePending
+                    // Claims that land meanwhile are recorded the same way, or the page brings back the old assignee.
+                    const assigneesWhilePending = new Map<string, SignalReport['assignee']>()
+                    cache.assigneesWhilePageLoads = assigneesWhilePending
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(params),
@@ -578,9 +576,12 @@ export const reportListLogic = kea<reportListLogicType>([
                     if (cache.firstPageRequestId !== firstPageRequestId && values.reportsResponse) {
                         return values.reportsResponse
                     }
+                    const results = [...current.filter((r) => !removedWhilePending.has(r.id)), ...response.results]
                     return {
                         ...response,
-                        results: [...current.filter((r) => !removedWhilePending.has(r.id)), ...response.results],
+                        results: results.map((r) =>
+                            assigneesWhilePending.has(r.id) ? { ...r, assignee: assigneesWhilePending.get(r.id) } : r
+                        ),
                         requestParams: params,
                         requestContext,
                     }
@@ -627,10 +628,17 @@ export const reportListLogic = kea<reportListLogicType>([
                           count: Math.max(0, state.count - 1),
                       }
                     : state,
-            setReportAssignee: (state, { reportId, assignee }) =>
-                state?.results.some((r) => r.id === reportId)
-                    ? { ...state, results: state.results.map((r) => (r.id === reportId ? { ...r, assignee } : r)) }
-                    : state,
+            setReportAssignees: (state, { changes }) => {
+                const assignees = new Map(changes.map((change) => [change.reportId, change.assignee]))
+                return state?.results.some((r) => assignees.has(r.id))
+                    ? {
+                          ...state,
+                          results: state.results.map((r) =>
+                              assignees.has(r.id) ? { ...r, assignee: assignees.get(r.id) } : r
+                          ),
+                      }
+                    : state
+            },
             setSuggestedToMe: (state, { reportIds, isSuggested }) => {
                 const ids = new Set(reportIds)
                 // Keep the same state when no row changes, so an unrelated edit does not re-render the list.
@@ -854,6 +862,11 @@ export const reportListLogic = kea<reportListLogicType>([
         removeReport: ({ reportId }) => {
             cache.removedWhilePageLoads?.add(reportId)
         },
+        setReportAssignees: ({ changes }) => {
+            for (const { reportId, assignee } of changes) {
+                cache.assigneesWhilePageLoads?.set(reportId, assignee)
+            }
+        },
         // One page of ids per request, sent one after the other so a page open never fans out into
         // parallel query bursts. A newer page load supersedes an in-flight refresh at the breakpoint.
         refreshReportMetrics: async ({ reportIds }, breakpoint) => {
@@ -1020,6 +1033,7 @@ export const reportListLogic = kea<reportListLogicType>([
             const loadedIds = new Set(values.reports.map((r) => r.id))
             const userUuid = values.user?.uuid
             let needsRefresh = false
+            const updates: ReportClaimChange[] = []
             for (const { reportId, assignee } of changes) {
                 const isLoaded = loadedIds.has(reportId)
                 if (values.scopeAssignee) {
@@ -1034,8 +1048,11 @@ export const reportListLogic = kea<reportListLogicType>([
                     }
                 }
                 if (isLoaded) {
-                    actions.setReportAssignee(reportId, assignee)
+                    updates.push({ reportId, assignee })
                 }
+            }
+            if (updates.length > 0) {
+                actions.setReportAssignees(updates)
             }
             if (needsRefresh) {
                 actions.refresh()
@@ -1101,7 +1118,7 @@ export const reportListLogic = kea<reportListLogicType>([
             if (bulkActions) {
                 bulkActions.actions.reportClaimChanged(reportId, assignee)
             } else {
-                actions.setReportAssignee(reportId, assignee)
+                actions.setReportAssignees([{ reportId, assignee }])
             }
         },
     })),

@@ -1,8 +1,14 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+// The global setup makes the controller a pass-through. The bulk claim makes its own per call, so the real one is safe here.
+jest.unmock('lib/utils/concurrencyController')
+
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { SignalReport, SignalReportStatus } from '../types'
+import { BULK_CLAIM_CONCURRENCY, inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
 describe('inboxBulkActionsLogic', () => {
     let logic: ReturnType<typeof inboxBulkActionsLogic.build>
@@ -89,6 +95,31 @@ describe('inboxBulkActionsLogic', () => {
 
         // 'z' is on a page that has not been fetched, so there is no range to extend to.
         await expectLogic(logic, () => logic.actions.selectRange('z')).toMatchValues({ selectedReportIds: ['a'] })
+    })
+
+    // Each claim is a transactional write, so a large selection must not reach the server as one burst.
+    it('keeps the number of claim requests in flight under the limit', async () => {
+        let inFlight = 0
+        let mostInFlight = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/claim/': async ({ params }) => {
+                    inFlight++
+                    mostInFlight = Math.max(mostInFlight, inFlight)
+                    await new Promise((resolve) => setTimeout(resolve, 0))
+                    inFlight--
+                    return [200, { id: params.id, assignee: null }]
+                },
+            },
+        })
+        const reports = Array.from(
+            { length: BULK_CLAIM_CONCURRENCY * 3 },
+            (_, index) => ({ id: `r-${index}`, status: SignalReportStatus.READY, assignee: null }) as SignalReport
+        )
+
+        await expectLogic(logic, () => logic.actions.bulkClaim(reports)).toDispatchActions(['bulkClaimSuccess'])
+
+        expect(mostInFlight).toBe(BULK_CLAIM_CONCURRENCY)
     })
 
     it('clears the anchor when the anchor row leaves the list', async () => {

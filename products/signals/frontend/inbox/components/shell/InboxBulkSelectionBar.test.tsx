@@ -112,15 +112,18 @@ describe('InboxBulkSelectionBar', () => {
         expect(deleted.sort()).toEqual(sent)
     })
 
-    // A bulk claim must skip reports a person already holds. A report a teammate claimed after the list
-    // loaded comes back 409, and its row must then show that teammate rather than offer the claim again.
-    it('claims only the unclaimed reports and reports each new holder in one broadcast', async () => {
+    // A bulk claim must skip reports a person already holds. A report that changed after the list loaded
+    // comes back 409, and its row must then show the current holder and section, not offer the claim again.
+    it.each([
+        { conflict: 'a teammate claimed it', holder: teammateClaim, status: SignalReportStatus.READY, moved: false },
+        { conflict: 'it was resolved', holder: null, status: SignalReportStatus.RESOLVED, moved: true },
+    ])('claims only the unclaimed reports and reconciles one that $conflict', async ({ holder, status, moved }) => {
         const claimed: string[] = []
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/:id/': ({ params }) => [
                     200,
-                    { id: params.id, assignee: teammateClaim },
+                    { id: params.id, assignee: holder, status },
                 ],
             },
             post: {
@@ -145,11 +148,15 @@ describe('InboxBulkSelectionBar', () => {
             .toDispatchActions([
                 logic.actionCreators.reportClaimsChanged([
                     { reportId: 'a', assignee: myClaim },
-                    { reportId: 'c', assignee: teammateClaim },
+                    { reportId: 'c', assignee: holder },
                 ]),
+                ...(moved ? ['reportStateChanged'] : []),
                 'bulkClaimSuccess',
             ])
             .toMatchValues({ selectedReportIds: [] })
+        if (!moved) {
+            await expectLogic(logic).toNotHaveDispatchedActions(['reportStateChanged'])
+        }
         expect(claimed.sort()).toEqual(['a', 'c'])
     })
 })
