@@ -33,6 +33,13 @@ describe('sourceManagementLogic', () => {
             results: [],
         } as any)
 
+        jest.spyOn(api.dataWarehouseTables, 'list').mockResolvedValue({
+            results: [],
+            count: 0,
+            next: null,
+            previous: null,
+        } as any)
+
         ;(performQuery as jest.Mock).mockResolvedValue({
             tables: {},
             joins: [],
@@ -200,5 +207,38 @@ describe('sourceManagementLogic', () => {
 
         resolveShallowLoad?.({ tables: {}, joins: [] } as DatabaseSchemaQueryResponse)
         await shallowLoad
+    })
+
+    it.each([
+        ['no linked tables', [], ['orders', 'users', 'events']],
+        ['one linked table', ['t-orders'], ['users', 'events']],
+        ['every self-managed table linked', ['t-orders', 't-users'], ['events']],
+        ['id of an unknown table', ['t-missing'], ['orders', 'users', 'events']],
+    ])('hides tables a managed source will import from the self-managed list: %s', async (_, linkedIds, expected) => {
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            tables: {
+                orders: { type: 'data_warehouse', id: 't-orders', name: 'orders', fields: {} },
+                users: { type: 'data_warehouse', id: 't-users', name: 'users', fields: {} },
+                // Linked tables are only hidden when they have no source of their own.
+                events: { type: 'data_warehouse', id: 't-events', name: 'events', fields: {} },
+                stripe_charges: {
+                    type: 'data_warehouse',
+                    id: 't-charges',
+                    name: 'stripe_charges',
+                    fields: {},
+                    source: { id: 's1', status: 'Running', source_type: 'Stripe', prefix: '' },
+                },
+            },
+            joins: [],
+        } as unknown as DatabaseSchemaQueryResponse)
+        jest.spyOn(api.dataWarehouseTables, 'list').mockResolvedValue({
+            results: linkedIds.map((id) => ({ id, pending_source_id: 's2' })),
+        } as any)
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPendingSelfManagedTableIdsSuccess'])
+        await expectLogic(databaseLogic).toDispatchActions(['loadDatabaseSuccess'])
+
+        expect(api.dataWarehouseTables.list).toHaveBeenCalledWith(expect.objectContaining({ pending_source: true }))
+        expect(logic.values.selfManagedTables.map((table) => table.name)).toEqual(expected)
     })
 })

@@ -81,6 +81,9 @@ const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | nu
 const dimWhenNotSyncing = (_: unknown, schema: ExternalDataSourceSchema): string =>
     schema.should_sync ? '' : 'opacity-60'
 
+const PENDING_SELF_MANAGED_TABLE_NOTE =
+    'This table reads your bucket until you turn on syncing. The first sync imports it into PostHog.'
+
 interface SchemaStatusDisplay {
     type: LemonTagType
     label: string
@@ -472,6 +475,9 @@ function ManagedSchemaTable({
                                 }
                                 description={((): JSX.Element | undefined => {
                                     const tableName = schema.table?.hogql_name ?? schema.table?.name
+                                    if (!tableName && schema.pending_self_managed_table && !schema.should_sync) {
+                                        return <span>{PENDING_SELF_MANAGED_TABLE_NOTE}</span>
+                                    }
                                     return tableName ? (
                                         <CopyToClipboardInline
                                             explicitValue={tableName}

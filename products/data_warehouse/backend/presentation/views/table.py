@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
+from django.db.models.manager import BaseManager
 
 import boto3
 import posthoganalytics
@@ -53,6 +54,7 @@ from products.warehouse_sources.backend.facade.api import (
     build_file_upload_url_pattern,
     denied_table_ids,
     hosted_upload_s3_path,
+    pending_source_ids_for_tables,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
@@ -256,6 +258,22 @@ class CredentialSerializer(serializers.ModelSerializer):
         }
 
 
+class TableListSerializer(serializers.ListSerializer):
+    """Resolves the pending source of every table in the page with one query."""
+
+    def to_representation(self, data):
+        tables = list(data.all() if isinstance(data, BaseManager) else data)
+        unsourced = [table for table in tables if table.external_data_source_id is None]
+        if unsourced:
+            team_ids = {table.team_id for table in unsourced}
+            cache = self.context.setdefault("pending_source_ids", {})
+            for team_id in team_ids:
+                ids = [table.id for table in unsourced if table.team_id == team_id]
+                found = pending_source_ids_for_tables(team_id, ids)
+                cache.update({table_id: found.get(table_id) for table_id in ids})
+        return super().to_representation(tables)
+
+
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
@@ -267,6 +285,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
+    pending_source_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The managed source that will import this self-managed table on its first sync, if one is linked.",
+    )
     options = serializers.DictField(
         required=False,
         default=dict,
@@ -303,9 +325,11 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "columns",
             "external_data_source",
             "external_schema",
+            "pending_source_id",
             "options",
             "user_access_level",
         ]
+        list_serializer_class = TableListSerializer
         read_only_fields = [
             "id",
             "created_by",
@@ -315,6 +339,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "columns",
             "external_data_source",
             "external_schema",
+            "pending_source_id",
             "user_access_level",
         ]
         extra_kwargs = {
@@ -378,6 +403,15 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             )
             for field in serializes_fields
         ]
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_pending_source_id(self, table: DataWarehouseTable) -> uuid.UUID | None:
+        if table.external_data_source_id is not None:
+            return None
+        cache = self.context.get("pending_source_ids")
+        if cache is not None and table.id in cache:
+            return cache[table.id]
+        return pending_source_ids_for_tables(table.team_id, [table.id]).get(table.id)
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
@@ -595,7 +629,13 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
                 bool,
                 description="Include table columns. Disable for lightweight table existence or name lookups.",
                 default=True,
-            )
+            ),
+            OpenApiParameter(
+                "pending_source",
+                bool,
+                description="Only return self-managed tables that a managed source will import on its first sync.",
+                default=False,
+            ),
         ]
     )
 )
@@ -623,13 +663,16 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return context
 
     def safely_get_queryset(self, queryset):
-        return (
+        queryset = (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
             .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
+        if self.action == "list" and self.request.query_params.get("pending_source", "").lower() == "true":
+            queryset = queryset.filter(id__in=list(pending_source_ids_for_tables(self.team_id)))
+        return queryset
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         queryset = super()._filter_queryset_by_access_level(queryset)

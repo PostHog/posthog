@@ -4930,6 +4930,38 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert summary["supports_row_filters"] is expected_row_filters
         assert "user_access_level" in summary
 
+    @parameterized.expand(
+        [
+            ("pinned_and_unsynced", True, False, True),
+            ("pinned_but_synced_table_set", True, True, False),
+            ("no_pin", False, False, False),
+        ]
+    )
+    def test_pending_self_managed_table(self, _name: str, pinned: bool, has_table: bool, expected: bool):
+        _source, schema = self._create()
+        if pinned:
+            schema.sync_type_config = {
+                "schema_metadata": {
+                    "self_managed_table": {
+                        "table_id": str(uuid.uuid4()),
+                        "url_pattern": "https://example.com/a/*.parquet",
+                        "format": "Parquet",
+                    }
+                }
+            }
+            schema.save()
+        if has_table:
+            schema.table = DataWarehouseTable.objects.create(
+                name="orders", format="Parquet", team=self.team, url_pattern="https://example.com/a/*.parquet"
+            )
+            schema.save()
+
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/").json()
+        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/").json()["results"]
+
+        assert detail["pending_self_managed_table"] is expected
+        assert [row["pending_self_managed_table"] for row in listed] == [expected]
+
     def test_list_omits_source_summary(self):
         self._create()
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/")
