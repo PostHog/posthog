@@ -312,10 +312,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"config_set": "config_set must be a JSON object"})
             if set(config_set).intersection(config_remove):
                 raise serializers.ValidationError("A config key cannot be both set and removed.")
-            config = {**self.instance.config, **config_set}
+            merged_config = {**self.instance.config, **config_set}
             for key in config_remove:
-                config.pop(key, None)
-            attrs["config"] = config
+                merged_config.pop(key, None)
+            attrs["config"] = merged_config
         config = attrs.get("config")
         # `is not None` rather than truthiness: falsy non-dict values ([], "", 0, false) must be
         # rejected, not silently persisted.

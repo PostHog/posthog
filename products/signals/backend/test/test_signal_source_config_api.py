@@ -1,10 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.db import connections
+from django.db import connection, connections
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -18,6 +19,10 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
@@ -771,7 +776,8 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_concurrent_config_key_updates_preserve_both_edits() -> None:
+@pytest.mark.parametrize("status_lookup_fails", [False, True])
+def test_concurrent_config_key_updates_preserve_both_edits(status_lookup_fails: bool) -> None:
     organization = Organization.objects.create(name="Config concurrency test")
     team = Team.objects.create(organization=organization)
     user = User.objects.create(email="config-editor@example.com")
@@ -786,18 +792,32 @@ def test_concurrent_config_key_updates_preserve_both_edits() -> None:
     barrier = Barrier(2)
 
     def update_config(body: dict[str, object]) -> int:
+        failed_status_reads: list[str] = []
+
+        def fail_status_read(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: dict[str, object]
+        ) -> object:
+            if status_lookup_fails and ExternalDataSchema._meta.db_table in sql:
+                failed_status_reads.append(sql)
+                return execute("SELECT 1 / 0", None, many, context)
+            return execute(sql, params, many, context)
+
         try:
             client = APIClient()
             client.force_authenticate(user)
             barrier.wait(timeout=10)
-            response = client.patch(f"/api/projects/{team.id}/signals/source_configs/{config.id}/", body, format="json")
+            with connection.execute_wrapper(fail_status_read):
+                response = client.patch(
+                    f"/api/projects/{team.id}/signals/source_configs/{config.id}/", body, format="json"
+                )
+            assert bool(failed_status_reads) is status_lookup_fails
             assert response.status_code == status.HTTP_200_OK, response.json()
             return response.status_code
         finally:
             connections.close_all()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        updates = [
+        updates: list[dict[str, object]] = [
             {"config_set": {"steering": "Prioritize documentation tasks"}, "config_remove": ["default_not_actionable"]},
             {"config_set": {"linear_team_ids": ["team-example"]}},
         ]

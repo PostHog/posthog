@@ -597,10 +597,17 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
     def update(self, request: Request, *args: object, **kwargs: object) -> Response:
+        partial = kwargs.pop("partial", False)
         with transaction.atomic():
             # Read after locking so validation and merging use the last committed configuration.
             self.queryset = self.queryset.select_for_update()
-            return super().update(request, *args, **kwargs)
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+
+        # A best-effort status query must not roll back the configuration write if it fails.
+        return Response(serializer.data)
 
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)

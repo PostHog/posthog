@@ -228,7 +228,7 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
                 return
             }
             actions.saveSettled()
-            const teamCount = linearTeamIdsFromConfig(params.config).length
+            const teamCount = linearTeamIdsFromConfig(params.configSet).length
             captureSignalSourceFiltersChanged({
                 sourceProduct: params.sourceProduct,
                 sourceType: params.sourceType,
@@ -253,7 +253,7 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
                 sourceProduct: params.sourceProduct,
                 sourceType: params.sourceType,
                 filter: SOURCE_LINEAR_TEAM_IDS_KEY,
-                selectedCount: linearTeamIdsFromConfig(params.config).length,
+                selectedCount: linearTeamIdsFromConfig(params.configSet).length,
                 success: false,
             })
         },
