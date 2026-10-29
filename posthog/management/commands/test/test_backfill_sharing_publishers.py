@@ -46,6 +46,7 @@ class TestBackfillSharingPublishers(BaseTest):
                 item_id=str(identifier),
                 user=user,
                 created_at=date,
+                detail={"changes": [{"field": "sharing", "before": False, "after": True}]},
             )
         other_team = Team.objects.create(organization=self.organization)
         ActivityLog.objects.create(
@@ -87,3 +88,19 @@ class TestBackfillSharingPublishers(BaseTest):
             call_command("backfill_sharing_publishers", stdout=StringIO())
             share.refresh_from_db()
             assert share.shared_by_id is None
+
+    @parameterized.expand([("insight", "Insight"), ("notebook", "Notebook")])
+    def test_ambiguous_settings_history_does_not_attribute_the_editor(self, kind: str, scope: str) -> None:
+        resource = (Insight if kind == "insight" else Notebook).objects.create(team=self.team)
+        share = SharingConfiguration.objects.create(team=self.team, **{kind: resource}, enabled=True)
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            scope=scope,
+            activity="sharing enabled",
+            item_id=str(resource.pk if kind == "insight" else resource.short_id),
+            user=self.user,
+            detail={"changes": [{"field": "sharing", "after": True}]},
+        )
+        call_command("backfill_sharing_publishers", stdout=StringIO())
+        share.refresh_from_db()
+        assert share.shared_by_id is None

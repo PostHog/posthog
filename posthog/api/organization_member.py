@@ -27,6 +27,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.event_usage import groups
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     TrigramSearchField,
@@ -365,7 +366,7 @@ class OrganizationMemberViewSet(
         offboarding = OrganizationOffboarding(instance)
         if keep and keep - {resource.id for resource in offboarding.resources()}:
             raise serializers.ValidationError({"keep": "Some resources have changed. Reload the review and try again."})
-        offboarding.remove(keep)
+        offboarding.remove(keep, actor=requesting_user, was_impersonated=is_impersonated(self.request))
 
         posthoganalytics.capture(
             distinct_id=str(requesting_user.distinct_id),
@@ -394,6 +395,13 @@ class OrganizationMemberViewSet(
         )
         requesting_membership.validate_update(instance)
         resources = OrganizationOffboarding(instance).resources()
+        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
+            visible_team_ids = set(
+                cast(User, request.user)
+                .teams.filter(organization_id=instance.organization_id)
+                .values_list("id", flat=True)
+            )
+            resources = [resource for resource in resources if resource.team_id in visible_team_ids]
         return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
 
     @extend_schema(request=MemberOffboardingRequestSerializer, responses={204: None})

@@ -24,6 +24,19 @@ class SharingAttributionBackfill:
         "recording": ("SessionRecording", "session_id"),
     }
 
+    @staticmethod
+    def _explicit_enable(kind: str, detail: dict[str, object] | None) -> bool:
+        if kind == "dashboard":
+            return True
+        changes = (detail or {}).get("changes")
+        return isinstance(changes, list) and any(
+            isinstance(change, dict)
+            and change.get("field") == "sharing"
+            and isinstance(change.get("before"), bool)
+            and change.get("after") is True
+            for change in changes
+        )
+
     def run(self, *, batch_size: int, team_id: int | None, dry_run: bool) -> Iterator[SharingAttributionBatch]:
         for kind, (scope, identifier) in self.resource_scopes.items():
             pending = SharingConfiguration.objects.filter(shared_by__isnull=True, **{f"{kind}__isnull": False})
@@ -41,8 +54,8 @@ class SharingAttributionBackfill:
                     break
                 last_id = batch[-1][0]
                 latest_publishers = {
-                    (log_team_id, item_id): user_id
-                    for log_team_id, item_id, user_id in ActivityLog.objects.filter(
+                    (log_team_id, item_id): user_id if self._explicit_enable(kind, detail) else None
+                    for log_team_id, item_id, user_id, detail in ActivityLog.objects.filter(
                         team_id__in={row[1] for row in batch},
                         item_id__in={row[2] for row in batch},
                         scope=scope,
@@ -50,7 +63,7 @@ class SharingAttributionBackfill:
                     )
                     .order_by("team_id", "item_id", "-created_at", "-id")
                     .distinct("team_id", "item_id")
-                    .values_list("team_id", "item_id", "user_id")
+                    .values_list("team_id", "item_id", "user_id", "detail")
                 }
                 by_publisher: dict[int, list[int]] = defaultdict(list)
                 for configuration_id, configuration_team_id, log_id in batch:

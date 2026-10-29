@@ -1,4 +1,4 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
 from django.core.exceptions import ValidationError
@@ -6,12 +6,16 @@ from django.db import models, transaction
 from django.db.models import Exists, OuterRef, Q
 
 from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.organization_offboarding_types import OffboardingResource
 
 from products.alerts.backend.facade import organization_offboarding as alerts
 from products.subscriptions.backend.facade import api as subscriptions
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 
 @frozen
@@ -35,7 +39,9 @@ class OrganizationOffboarding:
         self.organization_id = str(membership.organization_id)
         self.user_id = membership.user_id
 
-    def _public_resources(self, resource_kind: PublicResourceKind) -> list[OffboardingResource]:
+    def _public_resources(
+        self, resource_kind: PublicResourceKind, *, include_deleted: bool = False
+    ) -> list[OffboardingResource]:
         kind = resource_kind.kind
         related_to_member = Q(shared_by_id=self.user_id)
         if kind != "recording":
@@ -46,7 +52,6 @@ class OrganizationOffboarding:
                 team__organization_id=self.organization_id,
                 **{f"{kind}__isnull": False},
             )
-            .exclude(**{f"{kind}__deleted": True})
             .filter(related_to_member)
             .annotate(
                 has_unprotected_link=Exists(
@@ -59,11 +64,22 @@ class OrganizationOffboarding:
                 ),
             )
             .select_related(kind, "team")
+            .only(
+                "id",
+                "team_id",
+                "team__name",
+                kind,
+                f"{kind}__{resource_kind.name_field}",
+                f"{kind}__{resource_kind.identifier_field}",
+                *([f"{kind}__short_id"] if kind in ("insight", "notebook") else []),
+                *(["insight__derived_name"] if kind == "insight" else []),
+            )
             .order_by("-created_at")
-            .distinct()
         )
+        if not include_deleted:
+            configurations = configurations.exclude(**{f"{kind}__deleted": True})
         resources: dict[str, OffboardingResource] = {}
-        for configuration in configurations:
+        for configuration in configurations.iterator(chunk_size=200):
             resource = cast(models.Model, getattr(configuration, kind))
             resource_id = f"public_link:{kind}:{configuration.team_id}:{getattr(configuration, f'{kind}_id')}"
             name = cast(str | None, getattr(resource, resource_kind.name_field))
@@ -91,17 +107,21 @@ class OrganizationOffboarding:
             )
         return list(resources.values())
 
-    def resources(self) -> list[OffboardingResource]:
-        resources = [resource for kind in PUBLIC_RESOURCE_KINDS for resource in self._public_resources(kind)]
+    def resources(self, *, include_deleted: bool = False) -> list[OffboardingResource]:
+        resources = [
+            resource
+            for kind in PUBLIC_RESOURCE_KINDS
+            for resource in self._public_resources(kind, include_deleted=include_deleted)
+        ]
         resources.extend(alerts.list_member_offboarding_resources(self.organization_id, self.user_id))
         resources.extend(subscriptions.list_member_offboarding_resources(self.organization_id, self.user_id))
         return sorted(resources, key=lambda resource: (resource.name, resource.id))
 
-    def remove(self, keep: set[str]) -> None:
+    def remove(self, keep: set[str], *, actor: "User", was_impersonated: bool = False) -> None:
         if self.membership.level == OrganizationMembership.Level.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
-            for resource in self.resources():
+            for resource in self.resources(include_deleted=True):
                 if resource.kind in {kind.kind for kind in PUBLIC_RESOURCE_KINDS} and resource.id not in keep:
                     resource_id = resource.id.split(":", 3)[3]
                     configurations = SharingConfiguration.objects.filter(
@@ -109,10 +129,35 @@ class OrganizationOffboarding:
                     )
                     field = cast(models.ForeignKey, SharingConfiguration._meta.get_field(resource.kind))
                     resource_model = cast(type[models.Model], field.related_model)
-                    resource_model._default_manager.select_for_update().get(
+                    # Cleanup includes soft-deleted objects hidden by the default manager.
+                    locked_resource = resource_model._base_manager.select_for_update().get(
                         **{field.target_field.name: resource_id, "team_id": resource.team_id}
                     )
-                    configurations.update(enabled=False)
+                    changed = configurations.filter(enabled=True).update(enabled=False)
+                    if changed:
+                        scope = {
+                            "dashboard": "Dashboard",
+                            "insight": "Insight",
+                            "notebook": "Notebook",
+                            "recording": "SessionRecording",
+                        }[resource.kind]
+                        short_id = getattr(locked_resource, "short_id", None)
+                        log_activity(
+                            organization_id=self.membership.organization_id,
+                            team_id=resource.team_id,
+                            user=actor,
+                            was_impersonated=was_impersonated,
+                            item_id=short_id if resource.kind == "notebook" else resource_id,
+                            scope=scope,
+                            activity="sharing disabled",
+                            detail=Detail(
+                                name=resource.name,
+                                short_id=str(short_id) if short_id else None,
+                                changes=[
+                                    Change(type=scope, action="changed", field="sharing", before=True, after=False)
+                                ],
+                            ),
+                        )
                     if resource.kind == "dashboard":
                         configuration = configurations.select_related("dashboard").first()
                         if configuration and configuration.dashboard:

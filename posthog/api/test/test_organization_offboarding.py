@@ -7,9 +7,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
@@ -339,3 +341,56 @@ class TestOrganizationOffboarding(APIBaseTest):
         alert.refresh_from_db()
         assert not alert.enabled
         write_moved_alert_edit.assert_called_once_with(team_id=self.team.pk, alert_id=alert.pk, snooze_changed=False)
+
+    @parameterized.expand([("dashboard",), ("insight",), ("notebook",), ("recording",)])
+    def test_removal_revokes_hidden_soft_deleted_resources(self, kind: str) -> None:
+        model = {"dashboard": Dashboard, "insight": Insight, "notebook": Notebook, "recording": SessionRecording}[kind]
+        resource = model.objects.create(
+            team=self.team, deleted=True, **({"session_id": "deleted-recording"} if kind == "recording" else {})
+        )
+        share = SharingConfiguration.objects.create(
+            team=self.team, **{kind: resource}, enabled=True, shared_by=self.departing
+        )
+        assert self.client.get(self.url + "offboarding/").json() == []
+        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        resource.deleted = False
+        resource.save(update_fields=["deleted"])
+        share.refresh_from_db()
+        assert not share.enabled
+        scope = {
+            "dashboard": "Dashboard",
+            "insight": "Insight",
+            "notebook": "Notebook",
+            "recording": "SessionRecording",
+        }[kind]
+        item_id = (
+            resource.short_id
+            if kind == "notebook"
+            else resource.session_id
+            if kind == "recording"
+            else str(resource.pk)
+        )
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope=scope, item_id=item_id, activity="sharing disabled")
+        assert log.user_id == self.user.pk
+        assert log.detail["changes"][0]["after"] is False
+
+    def test_self_review_hides_inaccessible_projects_but_removal_cleans_them_up(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        hidden_team = Team.objects.create(organization=self.organization, name="Private project")
+        AccessControl.objects.create(
+            team=hidden_team, resource="project", resource_id=str(hidden_team.pk), access_level="none"
+        )
+        visible = Dashboard.objects.create(team=self.team, created_by=self.departing)
+        hidden = Dashboard.objects.create(team=hidden_team, created_by=self.departing)
+        for dashboard in (visible, hidden):
+            SharingConfiguration.objects.create(team=dashboard.team, dashboard=dashboard, enabled=True)
+        assert len(self.client.get(self.url + "offboarding/").json()) == 2
+        self.client.force_login(self.departing)
+        response = self.client.get(self.url + "offboarding/")
+        assert response.status_code == 200
+        assert [item["team_id"] for item in response.json()] == [self.team.pk]
+        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        assert not SharingConfiguration.objects.filter(dashboard__in=[visible, hidden], enabled=True).exists()

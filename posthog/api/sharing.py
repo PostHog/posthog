@@ -569,9 +569,10 @@ class SharingConfigurationViewSet(
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        was_enabled = instance.enabled
         serializer.save(**({"shared_by": request.user} if serializer.validated_data.get("enabled") else {}))
 
-        if context.get("insight"):
+        if context.get("insight") and "enabled" in serializer.validated_data:
             name = instance.insight.name or instance.insight.derived_name
             log_activity(
                 organization_id=None,
@@ -588,6 +589,7 @@ class SharingConfigurationViewSet(
                             type="Insight",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
@@ -611,13 +613,14 @@ class SharingConfigurationViewSet(
                             type="Dashboard",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
                 ),
             )
 
-        if context.get("notebook"):
+        if context.get("notebook") and "enabled" in serializer.validated_data:
             log_activity(
                 organization_id=None,
                 team_id=self.team_id,
@@ -633,6 +636,7 @@ class SharingConfigurationViewSet(
                             type="Notebook",
                             action="changed",
                             field="sharing",
+                            before=was_enabled,
                             after=serializer.data.get("enabled"),
                         )
                     ],
