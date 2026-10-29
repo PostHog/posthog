@@ -8,6 +8,8 @@ class SalesflareEndpointConfig:
     path: str
     # Salesflare object IDs are globally unique within an account, so `id` is a safe primary key.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Some list endpoints (e.g. /stages) declare no `limit`/`offset` params and return every row at once.
+    paginated: bool = True
 
 
 # Salesflare Core API list endpoints. All are full-refresh only: while a few objects expose a
@@ -22,6 +24,8 @@ SALESFLARE_ENDPOINTS: dict[str, SalesflareEndpointConfig] = {
     "tasks": SalesflareEndpointConfig(path="/tasks"),
     "tags": SalesflareEndpointConfig(path="/tags"),
     "workflows": SalesflareEndpointConfig(path="/workflows"),
+    "stages": SalesflareEndpointConfig(path="/stages", paginated=False),
+    "users": SalesflareEndpointConfig(path="/users"),
 }
 
 ENDPOINTS = tuple(SALESFLARE_ENDPOINTS.keys())
