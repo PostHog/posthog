@@ -38,6 +38,7 @@ class UsageCounter(StrEnum):
     MOBILE_RECORDINGS = "teams_with_mobile_recording_count_in_period"
     MOBILE_BILLABLE_RECORDINGS = "teams_with_mobile_billable_recording_count_in_period"
     SURVEY_RESPONSES = "teams_with_survey_responses_count_in_period"
+    # Ingested AIO events only. Offline usage is composed after organization attribution.
     AI_EVENTS = "teams_with_ai_event_count_in_period"
     EXCEPTIONS = "teams_with_exceptions_captured_in_period"
     CDP_INVOCATIONS = "teams_with_cdp_billable_invocations_in_period"
