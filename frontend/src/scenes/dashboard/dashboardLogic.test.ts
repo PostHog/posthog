@@ -2594,7 +2594,7 @@ describe('dashboardLogic', () => {
                 ...insight,
                 dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                 result: breakdownValues.map((breakdown_value) => ({
-                    action: { order: 0 },
+                    order: 0,
                     breakdown_value: [breakdown_value],
                 })),
                 query: {
@@ -2635,9 +2635,9 @@ describe('dashboardLogic', () => {
                         ...tileInsight,
                         dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                         result: [
-                            { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                            { action: { order: 0 }, breakdown_value: ['Firefox'] },
-                            { action: { order: 0 }, breakdown_value: ['Safari'] },
+                            { order: 0, breakdown_value: ['Chrome'] },
+                            { order: 0, breakdown_value: ['Firefox'] },
+                            { order: 0, breakdown_value: ['Safari'] },
                         ],
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -2668,7 +2668,7 @@ describe('dashboardLogic', () => {
                 dashboardsModel.actions.updateDashboardInsight({
                     ...tileInsight,
                     dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
-                    result: [{ action: { order: 0 }, breakdown_value: ['Chrome'] }],
+                    result: [{ order: 0, breakdown_value: ['Chrome'] }],
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: { kind: NodeKind.TrendsQuery, series: [] },
@@ -2717,7 +2717,7 @@ describe('dashboardLogic', () => {
                 ...insight,
                 dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                 result: breakdownValues
-                    ? breakdownValues.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value }))
+                    ? breakdownValues.map((breakdown_value) => ({ order: 0, breakdown_value }))
                     : null,
                 query: {
                     kind: NodeKind.InsightVizNode,

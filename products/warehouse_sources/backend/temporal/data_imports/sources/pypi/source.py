@@ -42,6 +42,10 @@ class PyPISource(SimpleSource[PyPISourceConfig]):
         return ExternalDataSourceType.PYPI
 
     @property
+    def credential_kind(self) -> str | None:
+        return "pypi"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.PYPI,

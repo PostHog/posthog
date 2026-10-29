@@ -41,6 +41,18 @@ class EtsyBatchLookup:
 
 
 @dataclass(frozen=True)
+class EtsyFanOut:
+    """Rows fetched with one request per row of a parent endpoint."""
+
+    # Endpoint whose pages supply the ids. Its walk and resume state drive the fan-out.
+    parent: str
+    # Appended to /shops/{shop_id}. `{id}` is filled in with each parent row's id.
+    path: str
+    # Field on each parent row that holds the id. Each child row carries it under the same name.
+    id_field: str
+
+
+@dataclass(frozen=True)
 class EtsyEndpointConfig:
     name: str
     # Appended to /shops/{shop_id}. Empty string is the shop record itself.
@@ -75,6 +87,8 @@ class EtsyEndpointConfig:
     flatten_key: str | None = None
     # Rows come from a batch endpoint keyed on ids the parent endpoint pages through.
     batch_lookup: EtsyBatchLookup | None = None
+    # Rows come from one request per row the parent endpoint pages through.
+    fan_out: EtsyFanOut | None = None
 
 
 ETSY_ENDPOINTS: dict[str, EtsyEndpointConfig] = {
@@ -175,6 +189,26 @@ ETSY_ENDPOINTS: dict[str, EtsyEndpointConfig] = {
         path="/policies/return",
         primary_keys=["return_policy_id"],
         paginated=False,
+    ),
+    "shipping_profiles": EtsyEndpointConfig(
+        name="shipping_profiles",
+        path="/shipping-profiles",
+        primary_keys=["shipping_profile_id"],
+        paginated=False,
+    ),
+    "readiness_state_definitions": EtsyEndpointConfig(
+        name="readiness_state_definitions",
+        path="/readiness-state-definitions",
+        primary_keys=["readiness_state_id"],
+    ),
+    "listing_properties": EtsyEndpointConfig(
+        name="listing_properties",
+        path="",
+        # Property ids name an attribute such as color, so they repeat across listings.
+        primary_keys=["listing_id", "property_id"],
+        # Etsy has no batch read and no listings include for properties, so this costs one request
+        # per listing.
+        fan_out=EtsyFanOut(parent="listings", path="/listings/{id}/properties", id_field="listing_id"),
     ),
     "seller_taxonomy_nodes": EtsyEndpointConfig(
         name="seller_taxonomy_nodes",

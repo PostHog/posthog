@@ -300,6 +300,7 @@ class TestGetEventSource(SimpleTestCase):
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
             ("cli_exact", "posthog-cli", EventSource.CLI),
+            ("hog_cli", "hog/1.0.0-alpha.0", EventSource.CLI),
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
             ("desktop_app_direct", "posthog/desktop.hog.dev 0.1.0", EventSource.DESKTOP),
