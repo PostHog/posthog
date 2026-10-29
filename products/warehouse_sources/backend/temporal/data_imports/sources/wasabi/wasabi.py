@@ -122,7 +122,9 @@ def _client_config(api_key: str) -> ClientConfig:
     }
 
 
-def _make_source_response(endpoint_config: WasabiEndpointConfig, resource: Any) -> SourceResponse:
+def _make_source_response(
+    endpoint_config: WasabiEndpointConfig, resource: Any, supports_resume: bool = True
+) -> SourceResponse:
     return SourceResponse(
         name=endpoint_config.name,
         items=lambda: resource,
@@ -135,6 +137,7 @@ def _make_source_response(endpoint_config: WasabiEndpointConfig, resource: Any) 
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        supports_resume=supports_resume,
     )
 
 
@@ -242,8 +245,11 @@ def wasabi_source(
     if endpoint_config.parent is not None:
         parent_config = WASABI_ENDPOINTS[endpoint_config.parent]
         if parent_config.parent is not None:
+            # The chained walk saves no checkpoints, so a restart would repeat it from the start.
             return _make_source_response(
-                endpoint_config, _chained_resource(endpoint_config, parent_config, api_key, team_id, job_id)
+                endpoint_config,
+                _chained_resource(endpoint_config, parent_config, api_key, team_id, job_id),
+                supports_resume=False,
             )
 
         # Fan-out: iterate the sub-account list and fetch the child endpoint per account.

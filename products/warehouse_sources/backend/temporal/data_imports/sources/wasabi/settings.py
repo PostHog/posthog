@@ -39,7 +39,7 @@ AIR_JOBS = "air_jobs"
 SUB_INVOICE_PARENT_FIELDS = ["AcctNum", "InvoiceNum", "CreateTime", "PeriodStart", "PeriodEnd"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class WasabiEndpointConfig:
     name: str
     path: str
@@ -118,7 +118,8 @@ WASABI_ENDPOINTS: dict[str, WasabiEndpointConfig] = {
         partition_key="CreatedAt",
         incremental_fields=[FINISHED_AT_INCREMENTAL],
         parent=ACCOUNTS,
-        data_selector="Records",
+        # Wasabi documents the body as an array of {Pagination, Records} pages; also accept a bare object.
+        data_selector="$..Records[*]",
         page_size=AIR_JOBS_PAGE_SIZE,
     ),
 }

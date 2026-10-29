@@ -318,30 +318,35 @@ class TestWasabiFanOutEndpoints:
                         "/v1/accounts": [ScriptedResponse(json=[{"AcctNum": 101}, {"AcctNum": 102}])],
                         "/v1/accounts/101/air-jobs": [
                             ScriptedResponse(
-                                json={
-                                    "Pagination": {
-                                        "PageSize": 100,
-                                        "PageNumber": 0,
-                                        "TotalRecords": 2,
-                                        "TotalPages": 2,
-                                    },
-                                    "Records": [_air_job("job-1")],
-                                }
+                                json=[
+                                    {
+                                        "Pagination": {
+                                            "PageSize": 100,
+                                            "PageNumber": 0,
+                                            "TotalRecords": 2,
+                                            "TotalPages": 2,
+                                        },
+                                        "Records": [_air_job("job-1")],
+                                    }
+                                ]
                             ),
                             # Wasabi reports TotalPages as -1 on every page after the first.
                             ScriptedResponse(
-                                json={
-                                    "Pagination": {
-                                        "PageSize": 100,
-                                        "PageNumber": 1,
-                                        "TotalRecords": -1,
-                                        "TotalPages": -1,
-                                    },
-                                    "Records": [_air_job("job-2")],
-                                }
+                                json=[
+                                    {
+                                        "Pagination": {
+                                            "PageSize": 100,
+                                            "PageNumber": 1,
+                                            "TotalRecords": -1,
+                                            "TotalPages": -1,
+                                        },
+                                        "Records": [_air_job("job-2")],
+                                    }
+                                ]
                             ),
-                            ScriptedResponse(json={"Pagination": {}, "Records": []}),
+                            ScriptedResponse(json=[{"Pagination": {}, "Records": []}]),
                         ],
+                        # A bare object body is accepted too.
                         "/v1/accounts/102/air-jobs": [ScriptedResponse(json={"Pagination": {}, "Records": []})],
                     }
                 ),
