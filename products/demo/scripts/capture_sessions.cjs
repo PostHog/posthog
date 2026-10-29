@@ -56,7 +56,7 @@ async function main() {
         },
     })
     if (values.help) {
-        console.log(
+        console.info(
             'NEXT_PUBLIC_POSTHOG_KEY=<project token> NEXT_PUBLIC_POSTHOG_HOST=http://localhost:8010 ' +
                 'node products/demo/scripts/capture_sessions.cjs --app-url http://localhost:3000 --sessions 3\n' +
                 'Run the Hedgebox dummy app with the same key and host first.\n' +
@@ -84,9 +84,7 @@ async function main() {
             try {
                 await context.route('**/*', (route) => {
                     const url = new URL(route.request().url())
-                    return [appUrl.origin, posthogHost.origin].includes(url.origin)
-                        ? route.continue()
-                        : route.abort()
+                    return [appUrl.origin, posthogHost.origin].includes(url.origin) ? route.continue() : route.abort()
                 })
                 const page = await context.newPage()
                 page.setDefaultTimeout(30_000)
@@ -99,7 +97,9 @@ async function main() {
                     { token: projectToken, host: posthogHost.origin }
                 )
                 if (!correctProject) {
-                    throw new Error('The dummy app uses a different project token or host. Restart it with the selected values')
+                    throw new Error(
+                        'The dummy app uses a different project token or host. Restart it with the selected values'
+                    )
                 }
                 await page.waitForFunction(() => window.posthog.sessionRecordingStarted())
                 const sessionId = await page.evaluate(() => window.posthog.get_session_id())
@@ -122,7 +122,7 @@ async function main() {
                     { timeout: 30_000 }
                 )
                 await snapshotResponse.finished()
-                console.log(JSON.stringify({ session_id: sessionId, status: 'snapshots_accepted_pending_ingestion' }))
+                console.info(JSON.stringify({ session_id: sessionId, status: 'snapshots_accepted_pending_ingestion' }))
             } finally {
                 await context.close()
             }
@@ -133,6 +133,8 @@ async function main() {
 }
 
 main().catch((error) => {
-    console.error(`Session capture failed: ${error.message.replaceAll(process.env.NEXT_PUBLIC_POSTHOG_KEY || '\0', '[redacted]')}`)
+    console.error(
+        `Session capture failed: ${error.message.replaceAll(process.env.NEXT_PUBLIC_POSTHOG_KEY || '\0', '[redacted]')}`
+    )
     process.exitCode = 1
 })
