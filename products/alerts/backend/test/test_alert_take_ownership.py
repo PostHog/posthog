@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.test.insight_alerts import create_insight_alert
@@ -32,3 +33,7 @@ class TestAlertTakeOwnership(APIBaseTest):
         alert.refresh_from_db()
         assert alert.created_by == self.user
         assert alert.enabled is True
+        # created_by is excluded from the save diff, so the takeover logs its own activity.
+        takeover = ActivityLog.objects.get(scope="AlertConfiguration", item_id=str(alert.id), activity="took_ownership")
+        assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
+        assert takeover.user == self.user

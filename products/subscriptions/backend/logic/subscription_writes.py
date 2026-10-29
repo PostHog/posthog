@@ -19,6 +19,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -1064,7 +1066,9 @@ def take_subscription_ownership(
     if denied_resources:
         denied_names = ", ".join(f"`{name}`" for name in denied_resources)
         raise SubscriptionRequestInvalidError(f"Can't take ownership: you don't have access to {denied_names}.")
-    # The re-enable check reads the owner off the instance, so it sees the new owner before the row does.
+    # The new owner is set in memory only: the re-enable check reads it off the instance, and the
+    # enable's save persists it with `enabled`.
+    previous_owner = instance.created_by
     instance.created_by = user
     subscription_write = _SubscriptionWrite(
         team=team,
@@ -1077,8 +1081,30 @@ def take_subscription_ownership(
         analytics_props=analytics_props,
     )
     validated_data = subscription_write.validate(_write_attrs(SubscriptionWrite(enabled=True)))
-    Subscription.objects.filter(pk=instance.pk).update(created_by=user)
-    return subscription_record(subscription_write.update(instance, validated_data))
+    updated = subscription_write.update(instance, validated_data)
+    # `created_by` is excluded from the save diff, so the takeover gets its own activity.
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team.id,
+        user=user,
+        was_impersonated=get_was_impersonated(),
+        item_id=updated.id,
+        scope="Subscription",
+        activity="took_ownership",
+        detail=Detail(
+            name=updated.display_name,
+            changes=[
+                Change(
+                    type="Subscription",
+                    action="changed",
+                    field="created_by",
+                    before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
+                    after={"id": user.id, "email": user.email},
+                )
+            ],
+        ),
+    )
+    return subscription_record(updated)
 
 
 def start_test_delivery(*, team_id: int, subscription_id: int) -> ManualDeliveryResult:

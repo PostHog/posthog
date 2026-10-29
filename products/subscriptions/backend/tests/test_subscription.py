@@ -19,6 +19,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -1127,6 +1128,12 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert subscription.created_by == self.user
         assert subscription.enabled is True
         assert response.json()["created_by"]["id"] == self.user.id
+        # created_by is excluded from the save diff, so the takeover logs its own activity.
+        takeover = ActivityLog.objects.get(
+            scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+        )
+        assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
+        assert takeover.user == self.user
 
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
