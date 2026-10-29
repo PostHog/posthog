@@ -886,7 +886,7 @@ export const IdentityMatchingLinksListTier = {
 
 export type SdkHealthReportRetrieveParams = {
     /**
-     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. A background job refreshes this data once a day, so the cached answer is usually current. Use sparingly.
+     * When true, bypasses the cache and re-reads SDK usage. The cached answer is at most an hour old, so use this sparingly.
      */
     force_refresh?: boolean
 }
