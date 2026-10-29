@@ -62,8 +62,8 @@ pub struct UnknownTriggerKind(pub String);
 /// The only event `flag_evaluations` stores.
 const FLAG_CALLED_EVENT: &str = "$feature_flag_called";
 
-/// Mirrors `FLAG_EVALUATIONS_TTL_DAYS` in `posthog/models/flag_evaluations/sql.py`. The comment
-/// there lists every copy of the value. Change them all together.
+/// Mirrors `FLAG_EVALUATIONS_TTL_DAYS` in `posthog/models/flag_evaluations/sql.py`. The Node fork
+/// step in `fork-flag-evaluations-step.ts` mirrors it too. Change all three together.
 const FLAG_EVALUATIONS_TTL_DAYS: DayIdx = 92;
 
 /// The ClickHouse table a scan reads.
