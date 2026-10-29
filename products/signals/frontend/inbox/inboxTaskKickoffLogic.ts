@@ -486,6 +486,13 @@ export interface inboxTaskKickoffLogicActions {
     setSidePanelOptions: (options: string | null) => {
         options: string | null
     } // sidePanelStateLogic
+    alignReportDiscussion: (
+        report: SignalReport,
+        reportUrl: string
+    ) => {
+        report: SignalReport
+        reportUrl: string
+    }
     createPrFailure: () => {
         value: true
     }
@@ -611,6 +618,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     })),
 
     actions({
+        alignReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportTask: (report: SignalReport, taskId: string, runId: string, streamKey?: string) => ({
             report,
@@ -653,7 +661,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         reportChatContext: [
             null as ReportChatContext | null,
             {
-                openReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
+                alignReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
                 openReportTask: (_, { report }) => ({
                     report,
                     reportUrl: `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`,
@@ -729,10 +737,17 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     }),
 
     listeners(({ actions, cache, values }) => ({
-        openReportDiscussion: ({ report }) => {
+        alignReportDiscussion: ({ report }) => {
             cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
+            const warmReportIds = [values.reportWarmLease?.reportId, cache.warmingReportId, cache.pendingWarmReport?.id]
+            if (warmReportIds.some((id) => id && id !== report.id)) {
+                actions.releaseReportDiscussionWarm()
+            }
+        },
+        openReportDiscussion: ({ report, reportUrl }) => {
+            actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
                 actions.warmReportDiscussion(report)
