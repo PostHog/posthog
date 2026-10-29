@@ -24,6 +24,7 @@ from posthog.models.user import User
 from posthog.test.persons import create_person
 
 from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
+from products.experiments.backend.facade.change_signals import connect_experiment_changed, experiment_changed
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
     EndedExperiment,
@@ -31,7 +32,6 @@ from products.experiments.backend.facade.contracts import (
     ExperimentValidationError,
     StoredPrimaryResult,
 )
-from products.experiments.backend.facade.signals import connect_experiment_changed, experiment_changed
 from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode

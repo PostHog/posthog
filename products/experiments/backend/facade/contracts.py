@@ -521,7 +521,7 @@ class ExperimentChanged:
     experiment_id: int
     # True only on the save that inserted the row.
     created: bool
-    # True when the save soft-deletes the experiment, and on every hard delete of the row.
+    # True on every save that leaves the experiment soft-deleted, and on every hard delete of the row.
     deleted: bool
     # The values the write left on the experiment, so a receiver that mirrors the experiment elsewhere, such as the
     # Vercel sync, does not read the row back.

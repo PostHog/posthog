@@ -8,5 +8,5 @@ class ExperimentsConfig(AppConfig):
 
     def ready(self) -> None:
         # Registers the activity and change signal receivers after the app registry is ready.
-        import products.experiments.backend.facade.signals  # noqa: F401, PLC0415
         import products.experiments.backend.activity_logging  # noqa: F401, PLC0415
+        import products.experiments.backend.facade.change_signals  # noqa: F401, PLC0415

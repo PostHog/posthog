@@ -16,8 +16,9 @@ def connect_experiment_changed(receiver: Callable[..., object], *, dispatch_uid:
     """``receiver`` gets ``change=``, an ``ExperimentChanged``, after each save and each hard delete of an
     experiment. A soft delete is a save with ``change.deleted`` set.
 
-    The receiver runs synchronously inside the write and its transaction, like a ``post_save`` receiver, so an
-    exception it raises fails the write. Work that must wait for the commit goes through ``transaction.on_commit``."""
+    The receiver runs synchronously right after the row is written, inside the caller's transaction when there is
+    one, like a ``post_save`` receiver. An exception it raises propagates out of ``save()`` or ``delete()``. Work that
+    must wait for the commit goes through ``transaction.on_commit``."""
     experiment_changed.connect(receiver, dispatch_uid=dispatch_uid)
 
 
@@ -35,8 +36,8 @@ def _change(experiment: Experiment, *, created: bool, deleted: bool) -> Experime
     )
 
 
-# Both receivers use `send`, not `send_robust`, so a receiver error fails the write, as an error in a receiver of the
-# model signal does.
+# Both receivers use `send`, not `send_robust`, so a receiver error propagates out of `save()` or `delete()`, as an
+# error in a receiver of the model signal does.
 def _notify_experiment_saved(sender: Any, instance: Experiment, created: bool, **kwargs: Any) -> None:
     # The column is nullable, and NULL reads as not deleted.
     change = _change(instance, created=created, deleted=bool(instance.deleted))
