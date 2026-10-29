@@ -52,6 +52,7 @@ jobs:
                       /products/*/skills/
                       /products/ai_observability/backend/prompts/
                       /frontend/src/queries/
+                      /frontend/src/taxonomy/
                       /frontend/src/mocks/fixtures/
                       /frontend/bin/
 
