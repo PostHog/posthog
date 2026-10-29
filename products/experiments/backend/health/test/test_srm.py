@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import MultipleVariantHandling
 
-from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.health.checks.srm import srm
@@ -15,7 +15,9 @@ from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 
 LIBRARY = ExposureSegmentDimension.LIBRARY
+LIBRARY_VERSION = ExposureSegmentDimension.LIBRARY_VERSION
 PAGE = ExposureSegmentDimension.PAGE
+SCREEN = ExposureSegmentDimension.SCREEN
 MISMATCH = "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001)."
 NO_LOCATION = f"{MISMATCH} This may indicate issues with randomization or data collection."
 NEXT_STEP = "Check that the code there sends the exposure for every user in every variant."
@@ -68,7 +70,7 @@ class TestSrmSegments(TestCase):
                 f'{MISMATCH} The mismatch comes from users first exposed on the page "/checkout". {NEXT_STEP}',
             ),
             (
-                "the_largest_segment_with_the_skew",
+                "the_segment_furthest_from_the_split_first",
                 (
                     _segment(LIBRARY, "web", 800, 1200),
                     _segment(LIBRARY, "posthog-node", 400, 400),
@@ -76,14 +78,61 @@ class TestSrmSegments(TestCase):
                     _segment(PAGE, "/checkout", 200, 600),
                 ),
                 "page",
-                f'{MISMATCH} The mismatch comes from users first exposed on the page "/checkout", and from users whose '
-                f'first exposure was sent by the "web" library. {NEXT_STEP}',
+                f'{MISMATCH} The mismatch comes from users first exposed on the page "/checkout", and from users '
+                f'whose first exposure was sent by the "web" library. {NEXT_STEP}',
             ),
             (
                 "several_segments_skewed",
                 (_segment(LIBRARY, "web", 495000, 505000), _segment(LIBRARY, "posthog-node", 498000, 502000)),
                 None,
                 NO_LOCATION,
+            ),
+            (
+                "at_most_two_segments_named",
+                (
+                    _segment(LIBRARY, "web", 800, 1200),
+                    _segment(LIBRARY, "posthog-node", 400, 400),
+                    _segment(LIBRARY_VERSION, "web 1.200.0", 400, 400),
+                    _segment(LIBRARY_VERSION, "posthog-node 4.2.1", 100, 400),
+                    _segment(PAGE, "/pricing", 600, 600),
+                    _segment(PAGE, "/checkout", 200, 600),
+                ),
+                "library_version",
+                f'{MISMATCH} The mismatch comes from users whose first exposure was sent by version "4.2.1" of the '
+                f'"posthog-node" library, and from users first exposed on the page "/checkout". {NEXT_STEP}',
+            ),
+            (
+                "the_version_of_the_located_library",
+                (
+                    *SERVER_SKEWED,
+                    _segment(LIBRARY_VERSION, "web 1.200.0", 500, 500),
+                    _segment(LIBRARY_VERSION, "posthog-node 4.2.1", 100, 400),
+                ),
+                "library_version",
+                f'{MISMATCH} The mismatch comes from users whose first exposure was sent by version "4.2.1" of the '
+                f'"posthog-node" library. {NEXT_STEP}',
+            ),
+            (
+                "an_unknown_version_of_the_located_library",
+                (
+                    *SERVER_SKEWED,
+                    _segment(LIBRARY_VERSION, "web 1.200.0", 500, 500),
+                    _segment(LIBRARY_VERSION, f"posthog-node {BREAKDOWN_NULL_STRING_LABEL}", 100, 400),
+                ),
+                "library_version",
+                f"{MISMATCH} The mismatch comes from users whose first exposure was sent by an unknown version of the "
+                f'"posthog-node" library. {NEXT_STEP}',
+            ),
+            (
+                "one_screen",
+                (
+                    _segment(LIBRARY, "posthog-ios", 300, 600),
+                    _segment(LIBRARY, "posthog-android", 300, 600),
+                    _segment(SCREEN, "Home", 300, 300),
+                    _segment(SCREEN, "Checkout", 100, 400),
+                ),
+                "screen",
+                f'{MISMATCH} The mismatch comes from users first exposed on the screen "Checkout". {NEXT_STEP}',
             ),
             (
                 "the_same_skew_everywhere",
@@ -157,6 +206,7 @@ class TestSrmSegments(TestCase):
             {
                 "p_value": 0.00001,
                 "reason": "library",
+                "located_dimensions": "library",
                 "library_1": "web",
                 "library_1_p_value": 1.0,
                 "library_1_exposed_control": 500,

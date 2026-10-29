@@ -29,6 +29,8 @@ TOP_SEGMENT_VALUES = 5
 # everywhere. Two segments this large are needed before the finding calls a dimension uniform.
 UNIFORM_SEGMENT_MINIMUM_SIZE = 1000
 SEGMENT_LABEL_MAX_LENGTH = 60
+# The detail names the located segments furthest from the split, up to this many.
+NAMED_SEGMENTS = 2
 
 # pinned: the subcode is sent as `finding_variant` on the health finding events, so insights group on it.
 SPLIT_CHANGED = "split_changed"
@@ -37,8 +39,18 @@ SPLIT_CHANGED = "split_changed"
 class SrmReason(StrEnum):
     # pinned: sent as `finding_reason` on the health finding events, so insights group on them.
     LIBRARY = ExposureSegmentDimension.LIBRARY.value
+    LIBRARY_VERSION = ExposureSegmentDimension.LIBRARY_VERSION.value
     PAGE = ExposureSegmentDimension.PAGE.value
+    SCREEN = ExposureSegmentDimension.SCREEN.value
     UNIFORM = "uniform"
+
+
+_DIMENSION_PLURALS = {
+    ExposureSegmentDimension.LIBRARY: "SDK libraries",
+    ExposureSegmentDimension.LIBRARY_VERSION: "SDK versions",
+    ExposureSegmentDimension.PAGE: "pages",
+    ExposureSegmentDimension.SCREEN: "screens",
+}
 
 
 def sample_ratio_test(observed: Mapping[str, int], weights: Mapping[str, float]) -> SampleRatioMismatch | None:
@@ -67,14 +79,20 @@ def reads_flag_history(ctx: HealthContext) -> bool:
 
 
 def reads_segments(ctx: HealthContext) -> bool:
-    """Whether `srm` reports a mismatch that no split change explains, which it then looks for in the segments of the
-    exposures. The exposure query loads the segments only then, because their query scans the exposure events."""
+    """Whether `srm` reports a mismatch that a split change doesn't explain, which it then looks for in the segments
+    of the exposures. After a split change, that is a mismatch among the users first exposed after the change. The
+    exposure query loads the segments only then, because their query scans the exposure events."""
     # With an activation, the segments would come from the activation event, not from the flag call that assigned
     # the variant.
     if ctx.exposure_events is not None and ctx.exposure_events.activation is not None:
         return False
     outcome = srm(ctx)
-    return isinstance(outcome, ExperimentHealthFinding) and outcome.subcode != SPLIT_CHANGED
+    if not isinstance(outcome, ExperimentHealthFinding):
+        return False
+    if outcome.subcode != SPLIT_CHANGED:
+        return True
+    retest_p_value = outcome.evidence.get("p_value_after_split_change")
+    return isinstance(retest_p_value, float) and retest_p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
 
 
 def srm(ctx: HealthContext) -> CheckOutcome:
@@ -103,6 +121,15 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     # retest that passes can't rule out a mismatch with another cause. The retest only adds evidence.
     unit = "group" if exposures.counts_groups else "user"
     retest, p_value_after_change = _retest_after_change(ctx, exposures, history, unit)
+    evidence: dict[str, str | int | float | None] = {
+        "p_value": p_value,
+        "p_value_after_split_change": p_value_after_change,
+    }
+    cause: tuple[str, ...] = ()
+    if p_value_after_change is not None and p_value_after_change < SAMPLE_RATIO_MISMATCH_P_VALUE:
+        segment_cause = _segment_cause(exposures, unit)
+        cause = segment_cause.sentences
+        evidence.update(segment_cause.evidence)
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=SPLIT_CHANGED,
@@ -115,10 +142,11 @@ def srm(ctx: HealthContext) -> CheckOutcome:
                 f"The variant split changed after launch while {unit}s were exposed, and some of them got their "
                 "variants from another split, which can cause this.",
                 *retest,
+                *cause,
                 f'Follow the steps in "{split_change.title}" to fix the results.',
             ]
         ),
-        evidence={"p_value": p_value, "p_value_after_split_change": p_value_after_change},
+        evidence=evidence,
         actions=(),
         diagnostic_ref="A2",
     )
@@ -174,12 +202,7 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
 def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFinding:
     unit = "group" if exposures.counts_groups else "user"
-    tests = _segment_tests(exposures)
-    verdicts = [_verdict(tests, dimension, exposures.sample_ratio_expected) for dimension in ExposureSegmentDimension]
-    cause, reason = _cause(verdicts, unit, exposures.sample_ratio_expected)
-    evidence: dict[str, str | int | float | None] = {"p_value": p_value, **_segment_evidence(tests, verdicts)}
-    if reason is not None:
-        evidence["reason"] = reason.value
+    cause = _segment_cause(exposures, unit)
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=None,
@@ -189,10 +212,10 @@ def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFind
             [
                 f"The distribution of {unit}s across variants doesn't match your configured rollout percentages "
                 f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
-                *cause,
+                *(cause.sentences or ("This may indicate issues with randomization or data collection.",)),
             ]
         ),
-        evidence=evidence,
+        evidence={"p_value": p_value, **cause.evidence},
         actions=(),
         diagnostic_ref="A2",
     )
@@ -211,6 +234,29 @@ class _Verdict:
     homogeneity_p_value: float | None
     powered: bool
     located: ExposureSegment | None
+    distance: float
+
+
+@frozen
+class _SegmentCause:
+    """What the segments say about the mismatch: the sentences that follow it, and the reason and the segments as
+    evidence. Without a verdict the sentences are empty."""
+
+    sentences: tuple[str, ...]
+    evidence: dict[str, str | int | float | None]
+
+
+def _segment_cause(exposures: ExposureTotals, unit: str) -> _SegmentCause:
+    tests = _segment_tests(exposures)
+    verdicts = [_verdict(tests, dimension, exposures.sample_ratio_expected) for dimension in ExposureSegmentDimension]
+    sentences, reason = _cause(verdicts, unit)
+    evidence = _segment_evidence(tests, verdicts)
+    located = _located(verdicts)
+    if located:
+        evidence["located_dimensions"] = ",".join(segment.dimension.value for segment in located)
+    if reason is not None:
+        evidence["reason"] = reason.value
+    return _SegmentCause(sentences=tuple(sentences), evidence=evidence)
 
 
 def _segment_tests(exposures: ExposureTotals) -> list[_SegmentTest]:
@@ -231,18 +277,26 @@ def _verdict(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, wei
         variant for variant in weights if any(test.segment.exposed_by_variant.get(variant, 0) for test in compared)
     ]
     if len(compared) < 2 or len(variants) < 2:
-        return _Verdict(dimension=dimension, homogeneity_p_value=None, powered=False, located=None)
+        return _Verdict(dimension=dimension, homogeneity_p_value=None, powered=False, located=None, distance=0.0)
     table = [[test.segment.exposed_by_variant.get(variant, 0) for variant in variants] for test in compared]
     homogeneity_p_value = float(chi2_contingency(table).pvalue)
     powered = sum(1 for row in table if sum(row) >= UNIFORM_SEGMENT_MINIMUM_SIZE) >= 2
-    if homogeneity_p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
-        return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, powered=powered, located=None)
-    failing = [
-        test.segment for test in compared if test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
-    ]
-    # The detail says the mismatch comes from the segment, which reads as if the other segments match the split.
-    located = failing[0] if len(failing) == 1 else None
-    return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, powered=powered, located=located)
+    located: ExposureSegment | None = None
+    if homogeneity_p_value < SAMPLE_RATIO_MISMATCH_P_VALUE:
+        failing = [
+            test.segment
+            for test in compared
+            if test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+        ]
+        # The detail says the mismatch comes from the segment, which reads as if the other segments match the split.
+        located = failing[0] if len(failing) == 1 else None
+    return _Verdict(
+        dimension=dimension,
+        homogeneity_p_value=homogeneity_p_value,
+        powered=powered,
+        located=located,
+        distance=_distance_from_split(located, weights) if located is not None else 0.0,
+    )
 
 
 def _distance_from_split(segment: ExposureSegment, weights: Mapping[str, float]) -> float:
@@ -258,19 +312,15 @@ def _distance_from_split(segment: ExposureSegment, weights: Mapping[str, float])
     )
 
 
-def _cause(verdicts: list[_Verdict], unit: str, weights: Mapping[str, float]) -> tuple[list[str], SrmReason | None]:
-    """The sentences that follow the mismatch, and the finding's reason: the dimension of the segment furthest from
-    the split."""
-    located = sorted(
-        (verdict.located for verdict in verdicts if verdict.located is not None),
-        key=lambda segment: -_distance_from_split(segment, weights),
-    )
-    if located:
-        places = ", and from ".join(f"{unit}s {_segment_place(segment)}" for segment in located)
+def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], SrmReason | None]:
+    """The sentences that follow the mismatch, and the finding's reason. Empty without a verdict."""
+    named = _without_libraries_of_located_versions(_located(verdicts))[:NAMED_SEGMENTS]
+    if named:
+        places = ", and from ".join(f"{unit}s {_segment_place(segment)}" for segment in named)
         return [
             f"The mismatch comes from {places}.",
             f"Check that the code there sends the exposure for every {unit} in every variant.",
-        ], SrmReason(located[0].dimension.value)
+        ], SrmReason(named[0].dimension.value)
     compared = {
         verdict.dimension: verdict.homogeneity_p_value
         for verdict in verdicts
@@ -278,26 +328,75 @@ def _cause(verdicts: list[_Verdict], unit: str, weights: Mapping[str, float]) ->
     }
     powered = [verdict.dimension for verdict in verdicts if verdict.powered]
     if powered and all(p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE for p_value in compared.values()):
-        across = " and ".join(
-            "SDK libraries" if dimension == ExposureSegmentDimension.LIBRARY else "pages" for dimension in powered
-        )
+        across = _joined([_DIMENSION_PLURALS[dimension] for dimension in powered])
         return [
             f"The mismatch looks the same across {across}, which points at how {unit}s get their variants rather "
             "than at one integration."
         ], SrmReason.UNIFORM
-    return ["This may indicate issues with randomization or data collection."], None
+    return [], None
+
+
+def _located(verdicts: list[_Verdict]) -> list[ExposureSegment]:
+    """The located segments, the one furthest from the split first."""
+    ranked = sorted((verdict for verdict in verdicts if verdict.located is not None), key=lambda v: -v.distance)
+    return [verdict.located for verdict in ranked if verdict.located is not None]
+
+
+def _without_libraries_of_located_versions(located: list[ExposureSegment]) -> list[ExposureSegment]:
+    """A located version of a located library says the same more precisely, so the library isn't named too."""
+    versioned = {
+        _library_and_version(segment)[0]
+        for segment in located
+        if segment.dimension == ExposureSegmentDimension.LIBRARY_VERSION
+    }
+    return [
+        segment
+        for segment in located
+        if not (segment.dimension == ExposureSegmentDimension.LIBRARY and segment.value in versioned)
+    ]
+
+
+def _library_and_version(segment: ExposureSegment) -> tuple[str, str]:
+    # The query joins the library and its version with one space. A library name holds none.
+    library, _, version = segment.value.partition(" ")
+    return library, version
+
+
+def _joined(words: list[str]) -> str:
+    return " and ".join(filter(None, [", ".join(words[:-1]), words[-1]]))
 
 
 def _segment_place(segment: ExposureSegment) -> str:
-    if segment.dimension == ExposureSegmentDimension.LIBRARY:
-        if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
-            return f"whose first exposure was sent by a library other than the {TOP_SEGMENT_VALUES} most common"
-        if segment.value == BREAKDOWN_NULL_STRING_LABEL:
-            return "whose first exposure was sent by an unknown library"
-        return f"whose first exposure was sent by the {_segment_label(segment.value)} library"
-    if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
-        return f"first exposed on a page other than the {TOP_SEGMENT_VALUES} most common"
-    return f"first exposed on the page {_segment_label(segment.value)}"
+    match segment.dimension:
+        case ExposureSegmentDimension.LIBRARY:
+            if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+                return f"whose first exposure was sent by a library other than the {TOP_SEGMENT_VALUES} most common"
+            if segment.value == BREAKDOWN_NULL_STRING_LABEL:
+                return "whose first exposure was sent by an unknown library"
+            return f"whose first exposure was sent by the {_segment_label(segment.value)} library"
+        case ExposureSegmentDimension.LIBRARY_VERSION:
+            if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+                return (
+                    "whose first exposure was sent by a library version other than the "
+                    f"{TOP_SEGMENT_VALUES} most common"
+                )
+            library, version = _library_and_version(segment)
+            by_library = (
+                "an unknown library"
+                if library == BREAKDOWN_NULL_STRING_LABEL
+                else f"the {_segment_label(library)} library"
+            )
+            if version == BREAKDOWN_NULL_STRING_LABEL:
+                return f"whose first exposure was sent by an unknown version of {by_library}"
+            return f"whose first exposure was sent by version {_segment_label(version)} of {by_library}"
+        case ExposureSegmentDimension.PAGE:
+            if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+                return f"first exposed on a page other than the {TOP_SEGMENT_VALUES} most common"
+            return f"first exposed on the page {_segment_label(segment.value)}"
+        case ExposureSegmentDimension.SCREEN:
+            if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+                return f"first exposed on a screen other than the {TOP_SEGMENT_VALUES} most common"
+            return f"first exposed on the screen {_segment_label(segment.value)}"
 
 
 def _segment_label(value: str) -> str:

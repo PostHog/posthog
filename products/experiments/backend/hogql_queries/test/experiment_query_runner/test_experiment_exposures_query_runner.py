@@ -1587,22 +1587,36 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             (
                 "reader_who_sees_the_findings",
                 True,
-                'The mismatch comes from users whose first exposure was sent by the "posthog-node" library.',
+                'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
+                "library.",
                 {
-                    "reason": "library",
+                    "reason": "library_version",
+                    "located_dimensions": "library,library_version",
                     "library_1": "web",
                     "library_1_exposed_control": 100,
                     "library_1_exposed_test": 100,
                     "library_2": "posthog-node",
                     "library_2_exposed_control": 5,
                     "library_2_exposed_test": 120,
+                    "library_3": "posthog-ios",
+                    "library_3_exposed_control": 10,
+                    "library_3_exposed_test": 10,
+                    "library_version_1": "web 1.200.0",
+                    "library_version_1_exposed_control": 100,
+                    "library_version_1_exposed_test": 100,
+                    "library_version_2": "posthog-node 4.2.1",
+                    "library_version_2_exposed_control": 5,
+                    "library_version_2_exposed_test": 120,
+                    "library_version_3": "posthog-ios 3.0.0",
+                    "library_version_3_exposed_control": 10,
+                    "library_version_3_exposed_test": 10,
                     "page_1": "/",
                     "page_1_exposed_control": 34,
                     "page_1_exposed_test": 34,
                     "page_2": "/pricing",
                     "page_2_exposed_control": 20,
                     "page_2_exposed_test": 20,
-                    "page_3": "/docs",
+                    "page_3": "/docs/:page",
                     "page_3_exposed_control": 15,
                     "page_3_exposed_test": 15,
                     "page_4": "/blog",
@@ -1614,6 +1628,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     "page_6": BREAKDOWN_OTHER_STRING_LABEL,
                     "page_6_exposed_control": 9,
                     "page_6_exposed_test": 9,
+                    "screen_1": "Checkout",
+                    "screen_1_exposed_control": 10,
+                    "screen_1_exposed_test": 10,
                 },
             ),
             (
@@ -1628,43 +1645,59 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_srm_splits_the_exposures_by_the_library_and_page_of_the_first_exposure(
         self, _name: str, findings_shown: bool, detail: str, evidence: dict[str, str | int]
     ) -> None:
-        def exposure(variant: str, timestamp: str, library: str, path: str | None) -> dict[str, Any]:
-            properties = {"$feature_flag_response": variant, "$feature_flag": self.feature_flag.key, "$lib": library}
+        def exposure(variant: str, timestamp: str, library: str, version: str, **place: str | None) -> dict[str, Any]:
             return {
                 "event": "$feature_flag_called",
                 "timestamp": timestamp,
-                "properties": {**properties, "$pathname": path} if path else properties,
+                "properties": {
+                    "$feature_flag_response": variant,
+                    "$feature_flag": self.feature_flag.key,
+                    "$lib": library,
+                    "$lib_version": version,
+                    **{key: value for key, value in place.items() if value},
+                },
             }
 
-        # Seven pages, so that the two smallest share the "other" segment. Half of the users first exposed on the
-        # web are exposed by the server later, and stay web users.
+        # Seven pages, so that the two smallest share the "other" segment, and one of them has a path per document
+        # that the team's path cleaning groups. Half of the users first exposed on the web are exposed by the server
+        # later, and stay web users.
+        self.team.path_cleaning_filters = [{"alias": "/docs/:page", "regex": "/docs/\\d+"}]
+        self.team.save()
         pages = [
             page
             for page, users in (
                 ("/", 34),
                 ("/pricing", 20),
-                ("/docs", 15),
+                ("/docs/{i}", 15),
                 ("/blog", 12),
                 ("/about", 10),
                 ("/careers", 5),
                 ("/contact", 4),
             )
-            for _ in range(users)
+            for i in range(users)
+            for page in (page.format(i=i),)
         ]
         web_first = {
             f"web_{variant}_{i}": [
-                exposure(variant, "2024-01-02T10:00:00Z", "web", page),
-                *([exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", None)] if i % 2 else []),
+                exposure(variant, "2024-01-02T10:00:00Z", "web", "1.200.0", **{"$pathname": page}),
+                *([exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", "4.2.1")] if i % 2 else []),
             ]
             for variant in ("control", "test")
             for i, page in enumerate(pages)
         }
         server_only = {
-            f"server_{variant}_{i}": [exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", None)]
+            f"server_{variant}_{i}": [exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", "4.2.1")]
             for variant, count in (("control", 5), ("test", 120))
             for i in range(count)
         }
-        journeys_for({**web_first, **server_only}, self.team)
+        mobile = {
+            f"mobile_{variant}_{i}": [
+                exposure(variant, "2024-01-02T11:00:00Z", "posthog-ios", "3.0.0", **{"$screen_name": "Checkout"})
+            ]
+            for variant in ("control", "test")
+            for i in range(10)
+        }
+        journeys_for({**web_first, **server_only, **mobile}, self.team)
         flush_persons_and_events()
 
         with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=findings_shown):

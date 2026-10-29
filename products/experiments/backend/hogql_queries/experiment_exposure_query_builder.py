@@ -5,7 +5,7 @@ from posthog.schema import Breakdown, ExperimentEventExposureConfig, MultipleBre
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import apply_path_cleaning, property_to_expr
 
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
@@ -23,13 +23,17 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 class ExposureSegmentDimension(StrEnum):
     # pinned: the `srm` finding names its evidence keys and its reasons after these values.
     LIBRARY = "library"
+    LIBRARY_VERSION = "library_version"
     PAGE = "page"
+    SCREEN = "screen"
 
 
-# `segments_query` reads them as the columns breakdown_value_1 and breakdown_value_2, in this order.
+# `segments_query` reads them as the columns breakdown_value_1 to breakdown_value_4, in this order.
 _SEGMENT_BREAKDOWNS = (
     Breakdown(property="$lib", type=MultipleBreakdownType.EVENT),
+    Breakdown(property="$lib_version", type=MultipleBreakdownType.EVENT),
     Breakdown(property="$pathname", type=MultipleBreakdownType.EVENT),
+    Breakdown(property="$screen_name", type=MultipleBreakdownType.EVENT),
 )
 
 
@@ -121,10 +125,11 @@ class ExposureQueryBuilder:
 
     def segments_query(self, top_values: int) -> ast.SelectQuery:
         """
-        Persons or groups by variant and by the SDK library of their first exposure, and those whose first exposure
-        has a path also by that path. Columns: dimension, segment, variant, exposed_count. In each
-        dimension, the `top_values` segments with the most persons or groups keep their own rows, and the others share
-        the BREAKDOWN_OTHER_STRING_LABEL segment, so that one path per URL can't grow the result.
+        Persons or groups by variant and by the SDK library of their first exposure, by that library with its
+        version, and by the page of the exposure, or by its screen when it has no path. The team's path cleaning
+        rules group the pages. Columns: dimension, segment, variant, exposed_count. In each dimension, the
+        `top_values` segments with the most persons or groups keep their own rows, and the others share the
+        BREAKDOWN_OTHER_STRING_LABEL segment, so that one path per URL can't grow the result.
         """
         entities = ExposureQueryBuilder(
             context=replace(self.context, breakdowns=_SEGMENT_BREAKDOWNS),
@@ -163,10 +168,18 @@ class ExposureQueryBuilder:
                                 variant,
                                 count() AS exposed_count
                             FROM ({entities}) AS entities
-                            ARRAY JOIN if(
-                                notEmpty(breakdown_value_2) AND breakdown_value_2 != {no_path},
-                                [({library}, breakdown_value_1), ({page}, breakdown_value_2)],
-                                [({library}, breakdown_value_1)]
+                            ARRAY JOIN arrayConcat(
+                                [
+                                    ({library}, breakdown_value_1),
+                                    ({library_version}, concat(breakdown_value_1, ' ', breakdown_value_2))
+                                ],
+                                multiIf(
+                                    notEmpty(breakdown_value_3) AND breakdown_value_3 != {no_value},
+                                    [({page}, {page_value})],
+                                    notEmpty(breakdown_value_4) AND breakdown_value_4 != {no_value},
+                                    [({screen}, breakdown_value_4)],
+                                    []
+                                )
                             ) AS segment_pair
                             WHERE notEmpty(variant)
                             GROUP BY dimension, segment_value, variant
@@ -180,9 +193,12 @@ class ExposureQueryBuilder:
                 "entities": entities,
                 "top_values": ast.Constant(value=top_values),
                 "other_segments": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
-                "no_path": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                "no_value": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                 "library": ast.Constant(value=ExposureSegmentDimension.LIBRARY.value),
+                "library_version": ast.Constant(value=ExposureSegmentDimension.LIBRARY_VERSION.value),
                 "page": ast.Constant(value=ExposureSegmentDimension.PAGE.value),
+                "page_value": apply_path_cleaning(ast.Field(chain=["breakdown_value_3"]), self.context.team),
+                "screen": ast.Constant(value=ExposureSegmentDimension.SCREEN.value),
             },
         )
         assert isinstance(query, ast.SelectQuery)

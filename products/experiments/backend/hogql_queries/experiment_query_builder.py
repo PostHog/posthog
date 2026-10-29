@@ -300,8 +300,9 @@ class ExperimentQueryBuilder:
 
     def get_exposure_segments_query(self, top_values: int) -> ast.SelectQuery:
         """
-        Persons or groups by variant and by the SDK library and the page of their first exposure. Columns:
-        dimension, segment, variant, exposed_count. It scans the events, also when precomputed exposures exist.
+        Persons or groups by variant and by the SDK library, the library version, and the page or screen of their
+        first exposure. Columns: dimension, segment, variant, exposed_count. It scans the events, also when
+        precomputed exposures exist.
         """
         return self._exposure_query_builder().segments_query(top_values)
 
