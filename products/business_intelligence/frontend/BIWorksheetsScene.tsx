@@ -67,16 +67,18 @@ export function BIWorksheetsScene(): JSX.Element {
                     )
                 }
             />
-            <LemonBanner
-                type="info"
-                dismissKey="business-intelligence-beta-banner"
-                action={{
-                    children: 'Send feedback',
-                    id: 'business-intelligence-feedback-button',
-                    'data-attr': 'business-intelligence-feedback-button',
-                }}
-            >
-                <p>Business intelligence is in beta. Tell us what you'd like to see here, or report any issues.</p>
+            <LemonBanner type="info" dismissKey="business-intelligence-beta-banner">
+                <div className="flex flex-col gap-2 @md:flex-row @md:items-center @md:justify-between">
+                    <p>Business intelligence is in beta. Tell us what you'd like to see here, or report any issues.</p>
+                    {/* Keep one trigger: survey 01a187ee-3e6e-0000-0213-c128d6009577 selects the first matching element. */}
+                    <LemonButton
+                        type="secondary"
+                        id="business-intelligence-feedback-button"
+                        data-attr="business-intelligence-feedback-button"
+                    >
+                        Send feedback
+                    </LemonButton>
+                </div>
             </LemonBanner>
             <BIStarters />
             <div className="flex flex-wrap items-center gap-2">
