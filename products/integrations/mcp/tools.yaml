@@ -77,7 +77,8 @@ tools:
             then integrations-email-verify-create once they resolve. Use the domain people signed up at rather than a
             new one, so the mail comes from somewhere they recognise. Ask the user before adding a sender; it is a
             sending identity for a domain they control, and an address that cannot receive replies breaks any email that
-            asks for one. An address that already has a sender is rejected, so this cannot overwrite or unverify one: edit the existing sender instead of adding it again.
+            asks for one. An address that already has a sender is rejected, so this cannot overwrite or unverify one:
+            edit the existing sender instead of adding it again.
         exclude_params:
             - kind
         inject_body:
