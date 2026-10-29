@@ -1386,6 +1386,9 @@ class BasePrinter(Visitor[str]):
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)
 
+    def visit_array_join_alias_type(self, type: ast.ArrayJoinAliasType):
+        return self.visit_field_alias_type(type)
+
     def visit_expression_field_type(self, type: ast.ExpressionFieldType):
         return self.visit(type.expr)
 
@@ -1691,6 +1694,8 @@ class BasePrinter(Visitor[str]):
                 return f"toFloat64({self.visit(node.expr)})"
             case "text" | "varchar" | "char" | "string":
                 return f"toString({self.visit(node.expr)})"
+            case "nullable(string)":
+                return f"CAST({self.visit(node.expr)}, 'Nullable(String)')"
             case "boolean" | "bool":
                 return f"accurateCastOrNull({self.visit(node.expr)}, 'Bool')"
             case "date":

@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -93,6 +94,26 @@ def reset_span_retention_rules(rules: list["TracesRetentionRule"], *, batch_size
     TracesRetentionRule.objects.unscoped().bulk_update(rules, ["config", "version"], batch_size=batch_size)
 
 
+def _reset_traces_retention_period(organization: Organization) -> int:
+    # Imported here so the tracing product stays off this module's import path.
+    from products.tracing.backend.facade.team_extension import TeamTracingConfig  # noqa: PLC0415
+
+    with transaction.atomic():
+        # Lock every config, not only paid ones: a retention update in flight holds its row lock,
+        # so this waits for it and then sees the period it saved.
+        configs = TeamTracingConfig.objects.select_for_update(of=("self",)).filter(team__organization=organization)
+        paid_configs = [
+            config
+            for config in configs.only("team_id", "retention_days")
+            if config.retention_days > DEFAULT_LOGS_RETENTION_DAYS
+        ]
+        for config in paid_configs:
+            config.retention_days = DEFAULT_LOGS_RETENTION_DAYS
+        if paid_configs:
+            TeamTracingConfig.objects.bulk_update(paid_configs, ["retention_days"])
+    return len(paid_configs)
+
+
 def reset_revoked_logs_retention(organization: Organization, revoked_feature_keys: set[str]) -> int:
     """Reset team Logs retention to the default when its required feature was revoked.
 
@@ -122,16 +143,8 @@ def reset_revoked_logs_retention(organization: Organization, revoked_feature_key
 
     # Imported here so the tracing product stays off this module's import path.
     from products.tracing.backend.facade.retention import TracesRetentionRule  # noqa: PLC0415
-    from products.tracing.backend.facade.team_extension import TeamTracingConfig  # noqa: PLC0415
 
     # Traces reuse the Logs entitlement, so their default period and span rules are reset with it.
-    tracing_configs = list(
-        TeamTracingConfig.objects.filter(
-            team__organization=organization, retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS
-        ).only("team_id", "retention_days")
-    )
-    for config in tracing_configs:
-        config.retention_days = DEFAULT_LOGS_RETENTION_DAYS
     # The organization spans several environments, so this read is deliberately unscoped.
     span_rules = list(
         TracesRetentionRule.objects.unscoped()
@@ -141,19 +154,18 @@ def reset_revoked_logs_retention(organization: Organization, revoked_feature_key
 
     if teams:
         Team.objects.bulk_update(teams, ["logs_settings"])
-    if tracing_configs:
-        TeamTracingConfig.objects.bulk_update(tracing_configs, ["retention_days"])
+    tracing_configs_reset = _reset_traces_retention_period(organization)
     if rules:
         reset_logs_retention_rules(rules)
     if span_rules:
         reset_span_retention_rules(span_rules)
-    if teams or rules or tracing_configs or span_rules:
+    if teams or rules or tracing_configs_reset or span_rules:
         logger.info(
             "Logs retention reset after entitlement revocation",
             organization_id=str(organization.id),
             teams_reset=len(teams),
             rules_reset=len(rules),
-            tracing_configs_reset=len(tracing_configs),
+            tracing_configs_reset=tracing_configs_reset,
             span_rules_reset=len(span_rules),
         )
     return len(teams)

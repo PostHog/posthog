@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
     UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     UNSUPPORTED_SYNC_TYPE_ERROR,
+    WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -59,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
     get_import_handoffs_per_run_metric,
@@ -262,6 +264,17 @@ TRANSIENT_SOURCE_CONNECTION_MESSAGE = (
     "reachable and doesn't drop idle connections; the next sync runs on schedule."
 )
 
+# libpq prefixes a failure with "connection to server at <host>, port <port> failed:" only while it
+# sets the connection up. A drop there never reached an idle connection, so the generic copy points
+# the customer at the wrong cause. A server that accepts the TCP connection and then closes it
+# during startup is usually down, or an allowlist in front of it rejects PostHog's addresses.
+LIBPQ_CONNECT_FAILURE_MARKER = "connection to server at"
+
+TRANSIENT_CONNECT_DROPPED_MESSAGE = (
+    "Your database closed the connection while PostHog was connecting. Check that it's running and "
+    "allows PostHog's IP addresses; the next sync runs on schedule."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -382,16 +395,17 @@ CANCELLED_RUN_MESSAGE = (
     "it or the source is paused. It will run again on its next schedule."
 )
 
-WORKER_RESTART_ERROR_MESSAGE = (
-    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
-    "It will run again automatically. No action is needed."
-)
-
 TRANSIENT_SOURCE_ERROR_MESSAGE = (
     "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
     "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
     "again on its next schedule."
 )
+
+# The marker hand-rolled source transports raise once their own backoff on a 429 or 5xx runs out:
+# "<Vendor> API error (retryable): status=<code>, url=<url>". Unlike `RESTClientRetryableError`
+# it reaches the finalizer as plain message text, which carries the vendor URL and, for a
+# self-hosted source, the customer's own host.
+RETRYABLE_STATUS_ERROR_MARKER = "(retryable): status="
 
 
 def _customer_facing_error(cause: BaseException | None) -> str:
@@ -456,7 +470,7 @@ def _transient_error_message(internal_error: str) -> str | None:
 
     First match wins, mirroring how the non-retryable path picks its friendly message.
     """
-    return next(
+    message = next(
         (
             message
             for pattern, message in Transient_Error_Messages.items()
@@ -464,6 +478,11 @@ def _transient_error_message(internal_error: str) -> str | None:
         ),
         None,
     )
+    if message == TRANSIENT_SOURCE_CONNECTION_MESSAGE and error_message_matches(
+        internal_error, [LIBPQ_CONNECT_FAILURE_MARKER]
+    ):
+        return TRANSIENT_CONNECT_DROPPED_MESSAGE
+    return message
 
 
 def _fail_stale_running_schema(
@@ -545,14 +564,15 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         def _resolve_job() -> ExternalDataJob | None:
             # Resolve this run's own job by run id; the finally-block update is the only finalizer for
             # zero-batch runs (e.g. quiet Slack channels) that never send a batch to complete the job.
+            # The create-job activity stamps the run id on every row it inserts, so a miss means this run
+            # never created a job. The legacy fallback would then pick an unrelated RUNNING job, such as
+            # an orphan from an earlier run, and fail it with this run's error.
             if inputs.workflow_run_id is not None:
-                job = (
+                return (
                     ExternalDataJob.objects.filter(team_id=inputs.team_id, workflow_run_id=inputs.workflow_run_id)
                     .order_by("-created_at")
                     .first()
                 )
-                if job is not None:
-                    return job
             # Legacy fallback for runs started before workflow_run_id existed; racy under concurrent runs.
             return (
                 ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
@@ -639,13 +659,23 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
             # consulted first; the source's own exhaustion messages cover the classes it does not
             # name. Retryability is untouched: the schema is not disabled and the next scheduled
             # run still tries.
-            transient_message = _transient_error_message(internal_error_normalized) or next(
-                (
-                    message
-                    for error, message in source_cls.get_retry_exhausted_errors().items()
-                    if error_message_matches(internal_error_normalized, [error])
-                ),
-                None,
+            # The retryable-status marker comes last, so a source that names its own vendor in
+            # `get_retry_exhausted_errors` keeps that copy.
+            transient_message = (
+                _transient_error_message(internal_error_normalized)
+                or next(
+                    (
+                        message
+                        for error, message in source_cls.get_retry_exhausted_errors().items()
+                        if error_message_matches(internal_error_normalized, [error])
+                    ),
+                    None,
+                )
+                or (
+                    TRANSIENT_SOURCE_ERROR_MESSAGE
+                    if error_message_matches(internal_error_normalized, [RETRYABLE_STATUS_ERROR_MARKER])
+                    else None
+                )
             )
             if transient_message is not None:
                 inputs.latest_error = transient_message
@@ -890,7 +920,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 delay = min(IMPORT_HANDOFF_FIRST_DELAY * 2 ** min(early_handoffs, 10), IMPORT_HANDOFF_MAX_DELAY)
                 workflow.logger.info(
                     "Import handed off by a worker that is shutting down, running it again",
-                    extra={"handoffs": handoffs, "delay_seconds": delay.total_seconds()},
+                    extra={
+                        "handoffs": handoffs,
+                        "delay_seconds": delay.total_seconds(),
+                        "handoff_made_progress": pipeline_result.get("handoff_made_progress"),
+                        "handoff_reason": pipeline_result.get("handoff_reason"),
+                    },
                 )
                 await workflow.sleep(delay)
         finally:
@@ -938,6 +973,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         source_type = None
+        # The finally block reads it, so it must exist when job creation itself fails.
+        failed_runs_in_a_row = 0
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1052,7 +1089,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = False
                 source_templates_needed = True
                 import_handoffs_are_free = False
-                failed_runs_in_a_row = 0
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -1106,6 +1142,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=str(inputs.external_data_schema_id),
                             job_id=str(job_id),
                             source_id=str(inputs.external_data_source_id),
+                            reset_pipeline=inputs.reset_pipeline,
                         ),
                         start_to_close_timeout=dt.timedelta(hours=6),
                         heartbeat_timeout=dt.timedelta(minutes=5),
@@ -1478,7 +1515,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 consumer_manages_job_status and update_inputs.status == ExternalDataJob.Status.COMPLETED
             )
 
-            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+            finished_status = update_inputs.status.lower()
+            get_data_import_finished_metric(
+                source_type=source_type,
+                status=finished_status,
+                streak=failure_streak_label(finished_status, failed_runs_in_a_row),
+            ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed
             # before producing batches, or a zero-batch run); the loader releases it otherwise.

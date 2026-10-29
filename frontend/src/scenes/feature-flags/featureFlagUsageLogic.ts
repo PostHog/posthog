@@ -20,8 +20,8 @@ import {
     buildFlagEvaluationsUniqueCallersChart,
     clampToFlagEvaluationsRetention,
     flagEvaluationsDateOptions,
-    readsFlagEvaluationsTable,
 } from './featureFlagUsageQueries'
+import { readsFlagEvaluationsTable } from './flagEvaluationsTable'
 
 // The Usage tab only renders for persisted flags, so unlike featureFlagLogic this
 // logic never mounts for 'new'/'link' ids.

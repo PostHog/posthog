@@ -6,8 +6,8 @@ authenticate via the team secret API token passed as a Bearer token in the
 Authorization header. The bulk account list instead authenticates via a project
 secret API key or personal API key carrying the ``account:read`` scope, because the team token is
 readable by every project member and must not unlock a team-wide account export.
-The single-account GET accepts either credential, and so does POST, where a project secret
-API key needs the ``account:write`` scope. PATCH stays team-token only.
+The single-account GET accepts either credential, and so do POST and PATCH, where a
+project secret API key needs the ``account:write`` scope.
 
 The team token deliberately grants single-account writes (create, tags,
 relationships, custom property values) without per-user ``account`` scope checks:
@@ -27,6 +27,7 @@ import hashlib
 from typing import Any, cast
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import Q
 from django.http import HttpRequest
 
@@ -122,6 +123,9 @@ class ExternalAccountListTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrott
     rate = ExternalAccountSustainedThrottle.rate
 
 
+_INTERNAL_SCHEMA_EXTENSIONS = {"x-internal": True}
+
+
 def _customer_analytics_enabled(team: Team) -> bool:
     organization_id = str(team.organization_id)
     return bool(
@@ -147,7 +151,13 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
 
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)
-        if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
+        if result is None:
+            return None
+        team = self.project_secret_api_key.team
+        # These AllowAny views never run ActiveOrganizationPermission, so organization
+        # state must be enforced here or a key outlives its deactivated organization.
+        organization = team.organization
+        if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
             return None
         return result
 
@@ -180,6 +190,11 @@ class ExternalAccountPersonalKeyAccess(TeamAndOrgViewSetMixin, GenericViewSet):
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Extract Bearer token from Authorization header and validate against a team."""
+    # Kill switch (#66179): with legacy tokens off, migrated tokens authenticate as PSAKs
+    # (the deferral also goes inert) and never reach here; the rest get a plain 401.
+    if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None, Response({"error": "Missing or invalid Authorization header"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -195,9 +210,10 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     except (Team.DoesNotExist, Team.MultipleObjectsReturned):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    # Same 401 as an unknown token: a valid secret token for a team without customer
-    # analytics enabled must not be usable to read account data.
-    if not _customer_analytics_enabled(team):
+    # Same 401 as an unknown token: a valid secret token for a blocked organization or a
+    # team without customer analytics enabled must not be usable to read account data.
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion or not _customer_analytics_enabled(team):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     TeamSecretTokenAuthentication.record_activity_actor(None)
@@ -235,14 +251,17 @@ def _get_auth_method_label(request: Request) -> str:
 
 
 def _authenticate_team_for_update(request: Request) -> tuple[Team, None] | tuple[None, Response]:
-    """Updates stay team-token only: they change tags, relationships and churn state. A project
-    secret API key is rejected explicitly, because the team-token lookup treats it as an
-    unknown token and answers 401 instead of 403."""
+    """Updates require ``account:write`` on a project secret API key; reads alone don't
+    grant tag, relationship or churn changes. The team token keeps working unchanged."""
     if is_authenticated_via_project_secret_api_key(request):
-        return None, Response(
-            {"error": "Project secret API keys cannot update accounts on this route"},
-            status=status.HTTP_403_FORBIDDEN,
-        )
+        authenticator = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator)
+        key_scopes = set(get_authenticator_scopes(authenticator) or [])
+        if "*" not in key_scopes and EXTERNAL_ACCOUNT_WRITE_SCOPE not in key_scopes:
+            return None, Response(
+                {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_WRITE_SCOPE}'"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return authenticator.project_secret_api_key.team, None
     return _authenticate_team(request)
 
 
@@ -317,6 +336,7 @@ class ExternalAccountView(APIView):
     scope_object = "account"
 
     @extend_schema(
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
         parameters=[
             OpenApiParameter(
                 "external_id",
@@ -362,6 +382,7 @@ class ExternalAccountView(APIView):
         return handle_account_get(team, external_id)
 
     @extend_schema(
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
         request=ExternalAccountCreateSerializer,
         responses={
             200: OpenApiResponse(response=ExternalAccountSerializer, description="The account already existed."),
@@ -400,7 +421,7 @@ class ExternalAccountView(APIView):
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=_get_auth_method_label(request), http_method="patch").inc()
         return handle_account_update(request, team)
 
 
@@ -554,6 +575,7 @@ class ExternalAccountListView(APIView):
     scope_object = "account"
 
     @extend_schema(
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
         parameters=[ExternalAccountListQuerySerializer],
         responses={
             200: OpenApiResponse(response=ExternalAccountListPageSerializer, description="Page of external accounts."),
@@ -629,19 +651,25 @@ class ExternalAccountCustomPropertiesView(APIView):
     PATCH /api/customer_analytics/external/account/custom_property_values — Set an account's custom
     property values, addressing each property by its definition id (UUID).
 
-    Authenticated via Bearer token (team secret_api_token) in the Authorization header.
+    Accepts the team secret_api_token or a project secret API key with the ``account:write``
+    scope as a Bearer token.
     """
 
-    authentication_classes: list = []
+    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
+    throttle_classes = [
+        ExternalAccountBurstThrottle,
+        ExternalAccountSustainedThrottle,
+        ExternalAccountTeamBurstThrottle,
+        ExternalAccountTeamSustainedThrottle,
+    ]
 
     @extend_schema(request=ExternalAccountCustomPropertiesSerializer, responses={200: OpenApiTypes.OBJECT})
     def patch(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
+        team, error = _authenticate_team_for_update(request)
         if error:
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="patch").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=_get_auth_method_label(request), http_method="patch").inc()
         return handle_account_set_properties(request, team)

@@ -51,6 +51,7 @@ export namespace Schemas {
         | "in"
         | "not_in"
         | "is_cleaned_path_exact"
+        | "is_cleaned_path_not_exact"
         | "flag_evaluates_to"
         | "semver_eq"
         | "semver_neq"
@@ -78,6 +79,15 @@ export namespace Schemas {
               )
             | undefined;
     };
+    /**
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship
+     * * `account_field` - Account field
+     */
+    export type AccountPropertyPinKindEnum =
+        | "custom_property"
+        | "relationship"
+        | "account_field";
     export type BounceRatePageViewMode =
         | "count_pageviews"
         | "uniq_urls"
@@ -203,11 +213,14 @@ export namespace Schemas {
         inCohortVia: InCohortVia | null;
         inlineCohortCalculation: InlineCohortCalculation | null;
         materializationMode: MaterializationMode | null;
+        materializeRepeatedCTEs: boolean | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
+        negatedPersonFiltersNotIn: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
+        personIdPushdown: boolean | null;
         personsArgMaxVersion: PersonsArgMaxVersion | null;
         personsJoinMode: PersonsJoinMode | null;
         personsOnEventsMode: PersonsOnEventsMode | null;
@@ -217,10 +230,12 @@ export namespace Schemas {
         sessionIdPushdown: boolean | null;
         sessionPropertyPreAggregation: boolean | null;
         sessionTableVersion: SessionTableVersion | null;
+        sessionTimestampBufferMinutes: number | null;
         sessionsV2JoinMode: SessionsV2JoinMode | null;
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
+        useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
         useWebAnalyticsPreAggregatedTables: boolean | null;
@@ -331,8 +346,10 @@ export namespace Schemas {
          * Warehouse table name that was referenced
          */
         table_name: string;
+        uses_history_table?: (boolean | null) | undefined;
     };
     export type DataWarehouseSyncWarning = {
+        data_is_current?: (boolean | null) | undefined;
         /**
          * Human-readable warning shown to the user
          */
@@ -355,6 +372,52 @@ export namespace Schemas {
          */
         table_name: string;
         type?: string | undefined;
+    };
+    export type ActorsQueryResponse = {
+        columns: Array<unknown>;
+        error?: (string | null) | undefined;
+        hasMore?: (boolean | null) | undefined;
+        /**
+         * Generated HogQL query.
+         */
+        hogql: string;
+        limit: number;
+        missing_actors_count?: (number | null) | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        offset: number;
+        query_status?: (QueryStatus | null) | undefined;
+        resolved_compare_date_range?:
+            | (ResolvedDateRangeResponse | null)
+            | undefined;
+        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
+        results: Array<Array<unknown>>;
+        timings?: (Array<QueryTiming> | null) | undefined;
+        types?: (Array<string> | null) | undefined;
+        used_data_warehouse_sources?:
+            | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warnings?:
+            | (Array<
+                  DataWarehouseSyncWarning | AccessControlFilterWarning
+              > | null)
+            | undefined;
+    };
+    export type QueryLogTags = Partial<{
+        name: string | null;
+        presetId: string | null;
+        productKey: string | null;
+        scene: string | null;
+    }>;
+    export type AccountUsersQuery = {
+        /**
+         * ID of the account whose users to list.
+         */
+        accountId: string;
+        kind?: string | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        response?: (ActorsQueryResponse | null) | undefined;
+        tags?: (QueryLogTags | null) | undefined;
+        version?: (number | null) | undefined;
     };
     export type AccountsQueryResponse = {
         columns: Array<unknown>;
@@ -386,12 +449,6 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type QueryLogTags = Partial<{
-        name: string | null;
-        presetId: string | null;
-        productKey: string | null;
-        scene: string | null;
-    }>;
     export type AccountsQuery = Partial<{
         allRolesUnassigned: boolean | null;
         assignedOnly: boolean | null;
@@ -535,6 +592,17 @@ export namespace Schemas {
         definitionId: string;
         kind?: string | undefined;
     };
+    export type AccountsTableRelationshipOperator =
+        | "exact"
+        | "is_not"
+        | "is_set"
+        | "is_not_set";
+    export type AccountsTableRelationshipFilter = {
+        definitionId: string;
+        kind?: string | undefined;
+        operator: AccountsTableRelationshipOperator;
+        userIds?: (Array<number> | null) | undefined;
+    };
     export type AccountsTableSearchFilter = {
         kind?: string | undefined;
         query: string;
@@ -547,17 +615,6 @@ export namespace Schemas {
         tagNames: Array<string>;
     };
     export type AccountsTableUnassignedFilter = Partial<{ kind: string }>;
-    export type AccountsTableRelationshipOperator =
-        | "exact"
-        | "is_not"
-        | "is_set"
-        | "is_not_set";
-    export type AccountsTableRelationshipFilter = {
-        definitionId: string;
-        kind?: string | undefined;
-        operator: AccountsTableRelationshipOperator;
-        userIds?: (Array<number> | null) | undefined;
-    };
     export type AccountsTableRow = {
         /**
          * Requested direct Account fields, keyed by their typed field reference.
@@ -635,6 +692,15 @@ export namespace Schemas {
             | AccountsTableCustomPropertyColumn
             | AccountsTableCustomPropertyHistoryColumn
         >;
+        filterGroups?:
+            | (Array<
+                  Array<
+                      | AccountsTableAccountFieldFilter
+                      | AccountsTableRelationshipFilter
+                      | AccountsTableCustomPropertyFilter
+                  >
+              > | null)
+            | undefined;
         filters?:
             | (Array<
                   | AccountsTableSearchFilter
@@ -677,7 +743,14 @@ export namespace Schemas {
         event?: (string | null) | undefined;
         properties?: (Array<ActionStepPropertyFilter> | null) | undefined;
         selector?: (string | null) | undefined;
+        /**
+         * Compiled regex the selector matches against the event elements chain. Null when no selector is set.
+         */
         selector_regex: string | null;
+        /**
+         * Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.
+         */
+        selector_warning: string | null;
         tag_name?: (string | null) | undefined;
         text?: (string | null) | undefined;
         text_matching?: (ActionStepMatchingEnum | NullEnum) | undefined;
@@ -824,6 +897,8 @@ export namespace Schemas {
             | undefined;
     };
     export type CohortPropertyFilter = {
+        cohort_deleted?: (boolean | null) | undefined;
+        cohort_missing?: (boolean | null) | undefined;
         cohort_name?: (string | null) | undefined;
         key?: string | undefined;
         label?: (string | null) | undefined;
@@ -1701,41 +1776,13 @@ export namespace Schemas {
             | BehavioralPropertyFilter
         >;
     };
-    export type ActorsQueryResponse = {
-        columns: Array<unknown>;
-        error?: (string | null) | undefined;
-        hasMore?: (boolean | null) | undefined;
-        /**
-         * Generated HogQL query.
-         */
-        hogql: string;
-        limit: number;
-        missing_actors_count?: (number | null) | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        offset: number;
-        query_status?: (QueryStatus | null) | undefined;
-        resolved_compare_date_range?:
-            | (ResolvedDateRangeResponse | null)
-            | undefined;
-        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
-        results: Array<Array<unknown>>;
-        timings?: (Array<QueryTiming> | null) | undefined;
-        types?: (Array<string> | null) | undefined;
-        used_data_warehouse_sources?:
-            | (Array<DataWarehouseSourceUsage> | null)
-            | undefined;
-        warnings?:
-            | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
-              > | null)
-            | undefined;
-    };
     export type Compare = "current" | "previous";
     export type BreakdownType =
         | "cohort"
         | "person"
         | "event"
         | "event_metadata"
+        | "element"
         | "group"
         | "session"
         | "hogql"
@@ -1746,6 +1793,7 @@ export namespace Schemas {
         | "person"
         | "event"
         | "event_metadata"
+        | "element"
         | "group"
         | "session"
         | "hogql"
@@ -1806,11 +1854,107 @@ export namespace Schemas {
         | "month"
         | "quarter"
         | "year";
+    export type DataWarehouseNode = {
+        custom_name?: (string | null) | undefined;
+        distinct_id_field: string;
+        dw_source_type?: (string | null) | undefined;
+        fixedProperties?:
+            | (Array<
+                  | EventPropertyFilter
+                  | PersonPropertyFilter
+                  | PersonMetadataPropertyFilter
+                  | ElementPropertyFilter
+                  | EventMetadataPropertyFilter
+                  | SessionPropertyFilter
+                  | CohortPropertyFilter
+                  | RecordingPropertyFilter
+                  | LogEntryPropertyFilter
+                  | GroupPropertyFilter
+                  | FeaturePropertyFilter
+                  | FlagPropertyFilter
+                  | HogQLPropertyFilter
+                  | EmptyPropertyFilter
+                  | DataWarehousePropertyFilter
+                  | DataWarehousePersonPropertyFilter
+                  | ErrorTrackingIssueFilter
+                  | LogPropertyFilter
+                  | MetricPropertyFilter
+                  | SpanPropertyFilter
+                  | RevenueAnalyticsPropertyFilter
+                  | AccountCustomPropertyFilter
+                  | WorkflowVariablePropertyFilter
+                  | BehavioralPropertyFilter
+              > | null)
+            | undefined;
+        id: string;
+        id_field: string;
+        kind?: string | undefined;
+        math?:
+            | (
+                  | BaseMathType
+                  | FunnelMathType
+                  | PropertyMathType
+                  | CountPerActorMathType
+                  | GroupMathType
+                  | ExperimentMetricMathType
+                  | CalendarHeatmapMathType
+                  | string
+                  | null
+              )
+            | undefined;
+        math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
+        math_hogql?: (string | null) | undefined;
+        math_multiplier?: (number | null) | undefined;
+        math_property?: (string | null) | undefined;
+        math_property_revenue_currency?:
+            | (RevenueCurrencyPropertyConfig | null)
+            | undefined;
+        math_property_type?: (string | null) | undefined;
+        name?: (string | null) | undefined;
+        optionalInFunnel?: (boolean | null) | undefined;
+        properties?:
+            | (Array<
+                  | EventPropertyFilter
+                  | PersonPropertyFilter
+                  | PersonMetadataPropertyFilter
+                  | ElementPropertyFilter
+                  | EventMetadataPropertyFilter
+                  | SessionPropertyFilter
+                  | CohortPropertyFilter
+                  | RecordingPropertyFilter
+                  | LogEntryPropertyFilter
+                  | GroupPropertyFilter
+                  | FeaturePropertyFilter
+                  | FlagPropertyFilter
+                  | HogQLPropertyFilter
+                  | EmptyPropertyFilter
+                  | DataWarehousePropertyFilter
+                  | DataWarehousePersonPropertyFilter
+                  | ErrorTrackingIssueFilter
+                  | LogPropertyFilter
+                  | MetricPropertyFilter
+                  | SpanPropertyFilter
+                  | RevenueAnalyticsPropertyFilter
+                  | AccountCustomPropertyFilter
+                  | WorkflowVariablePropertyFilter
+                  | BehavioralPropertyFilter
+              > | null)
+            | undefined;
+        response?: (Record<string, unknown> | null) | undefined;
+        table_name: string;
+        timestamp_field: string;
+        version?: (number | null) | undefined;
+    };
+    export type MarketingAnalyticsCostFallback = {
+        series: Array<DataWarehouseNode>;
+        sourceIds: Array<string>;
+    };
     export type PropertyGroupFilter = {
         type: FilterLogicalOperator;
         values: Array<PropertyGroupFilterValue>;
     };
     export type BoxPlotDatum = {
+        count?: (number | null) | undefined;
         day: string;
         label: string;
         max: number;
@@ -1823,6 +1967,7 @@ export namespace Schemas {
         series_label?: (string | null) | undefined;
     };
     export type TrendsQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         boxplot_data?: (Array<BoxPlotDatum> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -1923,97 +2068,6 @@ export namespace Schemas {
         response: Record<string, unknown> | null;
         version: number | null;
     }>;
-    export type DataWarehouseNode = {
-        custom_name?: (string | null) | undefined;
-        distinct_id_field: string;
-        dw_source_type?: (string | null) | undefined;
-        fixedProperties?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        id: string;
-        id_field: string;
-        kind?: string | undefined;
-        math?:
-            | (
-                  | BaseMathType
-                  | FunnelMathType
-                  | PropertyMathType
-                  | CountPerActorMathType
-                  | GroupMathType
-                  | ExperimentMetricMathType
-                  | CalendarHeatmapMathType
-                  | string
-                  | null
-              )
-            | undefined;
-        math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
-        math_hogql?: (string | null) | undefined;
-        math_multiplier?: (number | null) | undefined;
-        math_property?: (string | null) | undefined;
-        math_property_revenue_currency?:
-            | (RevenueCurrencyPropertyConfig | null)
-            | undefined;
-        math_property_type?: (string | null) | undefined;
-        name?: (string | null) | undefined;
-        optionalInFunnel?: (boolean | null) | undefined;
-        properties?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        response?: (Record<string, unknown> | null) | undefined;
-        table_name: string;
-        timestamp_field: string;
-        version?: (number | null) | undefined;
-    };
     export type GroupNode = {
         custom_name?: (string | null) | undefined;
         fixedProperties?:
@@ -2142,6 +2196,7 @@ export namespace Schemas {
         | "Metric"
         | "ActionsPie"
         | "ActionsDonut"
+        | "ActionsProportionBar"
         | "ActionsBarValue"
         | "ActionsTable"
         | "WorldMap"
@@ -2154,13 +2209,17 @@ export namespace Schemas {
         custom_name?: (string | null) | undefined;
         formula: string;
     };
+    export type Calculation = "fixed" | "mean" | "median" | "min" | "max";
     export type Position = "start" | "end";
+    export type Scope = "all" | "series";
     export type GoalLine = {
         borderColor?: (string | null) | undefined;
+        calculation?: (Calculation | null) | undefined;
         displayIfCrossed?: (boolean | null) | undefined;
         displayLabel?: (boolean | null) | undefined;
         label: string;
         position?: (Position | null) | undefined;
+        scope?: (Scope | null) | undefined;
         value: number;
     };
     export type LegendPosition = "top" | "bottom" | "left" | "right";
@@ -2185,6 +2244,7 @@ export namespace Schemas {
     export type ResultCustomizationByValue = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
+        customColor: string | null;
         hidden: boolean | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
@@ -2258,6 +2318,9 @@ export namespace Schemas {
         filterTestAccounts?: (boolean | null) | undefined;
         interval?: (IntervalType | null) | undefined;
         kind?: string | undefined;
+        marketingAnalyticsCostFallback?:
+            | (MarketingAnalyticsCostFallback | null)
+            | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         properties?:
             | (
@@ -3127,6 +3190,7 @@ export namespace Schemas {
         version: number | null;
     }>;
     export type StickinessQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3233,6 +3297,7 @@ export namespace Schemas {
         toggledLifecycles: Array<LifecycleToggle> | null;
     }>;
     export type LifecycleQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3465,6 +3530,7 @@ export namespace Schemas {
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -3548,9 +3614,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -3647,107 +3715,6 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
-    export type FunnelCorrelationResultsType =
-        | "events"
-        | "properties"
-        | "event_with_properties";
-    export type CorrelationType = "success" | "failure";
-    export type EventDefinition = {
-        elements: Array<unknown>;
-        event: string;
-        properties: Record<string, unknown>;
-    };
-    export type EventOddsRatioSerialized = {
-        correlation_type: CorrelationType;
-        event: EventDefinition;
-        failure_count: number;
-        odds_ratio: number;
-        success_count: number;
-    };
-    export type FunnelCorrelationResult = {
-        events: Array<EventOddsRatioSerialized>;
-        skewed: boolean;
-    };
-    export type FunnelCorrelationResponse = {
-        columns?: (Array<unknown> | null) | undefined;
-        error?: (string | null) | undefined;
-        hasMore?: (boolean | null) | undefined;
-        hogql?: (string | null) | undefined;
-        limit?: (number | null) | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        offset?: (number | null) | undefined;
-        query_status?: (QueryStatus | null) | undefined;
-        resolved_compare_date_range?:
-            | (ResolvedDateRangeResponse | null)
-            | undefined;
-        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
-        results: FunnelCorrelationResult;
-        timings?: (Array<QueryTiming> | null) | undefined;
-        types?: (Array<unknown> | null) | undefined;
-        used_data_warehouse_sources?:
-            | (Array<DataWarehouseSourceUsage> | null)
-            | undefined;
-        warnings?:
-            | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
-              > | null)
-            | undefined;
-    };
-    export type FunnelCorrelationQuery = {
-        funnelCorrelationEventExcludePropertyNames?:
-            | (Array<string> | null)
-            | undefined;
-        funnelCorrelationEventNames?: (Array<string> | null) | undefined;
-        funnelCorrelationExcludeEventNames?: (Array<string> | null) | undefined;
-        funnelCorrelationExcludeNames?: (Array<string> | null) | undefined;
-        funnelCorrelationNames?: (Array<string> | null) | undefined;
-        funnelCorrelationType: FunnelCorrelationResultsType;
-        kind?: string | undefined;
-        response?: (FunnelCorrelationResponse | null) | undefined;
-        source: FunnelsActorsQuery;
-        version?: (number | null) | undefined;
-    };
-    export type FunnelCorrelationActorsQuery = {
-        funnelCorrelationPersonConverted?: (boolean | null) | undefined;
-        funnelCorrelationPersonEntity?:
-            | (EventsNode | ActionsNode | DataWarehouseNode | null)
-            | undefined;
-        funnelCorrelationPropertyValues?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
-        includeRecordings?: (boolean | null) | undefined;
-        kind?: string | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        response?: (ActorsQueryResponse | null) | undefined;
-        source: FunnelCorrelationQuery;
-        tags?: (QueryLogTags | null) | undefined;
-        version?: (number | null) | undefined;
-    };
     export type ExperimentEventExposureConfig = {
         event: string;
         kind?: string | undefined;
@@ -3777,6 +3744,19 @@ export namespace Schemas {
             | WorkflowVariablePropertyFilter
             | BehavioralPropertyFilter
         >;
+        response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
+    export type ExperimentWarehouseNativeExposureConfig = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        kind?: string | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling.
+         */
+        query: string;
         response?: (Record<string, unknown> | null) | undefined;
         version?: (number | null) | undefined;
     };
@@ -3871,6 +3851,23 @@ export namespace Schemas {
         timestamp_field: string;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeMathType = "total" | "sum";
+    export type ExperimentWarehouseNativeNode = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        custom_name?: (string | null) | undefined;
+        kind?: string | undefined;
+        math?: (ExperimentWarehouseNativeMathType | null) | undefined;
+        math_property?: (string | null) | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3887,7 +3884,11 @@ export namespace Schemas {
         name?: (string | null) | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
-        source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        source:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
@@ -3927,7 +3928,11 @@ export namespace Schemas {
         conversion_window_unit?:
             | (FunnelConversionWindowTimeUnit | null)
             | undefined;
-        denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        denominator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         denominator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -3937,7 +3942,11 @@ export namespace Schemas {
         kind?: string | undefined;
         metric_type?: string | undefined;
         name?: (string | null) | undefined;
-        numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        numerator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         numerator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -4068,52 +4077,16 @@ export namespace Schemas {
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>;
     };
-    export type ExperimentSignificanceCode =
-        | "significant"
-        | "not_enough_exposure"
-        | "low_win_probability"
-        | "high_loss"
-        | "high_p_value";
-    export type ExperimentVariantTrendsBaseStats = {
-        absolute_exposure: number;
-        count: number;
-        exposure: number;
-        key: string;
-    };
-    export type ExperimentVariantFunnelsBaseStats = {
-        failure_count: number;
-        key: string;
-        success_count: number;
-    };
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
         clickhouse_sql: string | null;
-        credible_intervals: Record<string, Array<number>> | null;
         hogql: string | null;
-        insight: Array<Record<string, unknown>> | null;
         is_precomputed: boolean | null;
         kind: string;
-        metric:
-            | (
-                  | ExperimentMeanMetric
-                  | ExperimentFunnelMetric
-                  | ExperimentRatioMetric
-                  | ExperimentRetentionMetric
-              )
-            | null;
-        p_value: number | null;
-        probability: Record<string, number> | null;
-        significance_code: ExperimentSignificanceCode | null;
-        significant: boolean | null;
-        stats_version: number | null;
         variant_results:
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>
-            | null;
-        variants:
-            | Array<ExperimentVariantTrendsBaseStats>
-            | Array<ExperimentVariantFunnelsBaseStats>
             | null;
         warnings: Array<DataWarehouseSyncWarning> | null;
     }>;
@@ -4134,7 +4107,12 @@ export namespace Schemas {
     };
     export type ExperimentActorsQuery = {
         exposureConfig?:
-            | (ExperimentEventExposureConfig | ActionsNode | null)
+            | (
+                  | ExperimentEventExposureConfig
+                  | ActionsNode
+                  | ExperimentWarehouseNativeExposureConfig
+                  | null
+              )
             | undefined;
         featureFlagKey?: (string | null) | undefined;
         funnelStep?: (number | null) | undefined;
@@ -4194,8 +4172,10 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExecutionTarget = "default" | "managed_trino";
     export type HogQLFilters = Partial<{
         breakdownFilter: BreakdownFilter | null;
+        compareFilter: CompareFilter | null;
         dateRange: DateRange | null;
         filterTestAccounts: boolean | null;
         interval: IntervalType | null;
@@ -4231,6 +4211,25 @@ export namespace Schemas {
         fix?: (string | null) | undefined;
         message: string;
         start?: (number | null) | undefined;
+        url?: (string | null) | undefined;
+    };
+    export type PredicateFixAction =
+        | "edit_query"
+        | "edit_property_type"
+        | "materialize";
+    export type PredicateQuickfix = {
+        /**
+         * Character offset in the query where the replaced range ends.
+         */
+        end: number;
+        /**
+         * Character offset in the query where the replaced range starts.
+         */
+        start: number;
+        /**
+         * Replacement text, substituted for the range verbatim.
+         */
+        text: string;
     };
     export type PredicateScope = "event" | "person" | "group" | "unknown";
     export type PredicateIndexVerdict =
@@ -4240,9 +4239,11 @@ export namespace Schemas {
         | "unindexed_json"
         | "operator_not_indexable";
     export type PredicateIndexUsage = {
+        ai_fix_prompt?: (string | null) | undefined;
         column_name?: (string | null) | undefined;
         end?: (number | null) | undefined;
         fix?: (string | null) | undefined;
+        fix_action?: (PredicateFixAction | null) | undefined;
         message: string;
         /**
          * HogQL comparison operator, e.g. `==`, `in`, `ilike`.
@@ -4253,6 +4254,7 @@ export namespace Schemas {
          */
         physical_type: string;
         property_name: string;
+        quickfix?: (PredicateQuickfix | null) | undefined;
         scope: PredicateScope;
         /**
          * Type the property definition declares.
@@ -4270,6 +4272,16 @@ export namespace Schemas {
         verdict: PredicateIndexVerdict;
     };
     export type QueryIndexUsage = "undecisive" | "no" | "partial" | "yes";
+    export type HogQLMetadataColumn = {
+        /**
+         * Output column name, in the same order as the SELECT list.
+         */
+        name: string;
+        /**
+         * Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative.
+         */
+        type: string;
+    };
     export type HogQLMetadataResponse = {
         ch_table_names?: (Array<string> | null) | undefined;
         errors: Array<HogQLNotice>;
@@ -4277,12 +4289,14 @@ export namespace Schemas {
         isUsingIndices?: (QueryIndexUsage | null) | undefined;
         isValid?: (boolean | null) | undefined;
         notices: Array<HogQLNotice>;
+        output_columns?: (Array<HogQLMetadataColumn> | null) | undefined;
         query?: (string | null) | undefined;
         table_names?: (Array<string> | null) | undefined;
         warnings: Array<HogQLNotice>;
     };
     export type HogQLQueryResponse = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -4318,6 +4332,7 @@ export namespace Schemas {
     };
     export type HogQLQuery = {
         connectionId?: (string | null) | undefined;
+        executionTarget?: (ExecutionTarget | null) | undefined;
         explain?: (boolean | null) | undefined;
         filters?: (HogQLFilters | null) | undefined;
         kind?: string | undefined;
@@ -4361,15 +4376,16 @@ export namespace Schemas {
         source:
             | InsightActorsQuery
             | FunnelsActorsQuery
-            | FunnelCorrelationActorsQuery
             | ExperimentActorsQuery
             | StickinessActorsQuery
             | PathsV2ActorsQuery
+            | AccountUsersQuery
             | HogQLQuery
             | null;
         tags: QueryLogTags | null;
         version: number | null;
     }>;
+    export type Alias = { label: string; value?: (string | null) | undefined };
     /**
      * * `first_touch` - First Touch
      * * `last_touch` - Last Touch
@@ -4447,7 +4463,6 @@ export namespace Schemas {
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
      * * `use_posthog_ai` - use_posthog_ai
-     * * `use_posthog_code` - use_posthog_code
      * * `use_posthog_mcp` - use_posthog_mcp
      * * `use_posthog_in_slack` - use_posthog_in_slack
      */
@@ -4515,9 +4530,378 @@ export namespace Schemas {
         | "create_early_access_feature"
         | "update_feature_stage"
         | "use_posthog_ai"
-        | "use_posthog_code"
         | "use_posthog_mcp"
         | "use_posthog_in_slack";
+    export type BIAggregation =
+        | "count"
+        | "count_distinct"
+        | "sum"
+        | "average"
+        | "minimum"
+        | "maximum"
+        | "custom";
+    export type BICatalogMetricStatus = "approved" | "proposed";
+    export type BICategoryGroup = { name: string; values: Array<string> };
+    export type Operator1 = "AND" | "OR";
+    export type BIConditionGroup = {
+        filters: Array<string>;
+        groups: Array<BIConditionGroup>;
+        operator: Operator1;
+    };
+    export type CatalogMetricContext = {
+        id: string;
+        isDrifted: boolean;
+        owner?: (string | null) | undefined;
+        status: BICatalogMetricStatus;
+        unit: string;
+        updatedAt?: (string | null) | undefined;
+    };
+    export type BIDateBucket =
+        | "minute"
+        | "hour"
+        | "day"
+        | "week"
+        | "month"
+        | "quarter"
+        | "year";
+    export type DatePart = "month" | "quarter" | "day_of_week";
+    export type BILocalFieldDefinition1 = {
+        aggregate: boolean;
+        expression: string;
+        kind?: string | undefined;
+    };
+    export type BILocalFieldDefinition2 = {
+        expression: string;
+        groups: Array<BICategoryGroup>;
+        kind?: string | undefined;
+        other: string;
+        preserveUngrouped?: (boolean | null) | undefined;
+    };
+    export type BILocalFieldDefinition3 = {
+        expression: string;
+        kind?: string | undefined;
+        origin: number;
+        width: number;
+    };
+    export type BIDataSource = {
+        connectionId?: (string | null) | undefined;
+        table: string;
+    };
+    export type DatabaseSerializedFieldType =
+        | "integer"
+        | "float"
+        | "decimal"
+        | "string"
+        | "datetime"
+        | "date"
+        | "boolean"
+        | "array"
+        | "json"
+        | "lazy_table"
+        | "virtual_table"
+        | "field_traverser"
+        | "expression"
+        | "view"
+        | "materialized_view"
+        | "unknown";
+    export type BIField = {
+        dateBucket?: (BIDateBucket | null) | undefined;
+        datePart?: (DatePart | null) | undefined;
+        expression: string;
+        id: string;
+        label?: (string | null) | undefined;
+        localDefinition?:
+            | (
+                  | BILocalFieldDefinition1
+                  | BILocalFieldDefinition2
+                  | BILocalFieldDefinition3
+                  | null
+              )
+            | undefined;
+        localFieldId?: (string | null) | undefined;
+        name: string;
+        source: BIDataSource;
+        type: DatabaseSerializedFieldType;
+    };
+    export type ComparisonPeriod = "previous" | null;
+    export type BIFilterOperator =
+        | "equals"
+        | "not_equals"
+        | "contains"
+        | "in"
+        | "not_in"
+        | "between"
+        | "greater_than"
+        | "less_than"
+        | "last_7_days"
+        | "is_set"
+        | "is_not_set"
+        | "custom";
+    export type BIFilter = {
+        customExpression?: (string | null) | undefined;
+        enabled?: (boolean | null) | undefined;
+        field: BIField;
+        label?: (string | null) | undefined;
+        operator: BIFilterOperator;
+        value: string;
+        valueTo?: (string | null) | undefined;
+        values?: (Array<string> | null) | undefined;
+    };
+    export type BIHierarchy = {
+        id: string;
+        /**
+         * Ordered from the broadest dimension to the most detailed.
+         */
+        levels: Array<BIField>;
+        name: string;
+    };
+    export type HierarchyDrillPathItem = {
+        filterIds: Array<string>;
+        hierarchyId: string;
+        nextField: BIField;
+        previousField: BIField;
+    };
+    export type BIQueryLimit = 100 | 1000 | 10000 | 50000;
+    export type MemberAliase = { aliases: Array<Alias>; field: BIField };
+    export type MissingDates = "gap" | "zero";
+    export type ReferenceLines = "pane" | "worksheet";
+    export type BIPaneSettings = {
+        /**
+         * Ordered dimension IDs used to split returned groups into separate charts.
+         */
+        fields: Array<string>;
+        independentAxes?: (boolean | null) | undefined;
+        referenceLines?: (ReferenceLines | null) | undefined;
+    };
+    export type Operator2 =
+        | "equals"
+        | "not_equals"
+        | "greater_than"
+        | "less_than"
+        | "greater_than_or_equal"
+        | "less_than_or_equal"
+        | "between"
+        | "is_set"
+        | "is_not_set";
+    export type BIResultFilter = {
+        enabled?: (boolean | null) | undefined;
+        id: string;
+        label?: (string | null) | undefined;
+        measureIndex: number;
+        operator: Operator2;
+        value: string;
+        valueTo?: (string | null) | undefined;
+    };
+    export type BISortDirection = "asc" | "desc";
+    export type BISort = { direction: BISortDirection; key: string };
+    export type BITopN = {
+        count: number;
+        fieldId: string;
+        includeOther: boolean;
+        measureIndex: number;
+    };
+    export type BITotals = Partial<{
+        columns: boolean | null;
+        rows: boolean | null;
+        subtotals: boolean | null;
+    }>;
+    export type DisplayType = "auto" | "line" | "bar" | "area";
+    export type YAxisPosition = "left" | "right";
+    export type ChartSettingsDisplay = Partial<{
+        color: string | null;
+        displayType: DisplayType | null;
+        label: string | null;
+        trendLine: boolean | null;
+        yAxisPosition: YAxisPosition | null;
+    }>;
+    export type Style = "none" | "number" | "short" | "percent";
+    export type ChartSettingsFormatting = Partial<{
+        decimalPlaces: number | null;
+        prefix: string | null;
+        style: Style | null;
+        suffix: string | null;
+    }>;
+    export type Shelf = "rows" | "columns";
+    export type BITableCalculationType =
+        | "percent_of_total"
+        | "running_total"
+        | "difference"
+        | "percent_change"
+        | "moving_average"
+        | "rank";
+    export type BITableCalculation = {
+        computeUsing?: (string | null) | undefined;
+        requireFullWindow?: (boolean | null) | undefined;
+        type: BITableCalculationType;
+        window?: (number | null) | undefined;
+    };
+    export type BIValue = {
+        aggregation: BIAggregation;
+        customExpression?: (string | null) | undefined;
+        display?: (ChartSettingsDisplay | null) | undefined;
+        field: BIField;
+        formatting?: (ChartSettingsFormatting | null) | undefined;
+        label?: (string | null) | undefined;
+        shelf?: (Shelf | null) | undefined;
+        tableCalculation?: (BITableCalculation | null) | undefined;
+    };
+    export type BIConfig = {
+        catalogMetric?: (string | null) | undefined;
+        catalogMetricContext?: (CatalogMetricContext | null) | undefined;
+        chartType: ChartDisplayType;
+        colorBy?: (string | null) | undefined;
+        columns: Array<BIField>;
+        compareFilter?: (CompareFilter | null) | undefined;
+        comparisonPeriod?: (ComparisonPeriod | null) | undefined;
+        dateField?: (BIField | null) | undefined;
+        dateRange?: (DateRange | null) | undefined;
+        filters: Array<BIFilter>;
+        hierarchies?: (Array<BIHierarchy> | null) | undefined;
+        hierarchyDrillPath?: (Array<HierarchyDrillPathItem> | null) | undefined;
+        limit: BIQueryLimit;
+        localFields?: (Array<BIField> | null) | undefined;
+        memberAliases?: (Array<MemberAliase> | null) | undefined;
+        missingDates?: (MissingDates | null) | undefined;
+        panes?: (BIPaneSettings | null) | undefined;
+        querySnapshot?: (HogQLQuery | null) | undefined;
+        resultFilterGroup?: (BIConditionGroup | null) | undefined;
+        resultFilters?: (Array<BIResultFilter> | null) | undefined;
+        rowFilterGroup?: (BIConditionGroup | null) | undefined;
+        rows: Array<BIField>;
+        sort?: (BISort | null) | undefined;
+        source?: (BIDataSource | null) | undefined;
+        topN?: (BITopN | null) | undefined;
+        totals?: (BITotals | null) | undefined;
+        values: Array<BIValue>;
+    };
+    export type BoxPlotSettings = Partial<{
+        excludeOutliers: boolean | null;
+        maxColumn: string | null;
+        meanColumn: string | null;
+        medianColumn: string | null;
+        minColumn: string | null;
+        p25Column: string | null;
+        p75Column: string | null;
+        seriesColumn: string | null;
+        xAxisColumn: string | null;
+    }>;
+    export type HeatmapGradientStop = { color: string; value: number };
+    export type GradientScaleMode = "absolute" | "relative";
+    export type HeatmapSortOrder = "asc" | "desc";
+    export type HeatmapSettings = Partial<{
+        gradient: Array<HeatmapGradientStop> | null;
+        gradientPreset: string | null;
+        gradientScaleMode: GradientScaleMode | null;
+        nullLabel: string | null;
+        nullValue: string | null;
+        sortColumn: string | null;
+        sortOrder: HeatmapSortOrder | null;
+        valueColumn: string | null;
+        xAxisColumn: string | null;
+        xAxisLabel: string | null;
+        yAxisColumn: string | null;
+        yAxisLabel: string | null;
+    }>;
+    export type Scale = "linear" | "logarithmic";
+    export type YAxisSettings = Partial<{
+        label: string | null;
+        scale: Scale | null;
+        showGridLines: boolean | null;
+        showTicks: boolean | null;
+        startAtZero: boolean | null;
+    }>;
+    export type Summary = "total" | "average" | "latest";
+    export type MetricChartSettings = Partial<{
+        changeDecreaseColor: string | null;
+        changeIncreaseColor: string | null;
+        colorByDirection: boolean | null;
+        lineDecreaseColor: string | null;
+        lineIncreaseColor: string | null;
+        showChange: boolean | null;
+        summary: Summary | null;
+    }>;
+    export type SliceContent = "labels" | "values" | "none";
+    export type ValueDisplay = "absolute" | "percentage";
+    export type PieChartSettings = Partial<{
+        showTotal: boolean | null;
+        sliceContent: SliceContent | null;
+        valueDisplay: ValueDisplay | null;
+    }>;
+    export type XScale = "linear" | "logarithmic";
+    export type ScatterChartSettings = Partial<{
+        showBestFit: boolean | null;
+        xScale: XScale | null;
+        xStartAtZero: boolean | null;
+    }>;
+    export type ValueLabelPosition = "end" | "center";
+    export type Settings = Partial<{
+        display: ChartSettingsDisplay | null;
+        formatting: ChartSettingsFormatting | null;
+    }>;
+    export type ChartAxis = {
+        column: string;
+        settings?: (Settings | null) | undefined;
+    };
+    export type ChartSettings = Partial<{
+        barGap: number | null;
+        boxPlot: BoxPlotSettings | null;
+        chartStyle: ChartStyle | null;
+        goalLines: Array<GoalLine> | null;
+        heatmap: HeatmapSettings | null;
+        leftYAxisSettings: YAxisSettings | null;
+        legendPosition: LegendPosition | null;
+        metric: MetricChartSettings | null;
+        pie: PieChartSettings | null;
+        resultCustomizations: Record<string, ResultCustomizationByValue> | null;
+        rightYAxisSettings: YAxisSettings | null;
+        scatter: ScatterChartSettings | null;
+        seriesBreakdownColumn: string | null;
+        showAnnotations: boolean | null;
+        showLegend: boolean | null;
+        showNullsAsZero: boolean | null;
+        showPieTotal: boolean | null;
+        showTotalRow: boolean | null;
+        showValuesOnSeries: boolean | null;
+        showXAxisBorder: boolean | null;
+        showXAxisTicks: boolean | null;
+        showYAxisBorder: boolean | null;
+        stackBars100: boolean | null;
+        valueLabelBackground: boolean | null;
+        valueLabelFontSize: number | null;
+        valueLabelPosition: ValueLabelPosition | null;
+        valueLabelRotation: number | null;
+        xAxis: ChartAxis | null;
+        xAxisDateFormat: string | null;
+        xAxisLabel: string | null;
+        xAxisTickRotation: number | null;
+        yAxis: Array<ChartAxis> | null;
+        yAxisAtZero: boolean | null;
+    }>;
+    export type ColorMode = "light" | "dark";
+    export type ConditionalFormattingRule = {
+        bytecode: Array<unknown>;
+        color: string;
+        colorMode?: (ColorMode | null) | undefined;
+        columnName: string;
+        id: string;
+        input: string;
+        templateId: string;
+    };
+    export type TableSettings = Partial<{
+        columns: Array<ChartAxis> | null;
+        conditionalFormatting: Array<ConditionalFormattingRule> | null;
+        pinnedColumns: Array<string> | null;
+        transpose: boolean | null;
+    }>;
+    export type BIVisualizationNode = {
+        chartSettings?: (ChartSettings | null) | undefined;
+        config: BIConfig;
+        display?: (ChartDisplayType | null) | undefined;
+        kind?: string | undefined;
+        source: HogQLQuery;
+        tableSettings?: (TableSettings | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     /**
      * * `AED` - AED
      * * `AFN` - AFN
@@ -4868,17 +5252,6 @@ export namespace Schemas {
          */
         multiple_variant_percentage: number;
     };
-    export type BoxPlotSettings = Partial<{
-        excludeOutliers: boolean | null;
-        maxColumn: string | null;
-        meanColumn: string | null;
-        medianColumn: string | null;
-        minColumn: string | null;
-        p25Column: string | null;
-        p75Column: string | null;
-        seriesColumn: string | null;
-        xAxisColumn: string | null;
-    }>;
     /**
      * * `auto` - auto
      * * `manual` - manual
@@ -4947,115 +5320,15 @@ export namespace Schemas {
      * * `github` - GitHub
      */
     export type ChannelEnum = "widget" | "email" | "slack" | "teams" | "github";
-    export type DisplayType = "auto" | "line" | "bar" | "area";
-    export type YAxisPosition = "left" | "right";
-    export type ChartSettingsDisplay = Partial<{
-        color: string | null;
-        displayType: DisplayType | null;
-        label: string | null;
-        trendLine: boolean | null;
-        yAxisPosition: YAxisPosition | null;
-    }>;
-    export type Style = "none" | "number" | "short" | "percent";
-    export type ChartSettingsFormatting = Partial<{
-        decimalPlaces: number | null;
-        prefix: string | null;
-        style: Style | null;
-        suffix: string | null;
-    }>;
-    export type Settings = Partial<{
-        display: ChartSettingsDisplay | null;
-        formatting: ChartSettingsFormatting | null;
-    }>;
-    export type ChartAxis = {
-        column: string;
-        settings?: (Settings | null) | undefined;
-    };
-    export type HeatmapGradientStop = { color: string; value: number };
-    export type GradientScaleMode = "absolute" | "relative";
-    export type HeatmapSortOrder = "asc" | "desc";
-    export type HeatmapSettings = Partial<{
-        gradient: Array<HeatmapGradientStop> | null;
-        gradientPreset: string | null;
-        gradientScaleMode: GradientScaleMode | null;
-        nullLabel: string | null;
-        nullValue: string | null;
-        sortColumn: string | null;
-        sortOrder: HeatmapSortOrder | null;
-        valueColumn: string | null;
-        xAxisColumn: string | null;
-        xAxisLabel: string | null;
-        yAxisColumn: string | null;
-        yAxisLabel: string | null;
-    }>;
-    export type Scale = "linear" | "logarithmic";
-    export type YAxisSettings = Partial<{
-        label: string | null;
-        scale: Scale | null;
-        showGridLines: boolean | null;
-        showTicks: boolean | null;
-        startAtZero: boolean | null;
-    }>;
-    export type Summary = "total" | "average" | "latest";
-    export type MetricChartSettings = Partial<{
-        changeDecreaseColor: string | null;
-        changeIncreaseColor: string | null;
-        colorByDirection: boolean | null;
-        lineDecreaseColor: string | null;
-        lineIncreaseColor: string | null;
-        showChange: boolean | null;
-        summary: Summary | null;
-    }>;
-    export type SliceContent = "labels" | "values" | "none";
-    export type ValueDisplay = "absolute" | "percentage";
-    export type PieChartSettings = Partial<{
-        showTotal: boolean | null;
-        sliceContent: SliceContent | null;
-        valueDisplay: ValueDisplay | null;
-    }>;
-    export type XScale = "linear" | "logarithmic";
-    export type ScatterChartSettings = Partial<{
-        showBestFit: boolean | null;
-        xScale: XScale | null;
-        xStartAtZero: boolean | null;
-    }>;
-    export type ChartSettings = Partial<{
-        boxPlot: BoxPlotSettings | null;
-        chartStyle: ChartStyle | null;
-        goalLines: Array<GoalLine> | null;
-        heatmap: HeatmapSettings | null;
-        leftYAxisSettings: YAxisSettings | null;
-        legendPosition: LegendPosition | null;
-        metric: MetricChartSettings | null;
-        pie: PieChartSettings | null;
-        resultCustomizations: Record<string, ResultCustomizationByValue> | null;
-        rightYAxisSettings: YAxisSettings | null;
-        scatter: ScatterChartSettings | null;
-        seriesBreakdownColumn: string | null;
-        showAnnotations: boolean | null;
-        showLegend: boolean | null;
-        showNullsAsZero: boolean | null;
-        showPieTotal: boolean | null;
-        showTotalRow: boolean | null;
-        showValuesOnSeries: boolean | null;
-        showXAxisBorder: boolean | null;
-        showXAxisTicks: boolean | null;
-        showYAxisBorder: boolean | null;
-        stackBars100: boolean | null;
-        xAxis: ChartAxis | null;
-        xAxisLabel: string | null;
-        yAxis: Array<ChartAxis> | null;
-        yAxisAtZero: boolean | null;
-    }>;
-    /**
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription
-     */
-    export type ClaudeModelAccessEnum = "posthog-gateway" | "own-subscription";
     /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = "claude";
+    /**
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription
+     */
+    export type ModelAccessEnum = "posthog-gateway" | "own-subscription";
     /**
      * * `interactive` - interactive
      * * `background` - background
@@ -5128,7 +5401,15 @@ export namespace Schemas {
         /**
          * Request body for creating a new task run
          */
-        claude_model_access?: (ClaudeModelAccessEnum | NullEnum) | undefined;
+        claude_model_access?: (ModelAccessEnum | NullEnum) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        codex_model_access?: (ModelAccessEnum | NullEnum) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        scheduled_at?: (string | null) | undefined;
         /**
          * Request body for creating a new task run
          */
@@ -5242,7 +5523,15 @@ export namespace Schemas {
         /**
          * Request body for creating a new task run
          */
-        claude_model_access?: (ClaudeModelAccessEnum | NullEnum) | undefined;
+        claude_model_access?: (ModelAccessEnum | NullEnum) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        codex_model_access?: (ModelAccessEnum | NullEnum) | undefined;
+        /**
+         * Request body for creating a new task run
+         */
+        scheduled_at?: (string | null) | undefined;
         /**
          * Request body for creating a new task run
          */
@@ -5537,7 +5826,6 @@ export namespace Schemas {
         _create_in_folder?: string | undefined;
         _create_static_person_ids?: Array<string> | undefined;
     };
-    export type ColorMode = "light" | "dark";
     export type CommentSlackThreadRef = {
         /**
          * Slack channel ID this discussion is mirrored to.
@@ -5600,15 +5888,6 @@ export namespace Schemas {
         | "inconclusive"
         | "stopped_early"
         | "invalid";
-    export type ConditionalFormattingRule = {
-        bytecode: Array<unknown>;
-        color: string;
-        colorMode?: (ColorMode | null) | undefined;
-        columnName: string;
-        id: string;
-        input: string;
-        templateId: string;
-    };
     export type ConversionGoalFilter1 = {
         conversion_goal_id: string;
         conversion_goal_name: string;
@@ -5908,16 +6187,6 @@ export namespace Schemas {
         | "duplicate"
         | "unlisted";
     /**
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit
-     */
-    export type RestrictionLevelEnum = 21 | 37;
-    /**
-     * * `21` - Can view dashboard
-     * * `37` - Can edit dashboard
-     */
-    export type PrivilegeLevelEnum = 21 | 37;
-    /**
      * * `tight` - tight
      * * `condensed` - condensed
      * * `standard` - standard
@@ -5936,9 +6205,37 @@ export namespace Schemas {
      * * `stable` - stable
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
+    /**
+     * * `sections` - sections
+     * * `tabs` - tabs
+     */
+    export type TileGroupDisplayEnum = "sections" | "tabs";
+    /**
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupColorEnum =
+        | "blue"
+        | "purple"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red";
+    export type DashboardTileGroup = Partial<{
+        title: string;
+        collapsed: boolean;
+        color: DashboardTileGroupColorEnum | NullEnum;
+    }>;
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
+        groups: Record<string, DashboardTileGroup>;
+        group_titles: Record<string, string>;
     }>;
     /**
      * Serializer mixin that handles tags for objects.
@@ -5959,10 +6256,7 @@ export namespace Schemas {
         pinned?: boolean | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
-        /**
-         * Serializer mixin that handles tags for objects.
-         */
-        last_accessed_at?: (string | null) | undefined;
+        last_accessed_at: string | null;
         last_viewed_at: string | null;
         /**
          * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
@@ -5997,16 +6291,9 @@ export namespace Schemas {
          */
         tags?: Array<unknown> | undefined;
         /**
-         * Serializer mixin that handles tags for objects.
-         */
-        restriction_level?: RestrictionLevelEnum | undefined;
-        effective_restriction_level: RestrictionLevelEnum & unknown;
-        effective_privilege_level: PrivilegeLevelEnum & unknown;
-        /**
          * The effective access level the user has for this object
          */
         user_access_level: string | null;
-        access_control_version: string;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -6030,6 +6317,18 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_display?: (TileGroupDisplayEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        groups?: (Record<string, DashboardTileGroup> | null) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_titles?: (Record<string, string> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -6048,13 +6347,51 @@ export namespace Schemas {
          */
         _create_in_folder?: string | undefined;
     };
+    export type MetricsFilterOp = "eq" | "neq" | "regex" | "not_regex";
+    export type MetricsAttributeScope = "resource" | "attribute" | "auto";
+    export type MetricsQueryFilter = {
+        key: string;
+        op: MetricsFilterOp;
+        scope?: (MetricsAttributeScope | null) | undefined;
+        value: string;
+    };
+    export type MetricsDashboardVariableSelection = {
+        all?: (boolean | null) | undefined;
+        /**
+         * The selected values. Empty when `all` is true: All stands for every option of the variable.
+         */
+        values: Array<string>;
+    };
+    export type MetricsDashboardVariableSource =
+        | "custom"
+        | "promql"
+        | "sql"
+        | "textbox";
+    export type MetricsDashboardVariable = {
+        allValue?: (string | null) | undefined;
+        current?: (MetricsDashboardVariableSelection | null) | undefined;
+        customValues?: (Array<string> | null) | undefined;
+        includeAll?: (boolean | null) | undefined;
+        label?: (string | null) | undefined;
+        multi?: (boolean | null) | undefined;
+        /**
+         * Letters, digits and underscores. Tiles refer to it as `$name`.
+         */
+        name: string;
+        query?: (string | null) | undefined;
+        regex?: (string | null) | undefined;
+        source: MetricsDashboardVariableSource;
+    };
     export type DashboardFilter = Partial<{
         breakdown_filter: BreakdownFilter | null;
+        compareFilter: CompareFilter | null;
         date_from: string | null;
         date_to: string | null;
         explicitDate: boolean | null;
         filterTestAccounts: boolean | null;
         interval: IntervalType | null;
+        metricFilters: Array<MetricsQueryFilter> | null;
+        metricVariables: Array<MetricsDashboardVariable> | null;
         properties: Array<
             | EventPropertyFilter
             | PersonPropertyFilter
@@ -6120,24 +6457,39 @@ export namespace Schemas {
         xs?: _DashboardPatchTileLayoutBoxOpenApi | undefined;
     };
     /**
-     * * `activity_events_list` - activity_events_list
-     * * `conversations_recent_tickets` - conversations_recent_tickets
-     * * `error_tracking_list` - error_tracking_list
-     * * `experiment_results` - experiment_results
-     * * `experiments_list` - experiments_list
-     * * `logs_list` - logs_list
-     * * `session_replay_list` - session_replay_list
-     * * `survey_results` - survey_results
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog
      */
-    export type DashboardPatchWidgetOpenApiWidgetTypeEnum =
+    export type DashboardTileBadgeEnum = "winner" | "cheeky-hog";
+    /**
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results
+     */
+    export type DashboardWidgetTypeEnum =
         | "activity_events_list"
+        | "canvas_app"
         | "conversations_recent_tickets"
         | "error_tracking_list"
         | "experiment_results"
         | "experiments_list"
         | "logs_list"
+        | "metrics_table"
+        | "notebook_widget"
         | "session_replay_list"
         | "survey_results";
+    export type NotebookWidgetConfig = Partial<{
+        notebookShortId: string | null;
+        snapshotId: string | null;
+    }>;
     export type WidgetDateRange = Partial<{
         date_from:
             | (
@@ -6183,6 +6535,13 @@ export namespace Schemas {
         eventName: string | null;
         properties: Array<ActivityEventsPropertyFilter> | null;
     }>;
+    export type ErrorTrackingOrderBy =
+        | "last_seen"
+        | "first_seen"
+        | "occurrences"
+        | "users"
+        | "sessions"
+        | "severity";
     export type WidgetAssigneeFilter = {
         id: string | number;
         type: "user" | "role";
@@ -6192,12 +6551,7 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         widgetFilters: Record<string, WidgetFilterEntry> | null;
         limit: number;
-        orderBy:
-            | "last_seen"
-            | "first_seen"
-            | "occurrences"
-            | "users"
-            | "sessions";
+        orderBy: ErrorTrackingOrderBy;
         orderDirection: "ASC" | "DESC";
         status:
             | "archived"
@@ -6266,7 +6620,52 @@ export namespace Schemas {
         search: string;
         savedViewId: string | null;
     }>;
+    export type CanvasAppWidgetConfig = Partial<{ canvasId: string | null }>;
+    export type MetricsTableFilter = {
+        /**
+         * Label key to filter on, e.g. `http.response.status_code`.
+         */
+        key: string;
+        op?: ("eq" | "neq" | "regex" | "not_regex") | undefined;
+        /**
+         * Label value, or a regular expression for `regex` and `not_regex`.
+         */
+        value: string;
+    };
+    export type MetricsTableColumn = {
+        /**
+         * Column header, e.g. `Requests/s`.
+         */
+        label: string;
+        /**
+         * Name of the metric this column reads.
+         */
+        metricName: string;
+        /**
+         * How each time bucket of a row is computed. `rate` and `increase` read counters.
+         */
+        aggregation:
+            | "rate"
+            | "increase"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "histogram_quantile";
+        quantile?: (number | null) | undefined;
+        filters?: Array<MetricsTableFilter> | undefined;
+    };
+    export type MetricsTableWidgetConfig = Partial<{
+        dateRange: WidgetDateRange | null;
+        groupBy: string | null;
+        columns: Array<MetricsTableColumn>;
+        interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
+        orderByColumn: number;
+        orderDirection: "ASC" | "DESC";
+        limit: number;
+    }>;
     export type DashboardWidgetConfig =
+        | NotebookWidgetConfig
         | ActivityEventsListWidgetConfig
         | ErrorTrackingListWidgetConfig
         | SessionReplayListWidgetConfig
@@ -6274,10 +6673,12 @@ export namespace Schemas {
         | ExperimentResultsWidgetConfig
         | SurveyResultsWidgetConfig
         | LogsListWidgetConfig
-        | ConversationsRecentTicketsWidgetConfig;
+        | ConversationsRecentTicketsWidgetConfig
+        | CanvasAppWidgetConfig
+        | MetricsTableWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
-        widget_type: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+        widget_type: DashboardWidgetTypeEnum;
         config: DashboardWidgetConfig;
         name: string | null;
         description: string;
@@ -6285,6 +6686,9 @@ export namespace Schemas {
     export type DashboardPatchTileOpenApi = Partial<{
         id: number;
         layouts: _DashboardPatchTileLayoutsOpenApi;
+        show_description: boolean;
+        group_key: string | null;
+        badge: DashboardTileBadgeEnum | NullEnum;
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
@@ -6388,6 +6792,7 @@ export namespace Schemas {
     };
     export type Response3 = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -6422,9 +6827,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6455,6 +6862,7 @@ export namespace Schemas {
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6533,9 +6941,11 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6568,9 +6978,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6651,12 +7063,14 @@ export namespace Schemas {
     };
     export type Response12 = {
         columns?: (Array<unknown> | null) | undefined;
+        dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
+        precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6676,9 +7090,11 @@ export namespace Schemas {
             | undefined;
     };
     export type Response13 = {
+        dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
+        precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6749,12 +7165,14 @@ export namespace Schemas {
         | "customerio-webhook"
         | "customerio-track"
         | "apns"
+        | "apple-ads"
         | "postgresql"
         | "aws-s3"
         | "aws-redshift"
         | "s3-compatible"
         | "snowflake"
-        | "youtube-analytics";
+        | "youtube-analytics"
+        | "twitter-ads";
     export type ErrorTrackingExternalReferenceIntegration = {
         display_name: string;
         id: number;
@@ -6882,33 +7300,6 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response16 = {
-        credible_intervals: Record<string, Array<number>>;
-        expected_loss: number;
-        funnels_query?: (FunnelsQuery | null) | undefined;
-        insight: Array<Array<Record<string, unknown>>>;
-        kind?: string | undefined;
-        probability: Record<string, number>;
-        significance_code: ExperimentSignificanceCode;
-        significant: boolean;
-        stats_version?: (number | null) | undefined;
-        variants: Array<ExperimentVariantFunnelsBaseStats>;
-        warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
-    };
-    export type Response17 = {
-        count_query?: (TrendsQuery | null) | undefined;
-        credible_intervals: Record<string, Array<number>>;
-        exposure_query?: (TrendsQuery | null) | undefined;
-        insight: Array<Record<string, unknown>>;
-        kind?: string | undefined;
-        p_value: number;
-        probability: Record<string, number>;
-        significance_code: ExperimentSignificanceCode;
-        significant: boolean;
-        stats_version?: (number | null) | undefined;
-        variants: Array<ExperimentVariantTrendsBaseStats>;
-        warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
-    };
     export type LLMSentimentMessage = {
         label: string;
         score: number;
@@ -6957,7 +7348,7 @@ export namespace Schemas {
         traceName?: (string | null) | undefined;
         webSearchCost?: (number | null) | undefined;
     };
-    export type Response18 = {
+    export type Response16 = {
         columns?: (Array<string> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -6981,7 +7372,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response20 = {
+    export type Response18 = {
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7006,7 +7397,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response21 = {
+    export type Response19 = {
         columns: Array<unknown>;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -7036,7 +7427,7 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type Response22 = {
+    export type Response20 = {
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -7516,9 +7907,11 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7620,9 +8013,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7877,12 +8272,14 @@ export namespace Schemas {
     export type MarketingAnalyticsOrderByEnum = "ASC" | "DESC";
     export type MarketingAnalyticsTableQueryResponse = {
         columns?: (Array<unknown> | null) | undefined;
+        dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
+        precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7945,9 +8342,11 @@ export namespace Schemas {
         version?: (number | null) | undefined;
     };
     export type MarketingAnalyticsAggregatedQueryResponse = {
+        dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
+        precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -8005,12 +8404,6 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
-    export type ErrorTrackingOrderBy =
-        | "last_seen"
-        | "first_seen"
-        | "occurrences"
-        | "users"
-        | "sessions";
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -8123,58 +8516,6 @@ export namespace Schemas {
             | (ErrorTrackingIssueCorrelationQueryResponse | null)
             | undefined;
         tags?: (QueryLogTags | null) | undefined;
-        version?: (number | null) | undefined;
-    };
-    export type ExperimentFunnelsQueryResponse = {
-        credible_intervals: Record<string, Array<number>>;
-        expected_loss: number;
-        funnels_query?: (FunnelsQuery | null) | undefined;
-        insight: Array<Array<Record<string, unknown>>>;
-        kind?: string | undefined;
-        probability: Record<string, number>;
-        significance_code: ExperimentSignificanceCode;
-        significant: boolean;
-        stats_version?: (number | null) | undefined;
-        variants: Array<ExperimentVariantFunnelsBaseStats>;
-        warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
-    };
-    export type ExperimentFunnelsQuery = {
-        experiment_id?: (number | null) | undefined;
-        fingerprint?: (string | null) | undefined;
-        funnels_query: FunnelsQuery;
-        kind?: string | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        name?: (string | null) | undefined;
-        response?: (ExperimentFunnelsQueryResponse | null) | undefined;
-        tags?: (QueryLogTags | null) | undefined;
-        uuid?: (string | null) | undefined;
-        version?: (number | null) | undefined;
-    };
-    export type ExperimentTrendsQueryResponse = {
-        count_query?: (TrendsQuery | null) | undefined;
-        credible_intervals: Record<string, Array<number>>;
-        exposure_query?: (TrendsQuery | null) | undefined;
-        insight: Array<Record<string, unknown>>;
-        kind?: string | undefined;
-        p_value: number;
-        probability: Record<string, number>;
-        significance_code: ExperimentSignificanceCode;
-        significant: boolean;
-        stats_version?: (number | null) | undefined;
-        variants: Array<ExperimentVariantTrendsBaseStats>;
-        warnings?: (Array<DataWarehouseSyncWarning> | null) | undefined;
-    };
-    export type ExperimentTrendsQuery = {
-        count_query: TrendsQuery;
-        experiment_id?: (number | null) | undefined;
-        exposure_query?: (TrendsQuery | null) | undefined;
-        fingerprint?: (string | null) | undefined;
-        kind?: string | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        name?: (string | null) | undefined;
-        response?: (ExperimentTrendsQueryResponse | null) | undefined;
-        tags?: (QueryLogTags | null) | undefined;
-        uuid?: (string | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type TracesQueryResponse = {
@@ -8433,11 +8774,9 @@ export namespace Schemas {
                   | Response14
                   | Response15
                   | Response16
-                  | Response17
                   | Response18
+                  | Response19
                   | Response20
-                  | Response21
-                  | Response22
                   | null
               )
             | undefined;
@@ -8489,8 +8828,6 @@ export namespace Schemas {
             | MarketingAnalyticsAggregatedQuery
             | ErrorTrackingQuery
             | ErrorTrackingIssueCorrelationQuery
-            | ExperimentFunnelsQuery
-            | ExperimentTrendsQuery
             | TracesQuery
             | TraceQuery
             | SessionQuery
@@ -8500,12 +8837,6 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         version?: (number | null) | undefined;
     };
-    export type TableSettings = Partial<{
-        columns: Array<ChartAxis> | null;
-        conditionalFormatting: Array<ConditionalFormattingRule> | null;
-        pinnedColumns: Array<string> | null;
-        transpose: boolean | null;
-    }>;
     export type DataVisualizationNode = {
         chartSettings?: (ChartSettings | null) | undefined;
         display?: (ChartDisplayType | null) | undefined;
@@ -8536,16 +8867,12 @@ export namespace Schemas {
      * * `opt_in` - Opt In
      */
     export type EmailTrackingConsentModeEnum = "off" | "opt_out" | "opt_in";
-    /**
-     * * `duckdb` - duckdb
-     * * `postgres` - postgres
-     * * `mysql` - mysql
-     * * `snowflake` - snowflake
-     * * `redshift` - redshift
-     * * `clickhouse` - clickhouse
-     * * `motherduck` - motherduck
-     * * `trino` - trino
-     */
+    export type EmailUtmParams = Partial<{
+        utm_source: string;
+        utm_medium: string;
+        utm_campaign: string;
+        utm_content: string;
+    }>;
     export type EngineEnum =
         | "duckdb"
         | "postgres"
@@ -8643,6 +8970,41 @@ export namespace Schemas {
         description: string | null;
     }>;
     /**
+     * * `agent_reported` - agent_reported
+     * * `agent_server_crash` - agent_server_crash
+     * * `agent_declined` - agent_declined
+     * * `output_parse_failed` - output_parse_failed
+     * * `poll_timeout` - poll_timeout
+     * * `pi_runtime_error` - pi_runtime_error
+     * * `upstream_stream_terminated` - upstream_stream_terminated
+     * * `upstream_connection_error` - upstream_connection_error
+     * * `upstream_timeout` - upstream_timeout
+     * * `upstream_provider_failure` - upstream_provider_failure
+     * * `upstream_request_rejected` - upstream_request_rejected
+     * * `content_block_rejection` - content_block_rejection
+     * * `turn_ended_without_response` - turn_ended_without_response
+     * * `subscription_usage_limit` - subscription_usage_limit
+     * * `task_spend_limit` - task_spend_limit
+     * * `agent_error` - agent_error
+     */
+    export type ErrorTypeEnum =
+        | "agent_reported"
+        | "agent_server_crash"
+        | "agent_declined"
+        | "output_parse_failed"
+        | "poll_timeout"
+        | "pi_runtime_error"
+        | "upstream_stream_terminated"
+        | "upstream_connection_error"
+        | "upstream_timeout"
+        | "upstream_provider_failure"
+        | "upstream_request_rejected"
+        | "content_block_rejection"
+        | "turn_ended_without_response"
+        | "subscription_usage_limit"
+        | "task_spend_limit"
+        | "agent_error";
+    /**
      * * `active` - Active
      * * `paused` - Paused
      * * `error` - Error
@@ -8657,6 +9019,7 @@ export namespace Schemas {
      * * `provider_key_quota_exceeded` - Provider API key quota exceeded
      * * `provider_key_rate_limited` - Provider API key is rate limited
      * * `model_not_found` - Model not found
+     * * `model_not_supported` - Model does not support chat completions
      * * `hog_error` - Hog evaluation code failed
      */
     export type EvaluationStatusReasonEnum =
@@ -8668,6 +9031,7 @@ export namespace Schemas {
         | "provider_key_quota_exceeded"
         | "provider_key_rate_limited"
         | "model_not_found"
+        | "model_not_supported"
         | "hog_error";
     /**
      * * `llm_judge` - LLM as a judge
@@ -8677,9 +9041,15 @@ export namespace Schemas {
     export type EvaluationTypeEnum = "llm_judge" | "hog" | "sentiment";
     /**
      * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment
      */
-    export type OutputTypeEnum = "boolean" | "sentiment";
+    export type OutputTypeEnum =
+        | "boolean"
+        | "numeric"
+        | "categorical"
+        | "sentiment";
     /**
      * A trigger condition set controlling which generations an evaluation runs on.
      */
@@ -8712,7 +9082,8 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
+     * * `system_one` - System One
+     * * `openai_compatible` - OpenAI-compatible
      */
     export type LLMProviderEnum =
         | "openai"
@@ -8723,7 +9094,8 @@ export namespace Schemas {
         | "azure_openai"
         | "together_ai"
         | "minimax"
-        | "zeabur";
+        | "system_one"
+        | "openai_compatible";
     /**
      * Nested serializer for model configuration.
      */
@@ -8781,10 +9153,13 @@ export namespace Schemas {
                          * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
                          */
                         prompt: string;
+                        judge_method?:
+                            | (("llm" | "decision") | null)
+                            | undefined;
                     }
                   | {
                         /**
-                         * Hog source code. Must return true or false, or null for N/A. Output settings determine which boolean counts as a failure.
+                         * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
                          */
                         source: string;
                     }
@@ -8797,9 +9172,11 @@ export namespace Schemas {
               )
             | undefined;
         /**
-         * Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+         * Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
          *
          * * `boolean` - Boolean (Pass/Fail)
+         * * `numeric` - Numeric
+         * * `categorical` - Categorical
          * * `sentiment` - Sentiment
          */
         output_type: OutputTypeEnum;
@@ -8813,9 +9190,63 @@ export namespace Schemas {
                    */
                   allows_na: boolean;
                   /**
-                   * Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.
+                   * Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.
                    */
                   true_is_failure: boolean;
+                  /**
+                   * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+                   */
+                  decision_threshold: number | null;
+                  /**
+                   * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
+                   */
+                  min: number | null;
+                  /**
+                   * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
+                   */
+                  max: number | null;
+                  /**
+                   * Optional positive input increment. Does not round evaluation results.
+                   */
+                  step: number | null;
+                  /**
+                   * Categorical output options. Keys identify stored results; labels are displayed to users.
+                   */
+                  options: Array<{
+                      /**
+                       * Stable category key.
+                       */
+                      key: string;
+                      /**
+                       * Category display label.
+                       */
+                      label: string;
+                  }>;
+                  /**
+                   * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+                   */
+                  selection_mode: "single" | "multiple";
+                  /**
+                   * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+                   */
+                  passing_rule:
+                      | {
+                            /**
+                             * Pass at or above (gte), or at or below (lte), the threshold.
+                             */
+                            operator: "gte" | "lte";
+                            /**
+                             * Finite passing threshold within any configured score bounds.
+                             */
+                            threshold: number;
+                        }
+                      | {
+                            /**
+                             * Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.
+                             */
+                            categories: Array<string>;
+                        }
+                      | null;
               }>
             | undefined;
         /**
@@ -8830,23 +9261,24 @@ export namespace Schemas {
          * An evaluation that scores LLM generations, traces, or sessions.
          */
         target_config?:
-            | (
-                  | {
-                        /**
-                         * Wait a fixed window after the first matching generation, then evaluate.
-                         */
-                        strategy: "fixed_window";
-                        window_seconds?: number | undefined;
-                    }
-                  | {
-                        /**
-                         * Evaluate once the unit has had no new activity for the quiet period.
-                         */
-                        strategy: "inactivity";
-                        quiet_period_seconds?: number | undefined;
-                        max_age_seconds?: number | undefined;
-                    }
-              )
+            | Partial<{
+                  /**
+                   * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
+                   */
+                  strategy: "fixed_window" | "inactivity";
+                  /**
+                   * fixed_window only. Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  window_seconds: number;
+                  /**
+                   * inactivity only. Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  quiet_period_seconds: number;
+                  /**
+                   * inactivity only. Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
+                   */
+                  max_age_seconds: number;
+              }>
             | undefined;
         /**
          * An evaluation that scores LLM generations, traces, or sessions.
@@ -9052,23 +9484,23 @@ export namespace Schemas {
         value: string;
     };
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum =
+    export type SemverOperatorEnum =
+        | "semver_eq"
+        | "semver_neq"
         | "semver_gt"
         | "semver_gte"
         | "semver_lt"
         | "semver_lte"
-        | "semver_eq"
-        | "semver_neq"
         | "semver_tilde"
         | "semver_caret"
         | "semver_wildcard";
@@ -9083,17 +9515,17 @@ export namespace Schemas {
         /**
          * Semantic version comparison operator.
          *
+         * * `semver_eq` - semver_eq
+         * * `semver_neq` - semver_neq
          * * `semver_gt` - semver_gt
          * * `semver_gte` - semver_gte
          * * `semver_lt` - semver_lt
          * * `semver_lte` - semver_lte
-         * * `semver_eq` - semver_eq
-         * * `semver_neq` - semver_neq
          * * `semver_tilde` - semver_tilde
          * * `semver_caret` - semver_caret
          * * `semver_wildcard` - semver_wildcard
          */
-        operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+        operator: SemverOperatorEnum;
         /**
          * Semantic version string.
          */
@@ -9161,6 +9593,8 @@ export namespace Schemas {
          * Cohort comparison value (single or list, depending on usage).
          */
         value: unknown;
+        cohort_deleted?: boolean | undefined;
+        cohort_missing?: boolean | undefined;
     };
     /**
      * * `flag` - flag
@@ -9254,25 +9688,40 @@ export namespace Schemas {
         recommended_running_time: number | null;
         recommended_sample_size: number | null;
     }>;
+    export type ExperimentMetric =
+        | ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric;
+    /**
+     * A shared metric's link to one experiment, as the experiment API returns it.
+     */
     export type ExperimentToSavedMetric = {
         id: number;
         experiment: number;
         saved_metric: number;
+        /**
+         * A shared metric's link to one experiment, as the experiment API returns it.
+         */
         metadata?: unknown | undefined;
         created_at: string;
         query: unknown;
         name: string;
+        /**
+         * The metric this experiment calculates for this shared metric: `query` with the per-experiment overrides from `metadata` applied (breakdowns, breakdown_limit, and funnel breakdown attribution). Results, fingerprints and queries for this metric use this definition, not `query`. Null when `query` is not an ExperimentMetric, such as a legacy shared metric (kind ExperimentTrendsQuery or ExperimentFunnelsQuery), which takes no overrides.
+         */
+        effective_query: ExperimentMetric | null;
     };
     /**
      * * `web` - web
      * * `product` - product
      */
     export type ExperimentTypeEnum = "web" | "product";
-    export type Kind1 = "ExperimentEventExposureConfig" | "ActionsNode";
+    export type Kind2 = "ExperimentEventExposureConfig" | "ActionsNode";
     export type ExperimentApiExposureConfig = {
         event?: (string | null) | undefined;
         id?: (number | null) | undefined;
-        kind?: (Kind1 | null) | undefined;
+        kind?: (Kind2 | null) | undefined;
         /**
          * Property filters (event, person, and other supported types). Pass an empty array if no filters needed.
          */
@@ -9309,11 +9758,44 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         multiple_variant_handling: MultipleVariantHandling | null;
     }>;
-    export type Kind = "EventsNode" | "ActionsNode";
+    export type ExperimentApiBreakdownAttributionType =
+        | "first_touch"
+        | "last_touch"
+        | "step";
+    export type ExperimentApiPropertyBreakdownType =
+        | "event"
+        | "person"
+        | "session";
+    export type ExperimentApiPropertyBreakdown = {
+        /**
+         * Property name to break down by.
+         */
+        property: string;
+        type?: (ExperimentApiPropertyBreakdownType | null) | undefined;
+    };
+    export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4;
+    export type ExperimentApiGroupBreakdown = {
+        /**
+         * Which group type the property belongs to.
+         */
+        group_type_index: GroupTypeIndex;
+        /**
+         * Property name to break down by.
+         */
+        property: string;
+        type?: string | undefined;
+    };
+    export type ExperimentApiBreakdownFilter = Partial<{
+        breakdown_limit: number | null;
+        breakdowns: Array<
+            ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown
+        > | null;
+    }>;
+    export type Kind1 = "EventsNode" | "ActionsNode";
     export type ExperimentApiEventSource = {
         event?: (string | null) | undefined;
         id?: (number | null) | undefined;
-        kind: Kind;
+        kind: Kind1;
         math?: (ExperimentMetricMathType | null) | undefined;
         math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
         math_hogql?: (string | null) | undefined;
@@ -9325,14 +9807,14 @@ export namespace Schemas {
         | "mean"
         | "ratio"
         | "retention";
-    export type Kind2 = "EventsNode" | "ActionsNode" | "ExperimentExposureNode";
+    export type Kind3 = "EventsNode" | "ActionsNode" | "ExperimentExposureNode";
     export type ExperimentApiRetentionStart = {
         event?: (string | null) | undefined;
         id?: (number | null) | undefined;
         /**
          * Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.
          */
-        kind: Kind2;
+        kind: Kind3;
         math?: (ExperimentMetricMathType | null) | undefined;
         math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
         math_hogql?: (string | null) | undefined;
@@ -9340,6 +9822,11 @@ export namespace Schemas {
         properties?: (Array<EventPropertyFilter> | null) | undefined;
     };
     export type ExperimentApiMetric = {
+        breakdownAttributionType?:
+            | (ExperimentApiBreakdownAttributionType | null)
+            | undefined;
+        breakdownAttributionValue?: (number | null) | undefined;
+        breakdownFilter?: (ExperimentApiBreakdownFilter | null) | undefined;
         completion_event?: (ExperimentApiEventSource | null) | undefined;
         conversion_window?: (number | null) | undefined;
         conversion_window_unit?:
@@ -9383,6 +9870,247 @@ export namespace Schemas {
         | "paused"
         | "exposure_frozen"
         | "stopped";
+    /**
+     * * `flag_off_while_running` - Flag Off While Running
+     * * `variant_shipped_while_running` - Variant Shipped While Running
+     * * `flag_live_after_end` - Flag Live After End
+     * * `flag_live_before_launch` - Flag Live Before Launch
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
+     * * `srm` - Sample Ratio Mismatch
+     * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
+     */
+    export type ExperimentHealthFindingCodeEnum =
+        | "flag_off_while_running"
+        | "variant_shipped_while_running"
+        | "flag_live_after_end"
+        | "flag_live_before_launch"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share"
+        | "no_metric"
+        | "metric_event_not_ingested"
+        | "metric_cannot_compile"
+        | "metric_calculation_failed"
+        | "exposure_criteria_cannot_match"
+        | "exposure_filter_on_dynamic_cohort"
+        | "exposure_filter_excludes_events"
+        | "srm"
+        | "zero_exposures"
+        | "forced_variant_release_condition"
+        | "flag_variants_mismatch"
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run"
+        | "new_flag_no_traffic"
+        | "early_significance";
+    /**
+     * * `critical` - Critical severity
+     * * `warning` - Warning severity
+     * * `info` - Info severity
+     */
+    export type ExperimentHealthFindingSeverityEnum =
+        | "critical"
+        | "warning"
+        | "info";
+    /**
+     * * `open_feature_flag` - Open Feature Flag
+     * * `open_feature_flag_history` - Open Feature Flag History
+     * * `adjust_distribution` - Adjust Distribution
+     * * `use_first_seen_variant` - Use First Seen Variant
+     * * `add_primary_metric` - Add Primary Metric
+     * * `add_secondary_metric` - Add Secondary Metric
+     * * `edit_exposure_criteria` - Edit Exposure Criteria
+     * * `edit_release_conditions` - Edit Release Conditions
+     */
+    export type ExperimentHealthFindingActionKindEnum =
+        | "open_feature_flag"
+        | "open_feature_flag_history"
+        | "adjust_distribution"
+        | "use_first_seen_variant"
+        | "add_primary_metric"
+        | "add_secondary_metric"
+        | "edit_exposure_criteria"
+        | "edit_release_conditions";
+    export type ExperimentHealthFinding = {
+        /**
+         * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
+         *
+         * * `flag_off_while_running` - Flag Off While Running
+         * * `variant_shipped_while_running` - Variant Shipped While Running
+         * * `flag_live_after_end` - Flag Live After End
+         * * `flag_live_before_launch` - Flag Live Before Launch
+         * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
+         * * `no_metric` - No Metric
+         * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+         * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
+         * * `srm` - Sample Ratio Mismatch
+         * * `zero_exposures` - Zero Exposures
+         * * `forced_variant_release_condition` - Forced Variant Release Condition
+         * * `flag_variants_mismatch` - Flag Variants Mismatch
+         * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `early_significance` - Early Significance
+         */
+        code: ExperimentHealthFindingCodeEnum;
+        /**
+         * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
+         */
+        subcode: string | null;
+        /**
+         * How much the problem affects the results: critical, warning, or info.
+         *
+         * * `critical` - Critical severity
+         * * `warning` - Warning severity
+         * * `info` - Info severity
+         */
+        severity: ExperimentHealthFindingSeverityEnum;
+        /**
+         * One-line summary of the problem.
+         */
+        title: string;
+        /**
+         * What is wrong, what it does to the experiment, and how to fix it.
+         */
+        detail: string;
+        /**
+         * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
+         */
+        evidence: Record<string, string | number | boolean | null>;
+        /**
+         * The actions that fix the problem, in order of preference, for example 'open_feature_flag' or 'add_primary_metric'.
+         */
+        actions: Array<ExperimentHealthFindingActionKindEnum>;
+        /**
+         * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. Null when the skill has none.
+         */
+        diagnostic_ref: string | null;
+    };
+    /**
+     * * `flag_state` - Flag State
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `zero_exposures` - Zero Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum =
+        | "flag_state"
+        | "flag_history"
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run"
+        | "flag_variants_mismatch"
+        | "forced_variant_release_condition"
+        | "new_flag_no_traffic"
+        | "no_metric"
+        | "metric_event_not_ingested"
+        | "metric_cannot_compile"
+        | "metric_calculation_failed"
+        | "exposure_criteria_cannot_match"
+        | "exposure_filters"
+        | "early_significance"
+        | "zero_exposures"
+        | "srm"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
+    /**
+     * * `passed` - Passed
+     * * `finding` - Finding
+     * * `not_applicable` - Not Applicable
+     * * `not_checked` - Not Checked
+     */
+    export type ExperimentHealthCheckStatusEnum =
+        | "passed"
+        | "finding"
+        | "not_applicable"
+        | "not_checked";
+    export type ExperimentHealthCheckResult = {
+        /**
+         * Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
+         *
+         * * `flag_state` - Flag State
+         * * `flag_history` - Flag History
+         * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `flag_variants_mismatch` - Flag Variants Mismatch
+         * * `forced_variant_release_condition` - Forced Variant Release Condition
+         * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `no_metric` - No Metric
+         * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filters` - Exposure Filters
+         * * `early_significance` - Early Significance
+         * * `zero_exposures` - Zero Exposures
+         * * `srm` - Srm
+         * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
+         */
+        key: ExperimentHealthCheckKeyEnum;
+        /**
+         * The problem the check looks for, for example 'Metrics not set up'.
+         */
+        name: string;
+        /**
+         * passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
+         *
+         * * `passed` - Passed
+         * * `finding` - Finding
+         * * `not_applicable` - Not Applicable
+         * * `not_checked` - Not Checked
+         */
+        status: ExperimentHealthCheckStatusEnum;
+        /**
+         * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+         */
+        reason: string | null;
+    };
+    export type ExperimentHealth = {
+        /**
+         * Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`.
+         */
+        findings: Array<ExperimentHealthFinding>;
+        /**
+         * The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`.
+         */
+        checks: Array<ExperimentHealthCheckResult>;
+    };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
      *
@@ -9629,7 +10357,7 @@ export namespace Schemas {
          * fields, and refreshes stale action names while serializing. The list endpoint uses the
          * leaner ``ExperimentBasicSerializer`` instead.
          */
-        primary_metrics_ordered_uuids?: unknown | undefined;
+        primary_metrics_ordered_uuids?: (Array<string> | null) | undefined;
         /**
          * Full experiment representation for the detail, create, and update endpoints.
          *
@@ -9638,7 +10366,7 @@ export namespace Schemas {
          * fields, and refreshes stale action names while serializing. The list endpoint uses the
          * leaner ``ExperimentBasicSerializer`` instead.
          */
-        secondary_metrics_ordered_uuids?: unknown | undefined;
+        secondary_metrics_ordered_uuids?: (Array<string> | null) | undefined;
         /**
          * Full experiment representation for the detail, create, and update endpoints.
          *
@@ -9692,6 +10420,10 @@ export namespace Schemas {
          */
         resolved_exposure_event: string;
         /**
+         * Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix.
+         */
+        health: ExperimentHealth | null;
+        /**
          * The effective access level the user has for this object
          */
         user_access_level: string | null;
@@ -9705,6 +10437,82 @@ export namespace Schemas {
          */
         tags?: Array<string> | undefined;
     };
+    export type ExperimentExposureHealthCheckKey =
+        | "zero_exposures"
+        | "srm"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
+    export type ExperimentExposureHealthCheckStatus =
+        | "passed"
+        | "finding"
+        | "not_applicable"
+        | "not_checked";
+    export type ExperimentExposureHealthCheck = {
+        /**
+         * Stable identifier of the check.
+         */
+        key: ExperimentExposureHealthCheckKey;
+        /**
+         * The problem the check looks for, as the health panel lists it.
+         */
+        name: string;
+        /**
+         * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+         */
+        reason: string | null;
+        /**
+         * passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed.
+         */
+        status: ExperimentExposureHealthCheckStatus;
+    };
+    export type ExperimentExposureHealthFindingActionKind =
+        | "open_feature_flag"
+        | "edit_exposure_criteria"
+        | "adjust_distribution"
+        | "use_first_seen_variant";
+    export type ExperimentExposureHealthFindingCode =
+        | "zero_exposures"
+        | "srm"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
+    export type ExperimentExposureHealthFindingSeverity =
+        | "critical"
+        | "warning"
+        | "info";
+    export type ExperimentExposureHealthFinding = {
+        /**
+         * The actions that fix the problem, in order of preference.
+         */
+        actions: Array<ExperimentExposureHealthFindingActionKind>;
+        /**
+         * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
+         */
+        code: ExperimentExposureHealthFindingCode;
+        /**
+         * What is wrong, what it does to the experiment, and how to fix it.
+         */
+        detail: string;
+        /**
+         * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none.
+         */
+        diagnostic_ref: string | null;
+        /**
+         * The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.
+         */
+        evidence: Record<string, string | number | null>;
+        /**
+         * How much the problem affects the results: critical, warning, or info.
+         */
+        severity: ExperimentExposureHealthFindingSeverity;
+        /**
+         * The case within the code, when a code covers several. Null when the code has one case.
+         */
+        subcode: string | null;
+        /**
+         * One-line summary of the problem.
+         */
+        title: string;
+    };
     export type SampleRatioMismatch = {
         expected: Record<string, number>;
         p_value: number;
@@ -9717,6 +10525,12 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponse = {
         bias_risk?: (BiasRisk | null) | undefined;
         date_range: DateRange;
+        health_checks?:
+            | (Array<ExperimentExposureHealthCheck> | null)
+            | undefined;
+        health_findings?:
+            | (Array<ExperimentExposureHealthFinding> | null)
+            | undefined;
         kind?: string | undefined;
         sample_ratio_mismatch?: (SampleRatioMismatch | null) | undefined;
         timeseries: Array<ExperimentExposureTimeSeries>;
@@ -9903,11 +10717,11 @@ export namespace Schemas {
         /**
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
          */
-        primary_metrics_ordered_uuids?: unknown | undefined;
+        primary_metrics_ordered_uuids?: (Array<string> | null) | undefined;
         /**
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
          */
-        secondary_metrics_ordered_uuids?: unknown | undefined;
+        secondary_metrics_ordered_uuids?: (Array<string> | null) | undefined;
         /**
          * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
          */
@@ -9940,6 +10754,10 @@ export namespace Schemas {
          * The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
          */
         resolved_exposure_event: string;
+        /**
+         * Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix.
+         */
+        health: ExperimentHealth | null;
         /**
          * The effective access level the user has for this object
          */
@@ -10072,6 +10890,18 @@ export namespace Schemas {
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         sync_time_of_day?: (string | null) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        full_refresh_interval_days?: (number | null) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        full_refresh_time_of_day?: (string | null) | undefined;
+        /**
+         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.
+         */
+        next_full_refresh_at: string | null;
         description: string | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -10108,6 +10938,10 @@ export namespace Schemas {
                   value: unknown;
               }> | null)
             | undefined;
+        /**
+         * Columns a row filter on this schema may use, with the operators each accepts. `null` means any column in `available_columns` with any operator, which is the case for SQL sources. A list means the source can filter on these columns only; an empty list means this schema accepts no row filter.
+         */
+        row_filter_columns: Array<RowFilterColumn> | null;
         /**
          * Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh.
          */
@@ -10163,6 +10997,8 @@ export namespace Schemas {
         incremental_field_type?: (string | null) | undefined;
         sync_frequency?: (string | null) | undefined;
         sync_time_of_day?: (string | null) | undefined;
+        full_refresh_interval_days?: (number | null) | undefined;
+        full_refresh_time_of_day?: (string | null) | undefined;
         primary_key_columns?: (Array<string> | null) | undefined;
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
         enabled_columns?: (Array<string> | null) | undefined;
@@ -10226,6 +11062,7 @@ export namespace Schemas {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -10263,6 +11100,7 @@ export namespace Schemas {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -10272,6 +11110,7 @@ export namespace Schemas {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -10316,6 +11155,7 @@ export namespace Schemas {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -10382,9 +11222,12 @@ export namespace Schemas {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -10645,6 +11488,7 @@ export namespace Schemas {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -10683,6 +11527,7 @@ export namespace Schemas {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -10910,6 +11755,7 @@ export namespace Schemas {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -11094,6 +11940,7 @@ export namespace Schemas {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -11140,6 +11987,7 @@ export namespace Schemas {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -11193,6 +12041,7 @@ export namespace Schemas {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -11289,6 +12138,7 @@ export namespace Schemas {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -11428,6 +12278,7 @@ export namespace Schemas {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -11507,6 +12358,7 @@ export namespace Schemas {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -11536,6 +12388,55 @@ export namespace Schemas {
      * * `Expo` - Expo
      * * `PostNord` - PostNord
      * * `Commslayer` - Commslayer
+     * * `Sprinto` - Sprinto
+     * * `Gem` - Gem
+     * * `AudioGO` - AudioGO
+     * * `ExactOnline` - ExactOnline
+     * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful
+     * * `Tracklution` - Tracklution
+     * * `StackAdapt` - StackAdapt
+     * * `CheckHQ` - CheckHQ
+     * * `RainforestPay` - RainforestPay
+     * * `Wise` - Wise
+     * * `LaravelCloud` - LaravelCloud
+     * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -11576,6 +12477,7 @@ export namespace Schemas {
         | "Attio"
         | "SnapchatAds"
         | "Linear"
+        | "LiteLLM"
         | "Intercom"
         | "Amplitude"
         | "Mixpanel"
@@ -11613,6 +12515,7 @@ export namespace Schemas {
         | "Square"
         | "Zoom"
         | "Trello"
+        | "TrafficStars"
         | "Monday"
         | "ClickUp"
         | "Confluence"
@@ -11622,6 +12525,7 @@ export namespace Schemas {
         | "Gong"
         | "Calendly"
         | "Typeform"
+        | "UnityAds"
         | "Iterable"
         | "ZohoCRM"
         | "Close"
@@ -11666,6 +12570,7 @@ export namespace Schemas {
         | "Plaid"
         | "SurveyMonkey"
         | "Eventbrite"
+        | "Everflow"
         | "RingCentral"
         | "Twilio"
         | "Freshsales"
@@ -11732,9 +12637,12 @@ export namespace Schemas {
         | "IncidentIo"
         | "Pingdom"
         | "Cloudflare"
+        | "CloudflareD1"
         | "CosmosDB"
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
+        | "Plane"
+        | "Scarf"
         | "SapHana"
         | "Rippling"
         | "HiBob"
@@ -11995,6 +12903,7 @@ export namespace Schemas {
         | "ReplyIo"
         | "RetailExpress"
         | "Retently"
+        | "Retreaver"
         | "RevolutMerchant"
         | "RocketChat"
         | "Rocketlane"
@@ -12033,6 +12942,7 @@ export namespace Schemas {
         | "Squarespace"
         | "Statsig"
         | "Statuspage"
+        | "Steam"
         | "Stigg"
         | "Strava"
         | "SurveySparrow"
@@ -12260,6 +13170,7 @@ export namespace Schemas {
         | "LambdaLabs"
         | "LangSmith"
         | "Linode"
+        | "Listmonk"
         | "LlamaCloud"
         | "Mem0"
         | "Metriport"
@@ -12444,6 +13355,7 @@ export namespace Schemas {
         | "AwsCostAndUsageReport"
         | "AwsCostAnomalyDetection"
         | "AwsCostExplorer"
+        | "AwsDocumentDB"
         | "AwsGlueDataCatalog"
         | "AwsGuardduty"
         | "AwsHealth"
@@ -12490,6 +13402,7 @@ export namespace Schemas {
         | "BlackboardLearn"
         | "Bling"
         | "Bloomerang"
+        | "Blueshift"
         | "Bluesky"
         | "BolRetailer"
         | "Boulevard"
@@ -12543,6 +13456,7 @@ export namespace Schemas {
         | "Donorbox"
         | "Doorloop"
         | "Dovetail"
+        | "Dragonboat"
         | "Drchrono"
         | "Dynamics365BusinessCentral"
         | "EcbDataPortal"
@@ -12639,6 +13553,7 @@ export namespace Schemas {
         | "LoopReturns"
         | "Mastodon"
         | "Meetup"
+        | "Megaphone"
         | "Memberful"
         | "MercadoPago"
         | "Meteostat"
@@ -12778,6 +13693,7 @@ export namespace Schemas {
         | "WhatsappBusinessManagement"
         | "WhoGho"
         | "Whop"
+        | "Wistia"
         | "Wiz"
         | "Wompi"
         | "Workiz"
@@ -12857,6 +13773,7 @@ export namespace Schemas {
         | "SimonData"
         | "CommissionJunction"
         | "Liveblocks"
+        | "Livestorm"
         | "NationBuilder"
         | "Tana"
         | "Zenchef"
@@ -12885,7 +13802,56 @@ export namespace Schemas {
         | "Oneleet"
         | "Expo"
         | "PostNord"
-        | "Commslayer";
+        | "Commslayer"
+        | "Sprinto"
+        | "Gem"
+        | "AudioGO"
+        | "ExactOnline"
+        | "LettrLabs"
+        | "GrafanaIRM"
+        | "Tessitura"
+        | "ChargebackStop"
+        | "Chargeflow"
+        | "Dreamdata"
+        | "GoogleBusinessProfile"
+        | "Ledyer"
+        | "Supermetrics"
+        | "SQLite"
+        | "Modal"
+        | "Vimeo"
+        | "Scrunch"
+        | "Loom"
+        | "Arcade"
+        | "Neo4j"
+        | "TestDino"
+        | "ChessCom"
+        | "Userback"
+        | "Rewardful"
+        | "Tracklution"
+        | "StackAdapt"
+        | "CheckHQ"
+        | "RainforestPay"
+        | "Wise"
+        | "LaravelCloud"
+        | "Northbeam"
+        | "NaverAds"
+        | "ChannelIO"
+        | "Airship"
+        | "Creem"
+        | "Leantime"
+        | "Testomatio"
+        | "GoogleAdMob"
+        | "Klar"
+        | "ConectoCRM"
+        | "CloudflareR2"
+        | "Particle"
+        | "FileUpload"
+        | "Dripify"
+        | "AwsS3Tables"
+        | "Beacons"
+        | "WooPayments"
+        | "Soniox"
+        | "Nango";
     /**
      * * `web` - web
      * * `api` - api
@@ -12934,6 +13900,7 @@ export namespace Schemas {
          * * `Attio` - Attio
          * * `SnapchatAds` - SnapchatAds
          * * `Linear` - Linear
+         * * `LiteLLM` - LiteLLM
          * * `Intercom` - Intercom
          * * `Amplitude` - Amplitude
          * * `Mixpanel` - Mixpanel
@@ -12971,6 +13938,7 @@ export namespace Schemas {
          * * `Square` - Square
          * * `Zoom` - Zoom
          * * `Trello` - Trello
+         * * `TrafficStars` - TrafficStars
          * * `Monday` - Monday
          * * `ClickUp` - ClickUp
          * * `Confluence` - Confluence
@@ -12980,6 +13948,7 @@ export namespace Schemas {
          * * `Gong` - Gong
          * * `Calendly` - Calendly
          * * `Typeform` - Typeform
+         * * `UnityAds` - UnityAds
          * * `Iterable` - Iterable
          * * `ZohoCRM` - ZohoCRM
          * * `Close` - Close
@@ -13024,6 +13993,7 @@ export namespace Schemas {
          * * `Plaid` - Plaid
          * * `SurveyMonkey` - SurveyMonkey
          * * `Eventbrite` - Eventbrite
+         * * `Everflow` - Everflow
          * * `RingCentral` - RingCentral
          * * `Twilio` - Twilio
          * * `Freshsales` - Freshsales
@@ -13090,9 +14060,12 @@ export namespace Schemas {
          * * `IncidentIo` - IncidentIo
          * * `Pingdom` - Pingdom
          * * `Cloudflare` - Cloudflare
+         * * `CloudflareD1` - CloudflareD1
          * * `CosmosDB` - CosmosDB
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
+         * * `Plane` - Plane
+         * * `Scarf` - Scarf
          * * `SapHana` - SapHana
          * * `Rippling` - Rippling
          * * `HiBob` - HiBob
@@ -13353,6 +14326,7 @@ export namespace Schemas {
          * * `ReplyIo` - ReplyIo
          * * `RetailExpress` - RetailExpress
          * * `Retently` - Retently
+         * * `Retreaver` - Retreaver
          * * `RevolutMerchant` - RevolutMerchant
          * * `RocketChat` - RocketChat
          * * `Rocketlane` - Rocketlane
@@ -13391,6 +14365,7 @@ export namespace Schemas {
          * * `Squarespace` - Squarespace
          * * `Statsig` - Statsig
          * * `Statuspage` - Statuspage
+         * * `Steam` - Steam
          * * `Stigg` - Stigg
          * * `Strava` - Strava
          * * `SurveySparrow` - SurveySparrow
@@ -13618,6 +14593,7 @@ export namespace Schemas {
          * * `LambdaLabs` - LambdaLabs
          * * `LangSmith` - LangSmith
          * * `Linode` - Linode
+         * * `Listmonk` - Listmonk
          * * `LlamaCloud` - LlamaCloud
          * * `Mem0` - Mem0
          * * `Metriport` - Metriport
@@ -13802,6 +14778,7 @@ export namespace Schemas {
          * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
          * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
          * * `AwsCostExplorer` - AwsCostExplorer
+         * * `AwsDocumentDB` - AwsDocumentDB
          * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
          * * `AwsGuardduty` - AwsGuardduty
          * * `AwsHealth` - AwsHealth
@@ -13848,6 +14825,7 @@ export namespace Schemas {
          * * `BlackboardLearn` - BlackboardLearn
          * * `Bling` - Bling
          * * `Bloomerang` - Bloomerang
+         * * `Blueshift` - Blueshift
          * * `Bluesky` - Bluesky
          * * `BolRetailer` - BolRetailer
          * * `Boulevard` - Boulevard
@@ -13901,6 +14879,7 @@ export namespace Schemas {
          * * `Donorbox` - Donorbox
          * * `Doorloop` - Doorloop
          * * `Dovetail` - Dovetail
+         * * `Dragonboat` - Dragonboat
          * * `Drchrono` - Drchrono
          * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
          * * `EcbDataPortal` - EcbDataPortal
@@ -13997,6 +14976,7 @@ export namespace Schemas {
          * * `LoopReturns` - LoopReturns
          * * `Mastodon` - Mastodon
          * * `Meetup` - Meetup
+         * * `Megaphone` - Megaphone
          * * `Memberful` - Memberful
          * * `MercadoPago` - MercadoPago
          * * `Meteostat` - Meteostat
@@ -14136,6 +15116,7 @@ export namespace Schemas {
          * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
          * * `WhoGho` - WhoGho
          * * `Whop` - Whop
+         * * `Wistia` - Wistia
          * * `Wiz` - Wiz
          * * `Wompi` - Wompi
          * * `Workiz` - Workiz
@@ -14215,6 +15196,7 @@ export namespace Schemas {
          * * `SimonData` - SimonData
          * * `CommissionJunction` - CommissionJunction
          * * `Liveblocks` - Liveblocks
+         * * `Livestorm` - Livestorm
          * * `NationBuilder` - NationBuilder
          * * `Tana` - Tana
          * * `Zenchef` - Zenchef
@@ -14244,6 +15226,55 @@ export namespace Schemas {
          * * `Expo` - Expo
          * * `PostNord` - PostNord
          * * `Commslayer` - Commslayer
+         * * `Sprinto` - Sprinto
+         * * `Gem` - Gem
+         * * `AudioGO` - AudioGO
+         * * `ExactOnline` - ExactOnline
+         * * `LettrLabs` - LettrLabs
+         * * `GrafanaIRM` - GrafanaIRM
+         * * `Tessitura` - Tessitura
+         * * `ChargebackStop` - ChargebackStop
+         * * `Chargeflow` - Chargeflow
+         * * `Dreamdata` - Dreamdata
+         * * `GoogleBusinessProfile` - GoogleBusinessProfile
+         * * `Ledyer` - Ledyer
+         * * `Supermetrics` - Supermetrics
+         * * `SQLite` - SQLite
+         * * `Modal` - Modal
+         * * `Vimeo` - Vimeo
+         * * `Scrunch` - Scrunch
+         * * `Loom` - Loom
+         * * `Arcade` - Arcade
+         * * `Neo4j` - Neo4j
+         * * `TestDino` - TestDino
+         * * `ChessCom` - ChessCom
+         * * `Userback` - Userback
+         * * `Rewardful` - Rewardful
+         * * `Tracklution` - Tracklution
+         * * `StackAdapt` - StackAdapt
+         * * `CheckHQ` - CheckHQ
+         * * `RainforestPay` - RainforestPay
+         * * `Wise` - Wise
+         * * `LaravelCloud` - LaravelCloud
+         * * `Northbeam` - Northbeam
+         * * `NaverAds` - NaverAds
+         * * `ChannelIO` - ChannelIO
+         * * `Airship` - Airship
+         * * `Creem` - Creem
+         * * `Leantime` - Leantime
+         * * `Testomatio` - Testomatio
+         * * `GoogleAdMob` - GoogleAdMob
+         * * `Klar` - Klar
+         * * `ConectoCRM` - ConectoCRM
+         * * `CloudflareR2` - CloudflareR2
+         * * `Particle` - Particle
+         * * `FileUpload` - FileUpload
+         * * `Dripify` - Dripify
+         * * `AwsS3Tables` - AwsS3Tables
+         * * `Beacons` - Beacons
+         * * `WooPayments` - WooPayments
+         * * `Soniox` - Soniox
+         * * `Nango` - Nango
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -14359,6 +15390,10 @@ export namespace Schemas {
          * Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning.
          */
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
+        /**
+         * Set on an update response when the change was saved but the connection check from the API could not reach the database. Null otherwise.
+         */
+        connection_warning: string | null;
     };
     export type FeatureFlagExperimentSetMetadata = {
         /**
@@ -14441,7 +15476,7 @@ export namespace Schemas {
          */
         evaluation_contexts?: Array<unknown> | undefined;
         /**
-         * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+         * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
          */
         usage_dashboard: number | null;
         /**
@@ -14470,6 +15505,9 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         has_encrypted_payloads?: (boolean | null) | undefined;
+        /**
+         * Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.
+         */
         status: string;
         /**
          * Serializer mixin that handles tags for objects.
@@ -14540,7 +15578,7 @@ export namespace Schemas {
     }>;
     export type FeatureFlagRolloutSummary = {
         /**
-         * True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation.
+         * True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters, or there are no release conditions. For multivariate flags it means every release condition a user can reach, up to the first one at 100% with no property filters, serves the same variant. In a flag of either type that mixes person and group aggregation, only a person-level condition counts as that 100% condition. This is the signal for 'fully rolled out' / GA, unlike `status`, which only reflects recent evaluation.
          */
         effectively_full_rollout: boolean;
         /**
@@ -14558,7 +15596,7 @@ export namespace Schemas {
     };
     export type FeatureFlagStatusResponse = {
         /**
-         * Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness.
+         * Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness.
          */
         status: string;
         /**
@@ -14574,6 +15612,7 @@ export namespace Schemas {
          */
         rollout: FeatureFlagRolloutSummary;
     };
+    export type FlagEvaluationsModeEnum = 0 | 1 | 2;
     /**
      * * `draft` - Draft
      * * `active` - Active
@@ -14583,8 +15622,12 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails
      */
-    export type HogFlowOriginProductEnum = "loops" | "broadcasts";
+    export type HogFlowOriginProductEnum =
+        | "loops"
+        | "broadcasts"
+        | "transactional_emails";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -14617,6 +15660,7 @@ export namespace Schemas {
         transpiled: unknown;
         filter_test_accounts: boolean;
         bytecode_error: string;
+        bytecode_contract: string;
     }>;
     export type HogFlowConversionEvent = {
         /**
@@ -14628,14 +15672,13 @@ export namespace Schemas {
         filters: Array<Record<string, unknown>>;
         events: Array<HogFlowConversionEvent>;
         window: string | null;
-        window_minutes: number | null;
         bytecode: unknown;
     }>;
     /**
      * * `minute` - minute
      * * `hour` - hour
      */
-    export type PeriodEnum = "minute" | "hour";
+    export type HogFlowEmailSendingRateLimitPeriodEnum = "minute" | "hour";
     export type HogFlowEmailSendingRateLimit = {
         /**
          * Maximum number of emails this workflow sends per period.
@@ -14647,7 +15690,7 @@ export namespace Schemas {
          * * `minute` - minute
          * * `hour` - hour
          */
-        period: PeriodEnum;
+        period: HogFlowEmailSendingRateLimitPeriodEnum;
     };
     /**
      * * `continue` - continue
@@ -14733,7 +15776,7 @@ export namespace Schemas {
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -14810,6 +15853,20 @@ export namespace Schemas {
         created_at: string;
         updated_at: string;
     };
+    export type HogFlowLastRun = {
+        /**
+         * The task this run belongs to.
+         */
+        task_id: string;
+        /**
+         * Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled.
+         */
+        status: string;
+        /**
+         * When the run started, or when the task was created if it has no run yet.
+         */
+        ran_at: string;
+    };
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -14823,6 +15880,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         description?: string | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        tags?: Array<string> | undefined;
         version: number;
         /**
          * Mixin for serializers to add user access control fields
@@ -14832,6 +15893,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         origin_product?: (HogFlowOriginProductEnum | NullEnum) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        source_record?: (string | null) | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
         updated_at: string;
@@ -14908,6 +15973,10 @@ export namespace Schemas {
          * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
          */
         email_sending_resumed_at: string | null;
+        /**
+         * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
+         */
+        last_run: HogFlowLastRun | null;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -14916,6 +15985,10 @@ export namespace Schemas {
         id: string;
         name: string | null;
         description: string;
+        /**
+         * Tags for organizing workflows, for example by team or use case. Sorted by name.
+         */
+        tags: Array<string>;
         version: number;
         status: HogFlowStateEnum & unknown;
         origin_product: HogFlowOriginProductEnum | NullEnum;
@@ -14940,6 +16013,18 @@ export namespace Schemas {
          * The effective access level the user has for this object
          */
         user_access_level: string | null;
+        /**
+         * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
+         */
+        last_run: HogFlowLastRun | null;
+        /**
+         * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+         */
+        pending_suggestions: number | null;
+        /**
+         * Whether someone turned suggestions on for this workflow. Read on the list only.
+         */
+        suggestions_enabled: boolean | null;
     };
     export type HogFlowRunRequest = Partial<{
         variables: Record<string, unknown>;
@@ -14967,6 +16052,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         description?: string | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        tags?: Array<string> | undefined;
         version: number;
         /**
          * Mixin for serializers to add user access control fields
@@ -14977,6 +16066,7 @@ export namespace Schemas {
          *
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
+         * * `transactional_emails` - Transactional emails
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -15055,6 +16145,10 @@ export namespace Schemas {
          * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
          */
         email_sending_resumed_at: string | null;
+        /**
+         * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
+         */
+        last_run: HogFlowLastRun | null;
     };
     export type HogQueryResponse = {
         bytecode?: (Array<unknown> | null) | undefined;
@@ -15128,6 +16222,7 @@ export namespace Schemas {
      * The query definition for this insight. The `kind` field determines the query type:
      * - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
      * - `DataVisualizationNode` — SQL insights using HogQL
+     * - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
      * - `DataTableNode` — raw data tables
      * - `HogQuery` — Hog language queries
      */
@@ -15135,9 +16230,17 @@ export namespace Schemas {
         | InsightVizNode
         | DataTableNode
         | DataVisualizationNode
+        | BIVisualizationNode
         | HogQuery;
+    /**
+     * Warnings attached to the query response that produced an insight's results.
+     */
+    export type _InsightResultWarnings = Array<
+        DataWarehouseSyncWarning | AccessControlFilterWarning
+    >;
     export type TileFilters = Partial<{
         breakdown_filter: BreakdownFilter | null;
+        compareFilter: CompareFilter | null;
         date_from: string | null;
         date_to: string | null;
         explicitDate: boolean | null;
@@ -15247,8 +16350,6 @@ export namespace Schemas {
         last_modified_at: string;
         last_modified_by: UserBasic & unknown;
         is_sample: boolean;
-        effective_restriction_level: RestrictionLevelEnum & unknown;
-        effective_privilege_level: PrivilegeLevelEnum & unknown;
         /**
          * The effective access level the user has for this object
          */
@@ -15266,9 +16367,17 @@ export namespace Schemas {
             date_to: string;
         }> | null;
         /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         */
+        action_names: Record<string, string> | null;
+        /**
          * What ClickHouse read for this insight's last slow run, with the findings of its query scan.
          */
         query_scan: unknown;
+        /**
+         * Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights.
+         */
+        warnings: _InsightResultWarnings | null;
         /**
          * Simplified serializer to speed response times when loading large amounts of objects.
          */
@@ -15290,7 +16399,14 @@ export namespace Schemas {
      */
     export type InstallationStatusEnum = "connected" | "unavailable";
     /**
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum = "oauth" | "token" | "credentials";
+    /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -15326,6 +16442,7 @@ export namespace Schemas {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -15341,6 +16458,7 @@ export namespace Schemas {
      */
     export type IntegrationKindEnum =
         | "anthropic"
+        | "apple-ads"
         | "apns"
         | "aws-redshift"
         | "aws-s3"
@@ -15376,6 +16494,7 @@ export namespace Schemas {
         | "postgresql"
         | "posthog"
         | "reddit-ads"
+        | "twitter-ads"
         | "resend"
         | "s3-compatible"
         | "salesforce"
@@ -15394,6 +16513,14 @@ export namespace Schemas {
     export type IntegrationConfig = {
         id: number;
         kind: IntegrationKindEnum;
+        /**
+         * How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+         *
+         * * `oauth` - OAuth
+         * * `token` - Token
+         * * `credentials` - Credentials
+         */
+        auth_type: IntegrationAuthTypeEnum & unknown;
         /**
          * Standard Integration serializer.
          */
@@ -15936,12 +17063,14 @@ export namespace Schemas {
      * * `later` - Skipped for later
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
+     * * `connector` - Signed up through an OAuth connector
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
-        | "provisioned";
+        | "provisioned"
+        | "connector";
     /**
      * * `1` - member
      * * `8` - administrator
@@ -15955,817 +17084,6 @@ export namespace Schemas {
      * * `9` - root
      */
     export type OrganizationPluginsAccessLevelEnum = 0 | 3 | 6 | 9;
-    /**
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist
-     */
-    export type OrganizationDefaultExperimentStatsMethodEnum =
-        | "bayesian"
-        | "frequentist";
-    export type Organization = {
-        id: string;
-        name: string;
-        slug: string;
-        logo_media_id?: (string | null) | undefined;
-        created_at: string;
-        updated_at: string;
-        membership_level: OrganizationMembershipLevelEnum & unknown;
-        plugins_access_level: OrganizationPluginsAccessLevelEnum & unknown;
-        teams: Array<Record<string, unknown>>;
-        projects: Array<Record<string, unknown>>;
-        available_product_features: Array<unknown> | null;
-        /**
-         * Legacy field; member-join emails are controlled per user in account notification settings.
-         */
-        is_member_join_email_enabled: boolean;
-        metadata: Record<string, string>;
-        customer_id: string | null;
-        enforce_2fa?: (boolean | null) | undefined;
-        enforce_verified_domains?: (boolean | null) | undefined;
-        members_can_invite?: (boolean | null) | undefined;
-        members_can_create_projects?: (boolean | null) | undefined;
-        members_can_use_personal_api_keys?: boolean | undefined;
-        members_can_see_org_members?: boolean | undefined;
-        allow_publicly_shared_resources?: boolean | undefined;
-        read_only_mcp_access?: (boolean | null) | undefined;
-        member_count: number;
-        is_ai_data_processing_approved?: (boolean | null) | undefined;
-        is_ai_training_opted_in?: (boolean | null) | undefined;
-        /**
-         * When True, the AI training opt-out setting cannot be modified through the UI or API.
-         */
-        is_ai_training_locked: boolean | null;
-        /**
-         * When True, in-app callouts inviting members to enable AI training are shown.
-         */
-        is_ai_training_cta_shown: boolean | null;
-        /**
-         * Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed.
-         */
-        has_signed_baa: boolean;
-        default_experiment_stats_method?:
-            | (
-                  | OrganizationDefaultExperimentStatsMethodEnum
-                  | BlankEnum
-                  | NullEnum
-              )
-            | undefined;
-        default_anonymize_ips?: boolean | undefined;
-        default_role_id?: (string | null) | undefined;
-        /**
-         * Set this to 'No' to temporarily disable an organization.
-         */
-        is_active: boolean | null;
-        /**
-         * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
-         */
-        is_not_active_reason: string | null;
-        /**
-         * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
-         */
-        is_pending_deletion: boolean | null;
-        /**
-         * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
-         */
-        uses_most_specific_access_resolution: boolean | null;
-    };
-    /**
-     * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
-     * Also used for nested serializers.
-     */
-    export type OrganizationBasic = {
-        id: string;
-        name: string;
-        slug: string;
-        logo_media_id: string | null;
-        membership_level: OrganizationMembershipLevelEnum & unknown;
-        /**
-         * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
-         * Also used for nested serializers.
-         */
-        members_can_use_personal_api_keys?: boolean | undefined;
-        /**
-         * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
-         * Also used for nested serializers.
-         */
-        is_active?: (boolean | null) | undefined;
-        /**
-         * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
-         * Also used for nested serializers.
-         */
-        is_not_active_reason?: (string | null) | undefined;
-        /**
-         * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
-         * Also used for nested serializers.
-         */
-        is_pending_deletion?: (boolean | null) | undefined;
-    };
-    /**
-     * * `discussions_mentioned` - discussions_mentioned
-     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
-     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
-     * * `materialized_view_sync_failed` - materialized_view_sync_failed
-     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
-     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
-     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
-     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
-     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
-     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
-     */
-    export type SettingEnum =
-        | "discussions_mentioned"
-        | "error_tracking_issue_assigned"
-        | "error_tracking_weekly_digest_project_enabled"
-        | "materialized_view_sync_failed"
-        | "materialized_view_sync_failed_daily"
-        | "materialized_view_sync_failed_immediate"
-        | "organization_member_join_email_disabled"
-        | "pipeline_notifications_disabled"
-        | "project_weekly_digest_disabled"
-        | "web_analytics_weekly_digest_project_enabled";
-    export type OrganizationNotificationLock = {
-        /**
-         * Notification setting this rule enforces.
-         *
-         * * `discussions_mentioned` - discussions_mentioned
-         * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
-         * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
-         * * `materialized_view_sync_failed` - materialized_view_sync_failed
-         * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
-         * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
-         * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
-         * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
-         * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
-         * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
-         */
-        setting: SettingEnum;
-        /**
-         * What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch.
-         */
-        scope_id: string;
-        /**
-         * The value the organization enforces.
-         */
-        locked_value: boolean;
-    };
-    export type PaginatedCommentList = {
-        next?: (string | null) | undefined;
-        previous?: (string | null) | undefined;
-        results: Array<Comment>;
-    };
-    export type PaginatedEvaluationList = {
-        count: number;
-        next?: (string | null) | undefined;
-        previous?: (string | null) | undefined;
-        results: Array<Evaluation>;
-    };
-    export type PaginatedExternalDataSourceSerializersList = {
-        count: number;
-        next?: (string | null) | undefined;
-        previous?: (string | null) | undefined;
-        results: Array<ExternalDataSourceSerializers>;
-    };
-    export type PaginatedFeatureFlagList = {
-        count: number;
-        next?: (string | null) | undefined;
-        previous?: (string | null) | undefined;
-        results: Array<FeatureFlag>;
-    };
-    export type PaginatedHogFlowMinimalList = {
-        count: number;
-        next?: (string | null) | undefined;
-        previous?: (string | null) | undefined;
-        results: Array<HogFlowMinimal>;
-    };
-    export type PersonRecord = {
-        /**
-         * Numeric person ID.
-         */
-        id: number;
-        /**
-         * Display name derived from person properties (email, name, or username).
-         */
-        name: string;
-        distinct_ids: Array<string>;
-        properties?: unknown | undefined;
-        /**
-         * When this person was first seen (ISO 8601).
-         */
-        created_at: string;
-        /**
-         * Unique identifier (UUID) for this person.
-         */
-        uuid: string;
-        /**
-         * Timestamp of the last event from this person, or null.
-         */
-        last_seen_at: string | null;
-    };
-    export type PaginatedPersonRecordList = Partial<{
-        next: string | null;
-        previous: string | null;
-        count: number;
-        results: Array<PersonRecord>;
-    }>;
-    /**
-     * * `acp` - ACP
-     * * `pi` - Pi
-     */
-    export type TaskRuntimeEnum = "acp" | "pi";
-    /**
-     * * `claude` - claude
-     * * `codex` - codex
-     */
-    export type RuntimeAdapterEnum = "claude" | "codex";
-    /**
-     * * `anthropic` - anthropic
-     * * `openai` - openai
-     */
-    export type TaskRunDetailDTOProviderEnum = "anthropic" | "openai";
-    /**
-     * * `off` - off
-     * * `minimal` - minimal
-     * * `low` - low
-     * * `medium` - medium
-     * * `high` - high
-     * * `xhigh` - xhigh
-     * * `max` - max
-     * * `ultracode` - ultracode
-     */
-    export type TaskRunReasoningEffortEnum =
-        | "off"
-        | "minimal"
-        | "low"
-        | "medium"
-        | "high"
-        | "xhigh"
-        | "max"
-        | "ultracode";
-    /**
-     * * `user` - user
-     * * `repo` - repo
-     * * `marketplace` - marketplace
-     * * `codex` - codex
-     */
-    export type SkillSourceEnum = "user" | "repo" | "marketplace" | "codex";
-    export type TaskRunSkillBundleMetadata = {
-        /**
-         * Name of the local skill included in a skill_bundle artifact.
-         */
-        skill_name: string;
-        /**
-         * Local source for the uploaded skill bundle, such as user or repo.
-         *
-         * * `user` - user
-         * * `repo` - repo
-         * * `marketplace` - marketplace
-         * * `codex` - codex
-         */
-        skill_source: SkillSourceEnum;
-        /**
-         * SHA-256 hex digest of the uploaded skill bundle bytes.
-         */
-        content_sha256: string;
-        /**
-         * Archive format used for the local skill bundle.
-         *
-         * * `zip` - zip
-         */
-        bundle_format: BundleFormatEnum;
-        /**
-         * Version of the local skill bundle metadata schema.
-         */
-        schema_version: number;
-    };
-    /**
-     * * `posthog_object` - posthog_object
-     */
-    export type ReferenceTypeEnum = "posthog_object";
-    export type TaskRunPostHogReferenceMetadata = {
-        /**
-         * Reference metadata type. posthog_object identifies a live PostHog object.
-         *
-         * * `posthog_object` - posthog_object
-         */
-        reference_type: ReferenceTypeEnum;
-        /**
-         * PostHog object kind used to resolve the reference.
-         *
-         * * `insight` - insight
-         * * `hogql` - hogql
-         * * `dashboard` - dashboard
-         * * `error` - error
-         * * `replay` - replay
-         * * `flag` - flag
-         * * `experiment` - experiment
-         * * `survey` - survey
-         * * `ticket` - ticket
-         * * `report` - report
-         * * `trace` - trace
-         * * `eval` - eval
-         * * `event` - event
-         * * `cohort` - cohort
-         * * `action` - action
-         * * `person` - person
-         */
-        object_kind: ObjectKindEnum;
-        /**
-         * Exact PostHog object identifier, flag key, event name, or SQL query.
-         */
-        object_id: string;
-        /**
-         * Completed assistant message identifiers that referenced the object.
-         */
-        source_message_ids: Array<string>;
-        /**
-         * Number of distinct completed assistant messages that referenced the object.
-         */
-        occurrence_count: number;
-    };
-    export type TaskRunArtifactMetadata =
-        | TaskRunSkillBundleMetadata
-        | TaskRunPostHogReferenceMetadata;
-    /**
-     * * `agent` - agent
-     * * `user` - user
-     */
-    export type UploadedByEnum = "agent" | "user";
-    export type TaskRunArtifactResponse = {
-        id?: string | undefined;
-        /**
-         * Artifact file name
-         */
-        name: string;
-        /**
-         * Artifact classification (plan, context, etc.)
-         */
-        type: string;
-        source?: string | undefined;
-        size?: number | undefined;
-        content_type?: string | undefined;
-        metadata?: TaskRunArtifactMetadata | undefined;
-        storage_path?: string | undefined;
-        /**
-         * Timestamp when the artifact was uploaded or registered
-         */
-        uploaded_at: string;
-        uploaded_by?: UploadedByEnum | undefined;
-        uploaded_by_user_id?: number | undefined;
-        dismissed_at?: string | undefined;
-        url?: string | undefined;
-    };
-    /**
-     * Detail response for a task run.
-     *
-     * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-     * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-     * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-     * ``latest_run`` shape by the task detail response.
-     */
-    export type TaskRunDetailDTO = {
-        id: string;
-        /**
-         * Parent task id this run belongs to.
-         */
-        task: string;
-        stage: string | null;
-        branch: string | null;
-        status: string;
-        environment: string;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        runtime_adapter?: (RuntimeAdapterEnum | NullEnum) | undefined;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        provider?: (TaskRunDetailDTOProviderEnum | NullEnum) | undefined;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        model?: (string | null) | undefined;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        reasoning_effort?: (TaskRunReasoningEffortEnum | NullEnum) | undefined;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        log_url?: (string | null) | undefined;
-        error_message: string | null;
-        output: Record<string, unknown> | null;
-        /**
-         * Latest summary for this task, including a summary inherited from an earlier run.
-         */
-        task_summary: string | null;
-        state: Record<string, unknown>;
-        artifacts: Array<TaskRunArtifactResponse>;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        created_at?: (string | null) | undefined;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        updated_at?: (string | null) | undefined;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        completed_at?: (string | null) | undefined;
-        /**
-         * Detail response for a task run.
-         *
-         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
-         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
-         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
-         * ``latest_run`` shape by the task detail response.
-         */
-        preview_available?: boolean | undefined;
-    };
-    /**
-     * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
-     */
-    export type TaskUserBasicInfo = {
-        id: number;
-        uuid: string;
-        distinct_id: string;
-        first_name: string;
-        last_name: string;
-        email: string;
-        /**
-         * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
-         */
-        is_email_verified?: (boolean | null) | undefined;
-        /**
-         * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
-         */
-        hedgehog_config?: (Record<string, unknown> | null) | undefined;
-        /**
-         * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
-         */
-        role_at_organization?: (string | null) | undefined;
-    };
-    export type SlackThreadReferenceDTO = {
-        url: string;
-        channel: string;
-        created_at?: (string | null) | undefined;
-    };
-    /**
-     * Detail response for a task.
-     *
-     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-     */
-    export type TaskDetailDTO = {
-        id: string;
-        task_number: number | null;
-        slug: string;
-        title: string;
-        title_manually_set: boolean;
-        description: string;
-        origin_product: string;
-        /**
-         * Agent protocol and harness used for this task's runs.
-         *
-         * * `acp` - ACP
-         * * `pi` - Pi
-         */
-        runtime: TaskRuntimeEnum;
-        repository: string | null;
-        repositories: Array<string>;
-        github_integration: number | null;
-        github_user_integration: string | null;
-        signal_report: string | null;
-        json_schema: Record<string, unknown> | null;
-        internal: boolean;
-        archived: boolean;
-        archived_at: string | null;
-        /**
-         * Detail response for a task.
-         *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-         */
-        latest_run?: (TaskRunDetailDTO | null) | undefined;
-        /**
-         * Detail response for a task.
-         *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-         */
-        created_at?: (string | null) | undefined;
-        /**
-         * Detail response for a task.
-         *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-         */
-        updated_at?: (string | null) | undefined;
-        /**
-         * Detail response for a task.
-         *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-         */
-        last_activity_at?: (string | null) | undefined;
-        /**
-         * Detail response for a task.
-         *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-         */
-        created_by?: (TaskUserBasicInfo | null) | undefined;
-        ci_prompt: string | null;
-        /**
-         * Detail response for a task.
-         *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-         */
-        channel?: (string | null) | undefined;
-        slack_thread_references: Array<SlackThreadReferenceDTO>;
-        /**
-         * Detail response for a task.
-         *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-         */
-        origin_key?: (string | null) | undefined;
-    };
-    /**
-     * Basic list response for a task, returned when the list is asked for ``basic=true``.
-     *
-     * A surface that renders only a summary of each task asks for the basic payload and gets this
-     * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
-     * replaces it with ``description_preview`` (the first characters) so a feed can still show a
-     * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
-     * always returns it. A client uses the ``search`` query parameter to match description text
-     * server-side.
-     */
-    export type TaskBasic = {
-        id: string;
-        task_number: number | null;
-        slug: string;
-        title: string;
-        title_manually_set: boolean;
-        origin_product: string;
-        /**
-         * Agent protocol and harness used for this task's runs.
-         *
-         * * `acp` - ACP
-         * * `pi` - Pi
-         */
-        runtime: TaskRuntimeEnum;
-        repository: string | null;
-        repositories: Array<string>;
-        github_integration: number | null;
-        github_user_integration: string | null;
-        signal_report: string | null;
-        json_schema: Record<string, unknown> | null;
-        internal: boolean;
-        archived: boolean;
-        archived_at: string | null;
-        /**
-         * Basic list response for a task, returned when the list is asked for ``basic=true``.
-         *
-         * A surface that renders only a summary of each task asks for the basic payload and gets this
-         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
-         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
-         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
-         * always returns it. A client uses the ``search`` query parameter to match description text
-         * server-side.
-         */
-        latest_run?: (TaskRunDetailDTO | null) | undefined;
-        /**
-         * Basic list response for a task, returned when the list is asked for ``basic=true``.
-         *
-         * A surface that renders only a summary of each task asks for the basic payload and gets this
-         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
-         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
-         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
-         * always returns it. A client uses the ``search`` query parameter to match description text
-         * server-side.
-         */
-        created_at?: (string | null) | undefined;
-        /**
-         * Basic list response for a task, returned when the list is asked for ``basic=true``.
-         *
-         * A surface that renders only a summary of each task asks for the basic payload and gets this
-         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
-         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
-         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
-         * always returns it. A client uses the ``search`` query parameter to match description text
-         * server-side.
-         */
-        updated_at?: (string | null) | undefined;
-        /**
-         * Basic list response for a task, returned when the list is asked for ``basic=true``.
-         *
-         * A surface that renders only a summary of each task asks for the basic payload and gets this
-         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
-         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
-         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
-         * always returns it. A client uses the ``search`` query parameter to match description text
-         * server-side.
-         */
-        last_activity_at?: (string | null) | undefined;
-        /**
-         * Basic list response for a task, returned when the list is asked for ``basic=true``.
-         *
-         * A surface that renders only a summary of each task asks for the basic payload and gets this
-         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
-         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
-         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
-         * always returns it. A client uses the ``search`` query parameter to match description text
-         * server-side.
-         */
-        created_by?: (TaskUserBasicInfo | null) | undefined;
-        ci_prompt: string | null;
-        /**
-         * Basic list response for a task, returned when the list is asked for ``basic=true``.
-         *
-         * A surface that renders only a summary of each task asks for the basic payload and gets this
-         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
-         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
-         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
-         * always returns it. A client uses the ``search`` query parameter to match description text
-         * server-side.
-         */
-        channel?: (string | null) | undefined;
-        slack_thread_references: Array<SlackThreadReferenceDTO>;
-        /**
-         * Basic list response for a task, returned when the list is asked for ``basic=true``.
-         *
-         * A surface that renders only a summary of each task asks for the basic payload and gets this
-         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
-         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
-         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
-         * always returns it. A client uses the ``search`` query parameter to match description text
-         * server-side.
-         */
-        origin_key?: (string | null) | undefined;
-        /**
-         * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
-         */
-        description_preview: string;
-    };
-    export type TaskListItem = TaskDetailDTO | TaskBasic;
-    export type PaginatedTaskListItemList = {
-        count: number;
-        next?: (string | null) | undefined;
-        previous?: (string | null) | undefined;
-        results: Array<TaskListItem>;
-    };
-    export type PaginatedTaskRunDetailDTOList = {
-        count: number;
-        next?: (string | null) | undefined;
-        previous?: (string | null) | undefined;
-        results: Array<TaskRunDetailDTO>;
-    };
-    /**
-     * * `not_started` - Not Started
-     * * `queued` - Queued
-     * * `in_progress` - In Progress
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `cancelled` - Cancelled
-     */
-    export type TaskRunStatusEnum =
-        | "not_started"
-        | "queued"
-        | "in_progress"
-        | "completed"
-        | "failed"
-        | "cancelled";
-    /**
-     * * `local` - Local
-     * * `cloud` - Cloud
-     */
-    export type TaskRunEnvironmentEnum = "local" | "cloud";
-    /**
-     * * `open` - open
-     * * `draft` - draft
-     * * `merged` - merged
-     * * `closed` - closed
-     * * `unknown` - unknown
-     */
-    export type PrStateEnum =
-        | "open"
-        | "draft"
-        | "merged"
-        | "closed"
-        | "unknown";
-    export type TaskRunSummary = {
-        /**
-         * ID of the latest run.
-         */
-        id: string;
-        status: TaskRunStatusEnum | NullEnum;
-        environment: TaskRunEnvironmentEnum | NullEnum;
-        /**
-         * Execution mode of the latest run.
-         *
-         * * `interactive` - interactive
-         * * `background` - background
-         */
-        mode: TaskExecutionModeEnum;
-        /**
-         * URL of the pull request the latest run opened, or null when it opened none.
-         */
-        pr_url: string | null;
-        /**
-         * State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
-         *
-         * * `open` - open
-         * * `draft` - draft
-         * * `merged` - merged
-         * * `closed` - closed
-         * * `unknown` - unknown
-         */
-        pr_state: PrStateEnum | NullEnum;
-        task_summary?: (string | null) | undefined;
-    };
-    /**
-     * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
-     */
-    export type TaskSummaryDTO = {
-        id: string;
-        title: string;
-        repository: string | null;
-        /**
-         * ID of the user who created the task, or null for system-created tasks.
-         */
-        created_by_id: number | null;
-        created_at: string;
-        updated_at: string;
-        /**
-         * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
-         */
-        origin_product?: string | undefined;
-        /**
-         * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
-         */
-        latest_run?: (TaskRunSummary | null) | undefined;
-    };
-    export type PaginatedTaskSummaryDTOList = {
-        count: number;
-        next?: (string | null) | undefined;
-        previous?: (string | null) | undefined;
-        results: Array<TaskSummaryDTO>;
-    };
-    /**
-     * * `disabled` - disabled
-     * * `toolbar` - toolbar
-     */
-    export type ToolbarModeEnum = "disabled" | "toolbar";
     /**
      * * `Africa/Abidjan` - Africa/Abidjan
      * * `Africa/Accra` - Africa/Accra
@@ -17965,6 +18283,909 @@ export namespace Schemas {
      * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
      * Also used for nested serializers.
      */
+    export type OrganizationTeamBasic = {
+        id: number;
+        uuid: string;
+        organization: string;
+        project_id: number;
+        api_token: string;
+        name: string;
+        completed_snippet_onboarding: boolean;
+        has_completed_onboarding_for: unknown;
+        ingested_event: boolean;
+        is_demo: boolean;
+        timezone: TimezoneEnum & unknown;
+        access_control: boolean;
+        /**
+         * The project group shown in the organization project switcher, or null if it has no group.
+         */
+        project_group: string | null;
+    };
+    export type OrganizationMemberNoticeAction = {
+        /**
+         * Text on the button shown next to the notice.
+         */
+        label: string;
+        /**
+         * Link the button opens in a new tab. Must use http or https.
+         */
+        url: string;
+    };
+    export type OrganizationMemberNotice = {
+        /**
+         * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+         */
+        message: string;
+        action?: (OrganizationMemberNoticeAction | null) | undefined;
+    };
+    export type Organization = {
+        id: string;
+        name: string;
+        slug: string;
+        logo_media_id?: (string | null) | undefined;
+        created_at: string;
+        updated_at: string;
+        membership_level: OrganizationMembershipLevelEnum & unknown;
+        /**
+         * When the requesting user joined this organization. Null if the user is not a member.
+         */
+        membership_joined_at: string | null;
+        plugins_access_level: OrganizationPluginsAccessLevelEnum & unknown;
+        teams: Array<OrganizationTeamBasic>;
+        projects: Array<Record<string, unknown>>;
+        available_product_features: Array<unknown> | null;
+        /**
+         * Legacy field; member-join emails are controlled per user in account notification settings.
+         */
+        is_member_join_email_enabled: boolean;
+        metadata: Record<string, string>;
+        customer_id: string | null;
+        enforce_2fa?: (boolean | null) | undefined;
+        enforce_verified_domains?: (boolean | null) | undefined;
+        members_can_invite?: (boolean | null) | undefined;
+        members_can_create_projects?: (boolean | null) | undefined;
+        members_can_use_personal_api_keys?: boolean | undefined;
+        members_can_see_org_members?: boolean | undefined;
+        allow_publicly_shared_resources?: boolean | undefined;
+        read_only_mcp_access?: (boolean | null) | undefined;
+        member_notice?: (OrganizationMemberNotice | null) | undefined;
+        member_count: number;
+        is_ai_data_processing_approved?: (boolean | null) | undefined;
+        is_ai_training_opted_in?: (boolean | null) | undefined;
+        /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         */
+        is_ai_training_locked: boolean | null;
+        /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         */
+        is_ai_training_cta_shown: boolean | null;
+        /**
+         * Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed.
+         */
+        has_signed_baa: boolean;
+        default_anonymize_ips?: boolean | undefined;
+        default_role_id?: (string | null) | undefined;
+        /**
+         * Set this to 'No' to temporarily disable an organization.
+         */
+        is_active: boolean | null;
+        /**
+         * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+         */
+        is_not_active_reason: string | null;
+        /**
+         * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+         */
+        is_pending_deletion: boolean | null;
+        /**
+         * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+         */
+        uses_most_specific_access_resolution: boolean | null;
+    };
+    /**
+     * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
+     * Also used for nested serializers.
+     */
+    export type OrganizationBasic = {
+        id: string;
+        name: string;
+        slug: string;
+        logo_media_id: string | null;
+        membership_level: OrganizationMembershipLevelEnum & unknown;
+        /**
+         * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
+         * Also used for nested serializers.
+         */
+        members_can_use_personal_api_keys?: boolean | undefined;
+        /**
+         * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
+         * Also used for nested serializers.
+         */
+        is_active?: (boolean | null) | undefined;
+        /**
+         * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
+         * Also used for nested serializers.
+         */
+        is_not_active_reason?: (string | null) | undefined;
+        /**
+         * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
+         * Also used for nested serializers.
+         */
+        is_pending_deletion?: (boolean | null) | undefined;
+    };
+    /**
+     * * `approval_requested` - approval_requested
+     * * `approval_resolved` - approval_resolved
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
+     * * `discussions_mentioned` - discussions_mentioned
+     * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+     * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+     * * `materialized_view_sync_failed` - materialized_view_sync_failed
+     * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+     * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+     * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+     * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+     * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+     * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
+     */
+    export type SettingEnum =
+        | "approval_requested"
+        | "approval_resolved"
+        | "data_catalog_weekly_digest"
+        | "discussions_mentioned"
+        | "error_tracking_issue_assigned"
+        | "error_tracking_weekly_digest_project_enabled"
+        | "materialized_view_sync_failed"
+        | "materialized_view_sync_failed_daily"
+        | "materialized_view_sync_failed_immediate"
+        | "organization_member_join_email_disabled"
+        | "pipeline_notifications_disabled"
+        | "project_weekly_digest_disabled"
+        | "web_analytics_weekly_digest_project_enabled";
+    export type OrganizationNotificationLock = {
+        /**
+         * Notification setting this rule enforces.
+         *
+         * * `approval_requested` - approval_requested
+         * * `approval_resolved` - approval_resolved
+         * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
+         * * `discussions_mentioned` - discussions_mentioned
+         * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
+         * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
+         * * `materialized_view_sync_failed` - materialized_view_sync_failed
+         * * `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily
+         * * `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate
+         * * `organization_member_join_email_disabled` - organization_member_join_email_disabled
+         * * `pipeline_notifications_disabled` - pipeline_notifications_disabled
+         * * `project_weekly_digest_disabled` - project_weekly_digest_disabled
+         * * `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled
+         */
+        setting: SettingEnum;
+        /**
+         * What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch.
+         */
+        scope_id: string;
+        /**
+         * The value the organization enforces.
+         */
+        locked_value: boolean;
+    };
+    export type PaginatedCommentList = {
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<Comment>;
+    };
+    export type PaginatedEvaluationList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<Evaluation>;
+    };
+    export type PaginatedExternalDataSourceSerializersList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<ExternalDataSourceSerializers>;
+    };
+    export type PaginatedFeatureFlagList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<FeatureFlag>;
+    };
+    export type PaginatedHogFlowMinimalList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<HogFlowMinimal>;
+    };
+    /**
+     * * `distinct_id` - Distinct ID
+     * * `email` - Email
+     * * `name` - Name
+     * * `id` - Person ID
+     */
+    export type PersonSearchMatchFieldEnum =
+        | "distinct_id"
+        | "email"
+        | "name"
+        | "id";
+    export type PersonListRecord = {
+        /**
+         * Numeric person ID.
+         */
+        id: number;
+        /**
+         * Display name derived from person properties (email, name, or username).
+         */
+        name: string;
+        distinct_ids: Array<string>;
+        properties?: unknown | undefined;
+        /**
+         * When this person was first seen (ISO 8601).
+         */
+        created_at: string;
+        /**
+         * Unique identifier (UUID) for this person.
+         */
+        uuid: string;
+        /**
+         * Timestamp of the last event from this person, or null.
+         */
+        last_seen_at: string | null;
+        matched_fields?: Array<PersonSearchMatchFieldEnum> | undefined;
+    };
+    export type PaginatedPersonListRecordList = Partial<{
+        next: string | null;
+        previous: string | null;
+        count: number;
+        results: Array<PersonListRecord>;
+    }>;
+    /**
+     * * `acp` - ACP
+     * * `pi` - Pi
+     */
+    export type TaskRuntimeEnum = "acp" | "pi";
+    /**
+     * * `claude` - claude
+     * * `codex` - codex
+     */
+    export type RuntimeAdapterEnum = "claude" | "codex";
+    /**
+     * * `anthropic` - anthropic
+     * * `openai` - openai
+     */
+    export type TaskRunDetailDTOProviderEnum = "anthropic" | "openai";
+    /**
+     * * `off` - off
+     * * `minimal` - minimal
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode
+     */
+    export type TaskRunReasoningEffortEnum =
+        | "off"
+        | "minimal"
+        | "low"
+        | "medium"
+        | "high"
+        | "xhigh"
+        | "max"
+        | "ultracode";
+    /**
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex
+     */
+    export type SkillSourceEnum = "user" | "repo" | "marketplace" | "codex";
+    export type TaskRunSkillBundleMetadata = {
+        /**
+         * Name of the local skill included in a skill_bundle artifact.
+         */
+        skill_name: string;
+        /**
+         * Local source for the uploaded skill bundle, such as user or repo.
+         *
+         * * `user` - user
+         * * `repo` - repo
+         * * `marketplace` - marketplace
+         * * `codex` - codex
+         */
+        skill_source: SkillSourceEnum;
+        /**
+         * SHA-256 hex digest of the uploaded skill bundle bytes.
+         */
+        content_sha256: string;
+        /**
+         * Archive format used for the local skill bundle.
+         *
+         * * `zip` - zip
+         */
+        bundle_format: BundleFormatEnum;
+        /**
+         * Version of the local skill bundle metadata schema.
+         */
+        schema_version: number;
+    };
+    /**
+     * * `posthog_object` - posthog_object
+     */
+    export type ReferenceTypeEnum = "posthog_object";
+    export type TaskRunPostHogReferenceMetadata = {
+        /**
+         * Reference metadata type. posthog_object identifies a live PostHog object.
+         *
+         * * `posthog_object` - posthog_object
+         */
+        reference_type: ReferenceTypeEnum;
+        /**
+         * PostHog object kind used to resolve the reference.
+         *
+         * * `insight` - insight
+         * * `hogql` - hogql
+         * * `dashboard` - dashboard
+         * * `error` - error
+         * * `replay` - replay
+         * * `flag` - flag
+         * * `experiment` - experiment
+         * * `survey` - survey
+         * * `ticket` - ticket
+         * * `report` - report
+         * * `trace` - trace
+         * * `eval` - eval
+         * * `event` - event
+         * * `cohort` - cohort
+         * * `action` - action
+         * * `person` - person
+         */
+        object_kind: ObjectKindEnum;
+        /**
+         * Exact PostHog object identifier, flag key, event name, or SQL query.
+         */
+        object_id: string;
+        /**
+         * Completed assistant message identifiers that referenced the object.
+         */
+        source_message_ids: Array<string>;
+        /**
+         * Number of distinct completed assistant messages that referenced the object.
+         */
+        occurrence_count: number;
+    };
+    export type TaskRunArtifactMetadata =
+        | TaskRunSkillBundleMetadata
+        | TaskRunPostHogReferenceMetadata;
+    /**
+     * * `agent` - agent
+     * * `user` - user
+     */
+    export type UploadedByEnum = "agent" | "user";
+    export type TaskRunArtifactResponse = {
+        id?: string | undefined;
+        /**
+         * Artifact file name
+         */
+        name: string;
+        /**
+         * Artifact classification (plan, context, etc.)
+         */
+        type: string;
+        source?: string | undefined;
+        size?: number | undefined;
+        content_type?: string | undefined;
+        metadata?: TaskRunArtifactMetadata | undefined;
+        storage_path?: string | undefined;
+        /**
+         * Timestamp when the artifact was uploaded or registered
+         */
+        uploaded_at: string;
+        uploaded_by?: UploadedByEnum | undefined;
+        uploaded_by_user_id?: number | undefined;
+        dismissed_at?: string | undefined;
+        url?: string | undefined;
+    };
+    /**
+     * Detail response for a task run.
+     *
+     * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+     * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+     * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+     * ``latest_run`` shape by the task detail response.
+     */
+    export type TaskRunDetailDTO = {
+        id: string;
+        /**
+         * Parent task id this run belongs to.
+         */
+        task: string;
+        stage: string | null;
+        branch: string | null;
+        status: string;
+        environment: string;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        runtime_adapter?: (RuntimeAdapterEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        provider?: (TaskRunDetailDTOProviderEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        model?: (string | null) | undefined;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        reasoning_effort?: (TaskRunReasoningEffortEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        log_url?: (string | null) | undefined;
+        error_message: string | null;
+        output: Record<string, unknown> | null;
+        /**
+         * Latest summary for this task, including a summary inherited from an earlier run.
+         */
+        task_summary: string | null;
+        /**
+         * Latest slug tags for this task, including tags inherited from an earlier run.
+         */
+        task_tags: Array<string>;
+        state: Record<string, unknown>;
+        artifacts: Array<TaskRunArtifactResponse>;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        created_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        updated_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        completed_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        scheduled_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task run.
+         *
+         * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+         * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+         * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+         * ``latest_run`` shape by the task detail response.
+         */
+        preview_available?: boolean | undefined;
+    };
+    /**
+     * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
+     */
+    export type TaskUserBasicInfo = {
+        id: number;
+        uuid: string;
+        distinct_id: string;
+        first_name: string;
+        last_name: string;
+        email: string;
+        /**
+         * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
+         */
+        is_email_verified?: (boolean | null) | undefined;
+        /**
+         * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
+         */
+        hedgehog_config?: (Record<string, unknown> | null) | undefined;
+        /**
+         * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
+         */
+        role_at_organization?: (string | null) | undefined;
+    };
+    export type SlackThreadReferenceDTO = {
+        url: string;
+        channel: string;
+        created_at?: (string | null) | undefined;
+    };
+    /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     */
+    export type TaskClientProvenanceEnum =
+        | "posthog_desktop"
+        | "posthog_mobile"
+        | "posthog_web";
+    /**
+     * Detail response for a task.
+     *
+     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     */
+    export type TaskDetailDTO = {
+        id: string;
+        task_number: number | null;
+        slug: string;
+        title: string;
+        title_manually_set: boolean;
+        description: string;
+        origin_product: string;
+        /**
+         * Agent protocol and harness used for this task's runs.
+         *
+         * * `acp` - ACP
+         * * `pi` - Pi
+         */
+        runtime: TaskRuntimeEnum;
+        repository: string | null;
+        repositories: Array<string>;
+        github_integration: number | null;
+        github_user_integration: string | null;
+        signal_report: string | null;
+        json_schema: Record<string, unknown> | null;
+        internal: boolean;
+        archived: boolean;
+        archived_at: string | null;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        latest_run?: (TaskRunDetailDTO | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        created_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        updated_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_activity_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        created_by?: (TaskUserBasicInfo | null) | undefined;
+        ci_prompt: string | null;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        channel?: (string | null) | undefined;
+        slack_thread_references: Array<SlackThreadReferenceDTO>;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        origin_key?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+    };
+    /**
+     * Basic list response for a task, returned when the list is asked for ``basic=true``.
+     *
+     * A surface that renders only a summary of each task asks for the basic payload and gets this
+     * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+     * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+     * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+     * always returns it. A client uses the ``search`` query parameter to match description text
+     * server-side.
+     */
+    export type TaskBasic = {
+        id: string;
+        task_number: number | null;
+        slug: string;
+        title: string;
+        title_manually_set: boolean;
+        origin_product: string;
+        /**
+         * Agent protocol and harness used for this task's runs.
+         *
+         * * `acp` - ACP
+         * * `pi` - Pi
+         */
+        runtime: TaskRuntimeEnum;
+        repository: string | null;
+        repositories: Array<string>;
+        github_integration: number | null;
+        github_user_integration: string | null;
+        signal_report: string | null;
+        json_schema: Record<string, unknown> | null;
+        internal: boolean;
+        archived: boolean;
+        archived_at: string | null;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        latest_run?: (TaskRunDetailDTO | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        created_at?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        updated_at?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        last_activity_at?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        created_by?: (TaskUserBasicInfo | null) | undefined;
+        ci_prompt: string | null;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        channel?: (string | null) | undefined;
+        slack_thread_references: Array<SlackThreadReferenceDTO>;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        origin_key?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
+         */
+        description_preview: string;
+    };
+    export type TaskListItem = TaskDetailDTO | TaskBasic;
+    export type PaginatedTaskListItemList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<TaskListItem>;
+    };
+    export type PaginatedTaskRunDetailDTOList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<TaskRunDetailDTO>;
+    };
+    /**
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type TaskRunStatusEnum =
+        | "not_started"
+        | "queued"
+        | "in_progress"
+        | "completed"
+        | "failed"
+        | "cancelled";
+    /**
+     * * `local` - Local
+     * * `cloud` - Cloud
+     */
+    export type TaskRunEnvironmentEnum = "local" | "cloud";
+    /**
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown
+     */
+    export type PrStateEnum =
+        | "open"
+        | "draft"
+        | "merged"
+        | "closed"
+        | "unknown";
+    export type TaskRunSummary = {
+        /**
+         * ID of the latest run.
+         */
+        id: string;
+        status: TaskRunStatusEnum | NullEnum;
+        environment: TaskRunEnvironmentEnum | NullEnum;
+        /**
+         * Execution mode of the latest run.
+         *
+         * * `interactive` - interactive
+         * * `background` - background
+         */
+        mode: TaskExecutionModeEnum;
+        /**
+         * URL of the pull request the latest run opened, or null when it opened none.
+         */
+        pr_url: string | null;
+        /**
+         * State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+         *
+         * * `open` - open
+         * * `draft` - draft
+         * * `merged` - merged
+         * * `closed` - closed
+         * * `unknown` - unknown
+         */
+        pr_state: PrStateEnum | NullEnum;
+        task_summary?: (string | null) | undefined;
+    };
+    /**
+     * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+     */
+    export type TaskSummaryDTO = {
+        id: string;
+        title: string;
+        repository: string | null;
+        /**
+         * ID of the user who created the task, or null for system-created tasks.
+         */
+        created_by_id: number | null;
+        created_at: string;
+        updated_at: string;
+        /**
+         * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+         */
+        origin_product?: string | undefined;
+        /**
+         * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+         */
+        latest_run?: (TaskRunSummary | null) | undefined;
+    };
+    export type PaginatedTaskSummaryDTOList = {
+        count: number;
+        next?: (string | null) | undefined;
+        previous?: (string | null) | undefined;
+        results: Array<TaskSummaryDTO>;
+    };
+    /**
+     * * `disabled` - disabled
+     * * `toolbar` - toolbar
+     */
+    export type ToolbarModeEnum = "disabled" | "toolbar";
+    /**
+     * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+     * Also used for nested serializers.
+     */
     export type TeamBasic = {
         id: number;
         uuid: string;
@@ -18033,6 +19254,10 @@ export namespace Schemas {
          */
         is_impersonated_reason: string | null;
         sensitive_session_expires_at: string | null;
+        /**
+         * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+         */
+        fresh_reauth_expires_at: string | null;
         team: TeamBasic & unknown;
         organization: Organization & unknown;
         organizations: Array<OrganizationBasic>;
@@ -18072,9 +19297,13 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         /**
-         * True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
+         * True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
          */
         requires_credential_review: boolean;
+        /**
+         * How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only.
+         */
+        personal_api_keys_limit: number;
     };
     export type PaginatedUserList = {
         count: number;
@@ -18155,23 +19384,35 @@ export namespace Schemas {
         status_reason_detail: string | null;
         evaluation_type: EvaluationTypeEnum;
         evaluation_config:
-            | { prompt: string }
+            | {
+                  prompt: string;
+                  judge_method?: (("llm" | "decision") | null) | undefined;
+              }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
         output_type: OutputTypeEnum;
         output_config: Partial<{
             allows_na: boolean;
             true_is_failure: boolean;
+            decision_threshold: number | null;
+            min: number | null;
+            max: number | null;
+            step: number | null;
+            options: Array<{ key: string; label: string }>;
+            selection_mode: "single" | "multiple";
+            passing_rule:
+                | { operator: "gte" | "lte"; threshold: number }
+                | { categories: Array<string> }
+                | null;
         }>;
         conditions: Array<EvaluationCondition>;
         target: EvaluationTargetEnum;
-        target_config:
-            | { strategy: "fixed_window"; window_seconds?: number | undefined }
-            | {
-                  strategy: "inactivity";
-                  quiet_period_seconds?: number | undefined;
-                  max_age_seconds?: number | undefined;
-              };
+        target_config: Partial<{
+            strategy: "fixed_window" | "inactivity";
+            window_seconds: number;
+            quiet_period_seconds: number;
+            max_age_seconds: number;
+        }>;
         model_configuration: ModelConfiguration | null;
         created_at: string;
         updated_at: string;
@@ -18217,8 +19458,8 @@ export namespace Schemas {
         conclusion_comment: string | null;
         flag_cleanup_task_id: string | null;
         repository: string | null;
-        primary_metrics_ordered_uuids: unknown;
-        secondary_metrics_ordered_uuids: unknown;
+        primary_metrics_ordered_uuids: Array<string> | null;
+        secondary_metrics_ordered_uuids: Array<string> | null;
         only_count_matured_users: boolean;
         update_feature_flag_params: boolean;
         version: number | null;
@@ -18227,6 +19468,7 @@ export namespace Schemas {
         is_legacy: boolean;
         can_freeze_exposure: boolean;
         resolved_exposure_event: string;
+        health: ExperimentHealth | null;
         user_access_level: string | null;
         tags: Array<string>;
     }>;
@@ -18260,6 +19502,7 @@ export namespace Schemas {
         supports_column_selection: boolean;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
+        connection_warning: string | null;
     }>;
     export type PatchedFeatureFlagPartialUpdateRequestSchema = Partial<{
         key: string;
@@ -18273,6 +19516,7 @@ export namespace Schemas {
         ensure_experience_continuity: boolean | null;
         evaluation_runtime: EvaluationRuntimeEnum | NullEnum;
         bucketing_identifier: BucketingIdentifierEnum | NullEnum;
+        version: number;
     }>;
     export type PatchedHogFlowSchedule = Partial<{
         id: string;
@@ -18292,6 +19536,7 @@ export namespace Schemas {
         id: string;
         name: string | null;
         description: string;
+        tags: Array<string>;
         version: number;
         status: HogFlowStateEnum;
         origin_product: HogFlowOriginProductEnum | NullEnum;
@@ -18318,6 +19563,7 @@ export namespace Schemas {
         email_sending_paused_by: string;
         email_sending_pause_requires_support: boolean;
         email_sending_resumed_at: string | null;
+        last_run: HogFlowLastRun | null;
     }>;
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -18347,8 +19593,6 @@ export namespace Schemas {
         last_modified_at: string;
         last_modified_by: UserBasic & unknown;
         is_sample: boolean;
-        effective_restriction_level: RestrictionLevelEnum & unknown;
-        effective_privilege_level: PrivilegeLevelEnum & unknown;
         user_access_level: string | null;
         timezone: string | null;
         is_cached: boolean;
@@ -18359,7 +19603,9 @@ export namespace Schemas {
             date_from: string;
             date_to: string;
         }> | null;
+        action_names: Record<string, string> | null;
         query_scan: unknown;
+        warnings: _InsightResultWarnings | null;
         _create_in_folder: string;
         alerts: Array<unknown>;
         filter_override_context: InsightFilterOverrideContext | null;
@@ -18380,10 +19626,12 @@ export namespace Schemas {
         breakdown_colors: Array<BreakdownColorConfig> | null;
         data_color_theme_id: number | null;
         tags: Array<string>;
-        restriction_level: RestrictionLevelEnum;
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
+        groups: Record<string, DashboardTileGroup> | null;
+        group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
         use_dashboard: number | null;
@@ -18481,11 +19729,41 @@ export namespace Schemas {
         linkedFlagVariant: string;
     }>;
     /**
+     * * `top_left` - top_left
+     * * `top_center` - top_center
+     * * `top_right` - top_right
+     * * `middle_left` - middle_left
+     * * `middle_center` - middle_center
+     * * `middle_right` - middle_right
+     * * `left` - left
+     * * `center` - center
+     * * `right` - right
+     * * `next_to_trigger` - next_to_trigger
+     */
+    export type SurveyPositionEnum =
+        | "top_left"
+        | "top_center"
+        | "top_right"
+        | "middle_left"
+        | "middle_center"
+        | "middle_right"
+        | "left"
+        | "center"
+        | "right"
+        | "next_to_trigger";
+    /**
      * * `button` - button
      * * `tab` - tab
      * * `selector` - selector
      */
     export type WidgetTypeEnum = "button" | "tab" | "selector";
+    /**
+     * * `top` - top
+     * * `left` - left
+     * * `right` - right
+     * * `bottom` - bottom
+     */
+    export type SurveyTabPositionEnum = "top" | "left" | "right" | "bottom";
     export type SurveyAppearanceSchema = Partial<{
         backgroundColor: string;
         submitButtonColor: string;
@@ -18496,6 +19774,9 @@ export namespace Schemas {
         ratingButtonColor: string;
         ratingButtonActiveColor: string;
         ratingButtonHoverColor: string;
+        textSubtleColor: string;
+        inputBackground: string;
+        inputTextColor: string;
         whiteLabel: boolean;
         autoDisappear: boolean;
         displayThankYouMessage: boolean;
@@ -18503,21 +19784,30 @@ export namespace Schemas {
         thankYouMessageDescription: string;
         thankYouMessageDescriptionContentType: DescriptionContentTypeEnum;
         thankYouMessageCloseButtonText: string;
+        displayIntroScreen: boolean;
+        introScreenHeader: string;
+        introScreenDescription: string;
+        introScreenDescriptionContentType: DescriptionContentTypeEnum;
+        introScreenButtonText: string;
         borderColor: string;
         placeholder: string;
+        position: SurveyPositionEnum;
         shuffleQuestions: boolean;
-        surveyPopupDelaySeconds: number;
+        surveyPopupDelaySeconds: number | null;
         allowGoBack: boolean;
         backButtonText: string;
         widgetType: WidgetTypeEnum;
         widgetSelector: string;
         widgetLabel: string;
         widgetColor: string;
+        tabPosition: SurveyTabPositionEnum;
         fontFamily: string;
         maxWidth: string;
         zIndex: string;
         disabledButtonOpacity: string;
         boxPadding: string;
+        boxShadow: string;
+        borderRadius: string;
     }>;
     /**
      * * `day` - day
@@ -18592,9 +19882,11 @@ export namespace Schemas {
         state_remove_keys: Array<string>;
         state_append: Record<string, unknown>;
         error_message: string | null;
+        error_type: ErrorTypeEnum | NullEnum;
     }>;
     /**
      * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -18604,6 +19896,7 @@ export namespace Schemas {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -18615,9 +19908,13 @@ export namespace Schemas {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
      */
     export type TaskOriginProductEnum =
         | "onboarding"
+        | "account_audit"
         | "error_tracking"
         | "eval_clusters"
         | "user_created"
@@ -18627,6 +19924,7 @@ export namespace Schemas {
         | "posthog_ai"
         | "experiments"
         | "signal_report"
+        | "autoresearch"
         | "signals_scout"
         | "scout_suggestions"
         | "support_reply"
@@ -18637,7 +19935,10 @@ export namespace Schemas {
         | "mcp_analytics"
         | "signals_chat"
         | "task_analysis"
-        | "workflow";
+        | "workflow"
+        | "space_setup"
+        | "business_knowledge"
+        | "metrics_import";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -18760,6 +20061,7 @@ export namespace Schemas {
         is_impersonated_read_only: boolean | null;
         is_impersonated_reason: string | null;
         sensitive_session_expires_at: string | null;
+        fresh_reauth_expires_at: string | null;
         team: TeamBasic & unknown;
         organization: Organization & unknown;
         organizations: Array<OrganizationBasic>;
@@ -18791,7 +20093,32 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         requires_credential_review: boolean;
+        personal_api_keys_limit: number;
     }>;
+    export type PersonRecord = {
+        /**
+         * Numeric person ID.
+         */
+        id: number;
+        /**
+         * Display name derived from person properties (email, name, or username).
+         */
+        name: string;
+        distinct_ids: Array<string>;
+        properties?: unknown | undefined;
+        /**
+         * When this person was first seen (ISO 8601).
+         */
+        created_at: string;
+        /**
+         * Unique identifier (UUID) for this person.
+         */
+        uuid: string;
+        /**
+         * Timestamp of the last event from this person, or null.
+         */
+        last_seen_at: string | null;
+    };
     /**
      * * `30d` - 30 Days
      * * `90d` - 90 Days
@@ -18823,6 +20150,20 @@ export namespace Schemas {
         custom_source_mappings: MarketingAnalyticsCustomSourceMappings;
         campaign_field_preferences: MarketingAnalyticsCampaignFieldPreferences;
     }>;
+    export type TeamCustomerAnalyticsPinnedAccountProperty = {
+        /**
+         * Type of this default pinned account property: a custom property, a relationship, or a built-in account field.
+         *
+         * * `custom_property` - Custom property
+         * * `relationship` - Relationship
+         * * `account_field` - Account field
+         */
+        kind: AccountPropertyPinKindEnum;
+        /**
+         * Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+         */
+        id: string;
+    };
     export type TeamCustomerAnalyticsConfig = Partial<{
         activity_event: unknown;
         signup_pageview_event: unknown;
@@ -18830,15 +20171,25 @@ export namespace Schemas {
         subscription_event: unknown;
         payment_event: unknown;
         account_group_type_index: number | null;
+        default_pinned_properties: Array<TeamCustomerAnalyticsPinnedAccountProperty>;
     }>;
     export type TeamWorkflowsConfig = Partial<{
         capture_workflows_engagement_events: boolean;
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
+        email_utm_tags_enabled: boolean;
+        email_utm_params: EmailUtmParams;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
+        replay_vision_scan_rate_limit_per_day: number | null;
+        replay_vision_scan_team_rate_limit_per_day: number | null;
+        default_email_integration_id: number | null;
+        marketing_frequency_cap_max_messages: number | null;
+        marketing_frequency_cap_window_days: number | null;
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
+        blocked_hosts: Array<string>;
+        blocked_ips: Array<string>;
     }>;
     /**
      * A project and its settings, including the settings that live on its passthrough Team.
@@ -18856,6 +20207,13 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         name?: string | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
+        logo_media_id?: (string | null) | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
@@ -18949,13 +20307,6 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         person_display_name_properties?: (Array<string> | null) | undefined;
-        /**
-         * A project and its settings, including the settings that live on its passthrough Team.
-         *
-         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
-         * onto /api/projects/ never loses a field.
-         */
-        correlation_config?: unknown | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
@@ -19142,6 +20493,13 @@ export namespace Schemas {
          * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
          * onto /api/projects/ never loses a field.
          */
+        home_tab_dashboard?: (number | null) | undefined;
+        /**
+         * A project and its settings, including the settings that live on its passthrough Team.
+         *
+         * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+         * onto /api/projects/ never loses a field.
+         */
         live_events_columns?: (Array<string> | null) | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
@@ -19242,7 +20600,7 @@ export namespace Schemas {
          * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
          * onto /api/projects/ never loses a field.
          */
-        conversations_settings?: unknown | undefined;
+        conversations_settings?: (Record<string, unknown> | null) | undefined;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
@@ -19275,6 +20633,14 @@ export namespace Schemas {
          */
         user_access_level: string | null;
         managed_viewsets: Record<string, boolean>;
+        /**
+         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
+         */
+        flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
+        /**
+         * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
+         */
+        api_host: string;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
@@ -19472,6 +20838,52 @@ export namespace Schemas {
          */
         states: Record<string, boolean>;
     };
+    /**
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm
+     */
+    export type ReviewerEditActionEnum =
+        | "add"
+        | "remove"
+        | "replace"
+        | "confirm";
+    /**
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other
+     */
+    export type ReviewerRemovalReasonEnum =
+        | "wrong_area"
+        | "already_covered"
+        | "unavailable"
+        | "other";
+    export type ReviewerState = {
+        /**
+         * Current reviewer artefact ID, or null before the first list.
+         */
+        reviewers_id: string | null;
+        /**
+         * Current corrections artefact ID, or null before corrections are stored.
+         */
+        corrections_id: string | null;
+    };
+    export type RowFilterColumn = {
+        /**
+         * Column name to use as `column` in a row filter.
+         */
+        name: string;
+        /**
+         * Column type, which decides the format of the filter value.
+         */
+        data_type: string;
+        /**
+         * Operators a row filter on this column may use.
+         */
+        operators: Array<string>;
+    };
     export type SessionRecording = {
         id: string;
         distinct_id: string | null;
@@ -19513,6 +20925,30 @@ export namespace Schemas {
          * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
          */
         event_count: number | null;
+    };
+    /**
+     * Single entry in a PUT body for a `suggested_reviewers` artefact.
+     *
+     * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
+     * `user_uuid` only has to name an org member on this team — a member with no linked GitHub
+     * account is stored by uuid and routes like any other reviewer.
+     */
+    export type SuggestedReviewerEntryWrite = Partial<{
+        github_login: string;
+        user_uuid: string;
+        github_name: string;
+        reason: string | null;
+    }>;
+    export type SignalReportArtefactWrite = {
+        action?: (ReviewerEditActionEnum & unknown) | undefined;
+        expected_reviewers?: ReviewerState | undefined;
+        /**
+         * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
+         */
+        content: Array<SuggestedReviewerEntryWrite>;
+        targets?: Array<SuggestedReviewerEntryWrite> | undefined;
+        removal_reason?: ReviewerRemovalReasonEnum | undefined;
+        removal_note?: string | undefined;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -19704,6 +21140,15 @@ export namespace Schemas {
      * * `link` - link
      */
     export type SurveyLinkQuestionSchemaTypeEnum = "link";
+    export type SurveyQuestionTranslationSchema = Partial<{
+        question: string;
+        description: string;
+        buttonText: string;
+        lowerBoundLabel: string;
+        upperBoundLabel: string;
+        choices: Array<string>;
+        link: string;
+    }>;
     export type SurveyLinkQuestionSchema = {
         id?: string | undefined;
         type: SurveyLinkQuestionSchemaTypeEnum;
@@ -19715,10 +21160,14 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * HTTPS or mailto URL for link questions.
          */
         link: string;
+        branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
      * * `multiple_choice` - multiple_choice
@@ -19735,6 +21184,9 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * Array of choice options. Multiple selections allowed. No branching logic supported.
          */
@@ -19757,6 +21209,11 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
+        validation?: (Array<SurveyQuestionValidationRule> | null) | undefined;
+        branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
      * * `rating` - rating
@@ -19778,10 +21235,14 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         display?: SurveyRatingQuestionSchemaDisplayEnum | undefined;
         scale?: number | undefined;
         lowerBoundLabel?: string | undefined;
         upperBoundLabel?: string | undefined;
+        isNpsQuestion?: boolean | undefined;
         branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
@@ -19799,6 +21260,9 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
          */
@@ -19813,6 +21277,26 @@ export namespace Schemas {
         | SurveyRatingQuestionSchema
         | SurveySingleChoiceQuestionSchema
         | SurveyMultipleChoiceQuestionSchema;
+    /**
+     * * `min_length` - min_length
+     * * `max_length` - max_length
+     * * `email` - email
+     */
+    export type SurveyQuestionValidationRuleTypeEnum =
+        | "min_length"
+        | "max_length"
+        | "email";
+    export type SurveyQuestionValidationRule = {
+        /**
+         * Validation rule type for open-text questions.
+         *
+         * * `min_length` - min_length
+         * * `max_length` - max_length
+         * * `email` - email
+         */
+        type: SurveyQuestionValidationRuleTypeEnum;
+        value?: (number | null) | undefined;
+    };
     export type SurveySerializerCreateUpdateOnly = {
         id: string;
         name: string;
@@ -19956,6 +21440,7 @@ export namespace Schemas {
         pending_user_artifact_ids: Array<string>;
         auto_publish: boolean | null;
         channel: string | null;
+        scheduled_at: string | null;
         start_run: boolean;
         signal_report_discussion_question: string;
         naming_source: string;
@@ -20059,6 +21544,14 @@ export namespace Schemas {
          * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
         run_error?: string | undefined;
     };
     export type TaskReviewFile = {
@@ -20128,6 +21621,9 @@ export namespace Schemas {
         created: boolean;
     };
     export type TaskRunResumeRequestSchema = Partial<{
+        scheduled_at: string | null;
+        model: string;
+        reasoning_effort: ReasoningEffortEnum;
         mode: TaskExecutionModeEnum & unknown;
         branch: string | null;
         resume_from_run_id: string;
@@ -20157,11 +21653,10 @@ export namespace Schemas {
         is_pro: boolean;
     }>;
     /**
-     * Detail response for a task.
+     * The task ``run`` action's response: the refreshed task detail plus the run this call made.
      *
-     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+     * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
      */
     export type TaskRunResponse = {
         id: string;
@@ -20188,71 +21683,77 @@ export namespace Schemas {
         archived: boolean;
         archived_at: string | null;
         /**
-         * Detail response for a task.
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         latest_run?: (TaskRunDetailDTO | null) | undefined;
         /**
-         * Detail response for a task.
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         created_at?: (string | null) | undefined;
         /**
-         * Detail response for a task.
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         updated_at?: (string | null) | undefined;
         /**
-         * Detail response for a task.
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         last_activity_at?: (string | null) | undefined;
         /**
-         * Detail response for a task.
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         created_by?: (TaskUserBasicInfo | null) | undefined;
         ci_prompt: string | null;
         /**
-         * Detail response for a task.
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         channel?: (string | null) | undefined;
         slack_thread_references: Array<SlackThreadReferenceDTO>;
         /**
-         * Detail response for a task.
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         origin_key?: (string | null) | undefined;
         /**
-         * Detail response for a task.
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
-         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         run_error?: string | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        run?: (TaskRunDetailDTO | null) | undefined;
     };
     export type TaskSummariesRequest = {
         /**
@@ -20352,7 +21853,21 @@ export namespace Schemas {
         unread_team_count: number;
         unread_customer_count: number;
         session_id: string | null;
-        session_context: unknown;
+        /**
+         * Context captured with the ticket. Values are strings, numbers or booleans. Keys are whatever the widget sent, commonly current_url, replay_url, browser, os and sdk_version.
+         */
+        session_context: Partial<
+            {
+                /**
+                 * Page the reporter was on.
+                 */
+                current_url: string;
+                /**
+                 * Replay of the session the ticket came from.
+                 */
+                replay_url: string;
+            } & Record<string, any>
+        >;
         /**
          * Mixin for serializers to add user access control fields
          */
@@ -20672,6 +22187,9 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.Ticket };
     };
+    /**
+     * Soft-delete a ticket. A daily sweeper hard-deletes it after the grace window.
+     */
     export type delete_Conversations_tickets_destroy = {
         method: "DELETE";
         path: "/api/projects/{project_id}/conversations/tickets/{id}/";
@@ -21158,14 +22676,20 @@ export namespace Endpoints {
         requestFormat: "json";
         parameters: {
             query: Partial<{
+                broadcast_eligible: boolean;
+                broadcast_status: string;
                 created_at: string;
                 created_by: string;
                 id: string;
+                latest_send_first: boolean;
                 limit: number;
                 offset: number;
-                origin_product: "broadcasts" | "loops";
+                optimization_enabled: boolean;
+                origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
+                source_record: string;
                 status: "active" | "archived" | "draft";
+                tags: string;
                 trigger: string;
                 type: string;
                 updated_at: string;
@@ -21386,6 +22910,7 @@ export namespace Endpoints {
                 distinct_id: string;
                 email: string;
                 format: "csv" | "json";
+                include_matched_fields: boolean;
                 limit: number;
                 offset: number;
                 properties: Array<Schemas.Property>;
@@ -21393,7 +22918,7 @@ export namespace Endpoints {
             }>;
             path: { project_id: string };
         };
-        responses: { 200: Schemas.PaginatedPersonRecordList };
+        responses: { 200: Schemas.PaginatedPersonListRecordList };
     };
     /**
      * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
@@ -21506,6 +23031,13 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.ReportReadStateResponse };
     };
+    /**
+     * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+     *
+     * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+     * decorator on serializer methods and converts them into the same responses the viewset path
+     * produces (see decorators._result_to_response), so both paths share one contract.
+     */
     export type get_Surveys_retrieve = {
         method: "GET";
         path: "/api/projects/{project_id}/surveys/{id}/";
@@ -21515,6 +23047,13 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.Survey };
     };
+    /**
+     * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+     *
+     * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+     * decorator on serializer methods and converts them into the same responses the viewset path
+     * produces (see decorators._result_to_response), so both paths share one contract.
+     */
     export type put_Surveys_update = {
         method: "PUT";
         path: "/api/projects/{project_id}/surveys/{id}/";
@@ -21526,6 +23065,13 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.SurveySerializerCreateUpdateOnly };
     };
+    /**
+     * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+     *
+     * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+     * decorator on serializer methods and converts them into the same responses the viewset path
+     * produces (see decorators._result_to_response), so both paths share one contract.
+     */
     export type patch_Surveys_partial_update = {
         method: "PATCH";
         path: "/api/projects/{project_id}/surveys/{id}/";
@@ -21537,6 +23083,13 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.SurveySerializerCreateUpdateOnly };
     };
+    /**
+     * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+     *
+     * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+     * decorator on serializer methods and converts them into the same responses the viewset path
+     * produces (see decorators._result_to_response), so both paths share one contract.
+     */
     export type delete_Surveys_destroy = {
         method: "DELETE";
         path: "/api/projects/{project_id}/surveys/{id}/";
@@ -21586,11 +23139,15 @@ export namespace Endpoints {
                 basic: boolean;
                 channel: string;
                 ci_status: "passing" | "failing" | "pending" | "none";
-                client_provenance: "posthog_desktop";
+                client_provenance:
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web";
                 commented_by: number;
                 created_by: number;
                 exclude_origin_product:
                     | "onboarding"
+                    | "account_audit"
                     | "error_tracking"
                     | "eval_clusters"
                     | "user_created"
@@ -21600,6 +23157,7 @@ export namespace Endpoints {
                     | "posthog_ai"
                     | "experiments"
                     | "signal_report"
+                    | "autoresearch"
                     | "signals_scout"
                     | "scout_suggestions"
                     | "support_reply"
@@ -21610,7 +23168,10 @@ export namespace Endpoints {
                     | "mcp_analytics"
                     | "signals_chat"
                     | "task_analysis"
-                    | "workflow";
+                    | "workflow"
+                    | "space_setup"
+                    | "business_knowledge"
+                    | "metrics_import";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -21623,6 +23184,33 @@ export namespace Endpoints {
                 pr_state: "open" | "draft" | "merged" | "closed";
                 repository: string;
                 search: string;
+                sources: Array<
+                    | "autoresearch"
+                    | "error_tracking"
+                    | "eval_clusters"
+                    | "experiments"
+                    | "hogdesk"
+                    | "image_builder"
+                    | "loop"
+                    | "mcp_analytics"
+                    | "onboarding"
+                    | "posthog_ai"
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web"
+                    | "review_hog"
+                    | "scout_suggestions"
+                    | "session_summaries"
+                    | "signal_report"
+                    | "signals_chat"
+                    | "signals_scout"
+                    | "slack"
+                    | "space_setup"
+                    | "support_queue"
+                    | "support_reply"
+                    | "task_analysis"
+                    | "workflow"
+                >;
                 stage: string;
                 status:
                     | "not_started"
@@ -21645,7 +23233,13 @@ export namespace Endpoints {
         requestFormat: "json";
         parameters: {
             path: { project_id: string };
-            header: Partial<{ "X-PostHog-Warm-Retry": string }>;
+            header: Partial<{
+                "X-PostHog-Client-Provenance":
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web";
+                "X-PostHog-Warm-Retry": string;
+            }>;
             body: Schemas.TaskCreate;
         };
         responses: {
@@ -21722,7 +23316,7 @@ export namespace Endpoints {
         responses: { 200: Schemas.TaskReview };
     };
     /**
-     * Create a new task run and kick off the workflow.
+     * Create a new task run and kick off the workflow. The response is the refreshed task with the created run under the top-level `run` key: read `run.id` for anything run-scoped, such as the run's stream and command endpoints. The top-level `id` is the task's, and `latest_run` mirrors `run` only as long as nothing newer starts — reading either of those as the created run is deprecated.
      */
     export type post_Tasks_run_create = {
         method: "POST";

@@ -138,7 +138,10 @@ class TerminalNetplayRoom:
 
 class TerminalNetplayDescriptionSerializer(serializers.Serializer):
     type = serializers.ChoiceField(choices=["offer", "answer"], help_text="WebRTC session description type.")
-    sdp = serializers.CharField(max_length=16384, help_text="WebRTC session description with ICE candidates.")
+    # Chrome requires the final SDP line ending when applying a remote description.
+    sdp = serializers.CharField(
+        max_length=16384, trim_whitespace=False, help_text="WebRTC session description with ICE candidates."
+    )
 
 
 class TerminalNetplaySignalSerializer(serializers.Serializer):

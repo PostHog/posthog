@@ -7,9 +7,12 @@ from urllib.parse import quote, urlencode
 import requests
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.settings import (
@@ -32,6 +35,10 @@ MAX_PACKAGES = 500
 _SEARCH_TYPES = ("SearchQueryService/3.5.0", "SearchQueryService")
 _REGISTRATION_TYPES = ("RegistrationsBaseUrl/3.6.0", "RegistrationsBaseUrl")
 _CATALOG_TYPES = ("Catalog/3.0.0",)
+_VULNERABILITY_TYPES = ("VulnerabilityInfo/6.7.0",)
+
+# https://learn.microsoft.com/en-us/nuget/api/vulnerability-info
+_SEVERITY_LABELS = {0: "Low", 1: "Moderate", 2: "High", 3: "Critical"}
 
 PACKAGE_NOT_FOUND_PREFIX = "NuGet package not found"
 
@@ -99,7 +106,7 @@ def _resolve_resource(service_index: dict[str, Any], preferred_types: tuple[str,
     raise ValueError(f"NuGet service index has no resource of type {preferred_types[0]}")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (NugetRetryableError, requests.ReadTimeout, requests.ConnectionError, requests.exceptions.ChunkedEncodingError)
     ),
@@ -107,7 +114,7 @@ def _resolve_resource(service_index: dict[str, Any], preferred_types: tuple[str,
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_json(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict:
+def _fetch_json(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
     response = session.get(url, timeout=60)
 
     # nuget.org has no hard rate limit but asks for fair use; back off on throttles and transient 5xx.
@@ -182,6 +189,36 @@ def _package_version_row(leaf: dict, downloads_by_version: dict[str, Any]) -> di
     row = {key: value for key, value in entry.items() if not key.startswith("@")}
     row["downloads"] = downloads_by_version.get(_normalize_version(row.get("version", "")))
     return row
+
+
+def _package_dependency_rows(leaf: dict) -> list[dict]:
+    entry = leaf.get("catalogEntry", {})
+    rows: list[dict] = []
+    for group in entry.get("dependencyGroups") or []:
+        # A group without dependencies only declares framework support; there is no edge to record.
+        for dependency in group.get("dependencies") or []:
+            rows.append(
+                {
+                    "package_id": entry.get("id"),
+                    "package_version": entry.get("version"),
+                    # A group without a target framework applies to every framework. "" keeps the key non-null.
+                    "target_framework": group.get("targetFramework") or "",
+                    "dependency_id": dependency.get("id"),
+                    "dependency_range": dependency.get("range"),
+                }
+            )
+    return rows
+
+
+def _vulnerability_row(package_id: str, advisory: dict) -> dict:
+    severity = advisory.get("severity")
+    return {
+        "package_id": package_id,
+        "advisory_url": advisory.get("url"),
+        "severity": severity,
+        "severity_label": _SEVERITY_LABELS.get(severity) if isinstance(severity, int) else None,
+        "affected_versions": advisory.get("versions"),
+    }
 
 
 def _catalog_event_row(item: dict) -> dict:
@@ -265,6 +302,62 @@ def _get_package_version_rows(
             resumable_source_manager.save_state(NugetResumeConfig(last_package_id=package_id))
 
 
+def _get_package_dependency_rows(
+    session: requests.Session,
+    registration_base_url: str,
+    package_ids: list[str],
+    resumable_source_manager: ResumableSourceManager[NugetResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict]]:
+    remaining = _remaining_packages(package_ids, resumable_source_manager, logger)
+    for package_id in remaining:
+        # One batch per package, so the package bookmark covers exactly the rows it commits with. A
+        # resumed full refresh appends, so a bookmark that lags a written batch would duplicate rows.
+        rows = [
+            row
+            for leaf in _iter_registration_leaves(session, registration_base_url, package_id, logger)
+            for row in _package_dependency_rows(leaf)
+        ]
+        resumable_source_manager.save_state(NugetResumeConfig(last_package_id=package_id))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _get_vulnerability_rows(
+    session: requests.Session,
+    vulnerability_index_url: str,
+    package_ids: list[str],
+    resumable_source_manager: ResumableSourceManager[NugetResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict]]:
+    """Read the vulnerability feed and keep the advisories for the tracked packages.
+
+    The feed is a base page plus an update page with every change since the base was built. Both
+    are keyed by lowercased package id. The update page is read last so its entries win.
+    """
+    wanted = {package_id.lower() for package_id in package_ids}
+    pages = sorted(_fetch_json(session, vulnerability_index_url, logger), key=lambda page: page.get("@name") != "base")
+
+    rows_by_key: dict[tuple[str, Any, Any], dict] = {}
+    for page_entry in pages:
+        resumable_source_manager.safe_point()
+        page = _fetch_json(session, page_entry["@id"], logger)
+        # An empty page is serialized as `[]`, not `{}`.
+        if not page:
+            continue
+        for package_id, advisories in page.items():
+            if package_id.lower() not in wanted:
+                continue
+            for advisory in advisories:
+                row = _vulnerability_row(package_id.lower(), advisory)
+                rows_by_key[(row["package_id"], row["advisory_url"], row["affected_versions"])] = row
+
+    if rows_by_key:
+        yield list(rows_by_key.values())
+
+
 def _get_catalog_event_rows(
     session: requests.Session,
     catalog_index_url: str,
@@ -346,6 +439,22 @@ def get_rows(
             session,
             _resolve_resource(service_index, _SEARCH_TYPES),
             _resolve_resource(service_index, _REGISTRATION_TYPES),
+            package_ids,
+            resumable_source_manager,
+            logger,
+        )
+    elif endpoint == "package_dependencies":
+        yield from _get_package_dependency_rows(
+            session,
+            _resolve_resource(service_index, _REGISTRATION_TYPES),
+            package_ids,
+            resumable_source_manager,
+            logger,
+        )
+    elif endpoint == "vulnerabilities":
+        yield from _get_vulnerability_rows(
+            session,
+            _resolve_resource(service_index, _VULNERABILITY_TYPES),
             package_ids,
             resumable_source_manager,
             logger,

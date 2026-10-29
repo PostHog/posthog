@@ -50,6 +50,8 @@ class SupportReplyInput:
 class BuildContextOutput:
     ticket_context: str
     ticket_title: str
+    # The ticket was soft-deleted between schedule and this activity. The workflow stops.
+    ticket_gone: bool = False
     always_on_context: str = ""
     # Team opted into letting the agent investigate the customer's own data (wider read scopes
     # on diagnostic tickets). Off by default: a crafted ticket can't unlock those scopes alone.

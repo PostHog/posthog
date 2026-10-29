@@ -5,7 +5,7 @@ handed. What to say is decided before this, and where to send is resolved before
 transport that gains a provider needs no change anywhere else.
 """
 
-from typing import Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from posthog.dataclasses import frozen
 
@@ -19,9 +19,13 @@ class MessageHandle:
 
     `external_ref` is the provider's own handle, for example `{"channel": ..., "ts": ...}` for
     Slack. Only the transport that issued one reads it.
+
+    `root_content` is what a transport that can edit its posts sent to open a conversation, so a
+    later edit keeps it. It is set only on the handle of that opening message.
     """
 
     external_ref: dict[str, str]
+    root_content: dict[str, Any] | None = None
 
 
 class DeliveryError(Exception):
@@ -54,4 +58,17 @@ class DeliveryTransport(Protocol):
         provider. That optional argument is the whole mechanism: a declared capability set would
         be a second statement of the same fact, free to disagree with it.
         """
+        ...
+
+
+@runtime_checkable
+class RootEditor(Protocol):
+    """A transport that can update the message that opened a conversation.
+
+    The opening content stays as it was posted, because it is the only record of what fired that
+    the thread does not repeat. Only the current-state line changes.
+    """
+
+    def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
+        """Rewrites the opening message with `state_line` under its original content."""
         ...

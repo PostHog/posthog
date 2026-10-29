@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,20 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConfig]):
+    codebase_detection = detect(
+        env=("^SURVICATE_",),
+        script_hosts=("survey.survicate.com", "surveys-static.survicate.com"),
+        npm=("@survicate/survicate-web-surveys-wrapper", "@survicate/react-native-survicate"),
+        cocoapods=("Survicate", "survicate-uxcam-integration"),
+        pub=("survicate_sdk",),
+        swiftpm=(
+            "github.com/survicate/survicate-ios-sdk",
+            "github.com/survicate/analytics-swift-survicate",
+            "github.com/survicate/survicate-fullstory-integration-ios",
+            "github.com/survicate/survicate-uxcam-integration-ios",
+        ),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"
@@ -66,7 +81,14 @@ class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"responses"})
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only={"responses"},
+            # One request per respondent, so syncing it is opt-in.
+            should_sync_default={"respondent_attributes": False},
+        )
 
     def validate_credentials(
         self,
@@ -98,7 +120,7 @@ class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConf
             "Your plan must include the Data Export API.",
             docsUrl="https://developers.survicate.com/data-export/setup/",
             iconPath="/static/services/survicate.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -112,6 +134,7 @@ class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="attribute_names",
+                        sync_setting=True,
                         label="Attribute names",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import orjson
@@ -36,7 +36,7 @@ class TestTaxonomyUtils(BaseTest):
         self.assertTrue(mixin._is_stale(last_refresh=date - timedelta(minutes=60), lazy=False))
 
 
-class TestMergeHeavyProperties(BaseTest):
+class TestMergeHeavyProperties(SimpleTestCase):
     def test_merges_heavy_columns_into_properties(self):
         props_json = orjson.dumps({"$ai_model": "gpt-4", "$browser": "Chrome"}).decode()
         heavy = {
@@ -101,7 +101,7 @@ class TestMergeHeavyProperties(BaseTest):
         self.assertEqual(result, {"$browser": "", "$ai_model": None})
 
 
-class TestFilledPropertyFilters(BaseTest):
+class TestFilledPropertyFilters(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_value", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT)),

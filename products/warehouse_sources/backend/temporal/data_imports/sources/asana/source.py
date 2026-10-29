@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
+    codebase_detection = detect(
+        env=("^ASANA_",),
+        npm=("asana",),
+        pypi=("asana",),
+        composer=("asana/asana",),
+        maven=("com.asana:asana",),
+        rubygems=("asana", "omniauth-asana"),
+    )
+
     supported_versions = ("1.0",)
     default_version = "1.0"
     api_docs_url = "https://developers.asana.com/reference/rest-api-reference"
@@ -49,7 +59,7 @@ class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
             name=ExternalDataSourceType.ASANA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Asana",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter an Asana personal access token to pull your Asana data into the PostHog Data warehouse.
 
 You can create a personal access token from the [developer console](https://app.asana.com/0/my-apps).

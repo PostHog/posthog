@@ -5,7 +5,10 @@ from typing import cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiResponse
-from pydantic import JsonValue
+from pydantic import (
+    JsonValue,
+    ValidationError as PydanticValidationError,
+)
 from rest_framework import exceptions, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -42,6 +45,7 @@ from products.signals.backend.scout_harness.trial_result import (
     read_trial_result,
     recover_trial_result,
     trial_result_key,
+    trial_timeout_error,
 )
 from products.signals.backend.scout_harness.trial_serializers import (
     ScoutTrialHistoryQuerySerializer,
@@ -53,20 +57,26 @@ from products.signals.backend.scout_harness.trial_serializers import (
     ScoutTrialSetupSerializer,
     ScoutTrialStartedSerializer,
 )
-from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
+from products.signals.backend.scout_harness.trial_state import ScoutTrialStateError, ScoutTrialStore
+
+TRIAL_DATA_UNAVAILABLE_REASON = "Saved run data is unavailable. This run cannot be judged."
 
 
 class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
     team: Team
 
-    def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
+    def _internal_trial_access(self, request: Request, identifier: str) -> SignalScoutConfig:
         if self.team.id != 2 or not request.user.is_staff:
             raise exceptions.NotFound()
+        return self._trial_config(request, identifier)
+
+    def _internal_trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
+        config = self._internal_trial_access(request, identifier)
         if request.method not in {"GET", "HEAD", "OPTIONS"} and not scout_trials_enabled(self.team):
             raise exceptions.PermissionDenied(
                 "Scout trials are disabled for this project. Saved results remain available."
             )
-        return self._trial_config(request, identifier)
+        return config
 
     def _trial_config(self, request: Request, identifier: str) -> SignalScoutConfig:
         if (
@@ -209,12 +219,13 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
         )
         reports: list[JsonValue] = []
         memory: JsonValue = {}
-        invalid_reason = None
+        invalid_reason: JsonValue = None
         result_key = None
         export_error = None
         error = None
         trial_status = run.task_run.status if run else "pending"
         saved_result = None
+        private: dict[str, JsonValue] | None = None
         if run is not None:
             try:
                 saved_result = read_trial_result(run)
@@ -223,26 +234,35 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
                     trial_status = cast(str, saved_result["status"])
             except (object_storage.ObjectStorageError, ValueError):
                 export_error = "The result export failed. Retry this request to save it again."
+            try:
+                private = ScoutTrialStore(run).export()
+            except (ScoutTrialStateError, PydanticValidationError):
+                invalid_reason = TRIAL_DATA_UNAVAILABLE_REASON
         if saved_result is None:
             workflow = get_trial_workflow_status(team_id=config.team_id, launch_id=launch.id)
-            error = workflow.error
+            error = (trial_timeout_error(run, status=workflow.status) if run is not None else None) or workflow.error
             if run is None:
                 trial_status = "pending" if workflow.status == "completed" and workflow.run_id else workflow.status
             else:
                 trial_status = "in_progress" if workflow.status == "pending" else workflow.status
-                if workflow.status in {"failed", "cancelled", "skipped"}:
-                    ScoutTrialStore(run).invalidate(
-                        error or "The controlling scout workflow ended before its task.", allow_terminal=True
-                    )
-                if workflow.status == "completed":
-                    trial_status = "unknown"
-                try:
-                    saved_result = recover_trial_result(run, workflow=workflow)
-                    if saved_result is not None:
-                        result_key = trial_result_key(run)
-                        trial_status = cast(str, saved_result["status"])
-                except (object_storage.ObjectStorageError, ValueError):
-                    export_error = "The result export failed. Retry this request to save it again."
+                if private is not None:
+                    try:
+                        if workflow.status in {"failed", "cancelled", "skipped"}:
+                            ScoutTrialStore(run).invalidate(
+                                error or "The controlling scout workflow ended before its task.", allow_terminal=True
+                            )
+                        if workflow.status == "completed":
+                            trial_status = "unknown"
+                        saved_result = recover_trial_result(run, workflow=workflow)
+                        if saved_result is not None:
+                            result_key = trial_result_key(run)
+                            trial_status = cast(str, saved_result["status"])
+                    except (ScoutTrialStateError, PydanticValidationError):
+                        private = None
+                        invalid_reason = TRIAL_DATA_UNAVAILABLE_REASON
+                        trial_status = "in_progress" if workflow.status == "pending" else workflow.status
+                    except (object_storage.ObjectStorageError, ValueError):
+                        export_error = "The result export failed. Retry this request to save it again."
         usage: dict[str, JsonValue] = {}
         summary = run.summary if run else ""
         if run is not None:
@@ -250,18 +270,31 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
                 saved_summary = saved_result.get("summary")
                 if isinstance(saved_summary, str):
                     summary = saved_summary
-                run.task_run.refresh_from_db(fields=["status", "state", "completed_at"])
-                if trial_status == "completed":
-                    if run.task_run.status not in {"completed", "failed", "cancelled"}:
-                        trial_status = "in_progress"
-                    elif run.task_run.status != "completed":
-                        trial_status = run.task_run.status
-                        error = "The scout task stopped before completion."
-            private = ScoutTrialStore(run).export()
-            stored_reports = private["reports"]
-            reports = list(stored_reports.values()) if isinstance(stored_reports, dict) else []
-            memory = private["memory"]
-            invalid_reason = private["invalid_reason"]
+                run.task_run.refresh_from_db(fields=["status", "state", "completed_at", "error_message"])
+            if trial_status == "completed":
+                if run.task_run.status not in {"completed", "failed", "cancelled"}:
+                    trial_status = "in_progress"
+                elif run.task_run.status != "completed":
+                    trial_status = run.task_run.status
+                    error = "The scout task stopped before completion."
+            error = trial_timeout_error(run, status=trial_status) or error
+            if private is not None:
+                try:
+                    private = ScoutTrialStore(run).export()
+                except (ScoutTrialStateError, PydanticValidationError):
+                    private = None
+                    invalid_reason = TRIAL_DATA_UNAVAILABLE_REASON
+            if private is not None:
+                stored_reports = private["reports"]
+                reports = list(stored_reports.values()) if isinstance(stored_reports, dict) else []
+                memory = private["memory"]
+                invalid_reason = private["invalid_reason"]
+            elif trial_status in {"unknown", "not_started"} and run.task_run.status in {
+                "completed",
+                "failed",
+                "cancelled",
+            }:
+                trial_status = run.task_run.status
             token_usage = (run.task_run.state or {}).get("token_usage")
             if isinstance(token_usage, dict):
                 usage = token_usage

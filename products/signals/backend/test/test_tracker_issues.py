@@ -315,7 +315,7 @@ def test_tracker_issue_comment_names_the_actor_and_never_blocks_the_close(team, 
     close_issue.assert_called_once_with("web", 12, completed=False)
     body = comment.call_args.args[2]
     assert "@octocat closed the" in body
-    assert f"/project/{team.id}/inbox/reports/{report.id})" in body
+    assert f"/project/{team.id}/inbox/reports/{report.id}?link_source=tracker)" in body
 
 
 @pytest.mark.django_db

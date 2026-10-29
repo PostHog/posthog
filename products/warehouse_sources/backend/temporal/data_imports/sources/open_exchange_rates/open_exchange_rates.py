@@ -6,9 +6,15 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.settings import (
@@ -24,6 +30,11 @@ MAX_RETRY_ATTEMPTS = 6
 # stays deliberately small to avoid burning a free-tier monthly request quota (1000/month) in one run.
 DEFAULT_LOOKBACK_DAYS = 30
 
+# The OHLC endpoint has no data before this day and rejects an earlier `start_time`.
+OHLC_EARLIEST_DATE = date(2016, 12, 19)
+# Historical rates go back to this day; time-series.json answers 400 `not_available` for earlier windows.
+TIME_SERIES_EARLIEST_DATE = date(1999, 1, 1)
+
 
 class OpenExchangeRatesRetryableError(Exception):
     """Raised for transient upstream failures (5xx) that are worth retrying."""
@@ -31,11 +42,11 @@ class OpenExchangeRatesRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OpenExchangeRatesResumeConfig:
-    # ISO date (YYYY-MM-DD) of the next `historical` day to fetch. Lets a multi-day backfill resume
-    # mid-sync after a heartbeat timeout instead of restarting from the first day. Unused for the
-    # single-response currencies/latest/usage endpoints.
+    # ISO date (YYYY-MM-DD) of the next `historical`/`ohlc` day or `time_series` window to fetch. Lets
+    # a multi-day backfill resume mid-sync after a heartbeat timeout instead of restarting from the
+    # first day. Unused for the single-response currencies/latest/usage endpoints.
     next_date: str | None = None
 
 
@@ -87,16 +98,38 @@ def _error_description(response: requests.Response) -> str:
     return ""
 
 
-def validate_credentials(app_id: str) -> bool:
+INVALID_APP_ID_ERROR = (
+    "Your Open Exchange Rates App ID is invalid or has been revoked. Create a new App ID in your Open "
+    "Exchange Rates dashboard, then reconnect."
+)
+RESTRICTED_ACCOUNT_ERROR = (
+    "Your Open Exchange Rates account is restricted. Check your account status in your Open Exchange "
+    "Rates dashboard, then reconnect."
+)
+VALIDATION_UNAVAILABLE_ERROR = (
+    "PostHog couldn't reach Open Exchange Rates to check your App ID. Wait a few minutes, then try again."
+)
+
+
+def validate_credentials(app_id: str) -> tuple[bool, str | None]:
     """Confirm the App ID is genuine with the cheapest authenticated call (/usage.json). It requires
     a valid App ID (an invalid one returns 401) but is free and does not count toward the request
     quota. A valid App ID returns 200."""
     try:
         session = make_tracked_session(headers=_auth_headers(app_id), redact_values=(app_id,) if app_id else ())
         response = session.get(_build_url("usage.json"), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    except Exception as e:
+        capture_exception(e)
+        return False, VALIDATION_UNAVAILABLE_ERROR
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 401:
+        return False, INVALID_APP_ID_ERROR
+    # Open Exchange Rates answers 403 for a suspended account and 429 for one blocked after over-use.
+    if response.status_code in (403, 429):
+        return False, RESTRICTED_ACCOUNT_ERROR
+    return False, VALIDATION_UNAVAILABLE_ERROR
 
 
 def _iter_currencies(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -113,6 +146,41 @@ def _iter_rates(data: dict[str, Any], value_date: str) -> list[dict[str, Any]]:
     return [
         {"base": base, "currency": currency, "rate": rate, "date": value_date, "timestamp": timestamp}
         for currency, rate in rates.items()
+    ]
+
+
+def _iter_time_series(data: dict[str, Any]) -> list[dict[str, Any]]:
+    # time-series.json nests {date: {currency: rate}} under `rates` and has no timestamp. Sort by
+    # date so rows reach the pipeline in ascending order of the incremental field.
+    base = data["base"]
+    rates_by_date = data.get("rates") or {}
+    return [
+        {"base": base, "currency": currency, "rate": rate, "date": value_date}
+        for value_date in sorted(rates_by_date)
+        for currency, rate in (rates_by_date[value_date] or {}).items()
+    ]
+
+
+def _iter_ohlc(data: dict[str, Any], value_date: str) -> list[dict[str, Any]]:
+    base = data["base"]
+    start_time = data.get("start_time")
+    end_time = data.get("end_time")
+    rates = data.get("rates") or {}
+    return [
+        {
+            "base": base,
+            "currency": currency,
+            "date": value_date,
+            "start_time": start_time,
+            "end_time": end_time,
+            "open": values.get("open"),
+            "high": values.get("high"),
+            "low": values.get("low"),
+            "close": values.get("close"),
+            "average": values.get("average"),
+        }
+        for currency, values in rates.items()
+        if values
     ]
 
 
@@ -170,6 +238,23 @@ def _date_range(start: date, end: date) -> list[date]:
     return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
 
+@frozen
+class _DateWindow:
+    start: date
+    end: date
+
+
+def _month_windows(start: date, end: date) -> list[_DateWindow]:
+    windows: list[_DateWindow] = []
+    current = start
+    while current <= end:
+        next_month = (current.replace(day=1) + timedelta(days=32)).replace(day=1)
+        window_end = min(next_month - timedelta(days=1), end)
+        windows.append(_DateWindow(start=current, end=window_end))
+        current = next_month
+    return windows
+
+
 def _resolve_historical_start(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
@@ -202,7 +287,7 @@ def get_rows(
     session = make_tracked_session(headers=_auth_headers(app_id), redact_values=(app_id,) if app_id else ())
     base = base_currency or DEFAULT_BASE_CURRENCY
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type(
             (OpenExchangeRatesRetryableError, requests.ReadTimeout, requests.ConnectionError)
         ),
@@ -259,6 +344,67 @@ def get_rows(
                 resumable_source_manager.save_state(
                     OpenExchangeRatesResumeConfig(next_date=days[index + 1].isoformat())
                 )
+        return
+
+    if endpoint == "time_series":
+        today = datetime.now(tz=UTC).date()
+        end = today - timedelta(days=1)
+        start = max(
+            _resolve_historical_start(should_use_incremental_field, db_incremental_field_last_value, start_date, today),
+            TIME_SERIES_EARLIEST_DATE,
+        )
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        resume_date = _to_date(resume.next_date) if resume is not None else None
+        if resume_date is not None and resume_date > start:
+            start = resume_date
+            logger.debug(f"Open Exchange Rates: resuming time_series from {resume_date.isoformat()}")
+
+        windows = _month_windows(start, end)
+        for index, window in enumerate(windows):
+            data = fetch(
+                "time-series.json",
+                {"start": window.start.isoformat(), "end": window.end.isoformat(), "base": base},
+            )
+            rows = _iter_time_series(data)
+            if index + 1 < len(windows):
+                resumable_source_manager.save_state(
+                    OpenExchangeRatesResumeConfig(next_date=windows[index + 1].start.isoformat())
+                )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+        return
+
+    if endpoint == "ohlc":
+        today = datetime.now(tz=UTC).date()
+        # A period may not end in the future, so the last complete daily period is yesterday.
+        end = today - timedelta(days=1)
+        start = max(
+            _resolve_historical_start(should_use_incremental_field, db_incremental_field_last_value, start_date, today),
+            OHLC_EARLIEST_DATE,
+        )
+        days = _date_range(start, end)
+
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+        if resume is not None and resume.next_date:
+            days = [day for day in days if day.isoformat() >= resume.next_date]
+            logger.debug(f"Open Exchange Rates: resuming ohlc from {resume.next_date}")
+
+        for index, value_date in enumerate(days):
+            data = fetch(
+                "ohlc.json",
+                {"start_time": f"{value_date.isoformat()}T00:00:00Z", "period": "1d", "base": base},
+            )
+            rows = _iter_ohlc(data, value_date.isoformat())
+            if index + 1 < len(days):
+                resumable_source_manager.save_state(
+                    OpenExchangeRatesResumeConfig(next_date=days[index + 1].isoformat())
+                )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
         return
 
     raise ValueError(f"Unknown Open Exchange Rates endpoint: {endpoint}")

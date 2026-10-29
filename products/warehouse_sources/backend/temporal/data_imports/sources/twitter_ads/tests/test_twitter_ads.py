@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
@@ -87,6 +87,26 @@ def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicM
     send.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "table,count,sort_by",
+    [
+        ("campaigns", "1000", ["created_at-asc"]),
+        ("media_creatives", "1000", None),
+        ("lead_forms", "200", None),
+    ],
+)
+def test_entity_page_request_respects_per_table_limits(
+    client: TwitterAdsClient, manager: MagicMock, table: str, count: str, sort_by: list[str] | None
+) -> None:
+    with patch.object(client.session, "send", return_value=response({"data": [], "next_cursor": None})) as send:
+        list(sync_items(twitter_ads_source(client, "account", table, manager, None)))
+    url = urlparse(request_url(send.call_args.args[0]))
+    params = parse_qs(url.query)
+    assert url.path == f"/12/accounts/account/{table}"
+    assert params["count"] == [count]
+    assert params.get("sort_by") == sort_by
+
+
 @pytest.mark.parametrize("table", ["campaign_stats", "line_item_stats"])
 @pytest.mark.parametrize("incremental_since", [None, date(2025, 10, 30)])
 def test_stats_limits_daily_rows_currency_and_dst(
@@ -110,21 +130,21 @@ def test_stats_limits_daily_rows_currency_and_dst(
             return response({"data": line_items})
         if "/stats/" not in path:
             return response({"data": {"timezone": account_timezone.key, "created_at": "2025-10-25T10:00:00Z"}})
-        start = datetime.fromisoformat(params["start_time"][0]).astimezone(account_timezone)
-        end = datetime.fromisoformat(params["end_time"][0]).astimezone(account_timezone)
+        # A bare date (not a full timestamp) lets X resolve midnight-to-midnight in the account's
+        # own timezone; date.fromisoformat rejects anything else, including a UTC timestamp.
+        start_date = date.fromisoformat(params["start_time"][0])
+        end_date = date.fromisoformat(params["end_time"][0])
+        start = datetime.combine(start_date, time.min, account_timezone)
+        end = datetime.combine(end_date, time.min, account_timezone)
         ids = params["entity_ids"][0].split(",")
         assert len(ids) <= 20
         assert end.astimezone(UTC) - start.astimezone(UTC) <= timedelta(days=7)
-        # X rejects a DAY window whose bounds are not midnight in the ad account's own timezone,
-        # which means the offset in force on each date rather than today's.
-        assert start.hour == end.hour == 0
-        assert start.minute == end.minute == 0
         offsets.update({start.utcoffset(), end.utcoffset()})
         assert params["granularity"] == ["DAY"]
         assert params["metric_groups"] == ["ENGAGEMENT,BILLING"]
         assert params["entity"] == ["CAMPAIGN" if table == "campaign_stats" else "LINE_ITEM"]
-        days = (end.date() - start.date()).days
-        calls.append((start.date(), end.date(), params["placement"][0], ids))
+        days = (end_date - start_date).days
+        calls.append((start_date, end_date, params["placement"][0], ids))
         return response(
             {
                 "data": [
@@ -163,7 +183,7 @@ def test_stats_limits_daily_rows_currency_and_dst(
     assert max(row["date"] for row in rows) == date(2025, 11, 9)
     assert {call[2] for call in calls} == set(PLACEMENTS)
     # The window walked across the November fall-back, so it must have used both offsets. Without
-    # this the midnight assertions above would still pass on a range that never changes offset.
+    # this the test would still pass on a range that never changes offset.
     assert offsets == {timedelta(hours=-7), timedelta(hours=-8)}
     assert resource.primary_keys == ["entity_id", "date", "placement"]
     assert resource.partition_keys == ["date"]
@@ -178,6 +198,38 @@ def test_stats_limits_daily_rows_currency_and_dst(
         resumed = [row for page in sync_items(resource) for row in page]
     assert min(row["date"] for row in resumed) == date.fromisoformat(first_checkpoint.next_date)
     assert max(row["date"] for row in resumed) == date(2025, 11, 9)
+
+
+def test_stats_requests_bare_dates_for_a_half_hour_offset_account(client: TwitterAdsClient, manager: MagicMock) -> None:
+    # An account on IST (UTC+5:30) never has a UTC midnight; sending our own UTC conversion for
+    # start_time/end_time would carry ":30" minutes and X rejects that with a 400.
+    account_timezone = ZoneInfo("Asia/Kolkata")
+    campaigns = [{"id": "campaign-00", "funding_instrument_id": "funding"}]
+    requests_sent = []
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        url = request_url(request)
+        path = urlparse(url).path
+        if path.endswith("/funding_instruments"):
+            return response({"data": [{"id": "funding", "currency": "INR"}]})
+        if path.endswith("/campaigns"):
+            return response({"data": campaigns})
+        if "/stats/" not in path:
+            return response({"data": {"timezone": account_timezone.key, "created_at": "2025-10-25T10:00:00Z"}})
+        requests_sent.append(parse_qs(urlparse(url).query))
+        return response({"data": []})
+
+    with (
+        time_machine.travel("2025-11-01T20:00:00Z", tick=False),
+        patch.object(client.session, "send", side_effect=send),
+    ):
+        resource = twitter_ads_source(client, "account", "campaign_stats", manager, date(2025, 10, 30))
+        list(sync_items(resource))
+
+    assert requests_sent
+    for params in requests_sent:
+        assert date.fromisoformat(params["start_time"][0])
+        assert date.fromisoformat(params["end_time"][0])
 
 
 def test_error_detail_rides_along_with_the_status(client: TwitterAdsClient) -> None:

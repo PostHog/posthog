@@ -24,8 +24,6 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import Any, TypeVar
 
-from django.conf import settings
-
 import psycopg
 import pyarrow as pa
 import pymysql
@@ -35,6 +33,7 @@ from pymysql.charset import charset_by_id
 from pymysql.connections import MySQLResult
 from pymysql.constants import CLIENT, CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
+from pymysql.protocol import MysqlPacket
 from structlog.types import FilteringBoundLogger
 
 # Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
@@ -62,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
     check_resolved_addresses,
     host_lookup_is_skipped,
+    note_oob_domain,
     open_ssh_tunnel,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -97,6 +97,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    system_ca_bundle,
+    tls_files,
+    tls_options,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
@@ -108,6 +113,11 @@ __all__ = [
     "filter_mysql_incremental_fields",
     "get_connection_metadata",
 ]
+
+# The source type the managed-warehouse host exemption is keyed on. No managed warehouse
+# serves MySQL, so the exemption grants nothing here; naming it keeps the call site
+# explicit rather than relying on the missing port to deny.
+_HOST_CHECK_SOURCE_TYPE = "mysql"
 
 _IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
 _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
@@ -124,6 +134,31 @@ STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 # as long as the socket stays open. Schema discovery must also end before the 10 minute
 # `start_to_close_timeout` of its Temporal activity.
 METADATA_READ_TIMEOUT_SECONDS = 300
+
+# PyMySQL applies `read_timeout` to each socket read, not to a statement. It is thus a limit on one
+# silent wait: a read that keeps receiving rows never reaches it, and a server that goes silent
+# ends with error 2013 after this long. The limits above are sized for a slow query. The ones
+# below cover the two waits that those limits made too long.
+#
+# The TCP connect and the DNS lookup.
+CONNECT_TIMEOUT_SECONDS = 10
+# The server greeting and the login. Without it they wait for the read timeout of the caller, so a
+# server that accepts the socket and then says nothing costs up to 10 minutes for each of the
+# connect attempts.
+HANDSHAKE_READ_TIMEOUT_SECONDS = 30
+# One send of a statement. PyMySQL has no default, and a statement is small.
+WRITE_TIMEOUT_SECONDS = 60
+
+# TCP options that end a connection whose peer went away: a dead peer on an idle socket in about
+# 80 seconds, and data that the peer never acknowledges in 60. Both stay quiet while the peer
+# answers at the TCP level, so neither ends a statement that the server still works on. Each is
+# set only where the platform has it.
+_TCP_LIVENESS_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("TCP_KEEPIDLE", 30),
+    ("TCP_KEEPINTVL", 10),
+    ("TCP_KEEPCNT", 5),
+    ("TCP_USER_TIMEOUT", 60_000),
+)
 
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
@@ -599,6 +634,23 @@ def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
     return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
 
 
+# Vitess/PlanetScale vtgate surfaces this 1105 error (gRPC `Unavailable`, the same status as
+# `_is_transient_tablet_unavailable`'s `code = Unavailable` wrapping) when its tablet discovery
+# has zero serving tablets for the target keyspace/shard/tablet-type at the moment the connection
+# is opened — a failover, a restart, or a rollout that briefly leaves no tablet registered as
+# healthy. A fresh attempt after a short backoff usually lands once a tablet comes back online.
+# Match the stable `vtgate connection error: no endpoints` phrase, excluding the volatile attempt
+# count and reqid that follow it.
+_VITESS_NO_ENDPOINTS_TOKEN = "vtgate connection error: no endpoints"
+
+
+def _is_transient_vitess_no_endpoints(e: BaseException) -> bool:
+    """Return True if a Vitess vtgate found no serving tablet endpoints — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _VITESS_NO_ENDPOINTS_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 # MySQL/MariaDB error 1040 (ER_CON_COUNT_ERROR): the server refuses a *new* connection because
 # `max_connections` is already reached. A transient capacity condition on the customer's database,
 # not a misconfiguration — a slot frees the moment another connection closes — so a fresh attempt
@@ -649,6 +701,8 @@ def _pinned_addresses(host: str, port: int, connect_timeout: int, team_id: int |
     or a resolver "try again" answer raises the error pymysql raises for its own failed lookup,
     so the transient-connect retry runs a fresh lookup on the next attempt.
     """
+    note_oob_domain(host, team_id)
+
     if host_lookup_is_skipped():
         return ()
 
@@ -671,7 +725,7 @@ def _pinned_addresses(host: str, port: int, connect_timeout: int, team_id: int |
     except UnicodeError:
         addresses = []
 
-    resolution = check_resolved_addresses(host, addresses, team_id)
+    resolution = check_resolved_addresses(host, addresses, team_id, port=port, source_type=_HOST_CHECK_SOURCE_TYPE)
     if resolution.connect_host is None:
         raise HostNotAllowedError(
             f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}"
@@ -762,6 +816,9 @@ class _FieldCharsetResult(MySQLResult):
     pymysql decodes every column outside its own text types as ASCII. Some MySQL-compatible
     servers send ENUM and SET values under their own type codes, and newer servers add types
     pymysql predates, so one non-ASCII value in such a column fails the whole read.
+
+    The server does not check that stored bytes are valid in the charset it reports, so rows are
+    decoded with invalid bytes replaced by U+FFFD rather than failing every sync on one bad value.
     """
 
     def _get_descriptions(self) -> None:
@@ -772,9 +829,59 @@ class _FieldCharsetResult(MySQLResult):
             if encoding == "ascii" and field.type_code not in _ASCII_FIELD_TYPES:
                 self.converters[index] = (_field_encoding(field.charsetnr, connection_encoding), converter)  # type: ignore[attr-defined]
 
+    def _read_row_from_packet(self, packet: MysqlPacket) -> tuple[Any, ...]:
+        row: list[Any] = []
+        for encoding, converter in self.converters:  # type: ignore[attr-defined]
+            try:
+                data = packet.read_length_coded_string()
+            except IndexError:
+                break
+            if data is not None:
+                if encoding is not None:
+                    data = data.decode(encoding, errors="replace")
+                if converter is not None:
+                    data = converter(data)
+            row.append(data)
+        return tuple(row)
+
+
+def _set_tcp_liveness(sock: socket.socket) -> None:
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        for name, value in _TCP_LIVENESS_OPTIONS:
+            option = getattr(socket, name, None)
+            if option is not None:
+                sock.setsockopt(socket.IPPROTO_TCP, option, value)
+    except OSError as e:
+        # Best-effort: the read timeout still limits each wait on a socket that refuses an option.
+        structlog.get_logger().debug("Could not set TCP liveness options on a MySQL socket", error=str(e))
+
 
 class _SourceConnection(pymysql.Connection):
     """A pymysql connection that reads every result through `_FieldCharsetResult`."""
+
+    def connect(self, sock: socket.socket | None = None) -> None:
+        # pymysql keeps the read timeout in a private attribute and has no setter for it.
+        read_timeout: float | None = getattr(self, "_read_timeout", None)
+        handshake_read_timeout = (
+            HANDSHAKE_READ_TIMEOUT_SECONDS
+            if read_timeout is None
+            else min(read_timeout, HANDSHAKE_READ_TIMEOUT_SECONDS)
+        )
+        self._configured_read_timeout = read_timeout
+        setattr(self, "_read_timeout", handshake_read_timeout)  # noqa: B010
+        try:
+            super().connect(sock)
+        finally:
+            setattr(self, "_read_timeout", read_timeout)  # noqa: B010
+        _set_tcp_liveness(self._sock)  # type: ignore[attr-defined]
+
+    def _request_authentication(self) -> None:
+        super()._request_authentication()  # type: ignore[misc]
+        # pymysql runs SET NAMES, `init_command` and the autocommit setup right after the login,
+        # inside `connect`, so they get the configured limit and not the handshake limit.
+        if hasattr(self, "_configured_read_timeout"):
+            setattr(self, "_read_timeout", self._configured_read_timeout)  # noqa: B010
 
     def _read_query_result(self, unbuffered: bool = False) -> int:
         # Mirrors `pymysql.Connection._read_query_result` (1.1.1) with the result class swapped.
@@ -811,15 +918,29 @@ class _TLSRequiredConnection(_SourceConnection):
         if self.ssl and not offers_tls:
             raise pymysql.err.OperationalError(
                 CR.CR_SSL_CONNECTION_ERROR,
-                "The MySQL server did not offer a TLS connection. Turn off certificate "
-                "verification for this source, or enable TLS on the server.",
+                "The MySQL server did not offer a TLS connection. Enable TLS on the server, or turn off "
+                "certificate verification and remove the certificate authority and client certificate "
+                "for this source.",
             )
-        super()._request_authentication()  # type: ignore[misc]
+        super()._request_authentication()
+
+
+def connection_timeouts(read_timeout: int) -> dict[str, int]:
+    """The pymysql timeout arguments of every source connection.
+
+    `read_timeout` has no default and no None on purpose: a connection without it waits on a silent
+    server for as long as the socket stays open.
+    """
+    return {
+        "connect_timeout": CONNECT_TIMEOUT_SECONDS,
+        "read_timeout": read_timeout,
+        "write_timeout": WRITE_TIMEOUT_SECONDS,
+    }
 
 
 def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
-    """Build the connection, refusing plaintext when this source verifies the certificate."""
-    if kwargs.get("ssl_verify_cert"):
+    """Build the connection, refusing plaintext when this source verifies or presents a certificate."""
+    if kwargs.get("ssl_verify_cert") or kwargs.get("ssl_cert"):
         return _TLSRequiredConnection(**kwargs, **extra)
     return _SourceConnection(**kwargs, **extra)
 
@@ -862,6 +983,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_vitess_no_endpoints(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_no_available_tidb_instances(e)
                 or _is_transient_too_many_connections(e)
@@ -984,7 +1106,8 @@ def _retry_on_transient_tablet_unavailable(
     failing sync setup on the first blip and surfacing it as captured error-tracking
     noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
     `Unavailable` status, a mid-reparent primary, a dial-timeout reaching a backend tablet,
-    a TiProxy failover, or a plain peer-reset connection drop, all self-healing.
+    a vtgate with no serving tablet endpoints, a TiProxy failover, or a plain peer-reset
+    connection drop, all self-healing.
     """
     attempt = 0
     while True:
@@ -996,6 +1119,7 @@ def _retry_on_transient_tablet_unavailable(
                 _is_transient_tablet_unavailable(e)
                 or _is_transient_vitess_reparent(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_vitess_no_endpoints(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_metadata_query_reset(e)
             ):
@@ -1193,7 +1317,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         self,
         config: MySQLSourceConfig,
         *,
-        read_timeout: int | None = METADATA_READ_TIMEOUT_SECONDS,
+        read_timeout: int = METADATA_READ_TIMEOUT_SECONDS,
         autocommit: bool = False,
         team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
@@ -1209,19 +1333,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         first rows are ready, and the keyset path sets `autocommit` so each
         page is its own transaction (see `_keyset_get_rows`).
         """
-        verify_certificate = config.verify_server_certificate
-        ssl_ca: str | None = None
-        # Verification implies TLS, so a user who asks us to check the certificate gets the
-        # encrypted connection that check needs, whatever `using_ssl` says.
-        if config.using_ssl or verify_certificate:
-            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+        tls = tls_options(config)
+        # Any TLS option implies TLS, so a user who sets one gets the encrypted connection it needs,
+        # whatever `using_ssl` says.
+        use_tls = config.using_ssl or tls.is_set
 
-        # The tunnel presents the database on a loopback address, so the certificate's hostname
-        # cannot match the address pymysql dials. The chain check still applies there.
-        tunnel = config.ssh_tunnel
-        verify_hostname = verify_certificate and not (tunnel is not None and tunnel.enabled)
-
-        with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
+        with self._ssh_tunnel_endpoint(config, team_id) as (host, port), tls_files(tls) as files:
             kwargs: dict[str, Any] = {
                 "host": host,
                 # pymysql rejects a non-int port; config.port can arrive as a string when the
@@ -1230,18 +1347,18 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "database": config.database,
                 "user": config.user,
                 "password": config.password,
-                "connect_timeout": 10,
-                "ssl_ca": ssl_ca,
+                **connection_timeouts(read_timeout),
+                "ssl_ca": (files.ca_certificate or system_ca_bundle()) if use_tls else None,
+                "ssl_cert": files.client_certificate,
+                "ssl_key": files.client_key,
                 # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so only an
                 # explicit True verifies. None leaves that prior behavior untouched.
-                "ssl_verify_cert": True if verify_certificate else None,
-                "ssl_verify_identity": True if verify_hostname else None,
+                "ssl_verify_cert": True if tls.verify else None,
+                "ssl_verify_identity": True if tls.verify_hostname else None,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
                 "autocommit": autocommit,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,
             }
-            if read_timeout is not None:
-                kwargs["read_timeout"] = read_timeout
             with _connect_with_transient_retry(kwargs, team_id) as conn:
                 yield conn
 
@@ -1965,6 +2082,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
+                        worker_deaths=inputs.worker_deaths,
                     )
 
                 # Only reached when the walk exhausted the table. An abandoned generator (draining
@@ -2141,4 +2259,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             # The streaming path can't be resumed across pods (its cursor is bound to one connection),
             # so this run is not cheaply resumable — treated as non-resumable for shutdown handling.
             supports_resume=False,
+            # One streamed statement with `ORDER BY <incremental field>`. The FORCE INDEX retry
+            # keeps the clause and runs only before the first row.
+            sort_mode="asc" if should_use_incremental_field and incremental_field is not None else None,
         )

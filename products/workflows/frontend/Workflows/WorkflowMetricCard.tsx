@@ -66,6 +66,9 @@ export interface WorkflowMetricCardProps {
     description?: ReactNode
     timeSeries: AppMetricsTimeSeriesResponse | null
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
+    /** Names the previous value, e.g. "Previous run (Oct 12)". The card then shows that value in words
+     *  under its own, instead of a bare change pill. */
+    previousLabel?: string
     color?: string
     /** Per-series sparkline colors keyed by series name. When the response has more than one series,
      *  the tile draws one line per series (colored from here) instead of a single summed line. */
@@ -78,6 +81,7 @@ export interface WorkflowMetricCardProps {
     footer?: ReactNode
     /** Shorter card, so a page with tables below it does not push them off screen. */
     compact?: boolean
+    className?: string
 }
 
 // Collapse a response into the numbers the tile reads (per-index sums plus the grand total). A
@@ -100,6 +104,7 @@ export function WorkflowMetricCard({
     description,
     timeSeries,
     previousPeriodTimeSeries,
+    previousLabel,
     color,
     seriesColors,
     colorIfZero,
@@ -108,6 +113,7 @@ export function WorkflowMetricCard({
     onClickTooltip,
     footer,
     compact,
+    className,
 }: WorkflowMetricCardProps): JSX.Element {
     const theme = useChartTheme()
 
@@ -164,13 +170,14 @@ export function WorkflowMetricCard({
 
     const cardClassName = cn(
         CARD_CHROME,
+        className,
         onClick &&
             'cursor-pointer transition-colors hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
     )
 
     if (loading) {
         return (
-            <div className={CARD_CHROME}>
+            <div className={cn(CARD_CHROME, className)}>
                 <div className="flex flex-col px-3">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="mt-3 h-9 w-32" />
@@ -204,7 +211,7 @@ export function WorkflowMetricCard({
                     labels={timeSeries?.labels}
                     theme={theme}
                     color={total === 0 ? colorIfZero : color}
-                    change={change}
+                    change={previousLabel ? null : change}
                     positiveColor={neutral}
                     negativeColor={neutral}
                     formatValue={(v) => humanFriendlyNumber(v)}
@@ -234,6 +241,12 @@ export function WorkflowMetricCard({
                         <MetricDelta />
                     </MetricHeader>
                     <MetricValue className={compact ? 'mt-1' : 'mt-2'} />
+                    {previousLabel && previousPeriodTimeSeries && (
+                        <div className="text-xs text-muted" data-attr="workflow-metric-card-previous">
+                            {`${previousLabel}: ${humanFriendlyNumber(totalPreviousPeriod)}`}
+                            {total === totalPreviousPeriod ? ' (no change)' : change ? ` ${change.label}` : ''}
+                        </div>
+                    )}
                     <MetricSparkline className={compact ? '-mx-3 mt-2 h-16' : '-mx-3 mt-4'} />
                 </Metric>
                 {footer && (

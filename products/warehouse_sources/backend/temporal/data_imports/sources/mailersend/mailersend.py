@@ -21,7 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
@@ -43,6 +46,28 @@ MAILERSEND_MAX_PAGE = 1000
 
 # Fallback lookback for a date-filtered endpoint that declares no retention tiers.
 MAILERSEND_DEFAULT_ACTIVITY_DAYS = 30
+
+# MailerSend stores analytics for up to 6 months.
+MAILERSEND_ANALYTICS_RETENTION_DAYS = 180
+
+# Every counter /analytics/date can return. The response only carries the events asked for, so
+# request all of them to keep the table's columns stable.
+MAILERSEND_ANALYTICS_EVENTS = (
+    "queued",
+    "sent",
+    "delivered",
+    "soft_bounced",
+    "hard_bounced",
+    "deferred",
+    "opened",
+    "clicked",
+    "unsubscribed",
+    "spam_complaints",
+    "survey_opened",
+    "survey_submitted",
+    "opened_unique",
+    "clicked_unique",
+)
 
 # Parent resource name for the Activity fan-out. include_from_parent=["id"] injects the parent
 # domain's id as `_domains_id`; a data_map renames it to `domain_id` so each activity row carries
@@ -102,18 +127,18 @@ def _to_datetime(value: Any) -> datetime:
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
 
 
-def _activity_date_window(
+def _date_window(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     lookback_days: int,
 ) -> SyncWindow[int]:
-    """Build the required date_from/date_to window for the Activity endpoint as Unix timestamps.
+    """Build the required date_from/date_to window for a date-filtered endpoint as Unix timestamps.
 
     MailerSend requires both bounds, rejects date_from >= date_to, and rejects a window that
-    reaches back further than the account's activity retention. `lookback_days` is the retention
-    tier being tried, so it bounds the first-sync lookback and also clamps an incremental cursor
-    that has fallen behind retention. On incremental syncs the window starts at the last-seen
-    created_at; merge upsert dedupes the inclusive boundary row.
+    reaches back further than the account's retention. `lookback_days` is the retention being
+    tried, so it bounds the first-sync lookback and also clamps an incremental cursor that has
+    fallen behind retention. On incremental syncs the window starts at the last-seen cursor value;
+    merge upsert dedupes the inclusive boundary row.
     """
     now = datetime.now(UTC)
     earliest = now - timedelta(days=lookback_days)
@@ -252,7 +277,7 @@ def _activity_pages(
     """
     tiers = config.window_tiers_days or (MAILERSEND_DEFAULT_ACTIVITY_DAYS,)
     for index, lookback_days in enumerate(tiers):
-        window = _activity_date_window(should_use_incremental_field, db_incremental_field_last_value, lookback_days)
+        window = _date_window(should_use_incremental_field, db_incremental_field_last_value, lookback_days)
         rows_yielded = False
         try:
             for page in _activity_resource(
@@ -270,6 +295,38 @@ def _activity_pages(
                 rejected_lookback_days=lookback_days,
                 next_lookback_days=tiers[index + 1],
             )
+
+
+def _analytics_row(row: dict[str, Any]) -> dict[str, Any]:
+    # `date` arrives as a Unix timestamp string marking the start of the day bucket.
+    row["date"] = datetime.fromtimestamp(int(row["date"]), tz=UTC)
+    return row
+
+
+def _analytics_resource_config(
+    endpoint: str,
+    config: MailerSendEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> EndpointResource:
+    window = _date_window(
+        should_use_incremental_field, db_incremental_field_last_value, MAILERSEND_ANALYTICS_RETENTION_DAYS
+    )
+    return {
+        "name": endpoint,
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                "date_from": window.start,
+                "date_to": window.end,
+                "group_by": "days",
+                "event[]": list(MAILERSEND_ANALYTICS_EVENTS),
+            },
+            "data_selector": "data.stats",
+            "paginator": "single_page",
+        },
+        "data_map": _analytics_row,
+    }
 
 
 def mailersend_source(
@@ -310,19 +367,24 @@ def mailersend_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         )
     else:
+        endpoint_resource: EndpointResource
+        if config.analytics_by_date:
+            endpoint_resource = _analytics_resource_config(
+                endpoint, config, should_use_incremental_field, db_incremental_field_last_value
+            )
+        else:
+            endpoint_resource = {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": config.page_size},
+                    "data_selector": "data",
+                },
+            }
         simple_config: RESTAPIConfig = {
             "client": _client_config(api_token),
             "resource_defaults": {},
-            "resources": [
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": config.path,
-                        "params": {"limit": config.page_size},
-                        "data_selector": "data",
-                    },
-                }
-            ],
+            "resources": [endpoint_resource],
         }
         resource = rest_api_resource(
             simple_config,

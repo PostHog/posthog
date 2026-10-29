@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Union
@@ -7,21 +8,25 @@ from django.utils import timezone
 from posthog.schema import (
     ActionsNode,
     Breakdown,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
@@ -42,7 +47,10 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
     ExperimentQueryContext,
     MaturityGate,
 )
-from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import RatioQueryBuilder
+from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import (
+    RatioPrecomputeQueries,
+    RatioQueryBuilder,
+)
 from products.experiments.backend.hogql_queries.experiment_retention_query_builder import RetentionQueryBuilder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -82,30 +90,33 @@ def get_exposure_config_params_for_builder(
     filter_test_accounts = resolve_filter_test_accounts(criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
+    stored_exposure = criteria.exposure_config if criteria else None
+    if isinstance(stored_exposure, ExperimentWarehouseNativeExposureConfig):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(
             event=resolve_default_exposure_event(team, start_date), properties=[]
         )
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
-        if criteria.exposure_config is None:
+        if stored_exposure is None:
             exposure_config = ExperimentEventExposureConfig(
                 event=resolve_default_exposure_event(team, start_date), properties=[]
             )
         elif (
-            isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
-            and criteria.exposure_config.event == DEFAULT_EXPOSURE_EVENT
+            isinstance(stored_exposure, ExperimentEventExposureConfig)
+            and stored_exposure.event == DEFAULT_EXPOSURE_EVENT
         ):
             # A config naming $feature_flag_called explicitly is the default exposure, not a
             # custom one (same convention as get_exposure_event_and_property), so it follows
             # the same event resolution while keeping its property filters.
-            exposure_config = resolve_exposure_config_for_builder(criteria.exposure_config, team, start_date)
+            exposure_config = resolve_exposure_config_for_builder(stored_exposure, team, start_date)
         else:
-            exposure_config = criteria.exposure_config
+            exposure_config = stored_exposure
         # Activation only composes with the default exposure; a custom exposure_config
         # disables it (validation rejects the combination, but stored data predating it
         # must not silently change semantics).
-        if is_default_exposure_config(criteria.exposure_config):
+        if is_default_exposure_config(stored_exposure):
             activation_config = criteria.activation_config
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
@@ -114,6 +125,30 @@ def get_exposure_config_params_for_builder(
         activation_config=activation_config,
         multiple_variant_handling=multiple_variant_handling,
         filter_test_accounts=filter_test_accounts,
+    )
+
+
+def metric_reads_flag_call(
+    team: Team,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+) -> bool:
+    """Whether a metric source matches $feature_flag_called, as its event or through an action step."""
+    sources: Sequence[object]
+    if isinstance(metric, ExperimentMeanMetric):
+        sources = [metric.source]
+    elif isinstance(metric, ExperimentFunnelMetric):
+        sources = metric.series
+    elif isinstance(metric, ExperimentRatioMetric):
+        sources = [metric.numerator, metric.denominator]
+    else:
+        sources = [metric.start_event, metric.completion_event]
+    if any(isinstance(source, EventsNode) and source.event == DEFAULT_EXPOSURE_EVENT for source in sources):
+        return True
+    action_ids = [int(source.id) for source in sources if isinstance(source, ActionsNode)]
+    return bool(action_ids) and any(
+        step.event == DEFAULT_EXPOSURE_EVENT
+        for action in Action.objects.filter(pk__in=action_ids, team__project_id=team.project_id)
+        for step in action.steps
     )
 
 
@@ -173,6 +208,7 @@ class ExperimentQueryBuilder:
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
             activation_config=self.activation_config,
+            read_exposure_copies=metric is None or not metric_reads_flag_call(team, metric),
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
@@ -202,7 +238,12 @@ class ExperimentQueryBuilder:
             case ExperimentMeanMetric():
                 query = MeanQueryBuilder(self, exposure, metric_events_job_ids=metric_events_job_ids).build_mean_query()
             case ExperimentRatioMetric():
-                query = RatioQueryBuilder(self, exposure).build_ratio_query()
+                query = RatioQueryBuilder(
+                    self,
+                    exposure,
+                    numerator_job_ids=job_ids.numerator_job_ids,
+                    denominator_job_ids=job_ids.denominator_job_ids,
+                ).build_ratio_query()
             case ExperimentRetentionMetric():
                 query = RetentionQueryBuilder(
                     self, exposure, maturity=maturity, metric_events_job_ids=metric_events_job_ids
@@ -242,6 +283,10 @@ class ExperimentQueryBuilder:
     def _mean_query_builder(self) -> MeanQueryBuilder:
         """For the precompute write query, which takes no per-build inputs."""
         return MeanQueryBuilder(self, self._exposure_query_builder())
+
+    def _ratio_query_builder(self) -> RatioQueryBuilder:
+        """For the precompute write queries, which take no per-build inputs."""
+        return RatioQueryBuilder(self, self._exposure_query_builder())
 
     def _cuped_query_builder(self) -> CupedQueryBuilder:
         return CupedQueryBuilder(self)
@@ -409,6 +454,8 @@ class ExperimentQueryBuilder:
         type. This is the write path. It scans the events table and stores one
         row per matching event: funnel and retention metrics pack step indicators
         into an Array(UInt8), mean metrics store the per-event value in numeric_value.
+        A ratio metric needs one build per side; see
+        get_ratio_metric_events_queries_for_precomputation().
 
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket.
@@ -422,6 +469,10 @@ class ExperimentQueryBuilder:
                 return self._retention_query_builder().get_retention_metric_events_query_for_precomputation()
             case _:
                 raise NotImplementedError(f"Metric-events precomputation is not supported for {type(self.metric)}")
+
+    def get_ratio_metric_events_queries_for_precomputation(self) -> RatioPrecomputeQueries:
+        """The write-path SELECT of each ratio side."""
+        return self._ratio_query_builder().get_ratio_metric_events_queries_for_precomputation()
 
     def get_metric_events_window_extension_seconds(self) -> int:
         """

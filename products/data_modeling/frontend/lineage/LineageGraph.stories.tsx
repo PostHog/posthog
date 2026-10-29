@@ -3,19 +3,17 @@ import { fireEvent, waitFor, within } from '@testing-library/dom'
 import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
+import { modelsLineageLogic } from './modelsLineageLogic'
 import { ModelsLineageTab } from './ModelsLineageTab'
 
 function mockNode(
     partial: Pick<DataModelingNode, 'id' | 'name' | 'type'> & Partial<DataModelingNode>
 ): DataModelingNode {
     return {
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -29,10 +27,6 @@ function mockEdge(id: string, sourceId: string, targetId: string): DataModelingE
         id,
         source_id: sourceId,
         target_id: targetId,
-        dag: 'dag-1',
-        properties: {},
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
     }
 }
 
@@ -201,6 +195,9 @@ export const Full: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} currentNodeId="4" variant="full" showControls />
     ),
+    play: async ({ canvasElement }) => {
+        await expectNodeCentered(canvasElement, '4', 'The current node must be centered when the lineage opens')
+    },
 }
 
 export const Canvas: Story = {
@@ -280,7 +277,6 @@ const modelsTabDecorator = mswDecorator({
 })
 
 export const DraggableNodes: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING] },
     render: () => <ModelsLineageTab />,
     decorators: [modelsTabDecorator],
     play: async ({ canvasElement }) => {
@@ -325,10 +321,7 @@ export const DraggableNodes: Story = {
 // The play function leaves the menu open, so this story takes no snapshot. Opening the menu in
 // DraggableNodes instead would paint it over that story's picture on every run.
 export const NodeMenu: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING],
-        testOptions: { snapshotBrowsers: [] },
-    },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
     render: () => <ModelsLineageTab />,
     decorators: [modelsTabDecorator],
     play: async ({ canvasElement }) => {
@@ -479,6 +472,7 @@ export const SelectorFocus: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await canvas.findByText('revenue_summary')
+        modelsLineageLogic.actions.nodeDragStopped('4', { x: 100000, y: 100000 })
         const search = canvas.getByPlaceholderText('Search, or +name for upstream')
         fireEvent.change(search, { target: { value: 'revenue_summary+' } })
         await canvas.findByText('4 models · downstream')
@@ -493,6 +487,13 @@ export const SelectorFocus: Story = {
                 const graph = canvasElement.querySelector<HTMLElement>('.react-flow')
                 if (!graph || graph.querySelectorAll('.react-flow__node').length !== 4) {
                     throw new Error('A downstream selector must keep only its lineage cone visible')
+                }
+                if (Object.keys(modelsLineageLogic.values.nodePositions).length > 0) {
+                    throw new Error('A lineage filter must clear positions from the previous graph')
+                }
+                const model = graph.querySelector<HTMLElement>('.react-flow__node[data-id="4"]')
+                if (!model || model.style.transform.includes('100000')) {
+                    throw new Error('A lineage filter must place distant nodes in the new layout')
                 }
             },
             { timeout: VIEWPORT_SETTLE_MS }

@@ -22,6 +22,7 @@ import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schema
 
 import { expect, userEvent } from 'storybook/test'
 
+import { taskCommentContextsLogic } from '../../logics/taskCommentContextsLogic'
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { TaskRunTab } from './taskRunArtifacts'
@@ -118,8 +119,10 @@ const SUMMARY_HTML = `<!doctype html>
   <div class="step"><span>Details</span><div class="track"><div class="bar" style="width: 35%"></div></div><span class="value">35%</span></div>
   <div class="step"><span>Trial started</span><div class="track"><div class="bar" style="width: 30%"></div></div><span class="value">30%</span></div>
   <div class="note">The plan picker step drops from 62% to 44% against the week before.</div>
+  <button id="preview-action">Run chart action</button>
   <img src="https://example.com/html-pixel.png" alt="" width="1" height="1" />
 </main>
+<script>document.getElementById('preview-action').addEventListener('click', function () { this.textContent = 'Chart action ran' })</script>
 </body>
 </html>`
 
@@ -368,7 +371,7 @@ const RUN_LOGS = [
 /** With `resumed`, the files sit on an earlier run and the latest run has none, as after a resume. */
 function taskMocks(
     artifacts: TaskRunArtifactResponseApi[],
-    { resumed = false }: { resumed?: boolean } = {}
+    { resumed = false, logs = RUN_LOGS }: { resumed?: boolean; logs?: string } = {}
 ): {
     get: Record<string, MockSignature>
     post: Record<string, MockSignature>
@@ -394,9 +397,13 @@ function taskMocks(
             },
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/`]: run,
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${EARLIER_RUN_ID}/`]: earlierRun,
-            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/logs`]: () => new HttpResponse(RUN_LOGS),
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/logs`]: () => new HttpResponse(logs),
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/artifact-chart/download/`]: () =>
                 new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/:artifact_id/preview/`]: {
+                url: `data:text/html;charset=utf-8,${encodeURIComponent(SUMMARY_HTML)}`,
+                scripts_available: true,
+            },
             '/api/projects/:team_id/task_channels/': [],
             '/api/projects/:team_id/integrations/': { results: [] },
             '/api/environments/:team_id/conversations/': { results: [], next: null },
@@ -549,6 +556,39 @@ export const OlderVersion: Story = {
 }
 
 export const ConversationTab: Story = { render: () => <StoryPage tab="conversation" /> }
+
+const COMMENT_CHAT_LOGS = [
+    RUN_LOGS,
+    logLine(
+        {
+            sessionUpdate: 'user_message_chunk',
+            content: {
+                type: 'text',
+                text: '<comment_context label="trial-funnel-report.md &quot;Most people leave at the plan step&quot;">\n- **Artifact** trial-funnel-report.md\n\n&gt; Most people leave at the plan step\n</comment_context>\nAdd the numbers for each plan here.',
+            },
+        },
+        '2026-09-28T18:25:00Z'
+    ),
+].join('\n')
+
+function CommentsAddedToChatPage(): JSX.Element {
+    const { addCommentToChat } = useActions(taskCommentContextsLogic({ taskId: TASK_ID }))
+    useEffect(() => {
+        addCommentToChat(
+            {
+                label: 'trial-starts-by-step.svg (region)',
+                body: '- **Artifact** trial-starts-by-step.svg\n- **Region** left 21%, top 20%, width 4%, height 4%',
+            },
+            'This bar looks too tall next to the others.'
+        )
+    }, [addCommentToChat])
+    return <StoryPage tab="conversation" />
+}
+
+export const CommentsAddedToChat: Story = {
+    parameters: { msw: { mocks: taskMocks(ARTIFACTS, { logs: COMMENT_CHAT_LOGS }) } },
+    render: () => <CommentsAddedToChatPage />,
+}
 
 export const NoArtifacts: Story = {
     parameters: { msw: { mocks: taskMocks([]) } },

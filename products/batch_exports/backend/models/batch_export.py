@@ -5,10 +5,9 @@ from enum import IntEnum
 from math import ceil
 from zoneinfo import ZoneInfo
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
-
-import pytz
 
 # This import prevents a circular import during Django app loading.
 # The import chain: apps.py -> tasks -> async_migrations/definition.py -> models.utils
@@ -21,21 +20,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 from products.batch_exports.backend.facade import enums
-
-# this is what is used by the Team model
-# (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
-TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
-
-S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
-
-# Destinations that write files to object storage, as opposed to the data warehouse destinations
-# (BigQuery, Databricks, Postgres, Redshift, Snowflake) that write rows into a table. File format,
-# compression and object key layout are questions only this half has to answer.
-#
-# Also includes "FileDownload", which writes to a PostHog bucket rather than a customer one.
-# TODO: it probably makes sense to introduce a 'DestinationKind' abstraction in the future,
-# to properly categorize object storage and data warehouse destinations.
-OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset({"AwsS3", "S3Compatible", "AzureBlob", "FileDownload"})
+from products.batch_exports.backend.facade.enums import TIMEZONES
 
 
 class DayOfWeek(IntEnum):
@@ -127,7 +112,7 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
     This model answers the question: what data are we exporting? For now it holds a
     HogQL query whose results are exported, but it's designed to grow into the single
     place that captures how a batch export selects its data (data warehouse view
-    references, export mode, data interval field, primary and version keys) in future.
+    references, data interval field, primary and version keys) in future.
     """
 
     class Meta:
@@ -154,6 +139,24 @@ class BatchExportSource(TeamScopedRootMixin, UUIDTModel):
         blank=True,
         help_text="HogQL modifiers used to run the query. They override the team modifiers key by key.",
     )
+    primary_key = ArrayField(
+        base_field=models.TextField(
+            blank=False,
+            null=False,
+            help_text="A column name to use as part of a primary key. If set, cannot be empty or null",
+        ),
+        null=True,
+        help_text="The column or columns making up the primary key for this source.",
+    )
+    version_key = ArrayField(
+        base_field=models.TextField(
+            blank=False,
+            null=False,
+            help_text="A column name to use as part of a version key. If set, cannot be empty or null",
+        ),
+        null=True,
+        help_text="The column or columns making up the version key for this source.",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="The timestamp at which this BatchExportSource was created.",
@@ -175,7 +178,7 @@ class BatchExportRun(UUIDTModel):
         db_table = "posthog_batchexportrun"
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     Q(batch_export__isnull=False, batch_export_on_demand__isnull=True)
                     | Q(batch_export__isnull=True, batch_export_on_demand__isnull=False)
                 ),
@@ -297,6 +300,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         db_table = "posthog_batchexport"
 
     Model = enums.BatchExportModel
+    IncrementalMode = enums.IncrementalMode
 
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
@@ -370,6 +374,13 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         choices=Model.choices,
         default=Model.EVENTS.value,
         help_text="Which model this BatchExport is exporting.",
+    )
+    incremental_mode = models.CharField(
+        max_length=64,
+        default=IncrementalMode.APPEND.value,
+        db_default=IncrementalMode.APPEND.value,
+        choices=IncrementalMode.choices,
+        help_text="How this batch export handles incremental updates.",
     )
     filters = models.JSONField(null=True, blank=True)
     # determines the timezone used for daily or weekly exports
@@ -486,6 +497,16 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
     def hogql_modifiers(self) -> dict[str, typing.Any] | None:
         """Return the HogQL modifiers of this batch export's source, if it has any."""
         return self.source.hogql_modifiers if self.source is not None else None
+
+    @property
+    def primary_key(self) -> list[str] | None:
+        """Return the primary key of this batch export's source, if it has any."""
+        return self.source.primary_key if self.source is not None else None
+
+    @property
+    def version_key(self) -> list[str] | None:
+        """Return the version key of this batch export's source, if it has any."""
+        return self.source.version_key if self.source is not None else None
 
 
 def get_batch_exports_using_integration(team_id: int, integration_id: int) -> list[BatchExport]:
@@ -668,6 +689,7 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         db_table = "posthog_batchexportondemand"
 
     Model = enums.BatchExportModel
+    IncrementalMode = enums.IncrementalMode
 
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, help_text="The team this belongs to.", related_name="+"
@@ -710,5 +732,12 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         choices=Model.choices,
         default=Model.EVENTS.value,
         help_text="Which model this batch export is exporting.",
+    )
+    incremental_mode = models.CharField(
+        max_length=64,
+        default=IncrementalMode.APPEND.value,
+        db_default=IncrementalMode.APPEND.value,
+        choices=IncrementalMode.choices,
+        help_text="How this batch export handles incremental updates.",
     )
     filters = models.JSONField(null=True, blank=True)

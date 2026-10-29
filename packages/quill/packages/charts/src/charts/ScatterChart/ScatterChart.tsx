@@ -8,6 +8,7 @@ import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { applyMarginOverride, DEFAULT_MARGINS } from '../../core/hooks/useChartMargins'
 import { sanitizeFixedDomain } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -52,7 +53,8 @@ const NO_CATEGORY_X_LABELS = (): null => null
 
 export interface ScatterChartProps<Meta = unknown> {
     series: ScatterSeries<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: ScatterChartConfig<Meta>
     tooltip?: (ctx: ScatterTooltipContext<Meta>) => React.ReactNode
     onPointClick?: (point: ScatterPointDatum<Meta>) => void
@@ -75,7 +77,7 @@ export function ScatterChart<Meta = unknown>({ onError, ...rest }: ScatterChartP
 
 function ScatterChartInner<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
@@ -84,6 +86,7 @@ function ScatterChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: Omit<ScatterChartProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis = EMPTY_AXIS_CONFIG,
         yAxis = EMPTY_AXIS_CONFIG,
@@ -94,6 +97,7 @@ function ScatterChartInner<Meta = unknown>({
         showTickMarks = true,
         showCrosshair = true,
         showBestFit = false,
+        isPointHighlighted,
         margins,
     } = config ?? {}
     // Destructured to primitives, so an inline `config` literal can't re-run the scale build.
@@ -163,6 +167,13 @@ function ScatterChartInner<Meta = unknown>({
             }
 
             drawScatterMarkers(ctx, layout.positions, fillOpacity)
+            if (isPointHighlighted) {
+                for (const position of layout.positions) {
+                    if (isPointHighlighted(points[position.index])) {
+                        drawScatterHoverMarker(ctx, position, drawTheme.backgroundColor ?? '#ffffff', 1)
+                    }
+                }
+            }
 
             // Over the markers: in a dense cloud, which is where a fit line earns its place, drawing
             // it underneath would bury it.
@@ -174,11 +185,11 @@ function ScatterChartInner<Meta = unknown>({
                 drawAxes(drawCtx, { axisColor: axisLineColor })
             }
         },
-        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit]
+        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit, isPointHighlighted, points]
     )
 
     const drawHover = useCallback(({ ctx, scales, hoverIndex, hoverProgress, theme: drawTheme }: ChartDrawArgs) => {
-        const position = readScatterLayout(scales)?.positions.find((p) => p.index === hoverIndex)
+        const position = readScatterLayout(scales)?.positionByIndex[hoverIndex]
         if (!position) {
             return false
         }

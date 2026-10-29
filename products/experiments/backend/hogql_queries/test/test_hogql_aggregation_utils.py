@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -16,7 +16,7 @@ from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
 )
 
 
-class TestHogQLAggregationUtils(BaseTest):
+class TestHogQLAggregationUtils(SimpleTestCase):
     def test_is_aggregation_function(self):
         """Test that we can identify aggregation functions."""
 

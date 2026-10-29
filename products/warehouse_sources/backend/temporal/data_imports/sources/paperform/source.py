@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaperformSource(ResumableSource[PaperformSourceConfig, PaperformResumeConfig]):
+    codebase_detection = detect(env=("^PAPERFORM_",), script_hosts=("paperform.co",))
+
     api_docs_url = "https://paperform.readme.io/reference/getting-started-1"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -50,7 +53,7 @@ class PaperformSource(ResumableSource[PaperformSourceConfig, PaperformResumeConf
             name=ExternalDataSourceType.PAPERFORM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Paperform",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Paperform API key to pull your forms and submissions data into the PostHog Data warehouse.
 
 You can create an API key under **Account → Developer** in [Paperform](https://paperform.co). API access requires a Pro, Business, or Agency plan, and the `spaces` table additionally requires a Business or Agency plan.

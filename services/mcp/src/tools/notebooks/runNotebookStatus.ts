@@ -4,8 +4,8 @@ import type { Context, ToolBase } from '@/tools/types'
 
 import { wrapRunResultAsInformational } from './cellRuns'
 import { notebookPathFor } from './markdownDoc'
-import { awaitNotebookRun, type NotebookRunOutcome } from './notebookRuns'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
+import { awaitNotebookRun, type NotebookRunOutcome } from './notebookRuns'
 
 const RunNotebookStatusInputSchema = z
     .object({

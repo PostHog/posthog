@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -15,7 +17,7 @@ QUALYS_VMDR_SUPPORTED_VERSIONS = (QUALYS_VMDR_API_VERSION_2_0, QUALYS_VMDR_API_V
 QUALYS_VMDR_DEFAULT_VERSION = QUALYS_VMDR_API_VERSION_4_0
 
 
-@dataclass
+@frozen
 class QualysVmdrEndpointConfig:
     name: str
     path: str  # version-independent request path, e.g. "/api/2.0/fo/asset/host/"
@@ -32,6 +34,11 @@ class QualysVmdrEndpointConfig:
     truncation_limit: Optional[int] = None
     # Flatten each HOST's DETECTION_LIST into one row per detection (Host List Detection only).
     flatten_host_detections: bool = False
+    # Emit one row per IP / IP_RANGE entry of each `item_tag` element (IP List only), because the
+    # entries are bare text nodes with no fields of their own.
+    flatten_ip_set: bool = False
+    # Child elements left out of the row.
+    drop_tags: frozenset[str] = frozenset()
     should_sync_default: bool = True
     # Per-version path overrides for endpoints whose route moved between vendor versions. Absent
     # keys fall through to `path` — that is the correct version-independent route, not silent drift,
@@ -136,6 +143,52 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         # Qualys is sunsetting KnowledgeBase 2.0; 4.0 serves the same feed but only over JWT Bearer.
         path_overrides={QUALYS_VMDR_API_VERSION_4_0: "/api/4.0/fo/knowledge_base/vuln/"},
         jwt_versions=frozenset({QUALYS_VMDR_API_VERSION_4_0}),
+    ),
+    # Asset groups: the grouping dimension for hosts and reports. No server-side "modified since"
+    # filter exists, so this is full refresh. `show_attributes=ALL` adds the owner, last update,
+    # host IDs and appliance IDs that the default output leaves out.
+    "asset_groups": QualysVmdrEndpointConfig(
+        name="asset_groups",
+        path="/api/2.0/fo/asset/group/",
+        item_tag="ASSET_GROUP",
+        params={"action": "list", "show_attributes": "ALL"},
+        primary_keys=["id"],
+        truncation_limit=1000,
+    ),
+    # Report inventory (Report Share). Metadata only: `action=fetch` returns a rendered PDF/CSV/XML
+    # file, not rows. Qualys retires the 2.0 Report API in favor of 3.0, which keeps basic auth and
+    # the same output, so both source-level pins call 3.0. The list is not paginated.
+    "reports": QualysVmdrEndpointConfig(
+        name="reports",
+        path="/api/3.0/fo/report/",
+        item_tag="REPORT",
+        params={"action": "list"},
+        primary_keys=["id"],
+        truncation_limit=None,
+        should_sync_default=False,
+    ),
+    # Scanner appliances. `output_mode=full` adds type, model, network and capacity details to the
+    # brief id/name/status output. The list is not paginated.
+    "appliances": QualysVmdrEndpointConfig(
+        name="appliances",
+        path="/api/2.0/fo/appliance/",
+        item_tag="APPLIANCE",
+        params={"action": "list", "output_mode": "full"},
+        primary_keys=["id"],
+        truncation_limit=None,
+        # The activation code registers a scanner to the subscription, so it stays out of the warehouse.
+        drop_tags=frozenset({"ACTIVATION_CODE"}),
+    ),
+    # The subscription's tracked IP inventory, as the single IPs and ranges Qualys returns. The
+    # entries carry no ID, so the entry text is the key. The list is not paginated.
+    "ips": QualysVmdrEndpointConfig(
+        name="ips",
+        path="/api/2.0/fo/asset/ip/",
+        item_tag="IP_SET",
+        params={"action": "list"},
+        primary_keys=["ip_range"],
+        truncation_limit=None,
+        flatten_ip_set=True,
     ),
 }
 

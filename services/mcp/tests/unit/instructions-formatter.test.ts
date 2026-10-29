@@ -223,6 +223,7 @@ describe('InstructionsFormatter', () => {
             expect(result.indexOf('business-knowledge-repositories-search')).toBeLessThan(
                 result.indexOf('`call docs-search')
             )
+            expect(result).toContain('Code or doc misses')
             expect(result.length).toBeLessThanOrEqual(2048)
         })
     })
@@ -243,17 +244,51 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('replay vision guidance', () => {
+        const visionTools = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
+        it.each([
+            { name: 'all three scan tools', extra: visionTools, expected: true },
+            { name: 'inline scan only', extra: ['vision-scanners-inline-scan'], expected: false },
+            { name: 'no vision tools', extra: [], expected: false },
+        ])('names Replay Vision only when the roster carries $name', ({ extra, expected }) => {
+            const tools = [...realisticTools, ...extra.map((name) => ({ name, category: 'Replay vision' }))]
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions({ ...fullCtx, tools }),
+                formatter.buildExecCommandReference({ ...fullCtx, tools }),
+            ]) {
+                expect(rendered.includes('use Replay Vision instead of SQL over the replay tables')).toBe(expected)
+                expect(rendered.includes('{replay_vision}')).toBe(false)
+            }
+        })
+    })
+
     describe('buildExecCommandReference', () => {
         it.each([
             { name: 'both lookup tools', tools: ['project-get', 'execute-sql'], project: true, groups: true },
             { name: 'only project-get', tools: ['project-get'], project: true, groups: false },
             { name: 'only execute-sql', tools: ['execute-sql'], project: false, groups: true },
             { name: 'neither lookup tool', tools: [], project: false, groups: false },
+            {
+                name: 'the switch tools too',
+                tools: ['project-get', 'switch-project', 'switch-organization', 'projects-get', 'organizations-get'],
+                project: true,
+                groups: false,
+            },
+            {
+                name: 'switch-project without its lookups',
+                tools: ['project-get', 'switch-project'],
+                project: true,
+                groups: false,
+            },
         ])('names only the env lookup tools the roster has: $name', ({ tools, project, groups }) => {
             const ctx = { ...fullCtx, tools: tools.map((name) => ({ name, category: 'Core' })) }
             const result = new InstructionsFormatter().buildExecCommandReference(ctx)
             expect(result.includes(ENV_POINTER)).toBe(project)
             expect(result.includes(GROUP_TYPES_POINTER)).toBe(groups)
+            expect(result.includes('call `switch-project` or `switch-organization`')).toBe(
+                tools.includes('organizations-get')
+            )
             expect(result.includes('### Active environment')).toBe(project || groups)
         })
 
@@ -520,15 +555,48 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('**Dashboard**')
         })
 
-        // The Python guidance names `notebooks-add-cell`, so it must stay out of prompts
+        it.each(surfaces)(
+            '$name sends chart explanations to explain-chart only when explain-chart exists',
+            ({ render }) => {
+                const formatter = new InstructionsFormatter()
+                const withTool = render(formatter, {
+                    ...fullCtx,
+                    tools: [...(fullCtx.tools ?? []), { name: 'explain-chart', category: 'Insights' }],
+                })
+                const withoutTool = render(formatter, {
+                    ...fullCtx,
+                    tools: fullCtx.tools?.filter(({ name }) => name !== 'explain-chart'),
+                })
+
+                expect(withTool).toContain('### Explaining a chart')
+                expect(withTool.indexOf('### Explaining a chart')).toBeGreaterThan(withTool.indexOf('**Notebook**'))
+                expect(withoutTool).not.toContain('explain-chart')
+            }
+        )
+
+        // The SQL and Python guidance names `notebooks-add-cell`, so it must stay out of prompts
         // for clients that aren't advertised the cell tools.
-        it.each(surfaces)('$name gates the Python section on the notebook cell tools', ({ render }) => {
+        it.each(surfaces)('$name gates the SQL and Python sections on the notebook cell tools', ({ render }) => {
             const formatter = new InstructionsFormatter()
             const cellsOn = render(formatter, { ...fullCtx, notebookCellsEnabled: true })
+            expect(cellsOn).toContain('### SQL in an analysis')
+            expect(cellsOn).toContain("cell_type: 'sql'")
             expect(cellsOn).toContain('### Python in an analysis')
             expect(cellsOn).toContain("cell_type: 'python'")
 
+            // A connection can carry the cell tools without execute-sql, which needs another scope.
+            const sqlSection = (text: string): string =>
+                text.slice(text.indexOf('### SQL in an analysis'), text.indexOf('### Python in an analysis'))
+            expect(sqlSection(cellsOn)).toContain('`execute-sql`')
+            const withoutExecuteSql = render(formatter, {
+                ...fullCtx,
+                notebookCellsEnabled: true,
+                tools: fullCtx.tools?.filter(({ name }) => name !== 'execute-sql'),
+            })
+            expect(sqlSection(withoutExecuteSql)).not.toContain('execute-sql')
+
             const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
+            expect(cellsOff).not.toContain('### SQL in an analysis')
             expect(cellsOff).not.toContain('### Python in an analysis')
             expect(cellsOff).toBe(render(formatter, fullCtx))
         })

@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -226,6 +228,38 @@ export const ExternalId: Story = {
             waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.ProfileBubbles'],
             viewport: { width: 1280, height: 900 },
         },
+    },
+}
+
+export const ChurnedAndIgnored: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: {
+                    ...account,
+                    churned_at: '2026-05-01T10:00:00Z',
+                    ignored_at: '2026-05-15T10:00:00Z',
+                },
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: {
+            waitForSelector: ['[data-attr="account-churned-tag"]', '[data-attr="account-ignored-tag"]'],
+            viewport: { width: 1280, height: 900 },
+            // The scene's tab panel is its own <main>, so the default snapshot crops out the title tags.
+            includeNavigationInSnapshot: true,
+        },
+    },
+}
+
+export const EditStatusDates: Story = {
+    ...ChurnedAndIgnored,
+    play: async ({ canvasElement }) => {
+        const tag = await within(canvasElement).findByText('Churned', {}, { timeout: 15000 })
+        await userEvent.click(tag)
+        await within(document.body).findByText('Edit account')
     },
 }
 

@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import partial
 
 import pytest
 import time_machine
@@ -18,12 +20,14 @@ from posthog.tasks.alerts.utils import (
     dispatch_alert_notification,
     next_check_time,
     send_notifications_for_breaches,
+    send_notifications_for_disabled,
     send_notifications_for_errors,
     trigger_alert_hog_functions,
 )
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import ActiveAlertDestination
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -46,10 +50,7 @@ class TestAlertUtils:
         ]
     )
     def test_detector_verdict_event_fields(self, _name: str, metadata: dict | None, expected: dict) -> None:
-        alert_check = MagicMock(spec=AlertCheck)
-        alert_check.triggered_metadata = metadata
-
-        assert detector_verdict_event_fields(alert_check) == expected
+        assert detector_verdict_event_fields(metadata) == expected
 
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
@@ -111,6 +112,7 @@ class TestAlertUtils:
         alert.team_id = 2
         alert.team.name = "test project"
         alert.detector_config = detector_config
+        alert.internal_event_properties.side_effect = partial(AlertConfiguration.internal_event_properties, alert)
 
         trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
 
@@ -294,6 +296,25 @@ class TestSendNotificationsReceipts(APIBaseTest):
         assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
         mock_send.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("breaches", lambda alert: send_notifications_for_breaches(alert, ["breach"], idempotency_key="check-1")),
+            ("errors", lambda alert: send_notifications_for_errors(alert, {"message": "boom"}, idempotency_key="c-1")),
+            (
+                "disabled",
+                lambda alert: send_notifications_for_disabled(alert, "bad config", [alert.created_by.email]),
+            ),
+        ]
+    )
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("products.alerts.backend.facade.email.EmailMessage")
+    @patch("products.alerts.backend.facade.email.is_email_available", return_value=False)
+    def test_notifications_skip_email_when_instance_has_no_email(
+        self, _name: str, send: Callable, _mock_available: MagicMock, mock_message: MagicMock, _mock_trigger: MagicMock
+    ) -> None:
+        assert send(self.alert) == []
+        mock_message.assert_not_called()
+
 
 class TestDispatchAlertInsightChart(APIBaseTest):
     def setUp(self) -> None:
@@ -334,8 +355,7 @@ class TestDispatchAlertInsightChart(APIBaseTest):
         dispatch_alert_notification(self.alert, self.alert_check, ["breach"])
 
         mock_prepare.assert_not_called()
-        # No chart keeps the common threshold-alert call shape (no extra_properties forwarded).
-        assert "extra_properties" not in mock_send.call_args.kwargs
+        assert "insight_chart_url" not in mock_send.call_args.kwargs["extra_properties"]
 
     @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
     @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
@@ -358,6 +378,13 @@ class TestDispatchAlertInsightChart(APIBaseTest):
 
         mock_prepare.assert_not_called()
         assert mock_send.call_args.kwargs["extra_properties"]["insight_chart_url"] == "https://supplied/url"
+
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+    def test_alert_the_platform_took_over_after_it_was_loaded_sends_nothing(self, mock_send: MagicMock) -> None:
+        AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.PLATFORM)
+
+        assert dispatch_alert_notification(self.alert, self.alert_check, ["breach"], render_chart=False) is None
+        mock_send.assert_not_called()
 
 
 class TestDisableInvalidAlert(APIBaseTest):
@@ -382,10 +409,22 @@ class TestDisableInvalidAlert(APIBaseTest):
         assert check.targets_notified == {}
         assert check.notification_sent_at is None
 
+    @parameterized.expand([(PlatformAlertOwner.SOURCE,), (PlatformAlertOwner.PLATFORM,)])
     @patch("posthog.tasks.alerts.utils.send_alert_email")
-    def test_disable_invalid_alert_records_receipts_after_send(self, mock_send: MagicMock) -> None:
+    def test_disable_invalid_alert_emails_only_for_an_alert_the_insight_stack_owns(
+        self, owner: PlatformAlertOwner, mock_send: MagicMock
+    ) -> None:
+        self.alert.owner = owner
+        self.alert.save(update_fields=["owner"])
+
         check = disable_invalid_alert(self.alert, reason="bad config")
 
         check.refresh_from_db()
-        assert check.targets_notified == {"users": [self.user.email], "destinations": []}
-        mock_send.assert_called_once()
+        self.alert.refresh_from_db()
+        assert self.alert.enabled is False
+        if owner == PlatformAlertOwner.SOURCE:
+            assert check.targets_notified == {"users": [self.user.email], "destinations": []}
+            mock_send.assert_called_once()
+        else:
+            assert check.targets_notified == {}
+            mock_send.assert_not_called()

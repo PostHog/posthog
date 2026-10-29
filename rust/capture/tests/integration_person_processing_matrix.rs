@@ -227,7 +227,10 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let service = build_restrictions(inputs).await;
 
     let producer = MockKafkaProducer::new();
-    let sink = KafkaSinkBase::with_producer(producer.clone(), OutputTable::from(&cfg.outputs));
+    let sink = KafkaSinkBase::with_producer(
+        producer.clone(),
+        OutputTable::new(&cfg.outputs, cfg.capture_mode.has_ai_overflow_lane()),
+    );
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
@@ -254,7 +257,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         false,
         0.0_f32,
         26_214_400,
-        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        983_040, // ai_max_event_bytes (960KB)
         None,
         256,
         10 * 1024 * 1024,
@@ -263,10 +266,8 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         None,
         None, // ai_byte_rate_limiter
         None,
-        None,
         8,
         None,
-        false,
         None,
     );
 
@@ -316,8 +317,8 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     }
 }
 
-/// Drive the v1 endpoint (`/i/v1/analytics/events`) through its own router and
-/// sink, reading every record off the v1 mock producer, in request order.
+/// Drive the v1 endpoint (`/i/v1/analytics/events`) through its router and the
+/// shared outputs, reading every record off the mock producer, in request order.
 async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
@@ -383,28 +384,24 @@ async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let body = response.text().await;
     assert_eq!(status, StatusCode::OK, "v1 rejected the batch: {body}");
 
-    ts.mock_producer.with_records(|produced| {
-        assert_eq!(
-            produced.len(),
-            distinct_ids.len(),
-            "v1 must produce every event"
-        );
-        Batch {
-            records: produced
-                .iter()
-                .map(|r| Record {
-                    lane: v1_lane(&r.topic),
-                    has_key: r.key.is_some(),
-                    // The wire header is bytes, so read it back the way a
-                    // consumer would.
-                    force_disable_person_processing: r
-                        .header("force_disable_person_processing")
-                        .map(|v| v == "true"),
-                })
-                .collect(),
-            limiter_consultations: consultations(&snapshotter),
-        }
-    })
+    let produced = ts.mock_producer.get_records();
+    assert_eq!(
+        produced.len(),
+        distinct_ids.len(),
+        "v1 must produce every event"
+    );
+
+    Batch {
+        records: produced
+            .iter()
+            .map(|r| Record {
+                lane: v1_lane(&r.topic),
+                has_key: r.key.is_some(),
+                force_disable_person_processing: r.headers.force_disable_person_processing,
+            })
+            .collect(),
+        limiter_consultations: consultations(&snapshotter),
+    }
 }
 
 // Each path names its lanes differently; the matrix compares lanes, not strings.

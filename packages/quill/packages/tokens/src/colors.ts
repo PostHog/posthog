@@ -108,11 +108,13 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
             'text-subtle-foreground',
         ],
 
-        // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
-        // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),
-        // dark hsl(240 8% 8%), in OKLCH. Hue stays theme-derived; chroma is
-        // near-zero so the hue offset is imperceptible.
-        chrome: [surface(0.923, 1.67, 'light'), surface(0.187, 1.1, 'dark'), 'bg-chrome'],
+        // Chrome — UI furniture surface (toolbars, menubars, nav). Light matches
+        // PostHog app's --color-bg-surface-tertiary, hsl(77 13% 89%), in OKLCH.
+        // Dark sits a step above `background` instead of on it, so the chrome
+        // and the content stay apart as they do in light mode, where chrome
+        // sits a step below. Hue stays theme-derived; chroma is near-zero so
+        // the hue offset is imperceptible.
+        chrome: [surface(0.923, 1.67, 'light'), surface(0.225, 1.1, 'dark'), 'bg-chrome'],
 
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],

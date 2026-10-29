@@ -1,5 +1,5 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -25,6 +25,7 @@ import {
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     ErrorTrackingIssueCorrelationQuery,
+    ErrorTrackingIssueEventsQuery,
     ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
@@ -342,6 +343,12 @@ export function isErrorTrackingIssueCorrelationQuery(
     return node?.kind === NodeKind.ErrorTrackingIssueCorrelationQuery
 }
 
+export function isErrorTrackingIssueEventsQuery(
+    node?: Record<string, any> | null
+): node is ErrorTrackingIssueEventsQuery {
+    return node?.kind === NodeKind.ErrorTrackingIssueEventsQuery
+}
+
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
     if (!node) {
         return false
@@ -515,6 +522,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
@@ -649,11 +657,16 @@ export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupType
     return undefined
 }
 
-export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
+const isProportionBarQuery = (query: TrendsQuery): boolean =>
+    query.trendsFilter?.display === ChartDisplayType.ActionsProportionBar
+
+export const getShowLegend = (query: InsightQueryNode, partCount?: number): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.showLegend
+        const showsByDefault =
+            isProportionBarQuery(query) && partCount !== undefined && partCount <= MAX_DEFAULT_PROPORTION_LEGEND_PARTS
+        return query.trendsFilter?.showLegend ?? (showsByDefault ? true : undefined)
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
     } else if (isFunnelsQuery(query)) {
@@ -666,7 +679,7 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 // serialize an inline string-literal union and emits a broken type; consumers narrow as needed.
 export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.legendPosition
+        return query.trendsFilter?.legendPosition ?? (isProportionBarQuery(query) ? 'bottom' : undefined)
     } else if (isStickinessQuery(query)) {
         return query.stickinessFilter?.legendPosition
     } else if (isLifecycleQuery(query)) {

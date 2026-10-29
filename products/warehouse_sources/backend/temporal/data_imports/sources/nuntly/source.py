@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NuntlySource(ResumableSource[NuntlySourceConfig, NuntlyResumeConfig]):
+    codebase_detection = detect(env=("^NUNTLY_", "^NUNTLY_API_KEY$"), npm=("@nuntly/sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://nuntly.com/docs/api-reference/introduction"
 
@@ -97,7 +100,7 @@ class NuntlySource(ResumableSource[NuntlySourceConfig, NuntlyResumeConfig]):
         return SourceConfig(
             name=ExternalDataSourceType.NUNTLY,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             label="Nuntly",
             caption="Enter your Nuntly API key. You can create one in the "
             "[Nuntly dashboard](https://nuntly.com/docs/guides/api-keys).",

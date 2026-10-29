@@ -54,9 +54,15 @@ function WarningDetail({
         case 'running_but_single_variant_shipped':
             return (
                 <>
-                    Variant <strong>"{warning.variantKey}"</strong> is rolled out to 100% of users. The experiment is
-                    not comparing variants. End the experiment with a conclusion, or adjust the variant distribution in{' '}
-                    {flagLink} to resume proper A/B testing.
+                    {warning.variantKey ? (
+                        <>
+                            Variant <strong>"{warning.variantKey}"</strong> is
+                        </>
+                    ) : (
+                        'One variant is'
+                    )}{' '}
+                    rolled out to 100% of users. The experiment is not comparing variants. End the experiment with a
+                    conclusion, or adjust the variant distribution in {flagLink} to resume proper A/B testing.
                 </>
             )
         case 'running_but_no_rollout':

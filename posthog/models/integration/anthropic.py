@@ -10,6 +10,7 @@ from django.db import transaction
 import structlog
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError
 
@@ -48,13 +49,13 @@ class AnthropicIntegration:
     integration: model.Integration
     _client: "Anthropic"
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.ANTHROPIC.value:
             # Internal misuse, not a user-input issue.
             raise AnthropicIntegrationError(
                 f"AnthropicIntegration init called with Integration kind={integration.kind!r}"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         api_key = integration.sensitive_config.get("api_key")
         if not api_key:
             raise AnthropicIntegrationError(f"Anthropic integration {integration.id} is missing 'api_key'")

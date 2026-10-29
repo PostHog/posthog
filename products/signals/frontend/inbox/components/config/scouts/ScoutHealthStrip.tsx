@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutCostLineParts, scoutCostWindowLabel } from '../../../utils/scoutCosts'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutGroupKey, scoutGroup } from '../../../utils/scoutGroups'
@@ -19,7 +20,7 @@ import {
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
-import { ScoutRunBoxes } from './ScoutRunBoxes'
+import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
 
 /**
@@ -59,8 +60,8 @@ export function ScoutHealthStrip({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { scoutRunCosts, scoutCostRollups, expensiveRunCostThreshold, scoutRunsLoadedOnce, scoutRunsCoverFleet } =
-        useValues(scoutFleetLogic)
+    const { scoutCostRollups } = useValues(scoutFleetLogic)
+    const { scoutRunsLoadedOnce, scoutRunsCoverScout } = useValues(scoutDetailLogic({ skillName: config.skill_name }))
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
 
@@ -103,7 +104,7 @@ export function ScoutHealthStrip({
             <Segment tooltip={`Runs this scout made in the ${SCOUT_RUNS_PER_SCOUT_LABEL}, quiet ones included.`}>
                 {runs.length > 0 ? (
                     <>
-                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
+                        <ScoutRosterRunBoxes skillName={config.skill_name} runs={runs} />
                         <span className="whitespace-nowrap tabular-nums">{pluralize(runs.length, 'run')}</span>
                         {/* The counts here and below change while the page is open, so each number
                             gets its own element — see "Rule 7" in frontend/src/AGENTS.md for what a
@@ -121,7 +122,7 @@ export function ScoutHealthStrip({
                     <span className="text-muted">
                         {runStripEmptyLabel({
                             loadedOnce: scoutRunsLoadedOnce,
-                            coversFleet: scoutRunsCoverFleet,
+                            coversFleet: scoutRunsCoverScout,
                         })}
                     </span>
                 )}

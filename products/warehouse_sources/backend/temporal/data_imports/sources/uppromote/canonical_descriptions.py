@@ -140,4 +140,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "referral_ids": "IDs of the referrals awaiting payment.",
         },
     },
+    "connected_customers": {
+        "description": (
+            "A customer connected to an affiliate, either through a lifetime commission order or "
+            "added by the merchant. Links customers to the affiliate who earns commission on them."
+        ),
+        "docs_url": "https://aff-api.uppromote.com/docs/v2/get-connected-customer-list-40931610e0",
+        "columns": {
+            "affiliate_id": "ID of the affiliate the customer is connected to.",
+            "affiliate_email": "Email of the affiliate.",
+            "customer_id": "Shopify customer ID. Null for customers without a Shopify ID.",
+            "customer_email": "Email of the connected customer.",
+            "connection_date": "When the customer was connected.",
+            "connect_source": (
+                "How the customer was connected: lifetime (lifetime commission order) or manually "
+                "(added by the merchant or via the API)."
+            ),
+        },
+    },
+    "program_excluded": {
+        "description": "The products or collections excluded from commission in each affiliate program.",
+        "docs_url": "https://aff-api.uppromote.com/docs/v2/get-excluded-productscollections-of-a-program-28435011e0",
+        "columns": {
+            "program_id": "ID of the program the exclusions apply to.",
+            "apply_to": "Type of the excluded items (e.g. products or collections).",
+            "apply_to_ids": "Shopify IDs of the excluded products or collections.",
+        },
+    },
 }

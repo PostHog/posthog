@@ -57,12 +57,21 @@ class AsyncHarmonicClient:
     starved or shed. The weekly bulk job passes ``Priority.BATCH`` explicitly so it yields to
     that traffic instead.
 
+    ``query`` is the GraphQL document for the company lookups. A caller that needs more company fields than
+    the default passes its own document, so that the payload of the other callers does not grow.
+
     Usage:
         async with AsyncHarmonicClient(priority=Priority.BATCH, source="my_job") as client:
             data = await client.enrich_company_by_domain("posthog.com")
     """
 
-    def __init__(self, *, priority: Priority = Priority.CRITICAL, source: str = "harmonic_client") -> None:
+    def __init__(
+        self,
+        *,
+        priority: Priority = Priority.CRITICAL,
+        source: str = "harmonic_client",
+        query: str = HARMONIC_COMPANY_ENRICHMENT_QUERY,
+    ) -> None:
         self.api_key = settings.HARMONIC_API_KEY
         if not self.api_key:
             raise ValueError("Missing Harmonic API key: HARMONIC_API_KEY")
@@ -71,6 +80,7 @@ class AsyncHarmonicClient:
         self._session_cm: Any = None
         self.priority = priority
         self.source = source
+        self.query = query
 
     async def __aenter__(self):
         """Async context manager entry - create session."""
@@ -123,7 +133,7 @@ class AsyncHarmonicClient:
                     # Key in a header, not a query param: aiohttp errors carry request_info.real_url,
                     # so a URL-borne key would leak into exception telemetry when a lookup raises.
                     headers={"apikey": self.api_key},
-                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    json={"query": self.query, "variables": variables},
                 )
                 response.raise_for_status()
                 data = await response.json()
@@ -194,7 +204,7 @@ class AsyncHarmonicClient:
                     # Key in a header, not a query param: aiohttp errors carry request_info.real_url,
                     # so a URL-borne key would leak into exception telemetry when a lookup raises.
                     headers={"apikey": self.api_key},
-                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    json={"query": self.query, "variables": variables},
                 )
                 response.raise_for_status()
                 data = await response.json()

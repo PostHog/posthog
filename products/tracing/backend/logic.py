@@ -9,6 +9,7 @@ import json
 import base64
 import decimal
 import datetime as dt
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
@@ -44,7 +45,6 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -58,6 +58,10 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
     "toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC') "
     "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
 )
+
+# A trace can start shortly before the selected range. The list loads a root span from up to this long
+# before the range, so the trace does not show as having no root.
+ROOT_SPAN_LOOKBACK = dt.timedelta(minutes=15)
 
 # Hard cap on number of rows returned per period by the span aggregation runners. Keeps
 # payloads bounded when name cardinality blows up (e.g. untemplated URL paths). The flame
@@ -246,6 +250,78 @@ def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFil
     return prop
 
 
+def _decode_span_event_attribute(value: object) -> str:
+    """capture-logs JSON-encodes each event attribute value, so a string arrives with its quotes. Unwrap JSON strings only."""
+    text = str(value)
+    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+        try:
+            decoded = json.loads(text)
+        except ValueError:
+            return text
+        if isinstance(decoded, str):
+            return decoded
+    return text
+
+
+def parse_span_events(raw_events: list[str]) -> list[dict]:
+    """Decode the JSON span events that capture-logs writes, earliest first. Skip elements that are not JSON objects."""
+    parsed: list[tuple[int, dict]] = []
+    for raw in raw_events:
+        try:
+            event = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        time_unix_nano = event.get("time_unix_nano")
+        if not isinstance(time_unix_nano, int) or time_unix_nano < 0:
+            time_unix_nano = 0
+        attributes = event.get("attributes")
+        timestamp = None
+        # OpenTelemetry uses 0 for an unknown event time.
+        if time_unix_nano > 0:
+            seconds, nanos = divmod(time_unix_nano, 1_000_000_000)
+            timestamp = dt.datetime.fromtimestamp(seconds, tz=ZoneInfo("UTC")) + dt.timedelta(
+                microseconds=nanos // 1000
+            )
+        parsed.append(
+            (
+                time_unix_nano,
+                {
+                    "name": str(event.get("name") or ""),
+                    "timestamp": timestamp,
+                    "attributes": {str(k): _decode_span_event_attribute(v) for k, v in attributes.items()}
+                    if isinstance(attributes, dict)
+                    else {},
+                },
+            )
+        )
+    parsed.sort(key=lambda item: item[0])
+    return [event for _, event in parsed]
+
+
+_EXISTENCE_OPERATORS = frozenset({PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET})
+
+
+def with_attribute_set_guards(filters: list[SpanPropertyFilter]) -> list[SpanPropertyFilter]:
+    """Return the attribute filters plus an is_set filter for each key that they compare.
+
+    An attribute Map reads a missing key as its default value ('' or 0). Without the guard, a negated
+    filter such as `not_icontains` matches every span that does not have the attribute. The trace list
+    then selects a whole trace through one such span, so the trace shows even when its root span has a
+    value that the filter excludes. The guard uses the same suffixed key as the filter, so it checks
+    the Map that the comparison reads.
+    """
+    guards: dict[str, SpanPropertyFilter] = {}
+    for prop in filters:
+        # property_to_expr reads a filter without a value as "match all", so a guard would be its only effect.
+        if prop.value is None or prop.value == []:
+            continue
+        if prop.operator not in _EXISTENCE_OPERATORS and prop.key not in guards:
+            guards[prop.key] = SpanPropertyFilter(key=prop.key, type=prop.type, operator=PropertyOperator.IS_SET)
+    return [*filters, *guards.values()]
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -330,10 +406,10 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                 exprs.append(property_to_expr(span_filter, team=self.team))
 
         if self.span_attribute_filters:
-            exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
+            exprs.append(property_to_expr(with_attribute_set_guards(self.span_attribute_filters), team=self.team))
 
         if self.resource_attribute_filters:
-            for f in self.resource_attribute_filters:
+            for f in with_attribute_set_guards(self.resource_attribute_filters):
                 exprs.append(property_to_expr(f, team=self.team))
 
         if self.query.traceId:
@@ -526,6 +602,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # the slowest/fastest sorts. Falls back to this row's own duration.
                 "trace_duration": result[16] if result[16] is not None else result[10],
             }
+            if self._include_events:
+                row["events"] = parse_span_events(result[17])
             results.append(row)
 
         return TraceSpansQueryResponse(results=results, **self.paginator.response_params())
@@ -534,6 +612,15 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         response = super().run(*args, **kwargs)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
         return response
+
+    @property
+    def _include_events(self) -> bool:
+        """Only the single-trace view reads span events. The column is large, so list queries skip it."""
+        return bool(self.query.traceId) and not self.query.excludeAttributes
+
+    def _events_column(self) -> ast.Expr:
+        # Select an empty array when skipped, so the positional result mapping stays stable.
+        return parse_expr("events" if self._include_events else "[] AS events")
 
     @property
     def _by_duration(self) -> bool:
@@ -678,6 +765,39 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         if root_only:
             key_predicate = ast.And(exprs=[self.where(), parse_expr("is_root_span = 1")])
 
+        filters_expr: ast.Expr = ast.Constant(value=True)
+        if not self._unbounded_trace_lookup:
+            # The day bound on time_bucket adds no rows, but it lets the primary key prune parts.
+            # With only the timestamp bounds, ClickHouse checks every part the team has.
+            filters_expr = ast.And(
+                exprs=[
+                    ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                    parse_expr(TIME_BUCKET_DATE_RANGE_WHERE, placeholders=self.query_date_range.to_placeholders()),
+                ]
+            )
+        # Under root_only the subquery already picks traces by an in-range root.
+        if not self._unbounded_trace_lookup and not root_only and self.query.traceId is None:
+            date_from = self.query_date_range.date_from()
+            lookback_bounds: dict[str, ast.Expr] = {
+                "date_from": ast.Constant(value=date_from - ROOT_SPAN_LOOKBACK),
+                "date_to": ast.Constant(value=date_from),
+            }
+            # The lookback can start on the day before date_from, so it needs its own time_bucket bound.
+            filters_expr = ast.Or(
+                exprs=[
+                    filters_expr,
+                    ast.And(
+                        exprs=[
+                            parse_expr(
+                                "is_root_span AND timestamp >= {date_from} AND timestamp < {date_to}",
+                                placeholders=lookback_bounds,
+                            ),
+                            parse_expr(TIME_BUCKET_DATE_RANGE_WHERE, placeholders=lookback_bounds),
+                        ]
+                    ),
+                ]
+            )
+
         query = parse_select(
             """
             SELECT
@@ -697,7 +817,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes},
                 {resource_attributes},
-                max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration
+                max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration,
+                {events}
             FROM posthog.trace_spans
             WHERE {filters} AND {trace_filter} LIMIT {limit}
         """,
@@ -706,16 +827,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "where_for_start": key_predicate,
                 "trace_filter": trace_filter,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
-                # The day bound on time_bucket adds no rows, but it lets the primary key prune parts.
-                # With only the timestamp bounds, ClickHouse checks every part the team has.
-                "filters": ast.Constant(value=True)
-                if self._unbounded_trace_lookup
-                else ast.And(
-                    exprs=[
-                        ast.Placeholder(expr=ast.Field(chain=["filters"])),
-                        parse_expr(TIME_BUCKET_DATE_RANGE_WHERE, placeholders=self.query_date_range.to_placeholders()),
-                    ]
-                ),
+                "filters": filters_expr,
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map
@@ -724,6 +836,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "resource_attributes": parse_expr(
                     "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
                 ),
+                "events": self._events_column(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -942,7 +1055,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 timestamp as trace_start,
                 {attributes},
                 {resource_attributes},
-                duration_nano as trace_duration
+                duration_nano as trace_duration,
+                {events}
             FROM posthog.trace_spans
             WHERE {where}
         """,
@@ -952,6 +1066,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "resource_attributes": parse_expr(
                     "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
                 ),
+                "events": self._events_column(),
             },
         )
         assert isinstance(query, ast.SelectQuery)

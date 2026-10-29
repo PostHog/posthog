@@ -12,7 +12,7 @@ import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { isFileSystemEntryTypeEnabled, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
@@ -37,7 +37,7 @@ import {
     unifiedSearchResultToSearchItem,
 } from './searchItems'
 import { searchListsLogic } from './searchListsLogic'
-import { filterSearchItems, shouldSearchTickets } from './utils'
+import { SEARCH_TAB_CATEGORY, filterSearchItems, shouldSearchTickets } from './utils'
 
 export interface SearchCategory {
     key: string
@@ -428,7 +428,9 @@ export const searchLogic = kea<searchLogicType>([
                             signal: cache.searchAbortController?.signal,
                         })
                         breakpoint()
-                        return response.results.slice(0, RECENTS_LIMIT)
+                        return response.results
+                            .filter((entry) => isFileSystemEntryTypeEnabled(entry, values.featureFlags))
+                            .slice(0, RECENTS_LIMIT)
                     } catch (error) {
                         return rethrowSearchError(error, breakpoint)
                     }
@@ -552,6 +554,9 @@ export const searchLogic = kea<searchLogicType>([
                             {
                                 search: trimmed,
                                 limit: SEARCH_LIMIT,
+                                include_churned: true,
+                                include_ignored: true,
+                                inactive_last: true,
                             },
                             { signal: cache.searchAbortController?.signal }
                         )
@@ -898,10 +903,11 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 // Filter products and data management by search
-                const filterCatalogBySearch = (items: SearchItem[]): SearchItem[] =>
-                    hasSearch ? filterSearchItems(items, search) : items.filter((item) => !item.parentName)
-                const filteredProducts = filterCatalogBySearch(productsItems)
-                const filteredDataManagement = filterCatalogBySearch(dataManagementItems)
+                const isSearchTab = (item: SearchItem): boolean => item.category === SEARCH_TAB_CATEGORY
+                const withoutSearchTabs = (items: SearchItem[]): SearchItem[] =>
+                    items.filter((item) => !isSearchTab(item))
+                const filteredProducts = filterBySearch(withoutSearchTabs(productsItems))
+                const filteredDataManagement = filterBySearch(withoutSearchTabs(dataManagementItems))
 
                 // Show products if not searching or has matching results
                 if (!hasSearch || filteredProducts.length > 0) {
@@ -928,6 +934,17 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'people',
                         items: filteredPeople,
                         isLoading: false,
+                    })
+                }
+
+                const filteredSearchTabs = filterBySearch(
+                    [...productsItems, ...dataManagementItems].filter(isSearchTab)
+                )
+                if (hasSearch && filteredSearchTabs.length > 0) {
+                    categories.push({
+                        key: SEARCH_TAB_CATEGORY,
+                        items: isProductsLoading ? [] : filteredSearchTabs,
+                        isLoading: isProductsLoading,
                     })
                 }
 
@@ -982,6 +999,8 @@ export const searchLogic = kea<searchLogicType>([
                     const categoryOrder = [
                         'insight',
                         'dashboard',
+                        'data_warehouse_view',
+                        'endpoint',
                         'feature_flag',
                         'experiment',
                         'early_access_feature',

@@ -216,6 +216,17 @@ HETZNER_CHILD_ENDPOINTS: dict[str, HetznerChildEndpointConfig] = {
         primary_keys=["network_id", "type", "id"],
         sort="id:asc",
     ),
+    # DNS records of each zone, grouped by name and type. The `id` ("www/A") is unique only within
+    # its zone, and each row already carries the zone id in `zone`.
+    "zone_rrsets": HetznerChildEndpointConfig(
+        name="zone_rrsets",
+        parent="zones",
+        parent_id_column="zone",
+        path_suffix="/rrsets",
+        response_key="rrsets",
+        primary_keys=["zone", "id"],
+        sort="id:asc",
+    ),
 }
 
 ENDPOINTS = (*HETZNER_ENDPOINTS.keys(), *HETZNER_METRICS_ENDPOINTS.keys(), *HETZNER_CHILD_ENDPOINTS.keys())

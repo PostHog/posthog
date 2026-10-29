@@ -129,21 +129,25 @@ function budgetGuard(): RunBudgetGuard {
   );
 }
 
-function sendCostlyAssistantMessage(query: MockQuery): void {
+function sendCostlyAssistantMessage(
+  query: MockQuery,
+  id = "m1",
+  cacheReadTokens = 2_000_000,
+): void {
   query._mockHelpers.sendMessage({
     type: "assistant",
-    uuid: "a1",
+    uuid: `a-${id}`,
     session_id: "s",
     parent_tool_use_id: null,
     message: {
-      id: "m1",
+      id,
       role: "assistant",
       model: "claude-opus-5",
       content: [],
       usage: {
         input_tokens: 0,
         output_tokens: 0,
-        cache_read_input_tokens: 2_000_000,
+        cache_read_input_tokens: cacheReadTokens,
       },
     },
   } as unknown as SDKMessage);
@@ -228,6 +232,110 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
     await tick();
     harness.query._mockHelpers.complete();
     await expect(first).resolves.toBeDefined();
+  });
+
+  it("resends a declined budget steer while the turn keeps working", async () => {
+    const sessionId = "s-steer-retry";
+    const guard = budgetGuard();
+    const harness = installHarness(sessionId, guard);
+    const first = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "first" }],
+    });
+    await tick();
+    echoTurn(harness.query, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+    harness.query._mockHelpers.sendMessage({
+      type: "system",
+      subtype: "status",
+      status: "compacting",
+    } as unknown as SDKMessage);
+    await tick();
+
+    sendCostlyAssistantMessage(harness.query, "m1", 1_100_000);
+    await tick();
+    await tick();
+
+    expect(guard.snapshot().steers).toMatchObject([
+      { stage: "warn", delivered: false },
+    ]);
+    expect(harness.pushed).toHaveLength(1);
+
+    harness.query._mockHelpers.sendMessage({
+      type: "system",
+      subtype: "status",
+      status: null,
+      compact_result: "success",
+    } as unknown as SDKMessage);
+    await tick();
+    sendCostlyAssistantMessage(harness.query, "m2", 100_000);
+    await tick();
+    await tick();
+
+    expect(harness.pushed).toHaveLength(2);
+    expect(JSON.stringify(harness.pushed[1].message.content)).toContain(
+      "Budget notice",
+    );
+
+    harness.query._mockHelpers.complete();
+    await expect(first).resolves.toBeDefined();
+  });
+
+  it("leaves a declined budget steer pending during a local-only command", async () => {
+    const sessionId = "s-steer-local-command";
+    const guard = budgetGuard();
+    const harness = installHarness(sessionId, guard);
+    const first = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "first" }],
+    });
+    await tick();
+    echoTurn(harness.query, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+    harness.query._mockHelpers.sendMessage({
+      type: "system",
+      subtype: "status",
+      status: "compacting",
+    } as unknown as SDKMessage);
+    await tick();
+    sendCostlyAssistantMessage(harness.query, "m1", 1_100_000);
+    await tick();
+    await tick();
+    expect(guard.snapshot().steers).toMatchObject([
+      { stage: "warn", delivered: false },
+    ]);
+    harness.query._mockHelpers.sendMessage({
+      type: "system",
+      subtype: "status",
+      status: null,
+      compact_result: "success",
+    } as unknown as SDKMessage);
+    await tick();
+    harness.query._mockHelpers.sendMessage(createSuccessResult());
+    await tick();
+    await expect(first).resolves.toBeDefined();
+
+    const command = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "/context" }],
+    });
+    await tick();
+    expect(harness.pushed).toHaveLength(2);
+    const turnQueue = sessionOf(harness.agent).turnQueue;
+    echoTurn(harness.query, turnQueue[turnQueue.length - 1].promptUuid);
+    await tick();
+    sendCostlyAssistantMessage(harness.query, "m2", 0);
+    await tick();
+    await tick();
+
+    expect(harness.pushed).toHaveLength(2);
+    expect(guard.snapshot().steers).toHaveLength(1);
+    expect(guard.takePendingSteer()).toBe("warn");
+
+    harness.query._mockHelpers.sendMessage(createSuccessResult());
+    await tick();
+    harness.query._mockHelpers.complete();
+    await expect(command).resolves.toBeDefined();
   });
 
   it("never hands a prompt cancelled while queued to the SDK", async () => {

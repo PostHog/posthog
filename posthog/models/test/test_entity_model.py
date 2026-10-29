@@ -1,10 +1,10 @@
-from django.test import TestCase
+from django.test import SimpleTestCase
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity
 
 
-class TestEntity(TestCase):
+class TestEntity(SimpleTestCase):
     def test_can_init_without_id(self):
         entity = Entity({"type": TREND_FILTER_TYPE_EVENTS})  # This is an "All events" entity
 

@@ -37,7 +37,7 @@ class TestCurrentRequestContextTrustedIP(SimpleTestCase):
         self.assertIsNone(ctx.longitude)
 
 
-class TestUaSignature(BaseTest):
+class TestUaSignature(SimpleTestCase):
     def test_version_bump_same_signature(self):
         a = ua_signature("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/135.0.0.0 Safari/537.36")
         b = ua_signature("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/999.0.0.0 Safari/537.36")
@@ -52,7 +52,7 @@ class TestUaSignature(BaseTest):
         self.assertIsNone(ua_signature(""))
 
 
-class TestSignalsAndTiers(BaseTest):
+class TestSignalsAndTiers(SimpleTestCase):
     BASELINE_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 
     def _baseline(self, **kw) -> Baseline:

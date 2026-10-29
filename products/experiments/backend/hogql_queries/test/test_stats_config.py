@@ -2,6 +2,8 @@ from typing import cast
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -53,6 +55,9 @@ class TestStatsConfig(APIBaseTest):
             ("default_none", None),
             ("empty_dict", {}),
             ("frequentist_key_empty", {"frequentist": {}}),
+            ("frequentist_key_null", {"frequentist": None}),
+            ("frequentist_key_not_an_object", {"frequentist": ["alpha"]}),
+            ("cuped_key_not_an_object", {"cuped": "enabled"}),
         ]
     )
     def test_frequentist_defaults(self, _name, stats_config):
@@ -82,6 +87,9 @@ class TestStatsConfig(APIBaseTest):
             ("default_none", None),
             ("empty_dict", {}),
             ("bayesian_key_empty", {"bayesian": {}}),
+            ("bayesian_key_null", {"bayesian": None}),
+            ("bayesian_key_not_an_object", {"bayesian": "0.9"}),
+            ("cuped_key_not_an_object", {"cuped": ["enabled"]}),
         ]
     )
     def test_bayesian_defaults(self, _name, stats_config):
@@ -406,7 +414,7 @@ class TestStatsConfig(APIBaseTest):
         self.assertEqual(runner.baseline_variant_key, expected_baseline)
 
 
-class TestSequentialStatsConfig(APIBaseTest):
+class TestSequentialStatsConfig(SimpleTestCase):
     """Verify sequential_testing flags propagate from stats_config (and team defaults) into the engine."""
 
     def _metric(self) -> ExperimentMeanMetric:

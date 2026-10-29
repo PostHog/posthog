@@ -1,5 +1,5 @@
-import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useRef } from 'react'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useCallback, useEffect, useRef } from 'react'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
 
@@ -7,18 +7,27 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic, reportFeatureFlagExposure } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { HighlightPicksListColumn } from 'products/replay_vision/frontend/replay_scanners/components/HighlightPicksListColumn'
+import { highlightPicksLogic } from 'products/replay_vision/frontend/replay_scanners/highlightPicksLogic'
+
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
+import { isNewReplayLayout } from './replayLayout'
+import { ReplayListColumn } from './ReplayListColumn'
+import { replayListColumnLogic } from './replayListColumnLogic'
+import { ReplayListColumnWithPicks } from './ReplayListColumnWithPicks'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -29,14 +38,32 @@ type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
     description?: string
     /** Replaces the shared replay troubleshooting panel when the list comes back empty. */
     listEmptyState?: JSX.Element
+    picksInList?: boolean
+    watchLayout?: boolean
 }
 
-export function SessionRecordingsPlaylist({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
+export function SessionRecordingsPlaylist({
+    picksInList = false,
+    watchLayout = false,
+    ...props
+}: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
         onlyPinned: props.type === 'collection',
     }
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
+    const layoutOverridden = canOverrideLayout && !!staffLayoutOverride
+    useEffect(() => {
+        // Opening the Replay page is the exposure. An override is not the flag's arm.
+        if (watchLayout && receivedFeatureFlags && !layoutOverridden) {
+            reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT)
+        }
+    }, [watchLayout, receivedFeatureFlags, featureFlags, layoutOverridden])
+
+    // The column unmounts while the list is collapsed.
+    useMountedLogic(replayListColumnLogic({ logicKey: props.logicKey ?? 'playlist' }))
 
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
@@ -49,16 +76,57 @@ export function SessionRecordingsPlaylist({ ...props }: SessionRecordingsPlaylis
     }
     const isVerticalLayout = layoutRef.current
 
+    const layout = (
+        <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
+            {isVerticalLayout ? (
+                <VerticalLayout {...props} picksInList={picksInList} watchLayout={watchLayout} />
+            ) : (
+                <HorizontalLayout {...props} picksInList={picksInList} watchLayout={watchLayout} />
+            )}
+        </div>
+    )
+
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
-                {isVerticalLayout ? <VerticalLayout {...props} /> : <HorizontalLayout {...props} />}
-            </div>
+            {picksInList ? (
+                <BindLogic
+                    logic={highlightPicksLogic}
+                    props={{ logicKey: logicProps.logicKey ?? 'playlist', playlistLogicProps: logicProps }}
+                >
+                    {layout}
+                </BindLogic>
+            ) : (
+                layout
+            )}
         </BindLogic>
     )
 }
 
-function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
+type LayoutProps = Omit<SessionRecordingsPlaylistProps, 'picksInList' | 'watchLayout'> & {
+    picksInList: boolean
+    watchLayout: boolean
+}
+
+function PlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
+    const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
+    if (isPlaylistCollapsed) {
+        return <Playlist {...props} />
+    }
+    if (props.watchLayout && isNewReplayLayout(replayLayout)) {
+        const logicKey = props.logicKey ?? 'playlist'
+        return picksInList ? (
+            <ReplayListColumnWithPicks logicKey={logicKey} recordingsList={<Playlist {...props} />} />
+        ) : (
+            <ReplayListColumn logicKey={logicKey} recordingsList={<Playlist {...props} />} picksMode={null} />
+        )
+    }
+    if (picksInList) {
+        return <HighlightPicksListColumn recordingsList={<Playlist {...props} />} />
+    }
+    return <Playlist {...props} />
+}
+
+function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
@@ -93,7 +161,7 @@ function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Ele
                           }
                 }
             >
-                <Playlist {...props} />
+                <PlaylistColumn {...props} picksInList={picksInList} />
                 {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
                 )}
@@ -103,11 +171,12 @@ function HorizontalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Ele
     )
 }
 
-function VerticalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Element {
+function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
 
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const watchStack = props.watchLayout && isNewReplayLayout(replayLayout)
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-vertical',
@@ -126,8 +195,15 @@ function VerticalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Eleme
             <PlayerWrapper
                 {...props}
                 containerRef={playerRef}
-                style={isPlaylistCollapsed ? {} : { height: desiredSize ?? undefined, minHeight: 300 }}
-                className={isPlaylistCollapsed ? 'flex-1' : 'pb-2 shrink-0'}
+                style={
+                    isPlaylistCollapsed
+                        ? {}
+                        : { height: desiredSize ?? (watchStack ? '50vh' : undefined), minHeight: 300 }
+                }
+                className={cn(
+                    isPlaylistCollapsed ? 'flex-1' : 'pb-2 shrink-0',
+                    watchStack && 'Playlist__main--stacked'
+                )}
                 resizer={
                     !isPlaylistCollapsed ? (
                         <Resizer
@@ -139,8 +215,11 @@ function VerticalLayout({ ...props }: SessionRecordingsPlaylistProps): JSX.Eleme
                     ) : null
                 }
             />
-            <div className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
-                <Playlist {...props} />
+            <div
+                className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}
+                data-stacked={watchStack || undefined}
+            >
+                <PlaylistColumn {...props} picksInList={picksInList} />
             </div>
         </>
     )
@@ -155,6 +234,7 @@ function PlayerWrapper({
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
+    watchLayout?: boolean
     type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
@@ -229,6 +309,7 @@ function PlayerWrapper({
                                 : undefined
                         }
                         playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
+                        watchLayout={props.watchLayout}
                     />
                 </div>
             ) : sessionRecordingsResponseLoading ? (

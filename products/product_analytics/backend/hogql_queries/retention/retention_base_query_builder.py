@@ -13,6 +13,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import entity_to_expr, property_to_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID
 
 from products.product_analytics.backend.hogql_queries.retention.utils import breakdown_extract_expr
 
@@ -119,6 +120,26 @@ class RetentionBaseQueryBuilder(ABC):
     @property
     def global_event_filters(self) -> list[ast.Expr]:
         return self.runner.global_event_filters
+
+    def _cohort_breakdown_filters(self) -> list[ast.Expr]:
+        if (
+            self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdowns
+            and len(self.query.breakdownFilter.breakdowns) == 1
+            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
+        ):
+            cohort_id = self.query.breakdownFilter.breakdowns[0].property
+            # Don't add cohort filter for "all users" (cohort_id = 0)
+            if int(cohort_id) != ALL_USERS_COHORT_ID:
+                return [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.InCohort,
+                        left=ast.Field(chain=["person_id"]),
+                        right=ast.Constant(value=int(cohort_id)),
+                    )
+                ]
+
+        return []
 
     @property
     def is_first_ever_occurrence(self) -> bool:

@@ -9,15 +9,11 @@ is swallowed so telemetry can never fail an activity.
 """
 
 import time
-from typing import TYPE_CHECKING
 
 from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.metrics import pushed_metrics_registry
 from posthog.otel_metrics import OtelInstrumentFactory
-
-if TYPE_CHECKING:
-    from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import GeminiStorageUsage
 
 _otel = OtelInstrumentFactory("replay-vision")
 
@@ -378,31 +374,13 @@ def record_gemini_cleanup_files(result: str, count: int) -> None:
 # Prometheus metrics, so these gauges have no OTLP twin.
 
 
-def push_gemini_cleanup_gauges(tracked_files: int, storage: "GeminiStorageUsage | None") -> None:
-    """Each push replaces the job's previous gauges, so a failed listing leaves a gap in the storage series."""
+def push_gemini_cleanup_gauges(tracked_files: int) -> None:
     with pushed_metrics_registry("replay_vision_gemini_cleanup_sweep") as registry:
         Gauge(
             "replay_vision_gemini_cleanup_backlog",
             "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
             registry=registry,
         ).set(tracked_files)
-        if storage is not None:
-            Gauge(
-                "replay_vision_gemini_storage_files",
-                "Files in the Gemini project from a full Files API listing, including files the Redis index "
-                "lost; a flat line at the listing cap means the real count is higher",
-                registry=registry,
-            ).set(storage.files)
-            Gauge(
-                "replay_vision_gemini_storage_bytes",
-                "Bytes the listed Gemini files hold against the project's Files API storage quota",
-                registry=registry,
-            ).set(storage.total_bytes)
-            Gauge(
-                "replay_vision_gemini_oldest_file_age_seconds",
-                "Age of the oldest listed Gemini file; a file older than any scan's run time is one cleanup missed",
-                registry=registry,
-            ).set(storage.oldest_age_seconds)
         Gauge(
             "replay_vision_gemini_cleanup_last_run_timestamp_seconds",
             "Unix time the Gemini cleanup sweep last finished",

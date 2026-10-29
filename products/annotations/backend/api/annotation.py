@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
 
@@ -9,6 +9,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.user import User
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -138,13 +139,40 @@ class AnnotationSerializer(serializers.ModelSerializer):
                     dashboard.deleted and dashboard.id != getattr(self.instance, "dashboard_id", None)
                 ):
                     raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
+                if dashboard.id != getattr(self.instance, "dashboard_id", None):
+                    self._require_viewer_access(dashboard, "dashboard_id", "dashboard")
         elif self.instance is not None:
             dashboard = self.instance.dashboard
 
         if "dashboard_item" in attrs:
             insight = attrs["dashboard_item"]
+            if insight is not None and insight.pk != getattr(self.instance, "dashboard_item_id", None):
+                self._require_viewer_access(insight, "dashboard_item", "insight")
         else:
             insight = getattr(self.instance, "dashboard_item", None)
+
+        # A create checks only an explicit scope, because rows created without one take the model
+        # default and have no insight. An update checks the scope the row will have, so clearing the
+        # parent is caught too. A row already stored without its parent, such as a default row or one
+        # whose dashboard was hard-deleted, stays editable, because the UI echoes its scope back.
+        instance = self.instance
+        checked_scope = scope if instance is None else scope or instance.scope
+        if (
+            checked_scope == Annotation.Scope.INSIGHT.value
+            and insight is None
+            and not (instance is not None and instance.scope == checked_scope and instance.dashboard_item_id is None)
+        ):
+            raise serializers.ValidationError(
+                {"dashboard_item": "Set `dashboard_item` to the insight ID when the scope is `dashboard_item`."}
+            )
+        if (
+            checked_scope == Annotation.Scope.DASHBOARD.value
+            and dashboard is None
+            and not (instance is not None and instance.scope == checked_scope and instance.dashboard_id is None)
+        ):
+            raise serializers.ValidationError(
+                {"dashboard_id": "Set `dashboard_id` to the dashboard ID when the scope is `dashboard`."}
+            )
 
         # AnnotationsViewSet.safely_get_queryset hides an annotation whose own scope points at a
         # soft-deleted parent, so accepting one here would strand a row that nothing can list, edit
@@ -161,6 +189,15 @@ class AnnotationSerializer(serializers.ModelSerializer):
             )
 
         return attrs
+
+    def _require_viewer_access(
+        self, parent: Dashboard | Insight, field: str, resource: Literal["dashboard", "insight"]
+    ) -> None:
+        user_access_control = self.context["view"].user_access_control
+        if isinstance(self.context["request"].user, User) and user_access_control.denied_object_ids(
+            resource, [(str(parent.pk), parent.team_id, parent.created_by_id)], "viewer"
+        ):
+            raise serializers.ValidationError({field: f"You need viewer access to this {resource} to annotate it."})
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]

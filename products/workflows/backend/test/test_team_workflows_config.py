@@ -3,9 +3,12 @@ from posthog.test.base import APIBaseTest
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory, SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import OrganizationMembership
+from posthog.api.project import update_team_workflows_config
+from posthog.models import OrganizationMembership, Team
+from posthog.models.integration import Integration
 
 from products.workflows.backend.admin.team_workflows_config_admin import TeamWorkflowsConfigAdmin
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -47,10 +50,17 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
+            "default_email_integration_id": None,
+            "marketing_frequency_cap_max_messages": None,
+            "marketing_frequency_cap_window_days": None,
+            "email_utm_tags_enabled": False,
+            "email_utm_params": {},
         }
 
     def test_patch_enables_capture(self) -> None:
-        # APIBaseTest.setUp may trigger the workflows_config cached_property (which calls
+        # APIBaseTest.setUp may trigger the workflows_config accessor (which calls
         # get_or_create_team_extension) so the extension row can already exist with the default
         # value. Either way, the patch must end with the row present and capture enabled.
         response = self.client.patch(self.url, {"workflows_config": {"capture_workflows_engagement_events": True}})
@@ -87,6 +97,33 @@ class TestTeamWorkflowsConfig(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "workflows_config__email_tracking_consent_mode"
 
+    def test_patch_rejects_unknown_utm_keys_and_keeps_saved_defaults(self) -> None:
+        self.client.patch(self.url, {"workflows_config": {"email_utm_params": {"utm_source": "newsletter"}}})
+
+        response = self.client.patch(self.url, {"workflows_config": {"email_utm_params": {"utm_soucre": "typo"}}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "workflows_config__email_utm_params"
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_utm_params == {"utm_source": "newsletter"}
+
+    def test_a_utm_save_keeps_settings_another_admin_changed_after_the_team_loaded(self) -> None:
+        team = Team.objects.get(pk=self.team.pk)
+        assert team.workflows_config.email_tracking_consent_mode == "off"
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(
+            email_tracking_consent_mode="opt_in", workflow_task_rate_limit_per_day=0
+        )
+        request = RequestFactory().patch(self.url)
+        request.user = self.user
+
+        update_team_workflows_config(
+            team, {"email_utm_params": {"utm_source": "newsletter"}}, context={"request": request}
+        )
+
+        row = TeamWorkflowsConfig.objects.get(team=self.team)
+        assert row.email_tracking_consent_mode == "opt_in"
+        assert row.workflow_task_rate_limit_per_day == 0
+        assert row.email_utm_params == {"utm_source": "newsletter"}
+
     def test_patch_rejects_non_boolean_capture_workflows_engagement_events(self) -> None:
         response = self.client.patch(
             self.url, {"workflows_config": {"capture_workflows_engagement_events": "yes please"}}
@@ -108,4 +145,97 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "email_tracking_consent_mode": "off",
             "workflow_task_rate_limit_per_day": None,
             "workflow_task_team_rate_limit_per_day": None,
+            "replay_vision_scan_rate_limit_per_day": None,
+            "replay_vision_scan_team_rate_limit_per_day": None,
+            "default_email_integration_id": None,
+            "marketing_frequency_cap_max_messages": None,
+            "marketing_frequency_cap_window_days": None,
+            "email_utm_tags_enabled": False,
+            "email_utm_params": {},
         }
+
+    @parameterized.expand(
+        [
+            ("unverified_sender", "email", False, False),
+            ("other_projects_sender", "email", True, True),
+            ("not_an_email_sender", "slack", True, False),
+        ]
+    )
+    def test_patch_rejects_default_email_sender(self, _name: str, kind: str, verified: bool, other_team: bool) -> None:
+        team = Team.objects.create(organization=self.organization, name="other") if other_team else self.team
+        sender = Integration.objects.create(
+            team=team, kind=kind, integration_id="hello@example.com", config={"verified": verified}
+        )
+
+        response = self.client.patch(self.url, {"workflows_config": {"default_email_integration_id": sender.id}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "workflows_config"
+        stored = TeamWorkflowsConfig.objects.filter(team=self.team).values_list(
+            "default_email_integration_id", flat=True
+        )
+        assert list(stored) in ([], [None])
+
+    def test_patch_sets_and_clears_default_email_sender(self) -> None:
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+
+        response = self.client.patch(self.url, {"workflows_config": {"default_email_integration_id": sender.id}})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert TeamWorkflowsConfig.objects.get(team=self.team).default_email_integration_id == sender.id
+
+        response = self.client.patch(self.url, {"workflows_config": {"default_email_integration_id": None}})
+        assert response.status_code == status.HTTP_200_OK
+        assert TeamWorkflowsConfig.objects.get(team=self.team).default_email_integration_id is None
+
+    @parameterized.expand(
+        [
+            ["count with no saved window", None, {"marketing_frequency_cap_max_messages": 3}, 400, (None, None)],
+            [
+                "window longer than 30 days",
+                None,
+                {"marketing_frequency_cap_max_messages": 3, "marketing_frequency_cap_window_days": 31},
+                400,
+                (None, None),
+            ],
+            ["count change on a saved cap", (2, 7), {"marketing_frequency_cap_max_messages": 3}, 200, (3, 7)],
+            ["one field cleared on a saved cap", (2, 7), {"marketing_frequency_cap_window_days": None}, 400, (2, 7)],
+            [
+                "both fields cleared",
+                (2, 7),
+                {"marketing_frequency_cap_max_messages": None, "marketing_frequency_cap_window_days": None},
+                200,
+                (None, None),
+            ],
+        ]
+    )
+    def test_patch_frequency_cap_needs_both_fields_or_neither(
+        self,
+        _name: str,
+        saved: tuple[int, int] | None,
+        patch: dict,
+        expected_status: int,
+        expected_cap: tuple[int | None, int | None],
+    ) -> None:
+        if saved:
+            response = self.client.patch(
+                self.url,
+                {
+                    "workflows_config": {
+                        "marketing_frequency_cap_max_messages": saved[0],
+                        "marketing_frequency_cap_window_days": saved[1],
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        response = self.client.patch(self.url, {"workflows_config": patch})
+
+        assert response.status_code == expected_status, response.json()
+        stored = (
+            TeamWorkflowsConfig.objects.filter(team=self.team)
+            .values_list("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
+            .first()
+        )
+        assert (stored or (None, None)) == expected_cap

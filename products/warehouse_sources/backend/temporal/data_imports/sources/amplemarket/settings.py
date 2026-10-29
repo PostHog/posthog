@@ -6,6 +6,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -18,7 +19,7 @@ class AmplemarketEndpointConfig:
     path: str
     # The key the row objects are nested under in the response body (e.g. {"sequences": [...]}).
     data_key: str
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style
     # field, which would rewrite partitions on every sync.
     partition_key: Optional[str] = None
@@ -41,6 +42,35 @@ _TASKS_FANOUT = DependentEndpointConfig(
     include_from_parent=[],
 )
 
+# A parent deleted between the parent listing and the child fetch answers 404 (or 410 for a
+# lead list), which should drop that parent rather than fail the sync.
+_DELETED_PARENT_IGNORE: list[ResponseAction] = [
+    {"status_code": 404, "action": "ignore"},
+    {"status_code": 410, "action": "ignore"},
+]
+
+# /contacts has no unfiltered listing (it requires a name, account_id, or ids[] filter), so
+# contacts fan out over the accounts list. Contacts not linked to an account are not reachable.
+_CONTACTS_FANOUT = DependentEndpointConfig(
+    parent_name="accounts",
+    resolve_param="account_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "account_id"},
+    child_response_actions=_DELETED_PARENT_IGNORE,
+)
+
+# The lead list listing carries only list summaries; the entries come from each list's detail
+# endpoint, paged under `leads`.
+_LEAD_LIST_ENTRIES_FANOUT = DependentEndpointConfig(
+    parent_name="lead_lists",
+    resolve_param="lead_list_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "lead_list_id"},
+    child_response_actions=_DELETED_PARENT_IGNORE,
+)
+
 
 # Pagination is cursor-based via `_links.next.href` (HAL-style relative URLs). Requests omit
 # `page[size]` and follow the server defaults: the documented maximum varies per endpoint and
@@ -52,8 +82,8 @@ _TASKS_FANOUT = DependentEndpointConfig(
 # until the filter is proven to work.
 #
 # Deliberately not synced, because they are actions or per-query lookups rather than record
-# collections: people/company search and enrichment, email validation, contacts (requires a
-# name/account_id/ids filter), job openings (a prospecting search surface), and the
+# collections: people/company search and enrichment, email validation, job openings (a search
+# over Amplemarket's company data by domain, not records in the customer's account), and the
 # credit-consuming endpoints.
 AMPLEMARKET_ENDPOINTS: dict[str, AmplemarketEndpointConfig] = {
     "accounts": AmplemarketEndpointConfig(
@@ -74,24 +104,43 @@ AMPLEMARKET_ENDPOINTS: dict[str, AmplemarketEndpointConfig] = {
         path="/calls/dispositions",
         data_key="dispositions",
     ),
+    # Keyed with the account id, because the API does not document that a contact belongs to
+    # exactly one account.
+    "contacts": AmplemarketEndpointConfig(
+        name="contacts",
+        path="/contacts?account_id={account_id}",
+        data_key="contacts",
+        primary_keys=["account_id", "id"],
+        partition_key="created_at",
+        fanout=_CONTACTS_FANOUT,
+    ),
     "excluded_domains": AmplemarketEndpointConfig(
         name="excluded_domains",
         path="/excluded-domains",
         data_key="excluded_domains",
-        primary_key="domain",
+        primary_keys=["domain"],
         partition_key="date_added",
     ),
     "excluded_emails": AmplemarketEndpointConfig(
         name="excluded_emails",
         path="/excluded-emails",
         data_key="excluded_emails",
-        primary_key="email",
+        primary_keys=["email"],
         partition_key="date_added",
     ),
     "lead_lists": AmplemarketEndpointConfig(
         name="lead_lists",
         path="/lead-lists",
         data_key="lead_lists",
+    ),
+    # Entries are keyed with their list id, because the same person can sit on several lists and
+    # entry ids are not documented as unique across lists. Entries carry no creation time.
+    "lead_list_entries": AmplemarketEndpointConfig(
+        name="lead_list_entries",
+        path="/lead-lists/{lead_list_id}",
+        data_key="leads",
+        primary_keys=["lead_list_id", "id"],
+        fanout=_LEAD_LIST_ENTRIES_FANOUT,
     ),
     "mailboxes": AmplemarketEndpointConfig(
         name="mailboxes",

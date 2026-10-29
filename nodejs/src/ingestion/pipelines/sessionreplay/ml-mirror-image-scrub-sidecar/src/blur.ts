@@ -13,7 +13,7 @@ const BLUR_SIGMA = 2.34
 const MAX_LONG_SIDE = 96
 // 1x1 transparent PNG: the output substituted for an image the NSFW/gore gate rejects (see advancedScrub).
 export const BLANK_PNG = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=',
     'base64'
 )
 

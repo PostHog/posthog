@@ -21,7 +21,7 @@ export interface QuillSceneNameProps {
 }
 
 // The name and its editor share one box (height, padding and a 1px border), so opening the editor moves nothing.
-const NAME_BOX = 'h-7 rounded-md border px-1.5 text-sm leading-6.5 font-semibold'
+const NAME_BOX = 'h-7 rounded-md border px-1.5 text-[length:var(--text-ui,0.8125rem)] leading-6.5 font-semibold'
 
 export function QuillSceneName({
     name: initialName,

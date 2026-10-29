@@ -18,11 +18,6 @@ class TestCloudflareSource:
         self.team_id = 123
         self.config = CloudflareSourceConfig(api_token="api-token")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["zones"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "zones"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_substring",
         [
@@ -35,6 +30,11 @@ class TestCloudflareSource:
                 TokenCheck(is_valid=False, status=400, reason="Invalid API Token (code 1000)"),
                 False,
                 "Invalid API Token (code 1000)",
+            ),
+            (
+                TokenCheck(is_valid=False, status=400, reason="Invalid request headers (code 6003)", code=6003),
+                False,
+                "not the Global API Key",
             ),
             (TokenCheck(is_valid=False, status=None), False, "Couldn't reach Cloudflare"),
             (TokenCheck(is_valid=False, status=500), False, "Couldn't reach Cloudflare"),

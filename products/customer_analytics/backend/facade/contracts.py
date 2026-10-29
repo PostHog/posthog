@@ -53,10 +53,14 @@ class AccountRelationshipDefinition:
     is_controlled: bool = False
 
 
+PinnedAccountPropertyKind = Literal["custom_property", "relationship", "account_field"]
+
+
 @dataclass(frozen=True)
 class PinnedAccountProperty:
-    kind: Literal["custom_property", "relationship"]
-    id: UUID
+    kind: PinnedAccountPropertyKind
+    # A definition UUID for custom properties and relationships, or a field name for account fields.
+    id: str
 
 
 class InvalidPinnedAccountProperties(ValueError):
@@ -1236,6 +1240,7 @@ class CreateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -1253,11 +1258,13 @@ class UpdateAccountInput:
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     # Distinguishes omitted fields from fields explicitly set to null.
     external_id_provided: bool = False
     properties_provided: bool = False
     slack_summary_cadence_provided: bool = False
     churned_at_provided: bool = False
+    ignored_at_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -1413,6 +1420,10 @@ class CustomerTaskAccessDenied(Exception):
     pass
 
 
+class CustomerTaskBulkUpdateConflict(Exception):
+    pass
+
+
 @stdlib_dataclass(frozen=True)
 class CustomerTaskUserView:
     id: int
@@ -1500,3 +1511,14 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+
+
+@dataclass(frozen=True)
+class KeyMetric:
+    key: str
+    name: str
+    people: bool
+    daily: list[tuple[date, float]]
+    this_week: float
+    last_week: float
+    node: dict[str, Any]

@@ -48,6 +48,28 @@ describe('JobDestinations', () => {
         expect(screen.getByAltText('Postgres')).toBeInTheDocument()
     })
 
+    test.each([
+        { description: 'marked', failedDestinationId: POSTGRES.id, marked: true },
+        { description: 'unmarked', failedDestinationId: undefined, marked: false },
+        { description: 'another destination marked', failedDestinationId: WAREHOUSE.id, marked: false },
+    ])('shows the failure state with the logo $description', ({ failedDestinationId, marked }) => {
+        render(
+            <JobDestinations
+                destinationIds={[POSTGRES.id]}
+                destinationsById={{ [POSTGRES.id]: { ...POSTGRES, config: {} } }}
+                failedDestinationId={failedDestinationId}
+            />
+        )
+
+        const logo = screen.getByAltText('Postgres').parentElement!
+        if (marked) {
+            expect(logo).toHaveClass('rounded', 'ring-2', 'ring-danger')
+        } else {
+            expect(logo).not.toHaveClass('ring-2')
+            expect(logo).not.toHaveClass('ring-danger')
+        }
+    })
+
     it('stays quiet while the destination lookup is still loading', () => {
         render(<JobDestinations destinationIds={[POSTGRES.id]} destinationsById={{}} loading />)
 

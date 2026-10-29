@@ -8,6 +8,7 @@ from django.apps import apps
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration
@@ -16,13 +17,27 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import (
+    THREAD_JOIN_ACTION_ALLOW,
+    THREAD_JOIN_ACTION_DECLINE,
+    THREAD_JOIN_CONTEXT_KIND,
     UNTAGGED_FOLLOWUP_ACTION_DISMISS,
     UNTAGGED_FOLLOWUP_ACTION_RUN,
     UNTAGGED_FOLLOWUP_BLOCK_ID_PREFIX,
     UNTAGGED_FOLLOWUP_CONTEXT_KIND,
+    UNTAGGED_QUESTION_ACTION_RUN,
+    UNTAGGED_QUESTION_ACTION_TURN_OFF,
+    UNTAGGED_QUESTION_BLOCK_ID_PREFIX,
+    UNTAGGED_QUESTION_CONTEXT_KIND,
     _picker_context_cache_key,
+    post_thread_join_prompt,
 )
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadJoin,
+    SlackThreadTaskMapping,
+    UntaggedFollowupMode,
+)
+from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -103,6 +118,24 @@ class TestUntaggedFollowupInteractivity(TestCase):
                 "event": self.event,
                 "is_ext_shared_channel": False,
                 "created_at": int(time.time()),
+            },
+            timeout=900,
+        )
+
+    def _stash_thread_join_prompt(self) -> None:
+        cache.set(
+            _picker_context_cache_key(self.context_token),
+            {
+                "kind": THREAD_JOIN_CONTEXT_KIND,
+                "integration_id": self.integration.id,
+                "slack_channel_id": self.slack_channel_id,
+                "thread_ts": "1000.0000",
+                "owner_slack_user_id": "U_ALICE",
+                "joiner_slack_user_id": "U_BOB",
+                "event": self.event,
+                "untagged_followup": False,
+                "untagged_followup_confirmed": False,
+                "is_ext_shared_channel": False,
             },
             timeout=900,
         )
@@ -252,3 +285,233 @@ class TestUntaggedFollowupInteractivity(TestCase):
 
         assert response.status_code == 200
         mock_start.assert_not_called()
+
+    def test_a_waiting_join_prompt_is_not_posted_again(self, mock_slack_cls, mock_post):
+        # A joiner who keeps typing while the creator has not answered must not flood the creator.
+        slack = MagicMock()
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event=self.event, integration_id=self.integration.id, slack_team_id=self.slack_team_id, user_id=1
+        )
+        for _ in range(3):
+            post_thread_join_prompt(
+                slack,
+                self.integration,
+                inputs,
+                channel=self.slack_channel_id,
+                thread_ts="1000.0000",
+                owner_slack_user_id="U_ALICE",
+                joiner_slack_user_id="U_BOB",
+                opens_thread=False,
+            )
+
+        assert [c.kwargs["user"] for c in slack.client.chat_postEphemeral.call_args_list] == ["U_ALICE", "U_BOB"]
+
+    @parameterized.expand([("thread_creator", "U_ALICE", True), ("someone_else", "U_MALLORY", False)])
+    def test_only_the_thread_creator_can_let_someone_join(
+        self, mock_slack_cls, mock_post, _name: str, clicker: str, joins: bool
+    ):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        self._stash_thread_join_prompt()
+
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            response = self._click(THREAD_JOIN_ACTION_ALLOW, clicker)
+
+        assert response.status_code == 200
+        joined = list(
+            SlackThreadJoin.objects.for_team(self.team.id)
+            .filter(thread_mapping=self.mapping)
+            .values_list("slack_user_id", flat=True)
+        )
+        assert joined == (["U_BOB"] if joins else [])
+        assert mock_start.called is joins
+        if joins:
+            assert mock_start.call_args.args[0] == self.event
+            assert mock_start.call_args.kwargs["posthog_user"].id == self.member_user.id
+
+    def test_an_approval_that_fails_to_send_can_be_clicked_again(self, mock_slack_cls, mock_post):
+        # A database or Temporal error must not lose the message that asked to join.
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        self._stash_thread_join_prompt()
+
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow",
+                side_effect=[RuntimeError("temporal down"), "wf"],
+            ) as mock_start,
+        ):
+            with self.assertRaises(RuntimeError):
+                self._click(THREAD_JOIN_ACTION_ALLOW, "U_ALICE")
+            self._click(THREAD_JOIN_ACTION_ALLOW, "U_ALICE")
+
+        assert mock_start.call_count == 2
+        assert mock_start.call_args.args[0] == self.event
+        assert mock_start.call_args.kwargs["thread_join_approved"] is True
+        assert cache.get(_picker_context_cache_key(self.context_token)) is None
+
+    def test_declining_tells_the_person_who_asked(self, mock_slack_cls, mock_post):
+        # Their message was held without the processing reaction, so only this notice says what happened.
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        self._stash_thread_join_prompt()
+
+        with patch("products.slack_app.backend.api._start_mention_workflow") as mock_start:
+            response = self._click(THREAD_JOIN_ACTION_DECLINE, "U_ALICE")
+
+        assert response.status_code == 200
+        mock_start.assert_not_called()
+        notice = mock_slack_cls.return_value.client.chat_postEphemeral.call_args.kwargs
+        assert (notice["user"], notice["thread_ts"]) == ("U_BOB", "1000.0000")
+        assert "<@U_ALICE> didn't let you join this thread" in notice["text"]
+        assert not SlackThreadJoin.objects.for_team(self.team.id).filter(thread_mapping=self.mapping).exists()
+
+
+@override_settings(DEBUG=True)
+@patch("products.slack_app.backend.api.requests.post")
+@patch("products.slack_app.backend.api.SlackIntegration")
+class TestUntaggedQuestionInteractivity(TestCase):
+    signing_secret = "posthog-code-test-secret"
+    slack_team_id = "T12345"
+    response_url = "https://hooks.slack.example/response/def"
+    context_token = "untagged-question-token-123"
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.member_user = User.objects.create(email="member@example.com", distinct_id="user-member")
+        OrganizationMembership.objects.create(user=self.member_user, organization=self.organization)
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id=self.slack_team_id,
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        self.event = {
+            "type": "message",
+            "channel": "C002",
+            "channel_type": "channel",
+            "user": "U_BOB",
+            "ts": "2000.0000",
+            "text": "How many people signed up last week?",
+        }
+        cache.set(
+            _picker_context_cache_key(self.context_token),
+            {
+                "kind": UNTAGGED_QUESTION_CONTEXT_KIND,
+                "integration_id": self.integration.id,
+                "slack_user_id": "U_BOB",
+                "event": self.event,
+            },
+            timeout=900,
+        )
+
+    def _click(
+        self,
+        action_id: str,
+        slack_user_id: str = "U_BOB",
+        *,
+        start_fails: bool = False,
+        ext_shared: bool | None = False,
+    ) -> Any:
+        payload = {
+            "type": "block_actions",
+            "team": {"id": self.slack_team_id},
+            "user": {"id": slack_user_id},
+            "response_url": self.response_url,
+            "actions": [
+                {
+                    "action_id": action_id,
+                    "block_id": f"{UNTAGGED_QUESTION_BLOCK_ID_PREFIX}_actions:{self.context_token}",
+                    "value": self.context_token,
+                }
+            ],
+        }
+        body_str = f"payload={json.dumps(payload)}"
+        signed = sign_slack_request(body_str.encode(), self.signing_secret)
+        with (
+            patch(
+                "products.slack_app.backend.api.get_slack_user_info",
+                return_value={"user": {"profile": {"email": self.member_user.email}}},
+            ),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow",
+                side_effect=RuntimeError("temporal down") if start_fails else None,
+            ) as mock_start,
+            patch("products.slack_app.backend.api.channel_ext_shared_state", return_value=ext_shared),
+        ):
+            self.client.post(
+                "/slack/interactivity-callback/",
+                data=body_str,
+                content_type="application/x-www-form-urlencoded",
+                headers={"x-slack-signature": signed.signature, "x-slack-request-timestamp": signed.timestamp},
+            )
+        return mock_start
+
+    def _stored_mode(self) -> str | None:
+        row = SlackSettings.objects.filter(slack_workspace_id=self.slack_team_id, slack_user_id="U_BOB").first()
+        return row.untagged_question_mode if row else None
+
+    def test_confirmation_in_a_channel_shared_since_the_offer_answers_nothing(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_slack_cls.return_value.missing_scopes.return_value = set()
+
+        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN, ext_shared=True).called
+
+    def test_a_failed_sharing_lookup_keeps_the_offer(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_slack_cls.return_value.missing_scopes.return_value = set()
+
+        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN, ext_shared=None).called
+        # The offer and its cached context survive, so the author can click again.
+        assert cache.get(_picker_context_cache_key(self.context_token)) is not None
+        assert not any("delete_original" in str(c) for c in mock_post.call_args_list)
+
+    def test_a_failed_dispatch_leaves_the_offer_clickable(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_slack_cls.return_value.missing_scopes.return_value = set()
+
+        with self.assertRaises(RuntimeError):
+            self._click(UNTAGGED_QUESTION_ACTION_RUN, start_fails=True)
+        assert cache.get(_picker_context_cache_key(self.context_token)) is not None
+
+        self._click(UNTAGGED_QUESTION_ACTION_RUN).assert_called_once()
+        assert cache.get(_picker_context_cache_key(self.context_token)) is None
+
+    def test_confirmation_answers_the_original_message(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_slack_cls.return_value.missing_scopes.return_value = set()
+
+        mock_start = self._click(UNTAGGED_QUESTION_ACTION_RUN)
+
+        mock_start.assert_called_once()
+        assert mock_start.call_args.args[0] == self.event
+        assert mock_start.call_args.kwargs["untagged_question"] is True
+        # Without this the re-dispatch would classify again and offer again.
+        assert mock_start.call_args.kwargs["untagged_question_confirmed"] is True
+        assert cache.get(_picker_context_cache_key(self.context_token)) is None
+
+    def test_click_from_anyone_but_the_author_answers_nothing(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+
+        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN, slack_user_id="U_EVE").called
+
+    def test_stop_offering_turns_answers_off(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+
+        assert not self._click(UNTAGGED_QUESTION_ACTION_TURN_OFF).called
+        assert self._stored_mode() == UntaggedFollowupMode.NEVER
+        assert mock_post.call_args.kwargs["json"]["replace_original"] is True
+
+    def test_confirmation_after_the_author_turned_answers_off_answers_nothing(self, mock_slack_cls, mock_post):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        SlackSettings.objects.create(
+            slack_workspace_id=self.slack_team_id,
+            slack_user_id="U_BOB",
+            untagged_question_mode=UntaggedFollowupMode.NEVER,
+        )
+
+        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN).called

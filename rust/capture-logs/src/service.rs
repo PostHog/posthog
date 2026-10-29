@@ -5,8 +5,8 @@ use crate::trace_record::KafkaTraceRow;
 use axum::{
     extract::Query,
     extract::State,
-    http::{HeaderMap, StatusCode},
-    response::Json,
+    http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
+    response::{IntoResponse, Json, Response},
 };
 use bytes::Bytes;
 use chrono::TimeDelta;
@@ -21,6 +21,7 @@ use std::fs::File;
 use std::io::Write;
 
 use crate::kafka::KafkaSink;
+use metrics::counter;
 
 use tracing::{debug, error, instrument};
 
@@ -397,6 +398,33 @@ pub(crate) fn decode_body_if_gzip_magic(
     }
 }
 
+/// Protobuf clients can't decode a JSON body.
+pub fn export_success_response(headers: &HeaderMap) -> Response {
+    let is_protobuf = headers
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/x-protobuf"));
+
+    if is_protobuf {
+        ([(CONTENT_TYPE, "application/x-protobuf")], Vec::<u8>::new()).into_response()
+    } else {
+        Json(json!({})).into_response()
+    }
+}
+
+// Forwarded unchecked, because only the logs consumer knows the team the token resolves to.
+const INTERNAL_LOGS_HTTP_HEADER: &str = "x-posthog-internal";
+const MAX_INTERNAL_LOGS_SIGNATURE_LEN: usize = 256;
+
+fn internal_logs_signature(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(INTERNAL_LOGS_HTTP_HEADER)?
+        .to_str()
+        .ok()
+        .filter(|signature| signature.len() <= MAX_INTERNAL_LOGS_SIGNATURE_LEN)
+}
+
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     content_type = %headers.get("content-type")
@@ -418,7 +446,7 @@ pub async fn export_logs_http(
     Query(backfill_params): Query<BackfillParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -493,7 +521,14 @@ pub async fn export_logs_http(
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write(token, rows, body.len() as u64, timestamps_overridden)
+        .write(
+            token,
+            rows,
+            body.len() as u64,
+            timestamps_overridden,
+            backfill_params.backfill_days,
+            internal_logs_signature(&headers),
+        )
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
@@ -505,8 +540,7 @@ pub async fn export_logs_http(
         debug!("Successfully sent {} logs to Kafka", row_count);
     }
 
-    // Return empty JSON object per OTLP spec
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 /// Handle CORS preflight requests (OPTIONS method) for all log endpoints.
@@ -574,7 +608,7 @@ pub async fn export_traces_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -653,7 +687,7 @@ pub async fn export_traces_http(
         debug!("Successfully sent {} traces to Kafka", row_count);
     }
 
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 /// Parse OpenTelemetry metric message from JSON bytes.
@@ -712,7 +746,7 @@ pub async fn export_metrics_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -787,13 +821,15 @@ pub async fn export_metrics_http(
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        counter!("capture_metrics_records_produced", "source" => "otlp")
+            .increment(row_count as u64);
         debug!(
             "Successfully sent {} metric data points to Kafka",
             row_count
         );
     }
 
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 #[cfg(test)]
@@ -805,6 +841,44 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(data).unwrap();
         Bytes::from(encoder.finish().unwrap())
+    }
+
+    #[tokio::test]
+    async fn export_success_response_matches_request_encoding() {
+        let cases = [
+            (
+                Some("application/x-protobuf"),
+                "application/x-protobuf",
+                &b""[..],
+            ),
+            (
+                Some("Application/X-Protobuf; charset=binary"),
+                "application/x-protobuf",
+                &b""[..],
+            ),
+            (Some("application/json"), "application/json", &b"{}"[..]),
+            (None, "application/json", &b"{}"[..]),
+        ];
+
+        for (request_content_type, expected_content_type, expected_body) in cases {
+            let mut headers = HeaderMap::new();
+            if let Some(content_type) = request_content_type {
+                headers.insert(CONTENT_TYPE, content_type.parse().unwrap());
+            }
+
+            let response = export_success_response(&headers);
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers().get(CONTENT_TYPE).unwrap(),
+                expected_content_type,
+                "request content type {request_content_type:?}"
+            );
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(body.as_ref(), expected_body);
+        }
     }
 
     #[test]
@@ -848,6 +922,33 @@ mod tests {
             let window = resolve_backfill_window(Some(days), ceiling);
 
             assert!(window.is_err(), "{case}");
+        }
+    }
+
+    #[test]
+    fn internal_logs_signature_forwards_only_a_bounded_header() {
+        let at_cap = "a".repeat(MAX_INTERNAL_LOGS_SIGNATURE_LEN);
+        let over_cap = "a".repeat(MAX_INTERNAL_LOGS_SIGNATURE_LEN + 1);
+        for (case, value, expected) in [
+            (
+                "a signature",
+                Some("v1.hog_flow.abc"),
+                Some("v1.hog_flow.abc"),
+            ),
+            (
+                "a signature at the cap",
+                Some(at_cap.as_str()),
+                Some(at_cap.as_str()),
+            ),
+            ("a signature over the cap", Some(over_cap.as_str()), None),
+            ("no header", None, None),
+        ] {
+            let mut headers = HeaderMap::new();
+            if let Some(value) = value {
+                headers.insert(INTERNAL_LOGS_HTTP_HEADER, value.parse().unwrap());
+            }
+
+            assert_eq!(internal_logs_signature(&headers), expected, "{case}");
         }
     }
 

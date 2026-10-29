@@ -1,9 +1,10 @@
 import uuid as uuid_module
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from uuid import UUID
 
 import pytest
+import time_machine
 from unittest.mock import Mock, call, patch
 
 from django.conf import settings as django_settings
@@ -11,7 +12,7 @@ from django.conf import settings as django_settings
 import dagster
 from clickhouse_driver import Client
 
-from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, Query
 from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import (
     GetExistingDictionaryConfig,
@@ -26,12 +27,13 @@ from posthog.dags.person_overrides import (
     wait_for_overrides_delete_mutations,
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
 
+@pytest.mark.django_db
 def test_full_job(cluster: ClickhouseCluster):
     timestamp = datetime(2025, 1, 1)
 
@@ -104,6 +106,10 @@ def test_full_job(cluster: ClickhouseCluster):
     remaining_overrides = cluster.any_host(get_distinct_ids_with_overrides).result()
     assert len(remaining_overrides) == 2  # one candidate discarded due to limit, one out of timestamp range
     assert "z" in remaining_overrides  # outside of timestamp range
+
+    run_log = DeletionRunLog.objects.get(dagster_run_id=limited_run_result.dagster_run.run_id)
+    assert (run_log.job, run_log.status) == (DeletionRunJob.SQUASH_PERSON_OVERRIDES, DeletionRunStatus.SUCCEEDED)
+    assert (run_log.squash_cutoff, run_log.squash_limit) == (timestamp.replace(tzinfo=UTC), 2)
 
     # run without limit to handle the remaining item(s)
     full_run_result = squash_person_overrides.execute_in_process(
@@ -199,6 +205,34 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
     assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == set()
 
 
+def test_the_default_cutoff_follows_the_clock_of_the_run() -> None:
+    # The code server builds the config schema once, and runs launch days or weeks after that.
+    config = PopulateSnapshotTableConfig()
+
+    with time_machine.travel(datetime(2026, 10, 24, 22, 0, tzinfo=UTC), tick=False):
+        assert config.cutoff() == "2026-10-22 22:00:00"
+
+    assert PopulateSnapshotTableConfig(timestamp="2025-01-01 00:00:00").cutoff() == "2025-01-01 00:00:00"
+
+
+@pytest.mark.django_db
+def test_a_failed_squash_run_is_logged_as_failed(cluster: ClickhouseCluster) -> None:
+    result = squash_person_overrides.execute_in_process(
+        run_config=dagster.RunConfig(
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp="not a date")}
+        ),
+        resources={"cluster": cluster},
+        raise_on_error=False,
+    )
+
+    assert not result.success
+    run_log = DeletionRunLog.objects.get(dagster_run_id=result.dagster_run.run_id)
+    assert run_log.status == DeletionRunStatus.FAILED
+    assert run_log.squash_cutoff is None
+    assert run_log.error.startswith(f"{populate_snapshot_table.name}: ")
+
+
+@pytest.mark.django_db
 def test_cleanup_job(cluster: ClickhouseCluster) -> None:
     timestamp = datetime(2025, 1, 1)
 
@@ -277,6 +311,13 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     # passes when a target is dropped entirely.
     dictionary = _create_snapshot_with(cluster, [(1, "a", UUID(int=7), 3)])
     sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    sibling.map_one_host_per_shard(Query(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")).result()
+    sibling.any_host(
+        Query(
+            f"INSERT INTO {EVENTS_JSON_DATA_TABLE} (uuid, team_id, event, distinct_id, timestamp) VALUES",
+            [(uuid_module.uuid4(), 1, "$pageview", "a", datetime(2025, month, 15)) for month in (1, 2)],
+        )
+    ).result()
     placements = [
         TargetPlacement(target=EVENTS, cluster=cluster),
         TargetPlacement(target=EVENTS_JSON, cluster=sibling),
@@ -285,7 +326,7 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     calls = Mock()
     enqueued = {
         EVENTS_DATA_TABLE(): {0: Mock()},
-        EVENTS_JSON_DATA_TABLE: {0: Mock()},
+        EVENTS_JSON_DATA_TABLE: {},
         FLAG_EVALUATIONS_DATA_TABLE: {0: Mock()},
     }
 
@@ -306,27 +347,34 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
     # would still match after someone drops a target from it.
     resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
-    assert {enqueue.args[0].table: enqueue.args[1] for enqueue in enqueue_on_shards.call_args_list} == {
-        EVENTS_DATA_TABLE(): cluster,
-        EVENTS_JSON_DATA_TABLE: sibling,
-        FLAG_EVALUATIONS_DATA_TABLE: sibling,
-    }
-    assert {enqueue.args[0].table: enqueue.args[0].patch_parts for enqueue in enqueue_on_shards.call_args_list} == {
-        EVENTS_DATA_TABLE(): False,
-        EVENTS_JSON_DATA_TABLE: True,
-        FLAG_EVALUATIONS_DATA_TABLE: False,
-    }
+    assert sorted(
+        (
+            enqueue.args[0].table,
+            enqueue.args[1] is sibling,
+            enqueue.args[0].patch_parts,
+            enqueue.args[0].parameters.get("partition_id"),
+        )
+        for enqueue in enqueue_on_shards.call_args_list
+    ) == sorted(
+        [
+            (EVENTS_DATA_TABLE(), False, False, None),
+            (FLAG_EVALUATIONS_DATA_TABLE, True, False, None),
+            # One statement per partition. A single statement over the whole table holds a block
+            # number open in every partition and stalls merges across the table until it finishes.
+            (EVENTS_JSON_DATA_TABLE, True, True, "202501"),
+            (EVENTS_JSON_DATA_TABLE, True, True, "202502"),
+        ]
+    )
     # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
     # returns at once, and the next op deletes the overrides that record the mapping.
     wait_for_mutations.assert_has_calls(
         [
             call(cluster, enqueued[EVENTS_DATA_TABLE()]),
-            call(sibling, enqueued[EVENTS_JSON_DATA_TABLE]),
             call(sibling, enqueued[FLAG_EVALUATIONS_DATA_TABLE]),
         ],
         any_order=True,
     )
     # Waiting on each mutation as it is enqueued would cost the sum of their completion times
     # rather than the longest, which is the whole reason the op enqueues in one pass.
-    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 3 + ["wait"] * 3
+    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 4 + ["wait"] * 2
     cluster.any_host(dictionary.source.drop).result()

@@ -1,6 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "dashboard_tile_ids": {
+            "description": "IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.",
+            "items": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
         "filters_override": {
             "anyOf": [
                 {
@@ -32,10 +42,6 @@
         "refresh": {
             "description": "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.",
             "enum": ["blocking", "force_blocking", "force_cache"],
-            "type": "string"
-        },
-        "tile_ids": {
-            "description": "Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.",
             "type": "string"
         },
         "variables_override": {

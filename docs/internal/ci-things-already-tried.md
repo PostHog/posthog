@@ -209,14 +209,30 @@ Two things make this look inactive:
 The selection was also active for draft PRs only for some time. The team wanted a stable merge queue first.
 
 [#85530](https://github.com/PostHog/posthog/pull/85530) then extended the selection to PRs that are ready for review. [#88265](https://github.com/PostHog/posthog/pull/88265) put the Django selection and the product selection in one job.
-Read the comment at the top of `.github/workflows/ci-backend.yml` for the current rules.
+The comment under `pull_request:` in `.depot/workflows/ci-backend.yml` explains which tests run on each type of pull request.
 
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
 Jest selection includes imported JSON files, such as terminal package manifests, because changes to data can break their consumers without changing TypeScript.
+Frontend jest selection follows only the imports that load a module when a test runs.
+An import used only as a type does not select a test, because the jest transformer removes it.
+Jest loads its configuration, its setup files, and the MSW mocks for every test, so selection cannot follow a change to one of them through imports.
+A ready PR that changes one takes the full matrix.
 What still differs by draft state is the fallback when a selection cannot be trusted: a draft skips the suite and defers to its ready run, a ready PR takes the full matrix because no later run on that PR would cover it.
 
 _Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
+
+### Give the jest PR matrix a fixed shard count
+
+**Verdict: superseded** · Oct 2026 · 262 sampled PR runs and a [probe run](https://github.com/PostHog/posthog/actions/runs/38407529831)
+
+Jest selection on PRs ran three shards whatever it selected, and the selection was all or nothing: 60% of PR runs executed 2,171 of 2,720 test files and 39% executed under 50.
+The import graph that `--findRelatedTests` walks held one cycle of 2,851 files, and 92% of its edges were imports the transformer removes. Reading imports from the transformer output shrinks it to 218 files and 997 tests.
+The 997 tests that load the cycle cost 3.65 seconds each against 1.07 for the rest, so a changed-file count sizes nothing. `.github/scripts/jest-select.js` counts the related tests and assigns one shard per 342 files, capped at eight. This initial threshold comes from the probe runs and needs tuning against observed shard durations; file counts do not guarantee a ten-minute wall. The selector classifies known fallback cases before installing dependencies. Pricing each shard from the hourly run's JUnit was built and removed: two probe runs sized by count landed within 1.4x of the estimate, and the per-file map cost a recorder job and a cache.
+
+Measured on the way and not worth repeating: `--maxWorkers=100%` on the selective path gained nothing on the 4 vCPU runners; persisting jest's cache made a second run on the same runner 5% (12 seconds) faster; the V8 leak fix (`--retain-maps-for-n-gc=0`, [#114618](https://github.com/PostHog/posthog/pull/114618)) was worth 15 to 20% of a shard and about 5% on the merge queue; a different fixed shard count gained nothing.
+
+_Also asked as:_ jest shard timeout, jest selects everything, more jest shards, jest --maxWorkers, cache jest between runs
 
 ### Narrow the product test matrix when the backend selector returns `full`
 
@@ -479,6 +495,31 @@ The difference is in the `git fetch --depth=1`, and on master pushes the same Dj
 A checkout of `pull_request.head.sha` also took 21 to 22 s, so the refspec is not the cause. The cause is not known.
 
 _Also asked as:_ slow checkout in the Django shards, head.ref or head.sha, why is the Django checkout slower than the product checkout
+
+### Keep the pre-built wheels in the uv cache with `prune-cache: false`
+
+**Verdict: rejected** · Oct 2026 · [Depot run](https://depot.dev/orgs/ntsdt08fpt/workflows/4qpth2kdws), [#121208](https://github.com/PostHog/posthog/pull/121208)
+
+`setup-uv` prunes the cache, so each backend shard downloads its wheels from PyPI in `uv sync`.
+Between 00:14 and 03:07 UTC on 27 Oct 2026, PyPI downloads from the Depot CI sandboxes were very slow.
+The `Install Python dependencies` step has `timeout-minutes: 5` and `retry: 1`.
+Both attempts stalled, and Depot killed the step with `exec-step child exited with signal SIGTERM and produced no result`.
+Each shard failed about 10.5 minutes after it started. About 25 Backend CI runs failed. From 22:00 UTC the evening before to 12:00 UTC that day, no other run failed this way.
+
+The proposal was to stop the pruning, so that the shards get the wheels from Depot Cache and not from PyPI.
+The cost was estimated, not measured, because no job runs with an unpruned cache:
+
+- The unpruned cache is about 1 GB. Depot Cache storage costs $0.20 per GB-month, so the storage cost is small.
+- Each shard restores the 1 GB in about 20 s (from #121208). `uv sync` from PyPI takes 11 to 23 s in a healthy shard. The estimated net cost is 5 to 20 s for each shard, on every run.
+- At $0.006 per minute for a 2 vCPU sandbox, the compute of the whole outage, with the killed shards and the full reruns, is equal to about 2 to 8 days of that extra restore time.
+
+The pruning stays because one outage at night costs less than the restore time.
+Try this again if PyPI outages occur during working hours or more than a few times each month. Then the developer time and the merge queue kicks change the result.
+A longer step timeout does not help: the 5-minute bound and the retry let the shard fail fast, and this outage was 3 hours long.
+
+`setup-uv` v9 changed the `prune-cache` default to `false`. Each cache-enabled call sets `prune-cache: true` so that the cache stays at about 3 MB.
+
+_Also asked as:_ uv sync timeout, uv sync SIGTERM, PyPI is slow in CI, cache the Python wheels, why is prune-cache true, exec-step child exited with signal SIGTERM
 
 ### Jest reports the Rust snapshots as obsolete
 

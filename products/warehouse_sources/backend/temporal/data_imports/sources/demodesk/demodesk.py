@@ -42,7 +42,7 @@ class DemodeskResumeConfig:
     # v1 endpoints checkpoint a page number, v2 endpoints an opaque cursor; one field is set.
     page: int | None = None
     cursor: str | None = None
-    # `recording_summaries`/`recording_scorecards` fan out over `recordings`; this is the
+    # The `recording_*` endpoints fan out over `recordings`; this is the
     # `build_dependent_resource` checkpoint (which parents finished, where the current one
     # stopped), mutually exclusive with `page`/`cursor` above.
     fanout_state: dict[str, Any] | None = None
@@ -116,9 +116,9 @@ def demodesk_client_config(api_key: str, api_version: DemodeskApiVersion) -> Cli
         # `Authorization` is, so `allow_redirects=False` is the only thing that keeps either auth
         # scheme's credential from following a spoofed 3xx off `BASE_URL`.
         "allow_redirects": False,
-        # `recording_summaries` bodies carry free-text AI meeting summaries and `recordings`
-        # carries signed `temporaryDirectUrl` links; keep both out of the shared HTTP sample
-        # store (still metered and logged) rather than trust the name-based scrubbers on
+        # `recording_summaries` and `recording_transcripts` bodies carry free-text meeting content
+        # and `recordings` carries signed `temporaryDirectUrl` links; keep them out of the shared
+        # HTTP sample store (still metered and logged) rather than trust the name-based scrubbers on
         # unstructured content.
         "capture": False,
     }

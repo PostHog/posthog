@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
+    codebase_detection = detect(env=("^LEMLIST_",))
+
     api_docs_url = "https://developer.lemlist.com/api-reference"
     supported_versions = LEMLIST_SUPPORTED_VERSIONS
     default_version = LEMLIST_DEFAULT_VERSION
@@ -51,7 +54,7 @@ class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
             name=ExternalDataSourceType.LEMLIST,
             category=DataWarehouseSourceCategory.SALES,
             label="Lemlist",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your lemlist API key to sync your lemlist data into the PostHog Data warehouse.
 
 You can generate an API key in your lemlist **Settings > Integrations** page.""",

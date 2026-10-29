@@ -91,8 +91,6 @@ export interface SeriesData {
     compare_label?: string
     /** Index of the query series this row belongs to — stamped by the mock resolver. */
     seriesIndex?: number
-    /** Event name of the query series this row belongs to — stamped by the mock resolver. */
-    eventName?: string
 }
 
 type CannedSeries = SeriesData & { labels: string[]; days: string[] }
@@ -117,6 +115,18 @@ export const trendsSeries = {
         { label: 'Conker', data: [0, 0, 0, 0, 0], days, labels, breakdown_value: 'Conker' },
         { label: 'Prickles', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Prickles' },
     ] satisfies CannedSeries[],
+    // A part that sums negative, as a trends formula like `A - B` can.
+    napsByHedgehogWithNegativePart: [
+        { label: 'Spike', data: [10, 0, 0, 0, 0], days, labels, breakdown_value: 'Spike' },
+        { label: 'Bramble', data: [-4, 0, 0, 0, 0], days, labels, breakdown_value: 'Bramble' },
+    ] satisfies CannedSeries[],
+    napsByManyHedgehogs: Array.from({ length: 21 }, (_, i) => ({
+        label: `Hedgehog ${i + 1}`,
+        data: [1, 0, 0, 0, 0],
+        days,
+        labels,
+        breakdown_value: `Hedgehog ${i + 1}`,
+    })) satisfies CannedSeries[],
     pageviewsByHedgehog: [
         { label: 'Spike', data: [30, 50, 90, 140, 60], days, labels, breakdown_value: 'Spike' },
         { label: 'Bramble', data: [15, 32, 44, 70, 35], days, labels, breakdown_value: 'Bramble' },
@@ -163,8 +173,6 @@ export const trendsSeries = {
 
 interface EventSeriesConfig {
     default: SeriesData
-    /** Return multiple series for this event even without a breakdown. */
-    multi?: SeriesData[]
     breakdowns?: Record<string, SeriesData[]>
 }
 
@@ -181,7 +189,20 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
             hedgehog: trendsSeries.napsByHedgehog,
         },
     },
-    ZeroCounts: { default: trendsSeries.withZeroCounts[0], multi: trendsSeries.withZeroCounts },
+    NappedWithNegativePart: {
+        default: trendsSeries.napped,
+        breakdowns: {
+            hedgehog: trendsSeries.napsByHedgehogWithNegativePart,
+        },
+    },
+    NappedByManyHedgehogs: {
+        default: trendsSeries.napped,
+        breakdowns: {
+            hedgehog: trendsSeries.napsByManyHedgehogs,
+        },
+    },
+    EmptySeries: { default: trendsSeries.withZeroCounts[0] },
+    ActiveSeries: { default: trendsSeries.withZeroCounts[1] },
     Minimal: { default: trendsSeries.minimal },
     NoActivity: { default: trendsSeries.noActivity },
     WeeklyAcrossYears: { default: trendsSeries.weeklyAcrossYears },
@@ -209,9 +230,6 @@ export function lookupSeries(eventName: string, breakdownProperty?: string): Ser
     }
     if (breakdownProperty && config.breakdowns?.[breakdownProperty]) {
         return config.breakdowns[breakdownProperty]
-    }
-    if (config.multi) {
-        return config.multi
     }
     return [config.default]
 }

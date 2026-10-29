@@ -286,7 +286,7 @@ def test_an_integration_lookup_timeout_emits_nothing_and_is_reported(produce, in
         patch("products.workflows.backend.github_workflow_events.logger") as logger,
         patch.object(
             Integration.objects,
-            "filter",
+            "using",
             side_effect=OperationalError("canceling statement due to statement timeout"),
         ),
     ):

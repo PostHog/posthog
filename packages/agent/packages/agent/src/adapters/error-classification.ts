@@ -1,4 +1,7 @@
-import { getErrorMessage } from "@posthog/agent-contracts";
+import {
+  getErrorMessage,
+  isUpstreamRequestRejected,
+} from "@posthog/agent-contracts";
 
 export type AgentErrorClassification =
   | "upstream_stream_terminated"
@@ -9,6 +12,7 @@ export type AgentErrorClassification =
   | "turn_ended_without_response"
   | "subscription_usage_limit"
   | "task_spend_limit"
+  | "upstream_request_rejected"
   | "agent_error";
 
 const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
@@ -30,6 +34,10 @@ const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
 const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
   /unexpected status\s*(?:429|5\d\d)\b/i;
+// OpenAI refuses a flex-tier request when it has no flex capacity. The
+// refusal carries no HTTP status in the text, but it is transient.
+const UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN = /\bcapacity unavailable\b/i;
+const CODEX_SERVER_OVERLOADED_PATTERN = /\bSelected model is at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
@@ -83,7 +91,9 @@ export function classifyAgentError(
   }
   if (
     UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
-    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text)
+    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
+    CODEX_SERVER_OVERLOADED_PATTERN.test(text) ||
+    UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN.test(text)
   ) {
     return "upstream_provider_failure";
   }
@@ -95,6 +105,9 @@ export function classifyAgentError(
   }
   if (SUBSCRIPTION_USAGE_LIMIT_PATTERN.test(text)) {
     return "subscription_usage_limit";
+  }
+  if (isUpstreamRequestRejected(text)) {
+    return "upstream_request_rejected";
   }
   return "agent_error";
 }
@@ -120,7 +133,22 @@ export function sanitizeAgentErrorCause(
   ) {
     return classification;
   }
+  if (classification === "upstream_request_rejected") {
+    if (!text.startsWith("{")) {
+      return text.slice(0, 200);
+    }
+    return (rejectedRequestMessage(text) ?? classification).slice(0, 200);
+  }
   return text.slice(0, 400);
+}
+
+function rejectedRequestMessage(body: string): string | undefined {
+  try {
+    const message = JSON.parse(body)?.error?.message;
+    return typeof message === "string" ? message : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

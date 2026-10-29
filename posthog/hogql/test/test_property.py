@@ -111,9 +111,16 @@ class TestProperty(BaseTest):
             Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
         ] = None,
         strict: bool = True,
+        cohort_via_distinct_id: bool = False,
     ):
         return clear_locations(
-            property_to_expr(property, team=team or self.team, scope=scope or "event", strict=strict)
+            property_to_expr(
+                property,
+                team=team or self.team,
+                scope=scope or "event",
+                strict=strict,
+                cohort_via_distinct_id=cohort_via_distinct_id,
+            )
         )
 
     def _selector_to_expr(self, selector: str):
@@ -496,7 +503,7 @@ class TestProperty(BaseTest):
         sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
         self.assertIn("getSubcolumn(events.properties, %(hogql_val_", sql)
         self.assertNotIn("events.properties.a", sql)
-        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb", "^`a%2Eb`"})
+        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb"})
 
     def test_property_string_expr_reads_dotted_key_as_one_flat_path_on_native_table(self):
         # Raw-SQL readers must bind the escaped path name like the printer does, and stay safe for callers that
@@ -835,6 +842,17 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "element",
+                    "key": "href",
+                    "value": ["a", "b"],
+                    "operator": "not_in",
+                }
+            ),
+            self._parse_expr("elements_chain_href NOT IN ['a'] AND elements_chain_href NOT IN ['b']"),
+        )
         for text_key in ("text", "$el_text"):
             self.assertEqual(
                 self._property_to_expr(
@@ -952,12 +970,16 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match('(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
-                elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))div[^;]*?($|;|:([^;^\\s]*(;|$|\\s))).*")
+                elements_chain_match(
+                    '(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                )
             ),
         )
         self.assertEqual(
@@ -965,20 +987,32 @@ class TestProperty(BaseTest):
             clear_locations(
                 parse_expr(
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
-                    {"regex": elements_chain_match('(^|;)a.*?href="boo".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?href="boo"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(elements_chain_match("(^|;).*?\\.class[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.class(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {"regex": elements_chain_match('(^|;)a.*?attr_id="withid".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="withid"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
@@ -990,7 +1024,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="with\\-dashed\\-id"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -1005,6 +1039,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with-dashed-id"),
             self._selector_to_expr("[id='with-dashed-id']"),
         )
+        self.assertEqual(self._selector_to_expr("#a[id='b']"), ast.Constant(value=False))
         self.assertEqual(
             self._selector_to_expr("#with\\slashed\\id"),
             clear_locations(
@@ -1020,7 +1055,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".sm:[max-width:640px]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.sm:\\[max\\-width:640px\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.sm:\\[max\\-width:640px\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -1028,7 +1065,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".w-[calc(100%-2rem)]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -1037,7 +1076,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
             clear_locations(
                 elements_chain_match(
-                    "(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))"
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -1045,7 +1084,11 @@ class TestProperty(BaseTest):
         # Test Tailwind fraction/opacity class with a slash
         self.assertEqual(
             self._selector_to_expr(".bg-yellow/50"),
-            clear_locations(elements_chain_match("(^|;).*?\\.bg\\-yellow/50[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.bg\\-yellow/50(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_cohort_filter_static(self):
@@ -1069,9 +1112,37 @@ class TestProperty(BaseTest):
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
 
-    def test_cohort_filter_missing_cohort(self):
-        with self.assertRaisesMessage(QueryError, "Cohort 2137 does not exist"):
-            self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
+    @parameterized.expand(
+        [
+            ("in", {}, "IN"),
+            ("negation", {"negation": True}, "NOT IN"),
+            ("not_in_operator", {"operator": "not_in"}, "NOT IN"),
+        ]
+    )
+    def test_cohort_filter_via_distinct_id(self, _name: str, extra: dict, expected_op: str):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "cohort", "key": "id", "value": cohort.pk, **extra},
+                self.team,
+                cohort_via_distinct_id=True,
+            ),
+            self._parse_expr(
+                f"distinct_id {expected_op} "
+                f"(SELECT distinct_id FROM person_distinct_ids WHERE person_id IN COHORT {cohort.pk})"
+            ),
+        )
+
+    @parameterized.expand([("missing", False), ("deleted", True)])
+    def test_cohort_filter_missing_cohort(self, _name: str, deleted: bool):
+        cohort_id = 2137
+        if deleted:
+            cohort_id = Cohort.objects.create(team=self.team, name="gone", groups=[], deleted=True).pk
+        with self.assertRaisesMessage(QueryError, f"Cohort {cohort_id} does not exist"):
+            self._property_to_expr({"type": "cohort", "key": "id", "value": cohort_id}, self.team)
 
     def test_person_scope(self):
         self.assertEqual(
@@ -1237,47 +1308,53 @@ class TestProperty(BaseTest):
             self._parse_expr("person.extended_properties.bool_prop = true"),
         )
 
-    def test_data_warehouse_property_with_list_values(self):
-        credential = DataWarehouseCredential.objects.create(
-            team=self.team, access_key="_accesskey", access_secret="_secret"
-        )
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="foobars",
-            columns={
-                "event": {"hogql": "StringDatabaseField", "clickhouse": "String"},
-                "properties": {"hogql": "JSONField", "clickhouse": "String"},
-            },
-            credential=credential,
-            url_pattern="",
-        )
-
-        expr = self._property_to_expr(
-            Property(
-                type="data_warehouse",
-                key="foobars.properties.$feature/test",
-                value=["control", "test"],
-                operator="exact",
+    @parameterized.expand(
+        [
+            (
+                "exact",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` = 'control' OR foobars.properties.`$feature/test` = 'test'",
             ),
+            (
+                "is_not",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` != 'control' AND foobars.properties.`$feature/test` != 'test'",
+            ),
+            (
+                "not_in",
+                ["control", "test"],
+                "foobars.properties.`$feature/test` NOT IN ('control', 'test')",
+            ),
+            (
+                "not_icontains_multi",
+                ["control", "test"],
+                "NOT multiSearchAnyCaseInsensitive(toString(foobars.properties.`$feature/test`), ['control', 'test']) > 0",
+            ),
+            (
+                "between",
+                [1, 10],
+                "foobars.properties.`$feature/test` >= 1 AND foobars.properties.`$feature/test` <= 10",
+            ),
+            (
+                "not_between",
+                [1, 10],
+                "foobars.properties.`$feature/test` < 1 OR foobars.properties.`$feature/test` > 10"
+                " OR isNull(foobars.properties.`$feature/test`)",
+            ),
+        ]
+    )
+    def test_data_warehouse_property_with_list_values(self, operator: str, value: list, expected: str):
+        expr = self._property_to_expr(
+            {
+                "type": "data_warehouse",
+                "key": "foobars.properties.$feature/test",
+                "value": value,
+                "operator": operator,
+            },
             self.team,
         )
 
-        self.assertIsInstance(expr, ast.Or)
-        self.assertEqual(len(expr.exprs), 2)
-
-        # First expression
-        compare_op_1 = expr.exprs[0]
-        self.assertIsInstance(compare_op_1, ast.CompareOperation)
-        self.assertIsInstance(compare_op_1.left, ast.Field)
-        self.assertEqual(compare_op_1.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_1.right.value, "control")
-
-        # Second expression
-        compare_op_2 = expr.exprs[1]
-        self.assertIsInstance(compare_op_2, ast.CompareOperation)
-        self.assertIsInstance(compare_op_2.left, ast.Field)
-        self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
-        self.assertEqual(compare_op_2.right.value, "test")
+        self.assertEqual(expr, self._parse_expr(expected))
 
     def test_revenue_analytics_property(self):
         self.assertEqual(
@@ -1956,6 +2033,22 @@ class TestProperty(BaseTest):
             ),
         )
 
+        # semver_neq with a list must drop a row that equals any listed version. An OR join keeps
+        # that row, because the row differs from the other listed versions.
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_neq", "value": ["1.2.3", "2.0.0"]}
+            ),
+            ast.And(
+                exprs=[
+                    self._property_to_expr(
+                        {"type": "person", "key": "app_version", "operator": "semver_neq", "value": version}
+                    )
+                    for version in ("1.2.3", "2.0.0")
+                ]
+            ),
+        )
+
     def test_property_to_expr_semver_validation(self):
         version_gate = "match(person.properties.version, '^\\\\s*v?(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)(?:[-+][^\\\\s]*)?\\\\s*$')"
 
@@ -2171,7 +2264,7 @@ class TestProperty(BaseTest):
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
         # array properties and loses its lowercase index hint, so the name pattern pins the set.
-        by_name = {op for op in PropertyOperator if op.value.startswith(("not_", "is_not"))}
+        by_name = {op for op in PropertyOperator if "not" in op.value.split("_") or op.value.endswith("_neq")}
         assert {op for op in PropertyOperator if operator_is_negative(op)} == by_name
 
     def test_flag_evaluates_to_produces_neutral_expr(self):
@@ -2427,7 +2520,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
                 "string_empty_prop",
                 "",
                 PropertyType.String,
-                False if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
+                self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
             ),
             ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),
@@ -2712,7 +2805,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
     EVENT = "purchase"
     SCORED_EVENT = "scored"
     EXCEPTION_EVENT = "exception"
-    ARRAYS_WITHOUT_MATCH = {"types_missing", "types_empty", "types_nonmatch_only"}
+    ARRAYS_WITHOUT_MATCH = {"types_missing", "types_empty", "types_nonmatch_only", "types_versions"}
     ARRAYS_WITH_MATCH = {"types_match_only", "types_mixed"}
 
     @classmethod
@@ -2749,6 +2842,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ("types_match_only", ["ReferenceError"]),
             ("types_nonmatch_only", ["OtherError"]),
             ("types_mixed", ["ReferenceError", "OtherError"]),
+            ("types_versions", ["1.2.3", "2.0.0"]),
         ]:
             _create_event(
                 team=cls.team,
@@ -2795,6 +2889,11 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ),
             ("event_is_not_set", {"type": "event", "key": "plan", "operator": "is_not_set"}, {"missing"}),
             (
+                "event_is_cleaned_path_not_exact",
+                {"type": "event", "key": "plan", "value": ["free"], "operator": "is_cleaned_path_not_exact"},
+                {"present_nonmatch", "missing"},
+            ),
+            (
                 "person_multi_value_not_icontains_personless",
                 {"type": "person", "key": "email", "value": ["@a.com", "@b.com"], "operator": "not_icontains"},
                 {"present_nonmatch", "present_match", "missing"},
@@ -2823,6 +2922,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ("not_regex",),
             ("not_starts_with",),
             ("not_ends_with",),
+            ("is_cleaned_path_not_exact",),
         ]
     )
     def test_multi_value_negative_operator_drops_row_matching_any_value(self, operator: str):
@@ -2916,6 +3016,11 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
                 ARRAYS_WITHOUT_MATCH,
             ),
             ("is_not_set", {"operator": "is_not_set"}, {"types_missing", "types_empty"}),
+            (
+                "semver_neq",
+                {"value": "1.2.3", "operator": "semver_neq"},
+                (ARRAYS_WITHOUT_MATCH - {"types_versions"}) | ARRAYS_WITH_MATCH,
+            ),
             # positive baseline: the mixed row holds a match, so it belongs on this side and only this side
             (
                 "icontains_multi_value",

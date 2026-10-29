@@ -5,6 +5,7 @@ import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 
 REVENUECAT_API_KEYS_URL = "https://app.revenuecat.com/projects/_/api-keys"
@@ -133,6 +134,64 @@ class RevenueCatSource(
     ResumableSource[RevenueCatSourceConfig, RevenueCatResumeConfig],
     WebhookSource[RevenueCatSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^REVENUE_?CAT_", "^EXPO_PUBLIC_REVENUE_?CAT_"),
+        script_hosts=("sdk.revenuecat-static.com",),
+        npm=(
+            "@revenuecat/purchases-js",
+            "react-native-purchases",
+            "@revenuecat/purchases-capacitor",
+            "react-native-purchases-ui",
+            "@revenuecat/purchases-capacitor-ui",
+            "@revenuecat/purchases-ui-js",
+            "@revenuecat/purchases-js-vega",
+            "@revenuecat/workflow-web-components-sdk",
+            "@revenuecat/cli",
+            "cordova-plugin-purchases",
+            "react-native-purchases-store-galaxy",
+            "@awesome-cordova-plugins/purchases",
+            "@ionic-native/purchases",
+        ),
+        cocoapods=(
+            "RevenueCat",
+            "Purchases",
+            "RevenueCatUI",
+            "PurchasesHybridCommon",
+            "PurchasesHybridCommonUI",
+            "PurchasesCoreSwift",
+        ),
+        maven=(
+            "com.revenuecat.purchases:purchases",
+            "com.revenuecat.purchases:purchases-ui",
+            "com.revenuecat.purchases:purchases-store-amazon",
+            "com.revenuecat.purchases:purchases-store-galaxy",
+            "com.revenuecat.purchases:purchases-debug-view",
+            "com.revenuecat.purchases:purchases-debug-view-noop",
+            "com.revenuecat.purchases:purchases-admob",
+            "com.revenuecat.purchases:purchases-admob-next-gen",
+            "com.revenuecat.purchases:purchases-bom",
+            "com.revenuecat.purchases:purchases-custom-entitlement-computation",
+            "com.revenuecat.purchases:purchases-bc7",
+            "com.revenuecat.purchases:purchases-ui-bc7",
+            "com.revenuecat.purchases:purchases-store-amazon-bc7",
+            "com.revenuecat.purchases:purchases-store-galaxy-bc7",
+            "com.revenuecat.purchases:purchases-kmp-core",
+            "com.revenuecat.purchases:purchases-kmp-ui",
+            "com.revenuecat.purchases:purchases-kmp-either",
+            "com.revenuecat.purchases:purchases-kmp-result",
+            "com.revenuecat.purchases:purchases-kmp-datetime",
+            "com.revenuecat.purchases:purchases-hybrid-common",
+            "com.revenuecat.purchases:purchases-hybrid-common-ui",
+        ),
+        pub=("purchases_flutter", "purchases_ui_flutter"),
+        swiftpm=(
+            "github.com/revenuecat/purchases-ios",
+            "github.com/revenuecat/purchases-ios-spm",
+            "github.com/revenuecat/purchases-ios-admob",
+            "github.com/revenuecat/purchases-hybrid-common",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"

@@ -13,10 +13,40 @@ from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubRateLimitError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
+    GithubAuthMethodConfig,
+    GithubSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 
 _CUTOFF = datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)
+
+
+def _drive_pull_requests(script: Script, **inputs: Any) -> DriveResult:
+    config = GithubSourceConfig(
+        auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="tok"),
+        repository="acme/widgets",
+        repositories=None,
+    )
+    return SourceDriver(GithubSource(), config).run("pull_requests", script, **inputs)
+
+
+def _rows_from_result(result: DriveResult) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for table in result.items:
+        assert isinstance(table, pa.Table)
+        rows.extend(table.to_pylist())
+    return rows
 
 
 def _response(body: Any, next_url: str | None = None, status_code: int = 200) -> mock.Mock:
@@ -36,6 +66,34 @@ def _no_resume() -> mock.Mock:
 def _run(
     endpoint: str, responses_by_url: dict[str, mock.Mock], **incremental: Any
 ) -> tuple[list[dict[str, Any]], list[str]]:
+    if endpoint not in {"commit_statuses", "check_runs"}:
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            for needle in sorted(responses_by_url, key=len, reverse=True):
+                if needle in request.url:
+                    response = responses_by_url[needle]
+                    try:
+                        body = response.json()
+                    except requests.exceptions.JSONDecodeError:
+                        body = None
+                    return ScriptedResponse(status=response.status_code, json=body, headers=response.headers)
+            raise AssertionError(f"Unexpected URL requested: {request.url}")
+
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(
+                github_integration_id=None, selection="pat", personal_access_token="tok"
+            ),
+            repository="acme/widgets",
+            repositories=None,
+        )
+        result = SourceDriver(GithubSource(), config).run(endpoint, respond, **incremental)
+        assert result.raised is None
+        rows: list[dict[str, Any]] = []
+        for table in result.items:
+            assert isinstance(table, pa.Table)
+            rows.extend(table.to_pylist())
+        return rows, result.urls
+
     calls: list[str] = []
 
     def fetch_page(url: str, *_args: Any, **_kwargs: Any) -> mock.Mock:
@@ -57,44 +115,11 @@ def _run(
             )
         )
 
-    rows: list[dict[str, Any]] = []
+    fetched_rows: list[dict[str, Any]] = []
     for table in tables:
         assert isinstance(table, pa.Table)
-        rows.extend(table.to_pylist())
-    return rows, calls
-
-
-def _run_over_transport(endpoint: str) -> list[dict[str, Any]]:
-    """Same walk as `_run`, but through the real `_fetch_page` so the response-status handling is
-    exercised rather than stubbed out."""
-    tables = list(
-        github.get_rows(
-            personal_access_token="tok",
-            repository="acme/widgets",
-            endpoint=endpoint,
-            logger=mock.Mock(),
-            resumable_source_manager=_no_resume(),
-        )
-    )
-
-    rows: list[dict[str, Any]] = []
-    for table in tables:
-        assert isinstance(table, pa.Table)
-        rows.extend(table.to_pylist())
-    return rows
-
-
-def _not_found_response() -> mock.Mock:
-    response = mock.Mock(spec=requests.Response)
-    response.status_code = 404
-    response.ok = False
-    response.headers = {}
-    response.text = "Not Found"
-    response.request = None
-    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
-        "404 Client Error: Not Found for url", response=response
-    )
-    return response
+        fetched_rows.extend(table.to_pylist())
+    return fetched_rows, calls
 
 
 class TestListParams:
@@ -329,15 +354,21 @@ class TestNotFoundTolerance:
         ]
     )
     def test_404_syncs_zero_rows_only_where_the_resource_is_optional(self, endpoint: str, tolerated: bool) -> None:
-        session = mock.Mock()
-        session.request.return_value = _not_found_response()
-
-        with mock.patch.object(github, "make_tracked_session", return_value=session):
-            if not tolerated:
-                with pytest.raises(github.GithubRepositoryNotFoundError):
-                    _run_over_transport(endpoint)
-                return
-            assert _run_over_transport(endpoint) == []
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(
+                github_integration_id=None, selection="pat", personal_access_token="tok"
+            ),
+            repository="acme/widgets",
+            repositories=None,
+        )
+        result = SourceDriver(GithubSource(), config).run(
+            endpoint, always(ScriptedResponse(status=404, json={"message": "Not Found"}))
+        )
+        if not tolerated:
+            assert isinstance(result.raised, github.GithubRepositoryNotFoundError)
+            return
+        assert result.raised is None
+        assert result.rows == []
 
 
 class TestRowMappers:
@@ -477,83 +508,84 @@ class TestMergeCommitSha:
         }
 
     def test_merged_pull_requests_get_their_merge_commit_from_graphql(self) -> None:
-        graphql = mock.Mock()
-        graphql.status_code = 200
-        graphql.headers = {}
-        graphql.json.return_value = {"data": {"repository": {"pr7": {"mergeCommit": {"oid": "sha-seven"}}}}}
-        page = _response(
+        result = _drive_pull_requests(
             [
-                self._pull_request(7, merged=True),
-                self._pull_request(8, merged=False),
-                self._pull_request(9, merged=True, merge_commit_sha="sha-nine"),
-            ]
+                ScriptedResponse(
+                    json=[
+                        self._pull_request(7, merged=True),
+                        self._pull_request(8, merged=False),
+                        self._pull_request(9, merged=True, merge_commit_sha="sha-nine"),
+                    ]
+                ),
+                ScriptedResponse(json={"data": {"repository": {"pr7": {"mergeCommit": {"oid": "sha-seven"}}}}}),
+            ],
+            api_version="2026-03-10",
         )
 
-        with mock.patch.object(github, "github_request", return_value=graphql) as github_request:
-            rows, _calls = _run("pull_requests", {"api.github.com": page}, api_version="2026-03-10")
-
+        assert result.raised is None
+        rows = _rows_from_result(result)
         assert [row["merge_commit_sha"] for row in rows] == ["sha-seven", None, "sha-nine"]
-        assert github_request.call_args.kwargs["headers"]["X-GitHub-Api-Version"] == "2026-03-10"
+        assert result.requests[1].headers["x-github-api-version"] == "2026-03-10"
         # Only the merged row that arrived without a SHA is asked for: an open pull request has no
         # merge commit, and a row that already carries one costs nothing.
-        github_request.assert_called_once()
-        payload = github_request.call_args.kwargs["json"]
+        assert result.paths == ["/repos/acme/widgets/pulls", "/graphql"]
+        payload = result.requests[1].json()
         assert re.findall(r"pr(\d+): pullRequest", payload["query"]) == ["7"]
         assert payload["variables"] == {"owner": "acme", "name": "widgets"}
 
     def test_a_permanent_alias_error_costs_only_its_own_pull_request(self) -> None:
-        graphql = mock.Mock()
-        graphql.status_code = 200
-        graphql.headers = {}
-        graphql.json.return_value = {
-            "data": {"repository": {"pr7": {"mergeCommit": {"oid": "sha-seven"}}, "pr8": None}},
-            "errors": [
-                {"type": "NOT_FOUND", "message": "Could not resolve pull request", "path": ["repository", "pr8"]}
-            ],
-        }
-        page = _response([self._pull_request(7, merged=True), self._pull_request(8, merged=True)])
+        result = _drive_pull_requests(
+            [
+                ScriptedResponse(json=[self._pull_request(7, merged=True), self._pull_request(8, merged=True)]),
+                ScriptedResponse(
+                    json={
+                        "data": {"repository": {"pr7": {"mergeCommit": {"oid": "sha-seven"}}, "pr8": None}},
+                        "errors": [
+                            {
+                                "type": "NOT_FOUND",
+                                "message": "Could not resolve pull request",
+                                "path": ["repository", "pr8"],
+                            }
+                        ],
+                    }
+                ),
+            ]
+        )
 
-        with mock.patch.object(github, "github_request", return_value=graphql):
-            rows, _calls = _run("pull_requests", {"api.github.com": page})
-
+        assert result.raised is None
+        rows = _rows_from_result(result)
         assert [row["merge_commit_sha"] for row in rows] == ["sha-seven", None]
 
     def test_an_unknown_alias_error_fails_the_walk(self) -> None:
-        graphql = mock.Mock()
-        graphql.status_code = 200
-        graphql.headers = {}
-        graphql.json.return_value = {
-            "data": {"repository": {"pr7": None}},
-            "errors": [{"message": "Something went wrong", "path": ["repository", "pr7"]}],
-        }
-        page = _response([self._pull_request(7, merged=True)])
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/graphql":
+                return ScriptedResponse(
+                    json={
+                        "data": {"repository": {"pr7": None}},
+                        "errors": [{"message": "Something went wrong", "path": ["repository", "pr7"]}],
+                    }
+                )
+            return ScriptedResponse(json=[self._pull_request(7, merged=True)])
 
-        with (
-            mock.patch.object(github, "github_request", return_value=graphql) as github_request,
-            mock.patch.object(github, "_github_backoff_wait", return_value=0.0),
-            pytest.raises(github.GithubRetryableError),
-        ):
-            _run("pull_requests", {"api.github.com": page})
+        result = _drive_pull_requests(respond)
 
-        assert github_request.call_count == 5
+        assert isinstance(result.raised, github.GithubRetryableError)
+        assert result.paths.count("/graphql") == 5
 
     def test_an_unmapped_4xx_status_retries_before_failing_the_walk(self) -> None:
         # GitHub's edge has been observed returning the nginx-style 499 ("client closed request")
         # from `/graphql` on an upstream hiccup — not a real denial. It must retry like a 5xx
         # instead of crashing the walk on the unclassified HTTPError `raise_for_status()` would
         # otherwise produce, which tenacity never retries.
-        graphql = mock.Mock()
-        graphql.status_code = 499
-        page = _response([self._pull_request(7, merged=True)])
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/graphql":
+                return ScriptedResponse(status=499)
+            return ScriptedResponse(json=[self._pull_request(7, merged=True)])
 
-        with (
-            mock.patch.object(github, "github_request", return_value=graphql) as github_request,
-            mock.patch.object(github, "_github_backoff_wait", return_value=0.0),
-            pytest.raises(github.GithubRetryableError),
-        ):
-            _run("pull_requests", {"api.github.com": page})
+        result = _drive_pull_requests(respond)
 
-        assert github_request.call_count == 5
+        assert isinstance(result.raised, github.GithubRetryableError)
+        assert result.paths.count("/graphql") == 5
 
     @parameterized.expand(
         [
@@ -600,55 +632,57 @@ class TestMergeCommitSha:
     def test_pull_requests_still_sync_when_graphql_is_closed_to_the_connection(self) -> None:
         # A token with no GraphQL grant gets a 200 with null data on every run, so failing the sync
         # would lose the whole table forever. The rest of the row is good: keep it.
-        denied = mock.Mock()
-        denied.status_code = 200
-        denied.headers = {}
-        denied.json.return_value = {"data": None, "errors": [{"type": "FORBIDDEN"}]}
-        page = _response([self._pull_request(7, merged=True)])
+        result = _drive_pull_requests(
+            [
+                ScriptedResponse(json=[self._pull_request(7, merged=True)]),
+                ScriptedResponse(json={"data": None, "errors": [{"type": "FORBIDDEN"}]}),
+            ]
+        )
 
-        with mock.patch.object(github, "github_request", return_value=denied) as github_request:
-            rows, _calls = _run("pull_requests", {"api.github.com": page})
-
+        assert result.raised is None
+        rows = _rows_from_result(result)
         # Indexed, not `.get`: the curated views select the column by name, so it has to land empty
         # rather than go missing from the table.
         assert [(row["number"], row["merge_commit_sha"]) for row in rows] == [(7, None)]
         # Permanent, so it is not retried either.
-        github_request.assert_called_once()
+        assert result.paths.count("/graphql") == 1
 
     def test_graphql_is_disabled_after_a_permanent_failure(self) -> None:
-        denied = mock.Mock()
-        denied.status_code = 200
-        denied.headers = {}
-        denied.json.return_value = {"data": None, "errors": [{"type": "FORBIDDEN"}]}
         second_page_url = "https://api.github.com/repos/acme/widgets/pulls?page=2"
-        first_page = _response([self._pull_request(7, merged=True)], next_url=second_page_url)
-        second_page = _response([self._pull_request(6, merged=True)])
+        result = _drive_pull_requests(
+            [
+                ScriptedResponse(
+                    json=[self._pull_request(7, merged=True)],
+                    headers={"Link": f'<{second_page_url}>; rel="next"'},
+                ),
+                ScriptedResponse(json={"data": None, "errors": [{"type": "FORBIDDEN"}]}),
+                ScriptedResponse(json=[self._pull_request(6, merged=True)]),
+            ]
+        )
 
-        with mock.patch.object(github, "github_request", return_value=denied) as github_request:
-            rows, calls = _run("pull_requests", {second_page_url: second_page, "api.github.com": first_page})
-
+        assert result.raised is None
+        rows = _rows_from_result(result)
         assert [(row["number"], row["merge_commit_sha"]) for row in rows] == [(7, None), (6, None)]
-        assert len(calls) == 2
-        assert calls[-1] == second_page_url
-        github_request.assert_called_once()
+        assert result.paths.count("/repos/acme/widgets/pulls") == 2
+        assert result.urls[-1] == second_page_url
+        assert result.paths.count("/graphql") == 1
 
     def test_an_unexpected_enrichment_failure_fails_the_walk(self) -> None:
-        page = _response([self._pull_request(7, merged=True)])
+        with mock.patch.object(github, "_fetch_merge_commit_shas", side_effect=KeyError("mergeCommit")):
+            result = _drive_pull_requests([ScriptedResponse(json=[self._pull_request(7, merged=True)])])
 
-        with (
-            mock.patch.object(github, "_fetch_merge_commit_shas", side_effect=KeyError("mergeCommit")),
-            pytest.raises(KeyError, match="mergeCommit"),
-        ):
-            _run("pull_requests", {"api.github.com": page})
+        assert isinstance(result.raised, KeyError)
+        assert "mergeCommit" in str(result.raised)
 
     def test_a_transient_graphql_failure_fails_the_walk(self) -> None:
         # Merged pull requests rarely move `updated_at` again, and the newest-first watermark
         # advances on any walk that completes. Syncing these rows without their SHA would strand
         # them until a full refresh, so the walk fails and the next sync reads them again.
-        page = _response([self._pull_request(7, merged=True)])
-        with (
-            mock.patch.object(github, "github_request", side_effect=requests.ConnectionError("boom")),
-            mock.patch.object(github, "_github_backoff_wait", return_value=0.0),
-        ):
-            with pytest.raises(requests.ConnectionError):
-                _run("pull_requests", {"api.github.com": page})
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/graphql":
+                raise requests.ConnectionError("boom")
+            return ScriptedResponse(json=[self._pull_request(7, merged=True)])
+
+        result = _drive_pull_requests(respond)
+        assert isinstance(result.raised, requests.ConnectionError)
+        assert set(result.paths) == {"/repos/acme/widgets/pulls", "/graphql"}

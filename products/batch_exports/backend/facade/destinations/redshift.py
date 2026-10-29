@@ -7,8 +7,12 @@ Importing this module loads the destination's vendor SDK, so keep it off the
 ``django.setup()`` path. See ``posthog/test/repo_invariants/test_startup_import_budget.py``.
 """
 
-from products.batch_exports.backend.temporal.destinations.redshift_batch_export import RedshiftClient
+from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
+    RedshiftClient,
+    StringLimitExceededError,
+)
 
 __all__ = [
     "RedshiftClient",
+    "StringLimitExceededError",
 ]

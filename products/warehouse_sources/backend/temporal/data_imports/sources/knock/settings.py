@@ -19,8 +19,9 @@ class KnockEndpointConfig:
     name: str
     path: str
     # Knock wraps list responses in `entries` on most endpoints but `items` on
-    # messages and workflow recipient runs (per the vendor OpenAPI spec).
-    data_selector: str
+    # messages and workflow recipient runs (per the vendor OpenAPI spec). None marks an
+    # endpoint that returns a bare, unpaginated JSON array.
+    data_selector: str | None
     primary_keys: tuple[str, ...] = ("id",)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Request param carrying the server-side lower-bound timestamp filter.
@@ -35,6 +36,8 @@ class KnockEndpointConfig:
     should_sync_default: bool = True
     default_incremental_lookback_seconds: int | None = None
     page_size: int = KNOCK_PAGE_SIZE
+    # False for an endpoint whose spec documents no `page_size` or `after` param.
+    documents_pagination: bool = True
 
     @property
     def default_incremental_field(self) -> str | None:
@@ -44,6 +47,17 @@ class KnockEndpointConfig:
 # A parent deleted between the parent listing and its child fetch 404s; skip it rather
 # than failing the whole fan-out.
 _SKIP_DELETED_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
+
+def _user_fanout() -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="users",
+        resolve_param="user_id",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "user_id"},
+        child_response_actions=_SKIP_DELETED_PARENT,
+    )
 
 
 def _message_fanout() -> DependentEndpointConfig:
@@ -101,7 +115,7 @@ ENDPOINTS_CONFIG: dict[str, KnockEndpointConfig] = {
     # unique within a collection, and `created_at` is nullable, so no partition key.
     "objects": KnockEndpointConfig(
         name="objects",
-        path="/v1/objects/{collection}",
+        path="/v1/objects/{key}",
         data_selector="entries",
         primary_keys=("collection", "id"),
     ),
@@ -148,6 +162,53 @@ ENDPOINTS_CONFIG: dict[str, KnockEndpointConfig] = {
         fanout=_message_fanout(),
         should_sync_default=False,
         default_incremental_lookback_seconds=24 * 60 * 60,
+    ),
+    # The trigger activities a message was produced from. A batched message carries several,
+    # and one activity can feed several messages, so the message id joins the key. Knock
+    # creates a batched message only when its batch window closes, so no lookback is needed.
+    "message_activities": KnockEndpointConfig(
+        name="message_activities",
+        path="/v1/messages/{message_id}/activities",
+        data_selector="items",
+        primary_keys=("message_id", "id"),
+        incremental_fields=[incremental_field("message_inserted_at")],
+        incremental_param="inserted_at[gte]",
+        partition_key="inserted_at",
+        fanout=_message_fanout(),
+        should_sync_default=False,
+    ),
+    # The objects each user subscribes to. Subscriptions carry no id of their own, so the key
+    # is the user plus the object reference. Subscriptions whose recipient is an object are
+    # not reachable this way.
+    "user_subscriptions": KnockEndpointConfig(
+        name="user_subscriptions",
+        path="/v1/users/{user_id}/subscriptions",
+        data_selector="entries",
+        primary_keys=("user_id", "object_collection", "object_id"),
+        partition_key="inserted_at",
+        fanout=_user_fanout(),
+        should_sync_default=False,
+    ),
+    # Every preference set of each user. Preference set ids (e.g. `default`, or a tenant id)
+    # repeat across users.
+    "user_preferences": KnockEndpointConfig(
+        name="user_preferences",
+        path="/v1/users/{user_id}/preferences",
+        data_selector=None,
+        primary_keys=("user_id", "id"),
+        fanout=_user_fanout(),
+        should_sync_default=False,
+        documents_pagination=False,
+    ),
+    # Knock has no endpoint that lists audiences, so the table walks the audience keys the
+    # user configures on the source. A user can be a member once per tenant.
+    "audience_members": KnockEndpointConfig(
+        name="audience_members",
+        path="/v1/audiences/{key}/members",
+        data_selector="entries",
+        primary_keys=("audience_key", "user_id", "tenant"),
+        partition_key="added_at",
+        documents_pagination=False,
     ),
 }
 

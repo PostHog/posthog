@@ -5,6 +5,7 @@ from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
+from uuid import UUID
 
 from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
@@ -32,7 +33,9 @@ else:
 
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import RoleMembership
 
+from .contracts import ObjectAccessRef
 from .enums import ResolvedAccessSourceSubjectValue, ResolvedAccessSourceValue
 
 
@@ -53,6 +56,7 @@ AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor",
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
 
 NO_ACCESS_LEVEL = "none"
+DASHBOARD_EDIT_LIMIT_RESOURCE = "dashboard_edit_limit"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
@@ -409,6 +413,17 @@ def fallback_parent_object(obj: Model, parent_resource: APIScopeObject) -> Optio
 
 
 @frozen
+class _ObjectAccessTarget:
+    """What object access resolution reads from one object. Built from a model instance or from
+    an ObjectAccessRef, so both inputs go through the same resolution."""
+
+    resource: APIScopeObject
+    object_id: str
+    created_by_id: Optional[int]
+    fallback_parent_id: Optional[str]
+
+
+@frozen
 class ObjectAccessDecision:
     blocked_ids: frozenset[str]
     allowed_ids: frozenset[str]
@@ -440,6 +455,60 @@ class UserAccessControl:
 
         self._organization_id = organization_id
 
+    @classmethod
+    def for_user_ids(cls, *, user_ids: Iterable[int], team: Team) -> dict[int, "UserAccessControl"]:
+        memberships = list(
+            OrganizationMembership.objects.filter(
+                organization_id=team.organization_id, user_id__in=set(user_ids)
+            ).select_related("user", "organization")
+        )
+        if not memberships:
+            return {}
+
+        roles_by_user: dict[int, list[UUID]] = defaultdict(list)
+        if memberships[0].organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            for user_id, role_id in (
+                RoleMembership.objects.filter(
+                    user_id__in=[member.user_id for member in memberships], role__organization_id=team.organization_id
+                )
+                .valid_for_authorization()
+                .values_list("user_id", "role_id")
+            ):
+                roles_by_user[user_id].append(role_id)
+
+        default_rules: list[AccessControl] = []
+        rules_by_member: dict[UUID, list[AccessControl]] = defaultdict(list)
+        rules_by_role: dict[UUID, list[AccessControl]] = defaultdict(list)
+        if EE_AVAILABLE and memberships[0].organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            for rule in AccessControl.objects.filter(team_id=team.id).filter(
+                Q(organization_member__isnull=True, role__isnull=True)
+                | Q(organization_member_id__in=[member.id for member in memberships], role__isnull=True)
+                | Q(
+                    organization_member__isnull=True,
+                    role_id__in={role_id for roles in roles_by_user.values() for role_id in roles},
+                )
+            ):
+                if rule.organization_member_id is not None:
+                    rules_by_member[rule.organization_member_id].append(rule)
+                elif rule.role_id is not None:
+                    rules_by_role[rule.role_id].append(rule)
+                else:
+                    default_rules.append(rule)
+
+        access_by_user: dict[int, UserAccessControl] = {}
+        for member in memberships:
+            access = cls(user=member.user, team=team)
+            role_ids = roles_by_user[member.user_id]
+            access.__dict__["_organization_membership"] = member
+            access.__dict__["_user_role_ids"] = role_ids
+            access.__dict__["_cached_access_controls"] = [
+                *default_rules,
+                *rules_by_member.get(member.id, []),
+                *(rule for role_id in role_ids for rule in rules_by_role.get(role_id, [])),
+            ]
+            access_by_user[member.user_id] = access
+        return access_by_user
+
     def allowed_object_ids(
         self, resource: str, team_id: int, required_level: str, resolve: Callable[[], frozenset]
     ) -> frozenset:
@@ -455,6 +524,8 @@ class UserAccessControl:
         # Pop from __dict__ rather than hasattr/delattr
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)
+        self.__dict__.pop("_dashboard_edit_limits", None)
+        self.__dict__.pop("_is_project_admin", None)
         self.__dict__.pop("blocked_resource_ids_by_scope", None)
         self.__dict__.pop("allowlisted_resource_ids_by_scope", None)
         self.__dict__.pop("blocked_resources", None)
@@ -582,13 +653,15 @@ class UserAccessControl:
         return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
 
     def _is_creator(self, obj: Model) -> bool:
+        # Compare ids so callers do not need created_by hydrated on the object.
+        return self._is_creator_id(getattr(obj, "created_by_id", None))
+
+    def _is_creator_id(self, created_by_id: Optional[int]) -> bool:
         """Whether the principal created the object, which grants them the highest access to it.
         Creator is a property of the principal, so a subclass that resolves for someone other than
         the requesting user must override this."""
-        # Compare ids so callers do not need created_by hydrated on the object. Synthetic and
-        # anonymous principals have id None, and the guard keeps them from matching.
-        creator_id = getattr(obj, "created_by_id", None)
-        return creator_id is not None and creator_id == self._user.id
+        # Synthetic and anonymous principals have id None, and the guard keeps them from matching.
+        return created_by_id is not None and created_by_id == self._user.id
 
     # ------------------------------------------------------------
     # Access control helpers
@@ -848,6 +921,54 @@ class UserAccessControl:
         # If there are access controls we pick the highest level the user has
         return self._highest_access_from_rows(resource, access_controls).access_level
 
+    @cached_property
+    def _dashboard_edit_limits(self) -> dict[str, dict[str, str]]:
+        limits: dict[str, dict[str, str]] = defaultdict(dict)
+        for row in self._cached_access_controls:
+            if row.resource == DASHBOARD_EDIT_LIMIT_RESOURCE and row.resource_id is not None:
+                subject = (
+                    "member"
+                    if row.organization_member_id is not None
+                    else "role"
+                    if row.role_id is not None
+                    else "default"
+                )
+                limits[row.resource_id][subject] = row.access_level
+        return limits
+
+    @cached_property
+    def _is_project_admin(self) -> bool:
+        return self._team is not None and self.get_user_access_level(self._team, explicit=True) == "admin"
+
+    def has_object_access_limit(self, resource: APIScopeObject, resource_id: str) -> bool:
+        if resource != "dashboard" or self.is_organization_admin or not self.access_controls_supported:
+            return False
+        limits = self._dashboard_edit_limits.get(resource_id)
+        return limits is not None and limits.get("default") != "editor"
+
+    def _apply_dashboard_edit_limit(
+        self, target: _ObjectAccessTarget, access: Optional[ResolvedAccess]
+    ) -> Optional[ResolvedAccess]:
+        if (
+            target.resource != "dashboard"
+            or access is None
+            or access.access_level in ("none", "viewer")
+            or self._is_creator_id(target.created_by_id)
+            or not self.has_object_access_limit(target.resource, target.object_id)
+            or self._is_project_admin
+        ):
+            return access
+        limits = self._dashboard_edit_limits[target.object_id]
+        if limits.get("member") == "editor" or limits.get("role") == "editor":
+            return access
+        return ResolvedAccess(
+            access_level="viewer",
+            source="object",
+            source_subject="default",
+            source_resource="dashboard",
+            source_resource_id=target.object_id,
+        )
+
     def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel, explicit=False) -> bool:
         """
         Entry point for all permissions around a specific object.
@@ -868,6 +989,28 @@ class UserAccessControl:
 
         # If no access control exists
         return access_level_satisfied_for_resource(resource, access_level, required_level)
+
+    def denied_object_ids(
+        self,
+        resource: APIScopeObject,
+        objects: Iterable[tuple[str, int, Optional[int]]],
+        required_level: AccessControlLevel,
+    ) -> list[str]:
+        """Ids of the objects, given as (id, team_id, created_by_id), that this user lacks `required_level` on.
+
+        Each object is checked with its own team's rules, so an object from a sibling environment resolves correctly.
+        """
+        refs = [
+            ObjectAccessRef(resource=resource, id=object_id, team_id=team_id, created_by_id=created_by_id)
+            for object_id, team_id, created_by_id in objects
+        ]
+        access_controls = self.for_team_ids({ref.team_id for ref in refs})
+        return [
+            ref.id
+            for ref in refs
+            if ref.team_id not in access_controls
+            or not access_controls[ref.team_id].check_access_level_for_ref(ref, required_level)
+        ]
 
     def check_can_modify_access_levels_for_object(self, obj: Model) -> bool:
         """
@@ -1650,58 +1793,108 @@ class UserAccessControl:
         parent = RESOURCE_FALLBACK_MAP.get(resource)
         return fallback_parent_object_id(obj, parent) if parent else None
 
-    def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
+    def _target_for_object(self, obj: Model) -> Optional[_ObjectAccessTarget]:
         resource = model_to_resource(obj)
         if not resource:
             return None
+        return _ObjectAccessTarget(
+            resource=resource,
+            object_id=str(obj.id),  # type: ignore[attr-defined]
+            created_by_id=getattr(obj, "created_by_id", None),
+            fallback_parent_id=self._fallback_parent_id(obj, resource),
+        )
 
+    def _target_for_ref(self, ref: ObjectAccessRef) -> _ObjectAccessTarget:
+        parent = RESOURCE_FALLBACK_MAP.get(ref.resource)
+        if parent:
+            # The parent id comes from the model's foreign key, which a reference does not carry.
+            # Resolution without it skips the parent's rules, so it can return the wrong level.
+            raise ValueError(
+                f"An ObjectAccessRef cannot resolve `{ref.resource}`, which inherits access from "
+                f"`{parent}`. Check access on the model instance instead."
+            )
+        # The rule lookups are scoped to self._team, so a reference checked without a team, or against
+        # another team, would resolve against the wrong rules.
+        if self._team is None:
+            raise ValueError("An ObjectAccessRef needs a team-scoped UserAccessControl.")
+        if ref.team_id != self._team.id:
+            raise ValueError(f"ObjectAccessRef for team {ref.team_id} checked against team {self._team.id}.")
+        return _ObjectAccessTarget(
+            resource=ref.resource,
+            object_id=ref.id,
+            created_by_id=ref.created_by_id,
+            fallback_parent_id=None,
+        )
+
+    def _resolved_access_for_target(
+        self, target: _ObjectAccessTarget, explicit: bool = False
+    ) -> Optional[ResolvedAccess]:
+        """The enforced object resolution. Model instances and references both end here, so the
+        two entry points cannot drift."""
         if self._is_most_specific_access_control_enabled:
-            resolved_access = self.resolve_most_specific_object_access(obj)
+            resolved_access = self._most_specific_access_for_target(target)
             if resolved_access is None or (explicit and resolved_access.source == "system_default"):
                 return None
-            return resolved_access.access_level
+            return resolved_access
 
-        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj), explicit=explicit)
+        resolved, access = self._object_access_level_precheck(
+            target.resource, self._is_creator_id(target.created_by_id), explicit=explicit
+        )
         if resolved:
-            return access.access_level if access else None
+            return access
 
         object_access_controls = self._get_access_controls(
-            self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+            self._access_controls_filters_for_object(target.resource, target.object_id)
         )
         access = self._object_access_level_from_rows(
-            resource,
+            target.resource,
             object_access_controls,
             explicit=explicit,
-            fallback_parent_id=self._fallback_parent_id(obj, resource),
+            fallback_parent_id=target.fallback_parent_id,
         )
         if not explicit:
             # explicit=True changes the enforced answer but not the future one, so comparing
             # there would report divergence that is really just the flag
             self._report_resolved_access_divergence(
-                "object", resource, access, lambda: self.resolve_most_specific_object_access(obj)
+                "object", target.resource, access, lambda: self._most_specific_access_for_target(target)
             )
+        return access
+
+    def _access_level_for_target(
+        self, target: _ObjectAccessTarget, explicit: bool = False
+    ) -> Optional[AccessControlLevel]:
+        access = self._apply_dashboard_edit_limit(target, self._resolved_access_for_target(target, explicit=explicit))
         return access.access_level if access else None
+
+    def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
+        if self._team is not None and model_to_resource(obj) == "dashboard":
+            team_id = getattr(obj, "team_id", None)
+            if isinstance(team_id, int) and team_id != self._team.id:
+                return self.for_team_ids([team_id])[team_id].get_user_access_level(obj, explicit=explicit)
+        target = self._target_for_object(obj)
+        if target is None:
+            return None
+        return self._access_level_for_target(target, explicit=explicit)
+
+    def access_level_for_ref(self, ref: ObjectAccessRef, explicit: bool = False) -> Optional[AccessControlLevel]:
+        """`get_user_access_level` for an object the caller holds only as a reference."""
+        return self._access_level_for_target(self._target_for_ref(ref), explicit=explicit)
+
+    def check_access_level_for_ref(self, ref: ObjectAccessRef, required_level: AccessControlLevel) -> bool:
+        """`check_access_level_for_object` for an object the caller holds only as a reference."""
+        access_level = self.access_level_for_ref(ref)
+        if not access_level:
+            return False
+        return access_level_satisfied_for_resource(ref.resource, access_level, required_level)
 
     def _resolved_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
         """The enforced access to `obj`, as `get_user_access_level` decides it, with the rule
         that supplied it kept so a display can attribute the level."""
-        resource = model_to_resource(obj)
-        if not resource:
+        target = self._target_for_object(obj)
+        if target is None:
             return None
 
-        if self._is_most_specific_access_control_enabled:
-            return self.resolve_most_specific_object_access(obj)
-
-        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
-        if resolved:
-            return access
-
-        object_access_controls = self._get_access_controls(
-            self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
-        )
-        return self._object_access_level_from_rows(
-            resource, object_access_controls, fallback_parent_id=self._fallback_parent_id(obj, resource)
-        )
+        return self._apply_dashboard_edit_limit(target, self._resolved_access_for_target(target))
 
     def bulk_object_access_levels(
         self,
@@ -1727,8 +1920,7 @@ class UserAccessControl:
         rows_by_object_id: Optional[dict[str, list[_AccessControl]]] = None
 
         for object_id, created_by_id in objects:
-            is_creator = created_by_id is not None and created_by_id == self._user.id
-            resolved, access = self._object_access_level_precheck(resource, is_creator)
+            resolved, access = self._object_access_level_precheck(resource, self._is_creator_id(created_by_id))
             if resolved:
                 results[object_id] = access.access_level if access else None
                 continue
@@ -1743,6 +1935,12 @@ class UserAccessControl:
                 access = self._most_specific_object_access_from_rows(resource, object_rows)
             else:
                 access = self._object_access_level_from_rows(resource, object_rows)
+            access = self._apply_dashboard_edit_limit(
+                _ObjectAccessTarget(
+                    resource=resource, object_id=object_id, created_by_id=created_by_id, fallback_parent_id=None
+                ),
+                access,
+            )
             results[object_id] = access.access_level if access else None
 
         return results
@@ -1784,17 +1982,23 @@ class UserAccessControl:
         `explicit=True` behavior of the enforced methods, check
         `resolved.source != "system_default"`.
         """
-        resource = model_to_resource(obj)
-        if not resource:
+        target = self._target_for_object(obj)
+        if target is None:
             return None
+        return self._apply_dashboard_edit_limit(target, self._most_specific_access_for_target(target))
 
-        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
+    def _most_specific_access_for_target(self, target: _ObjectAccessTarget) -> Optional[ResolvedAccess]:
+        resolved, access = self._object_access_level_precheck(
+            target.resource, self._is_creator_id(target.created_by_id)
+        )
         if resolved:
             return access
 
-        object_rows = self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
+        object_rows = self._get_access_controls(
+            self._access_controls_filters_for_object(target.resource, target.object_id)
+        )
         return self._most_specific_object_access_from_rows(
-            resource, object_rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
+            target.resource, object_rows, fallback_parent_id=target.fallback_parent_id
         )
 
     def resolve_most_specific_resource_access(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:

@@ -562,7 +562,8 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
 
     actionToUrl(({ values }) => {
         const withScope = (
-            q: string | undefined
+            q: string | undefined,
+            replace: boolean = true
         ): [string, Record<string, unknown>, Record<string, unknown>, { replace: boolean }] => [
             router.values.location.pathname,
             {
@@ -574,11 +575,13 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 similar: values.pendingSourceObservationId ?? undefined,
             },
             router.values.hashParams,
-            { replace: true },
+            { replace },
         ]
         return {
             // Observation prose stays out of the URL (see markSimilarSearchIntent).
-            search: () => withScope(values.pendingSourceObservationId ? undefined : values.query.trim() || undefined),
+            // A submitted query pushes, so browser back returns to the previous search.
+            search: () =>
+                withScope(values.pendingSourceObservationId ? undefined : values.query.trim() || undefined, false),
             clearSearch: () => withScope(undefined),
             setScannerId: () => withScope(router.values.searchParams.q),
             setDateRange: () => withScope(router.values.searchParams.q),

@@ -3,15 +3,15 @@ from typing import Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# Konnect serves the analytics API from region-specific hosts; the region must match the org's geo
+# Konnect serves its APIs from region-specific hosts; the region must match the org's geo
 # or the token authenticates against the wrong control plane and returns no data.
 REGION_BASE_URLS: dict[str, str] = {
-    "us": "https://us.api.konghq.com/v2",
-    "eu": "https://eu.api.konghq.com/v2",
-    "au": "https://au.api.konghq.com/v2",
-    "me": "https://me.api.konghq.com/v2",
-    "in": "https://in.api.konghq.com/v2",
-    "sg": "https://sg.api.konghq.com/v2",
+    "us": "https://us.api.konghq.com",
+    "eu": "https://eu.api.konghq.com",
+    "au": "https://au.api.konghq.com",
+    "me": "https://me.api.konghq.com",
+    "in": "https://in.api.konghq.com",
+    "sg": "https://sg.api.konghq.com",
 }
 
 DEFAULT_REGION = "us"
@@ -24,7 +24,8 @@ MAX_PAGE_SIZE = 1000
 # on longer-retention plans can raise it; a value beyond retention is clamped by the API to what exists.
 DEFAULT_INITIAL_LOOKBACK_DAYS = 30
 
-CONTROL_PLANES_PAGE_SIZE = 100
+# Page-number (`page[size]`/`page[number]`) and cursor (`page[size]`/`page[after]`) list endpoints.
+LIST_PAGE_SIZE = 100
 
 # Core entity list endpoints cap `size` at 1000 and paginate with an opaque `offset` token.
 CORE_ENTITY_PAGE_SIZE = 1000
@@ -32,6 +33,19 @@ CORE_ENTITY_PAGE_SIZE = 1000
 # A control plane group composes the config of its member control planes, which are listed (and fanned
 # out over) individually, so listing entities on the group too would duplicate them.
 CONTROL_PLANE_GROUP_CLUSTER_TYPE = "CLUSTER_TYPE_CONTROL_PLANE_GROUP"
+
+# A metrics query returns at most 3 metrics, so each day is queried once per group and the groups are
+# merged on the gateway service.
+SERVICE_METRICS_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("request_count", "error_rate", "response_latency_average"),
+    ("response_latency_p99", "upstream_latency_p99", "kong_latency_p99"),
+)
+
+# Above this many services in one day, Konnect folds the rest into a single `____OTHER____` row.
+METRICS_QUERY_LIMIT = 1000
+
+# The metrics API rejects time ranges older than 32 days, whatever the configured initial sync window.
+METRICS_MAX_LOOKBACK_DAYS = 31
 
 
 @dataclass(frozen=True)
@@ -44,9 +58,19 @@ class KongKonnectEndpointConfig:
     partition_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["request_id"])
     should_sync_default: bool = True
-    # `analytics` is the time-windowed POST query; `control_planes` is the page-number list; `core_entity`
-    # fans out over every control plane.
-    kind: Literal["analytics", "control_planes", "core_entity"] = "analytics"
+    # `analytics` is the time-windowed POST query; `metrics` is the per-day aggregate POST query;
+    # `page_number` is a `page[number]` list; `cursor` is a `page[after]` list; `core_entity` fans out
+    # over every control plane.
+    kind: Literal["analytics", "metrics", "page_number", "cursor", "core_entity"] = "analytics"
+    # Konnect versions each API separately, so the path prefix is per endpoint.
+    api_version: Literal["v1", "v2", "v3"] = "v2"
+    sort: Optional[str] = None
+    # A child endpoint fans out over the rows of `parent` (an endpoint of the same kind). `{id}` in `path`
+    # is the parent row ID, which is copied onto each child row as `parent_id_field`.
+    parent: Optional[str] = None
+    parent_id_field: Optional[str] = None
+    # Dotted paths dropped from every row before it is written, because they can hold credentials.
+    excluded_fields: tuple[str, ...] = ()
     description: Optional[str] = None
 
 
@@ -69,12 +93,31 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
         description="Detailed records for every request proxied through the gateway (Advanced Analytics). "
         "Historical depth on initial sync is limited by your Konnect plan's data retention.",
     ),
+    # Aggregates from the Analytics Metrics API, one row per gateway service per UTC day. Each run re-reads
+    # the last synced day, because that day can still be in progress, and the merge replaces its rows.
+    "daily_service_metrics": KongKonnectEndpointConfig(
+        name="daily_service_metrics",
+        path="/metrics",
+        kind="metrics",
+        partition_key="day",
+        primary_keys=["day", "gateway_service"],
+        incremental_fields=[
+            {
+                "label": "day",
+                "type": IncrementalFieldType.DateTime,
+                "field": "day",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        description="Daily traffic, error rate, and latency for each gateway service, from the Konnect Analytics Metrics API.",
+    ),
     # Lookups that resolve the IDs carried on api_requests rows. None of these list endpoints accept a
     # timestamp filter, so they sync as full refresh.
     "control_planes": KongKonnectEndpointConfig(
         name="control_planes",
         path="/control-planes",
-        kind="control_planes",
+        kind="page_number",
+        sort="created_at",
         partition_key="created_at",
         primary_keys=["id"],
         incremental_fields=[],
@@ -105,6 +148,154 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
         primary_keys=["control_plane_id", "id"],
         incremental_fields=[],
         description="Gateway consumers across all control planes. Resolves the consumer ID on api_requests.",
+    ),
+    "plugins": KongKonnectEndpointConfig(
+        name="plugins",
+        path="/core-entities/plugins",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        excluded_fields=("config",),
+        incremental_fields=[],
+        description="Gateway plugins across all control planes, with the service, route, or consumer each one is scoped to.",
+    ),
+    "upstreams": KongKonnectEndpointConfig(
+        name="upstreams",
+        path="/core-entities/upstreams",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        excluded_fields=("healthchecks.active.headers",),
+        incremental_fields=[],
+        description="Gateway upstreams across all control planes, with their load balancing and health check settings.",
+    ),
+    "targets": KongKonnectEndpointConfig(
+        name="targets",
+        path="/core-entities/targets",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        incremental_fields=[],
+        description="Upstream targets across all control planes: the backend host and port each upstream balances over.",
+    ),
+    "consumer_groups": KongKonnectEndpointConfig(
+        name="consumer_groups",
+        path="/core-entities/consumer_groups",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        incremental_fields=[],
+        description="Gateway consumer groups across all control planes.",
+    ),
+    "consumer_group_members": KongKonnectEndpointConfig(
+        name="consumer_group_members",
+        path="/core-entities/consumer_groups/{id}/consumers",
+        kind="core_entity",
+        parent="consumer_groups",
+        parent_id_field="consumer_group_id",
+        primary_keys=["control_plane_id", "consumer_group_id", "id"],
+        incremental_fields=[],
+        description="Consumers in each gateway consumer group, one row per consumer per group. "
+        "Segments api_requests by consumer group.",
+    ),
+    # API Products v2 backs the classic Dev Portal. It is the API that the api_product and
+    # api_product_version dimensions on api_requests refer to. The list endpoints only sort by name.
+    "api_products": KongKonnectEndpointConfig(
+        name="api_products",
+        path="/api-products",
+        kind="page_number",
+        sort="name",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="API products in the classic Dev Portal. Resolves the api_product ID on api_requests.",
+    ),
+    "api_product_versions": KongKonnectEndpointConfig(
+        name="api_product_versions",
+        path="/api-products/{id}/product-versions",
+        kind="page_number",
+        sort="name",
+        parent="api_products",
+        parent_id_field="api_product_id",
+        primary_keys=["api_product_id", "id"],
+        incremental_fields=[],
+        description="Versions of each API product. Resolves the api_product_version ID on api_requests.",
+    ),
+    "catalog_services": KongKonnectEndpointConfig(
+        name="catalog_services",
+        path="/catalog-services",
+        kind="page_number",
+        api_version="v1",
+        sort="created_at",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Services in the Konnect Service Catalog.",
+    ),
+    "scorecards": KongKonnectEndpointConfig(
+        name="scorecards",
+        path="/scorecards",
+        kind="page_number",
+        api_version="v1",
+        sort="name",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Service Catalog scorecards, with each scorecard's current overall score.",
+    ),
+    # A catalog service can be targeted by many scorecards, so rows key on the scorecard ID too.
+    "scorecard_services": KongKonnectEndpointConfig(
+        name="scorecard_services",
+        path="/scorecards/{id}/catalog-services",
+        kind="page_number",
+        api_version="v1",
+        sort="name",
+        parent="scorecards",
+        parent_id_field="scorecard_id",
+        primary_keys=["scorecard_id", "id"],
+        incremental_fields=[],
+        description="Catalog services targeted by each scorecard, with the service's score on that scorecard.",
+    ),
+    "realms": KongKonnectEndpointConfig(
+        name="realms",
+        path="/realms",
+        kind="cursor",
+        api_version="v1",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Konnect consumer identity realms.",
+    ),
+    "realm_consumers": KongKonnectEndpointConfig(
+        name="realm_consumers",
+        path="/realms/{id}/consumers",
+        kind="cursor",
+        api_version="v1",
+        parent="realms",
+        parent_id_field="realm_id",
+        primary_keys=["realm_id", "id"],
+        incremental_fields=[],
+        description="Consumers registered in each Konnect identity realm, shared across the control planes the realm allows.",
+    ),
+    # Metering & Billing v3. Subscriptions sort by ID because their ULIDs are stable and time-ordered,
+    # while the default `active_from` can change.
+    "meters": KongKonnectEndpointConfig(
+        name="meters",
+        path="/openmeter/meters",
+        kind="page_number",
+        api_version="v3",
+        sort="created_at",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Metering & Billing meters: the event type and aggregation that each usage meter counts.",
+    ),
+    "subscriptions": KongKonnectEndpointConfig(
+        name="subscriptions",
+        path="/openmeter/subscriptions",
+        kind="page_number",
+        api_version="v3",
+        sort="id",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Metering & Billing customer subscriptions, with their plan, status, and current billing period.",
     ),
 }
 

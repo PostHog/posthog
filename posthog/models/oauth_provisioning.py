@@ -68,10 +68,6 @@ class ProvisioningConfig(BaseModel):
 
     can_create_accounts: bool = False
     can_provision_resources: bool = False
-    # Exchanging GitHub OAuth codes and starting cloud wizard runs both act well beyond ordinary
-    # provisioning, so neither follows from being a partner - each is granted on its own.
-    can_use_github_grants: bool = False
-    can_start_wizard_runs: bool = False
 
     # Only for partners trusted enough that the blast radius of the app being compromised is
     # understood: a deep link mints a full web session, and skipping consent links an existing
@@ -84,7 +80,13 @@ class ProvisioningConfig(BaseModel):
 
     # Staff-only. Billing refuses to move an organization to partner billing once the organization
     # has its own Stripe customer, so the partner's organizations must not start self-serve billing.
-    pays_for_customers: bool = False
+    pays_for_customers: bool = Field(
+        default=False,
+        description=(
+            "The partner pays for the organizations it creates, and those organizations can't set up their "
+            "own billing. A provisioning partner needs private_key_jwt client authentication before it can pay."
+        ),
+    )
 
     # Per-endpoint hourly overrides, keyed by rate-limit endpoint name. An absent key
     # means the tier-derived budget applies; UNLIMITED_OVERRIDE disables the limit.
@@ -110,3 +112,8 @@ class ProvisioningConfig(BaseModel):
                 continue
             limits[str(key)] = UNLIMITED_OVERRIDE if parsed <= 0 else parsed
         return limits
+
+
+PROVISIONING_CAPABILITIES: tuple[str, ...] = tuple(
+    name for name, info in ProvisioningConfig.model_fields.items() if info.annotation is bool
+)

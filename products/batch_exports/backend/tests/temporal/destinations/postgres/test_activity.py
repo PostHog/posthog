@@ -9,7 +9,15 @@ from django.test import override_settings
 import pytest_asyncio
 from psycopg import sql
 
-from products.batch_exports.backend.service import BatchExportField, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportField,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     PostgresInsertInputs,
     insert_into_postgres_activity_from_stage,
@@ -45,8 +53,7 @@ async def _run_activity(
     data_interval_start,
     data_interval_end,
     table_name: str,
-    batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     sort_key: str = "event",
@@ -71,7 +78,6 @@ async def _run_activity(
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
         include_events=include_events,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=str(uuid.uuid4()),
         integration_id=integration_id,
@@ -92,7 +98,6 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             batch_export_model=insert_inputs.batch_export_model,
-            batch_export_schema=insert_inputs.batch_export_schema,
             destination_default_fields=(
                 postgres_default_fields() if destination_default_fields is None else destination_default_fields
             ),
@@ -110,7 +115,7 @@ async def _run_activity(
         team_id=team.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
-        batch_export_model=batch_export_model or batch_export_schema,
+        batch_export_model=batch_export_model,
         exclude_events=exclude_events,
         sort_key=sort_key,
         expected_fields=expected_fields,
@@ -120,13 +125,13 @@ async def _run_activity(
     return result
 
 
-@pytest.mark.parametrize("model", [None, BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [None, BatchExportEventsModel()])
 async def test_insert_into_postgres_activity_handles_old_staged_events(
     clickhouse_client,
     activity_environment,
     postgres_connection,
     postgres_config,
-    model: BatchExportModel | None,
+    model: AnyBatchExportModel | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -154,10 +159,9 @@ async def test_insert_into_postgres_activity_handles_old_staged_events(
     [
         pytest.param(None, False, id="existing-events-table"),
         pytest.param(None, True, id="default-without-select"),
-        pytest.param(BatchExportModel(name="events", schema=None), True, id="events-without-select"),
+        pytest.param(BatchExportEventsModel(), True, id="events-without-select"),
         pytest.param(
-            BatchExportModel(
-                name="events",
+            BatchExportEventsCustomModel(
                 schema={"fields": [{"expression": "person_id", "alias": "person_id"}], "values": {}},
             ),
             True,
@@ -177,16 +181,15 @@ async def test_insert_into_postgres_activity_handles_existing_events_table(
     postgres_connection,
     postgres_config,
     insert_only_postgres_config,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
     ateam,
 ) -> None:
     table_name = "existing_events"
-    batch_export_model = model if isinstance(model, BatchExportModel) else None
-    batch_export_schema = model if isinstance(model, dict) else None
-    custom_schema = batch_export_schema or (batch_export_model.schema if batch_export_model else None)
+    batch_export_model = BatchExportEventsCustomModel(schema=model) if isinstance(model, dict) else model
+    custom_schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
 
     await _run_activity(
         activity_environment=activity_environment,
@@ -198,7 +201,6 @@ async def test_insert_into_postgres_activity_handles_existing_events_table(
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         sort_key="person_id" if custom_schema is not None else "event",
     )
 
@@ -232,7 +234,6 @@ async def test_insert_into_postgres_activity_handles_existing_events_table(
         data_interval_end=data_interval_end,
         table_name=table_name,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         expected_fields=(
             ["person_id"]
             if custom_schema is not None
@@ -253,7 +254,7 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     postgres_connection,
     postgres_config,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -276,18 +277,17 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     to avoid conflicting with PostHog itself.
     """
     if (
-        isinstance(model, BatchExportModel)
+        isinstance(model, AnyBatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and exclude_events is not None
     ):
         pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     sort_key = "event"
     if batch_export_model is not None:
@@ -307,7 +307,6 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
             data_interval_end=data_interval_end,
             table_name="test_table",
             batch_export_model=batch_export_model,
-            batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
             sort_key=sort_key,
             integration_id=integration.id if integration is not None else None,
@@ -315,7 +314,7 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
 
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize(
     "test_properties",
     [
@@ -340,7 +339,7 @@ async def test_insert_into_postgres_activity_handles_problematic_json(
     postgres_connection,
     postgres_config,
     exclude_events,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -385,7 +384,7 @@ async def test_insert_into_postgres_activity_merges_persons_data_in_follow_up_ru
     run of the activity. We expect the new entries to have replaced the old ones in PostgreSQL after
     the second run.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_name = f"test_insert_activity_mutability_table_persons_{ateam.pk}"
 
     # First run
@@ -460,7 +459,7 @@ async def test_insert_into_postgres_activity_merges_sessions_data_in_follow_up_r
 
     from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-    model = BatchExportModel(name="sessions", schema=None)
+    model = BatchExportSessionsModel()
     table_name = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
 
     # First run
@@ -568,12 +567,12 @@ async def persons_table_without_primary_key(postgres_connection, postgres_config
             )
 
 
-@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportPersonsModel()])
 async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_key(
     activity_environment,
     postgres_config,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     data_interval_start,
     data_interval_end,
     ateam,
@@ -587,12 +586,11 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
 
     This error should only occur if the table is created outside the batch export.
     """
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     insert_inputs = PostgresInsertInputs(
         team_id=ateam.pk,
@@ -600,7 +598,6 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         batch_export_id=str(uuid.uuid4()),
         **postgres_config,
@@ -621,7 +618,6 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
                 run_id=None,
                 backfill_details=None,
                 batch_export_model=insert_inputs.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export_schema,
                 destination_default_fields=postgres_default_fields(),
             ),
         )
@@ -655,7 +651,7 @@ async def test_insert_into_postgres_activity_handles_person_schema_changes(
     To replicate this situation we first export the data with the original
     schema, then delete a column in the destination and then rerun the export.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_name = f"test_insert_activity_migration_table__{ateam.pk}"
 
     # First run

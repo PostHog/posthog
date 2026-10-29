@@ -11,7 +11,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.temporal.common.client import async_connect
 
-from ..facade.enums import ScheduleInterval, SubjectType
+from ..facade.enums import DataQualityScheduleInterval, SubjectType
 from .subject_schedules import SCHEDULE_TYPES, SubjectScheduleKey, SubjectSchedules, label_from_interval
 
 logger = structlog.get_logger(__name__)
@@ -25,7 +25,7 @@ class ScheduleUnavailableError(Exception):
 @frozen
 class CheckSchedule:
     id: UUID
-    interval: ScheduleInterval
+    interval: DataQualityScheduleInterval
     enabled: bool
     next_run_at: datetime | None
     last_run_at: datetime | None = None

@@ -17,6 +17,7 @@ import posthog from 'posthog-js'
 
 import {
     appendExceptionToMessage,
+    appendTicketContext,
     captureSupportTicketBlocked,
     captureSupportWidgetLoadFailed,
     SUPPORT_WIDGET_UNAVAILABLE_MESSAGE,
@@ -40,9 +41,27 @@ import type {
     ConversationMessage,
     ConversationTicket,
     RestoreFlowState,
+    SidePanelTicketFilter,
     SidePanelViewState,
-    TicketStatus,
 } from '../../types'
+
+function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
+    switch (filter) {
+        case 'all':
+            return true
+        case 'unread':
+            return (ticket.unread_count ?? 0) > 0
+        case 'active':
+            return ticket.status !== 'resolved'
+        default:
+            return ticket.status === filter
+    }
+}
+
+/** Most recent activity on a ticket, for ordering. Falls back to creation when nothing was said yet. */
+function ticketActivityTime(ticket: ConversationTicket): number {
+    return new Date(ticket.last_message_at ?? ticket.created_at).getTime() || 0
+}
 
 // Poll cadence scales with how actively the user is looking at support, so an open thread stays
 // fresh without every idle tab hammering the widget once a minute.
@@ -83,6 +102,7 @@ function messageToRichContent(message: string): JSONContent {
 export interface sidepanelTicketsLogicValues {
     billing: BillingType | null // billingLogic
     billingLoading: boolean // billingLogic
+    supportResponseTime: string | null // billingLogic
     isCurrentOrganizationNew: boolean // organizationLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
@@ -97,9 +117,9 @@ export interface sidepanelTicketsLogicValues {
         status: string
     } | null // supportLogic
     sendSupportRequest: SupportFormFields // supportLogic
-    supportResponseTime: string | null // supportLogic
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
+    effectiveStatusFilter: SidePanelTicketFilter
     filteredTickets: ConversationTicket[]
     hasMoreMessages: boolean
     hasSupportExemption: boolean
@@ -107,12 +127,14 @@ export interface sidepanelTicketsLogicValues {
     messageSending: boolean
     messages: ChatMessage[]
     messagesLoading: boolean
+    newTicketContext: string | null
     newTicketDraft: JSONContent | null
     newTicketDraftRevision: number
     pendingTicketId: string | null
     restoreError: string | null
     restoreState: RestoreFlowState
-    statusFilter: TicketStatus | 'all'
+    statusFilter: SidePanelTicketFilter | null
+    ticketFilterCounts: Record<SidePanelTicketFilter, number>
     tickets: ConversationTicket[]
     ticketsLoading: boolean
     totalUnreadCount: number
@@ -188,6 +210,9 @@ export interface sidepanelTicketsLogicActions {
     setMessagesLoading: (loading: boolean) => {
         loading: boolean
     }
+    setNewTicketContext: (context: string | null) => {
+        context: string | null
+    }
     setNewTicketDraft: (content: JSONContent | null) => {
         content: JSONContent | null
     }
@@ -200,8 +225,8 @@ export interface sidepanelTicketsLogicActions {
     setRestoreState: (state: RestoreFlowState) => {
         state: RestoreFlowState
     }
-    setStatusFilter: (status: TicketStatus | 'all') => {
-        status: TicketStatus | 'all'
+    setStatusFilter: (status: SidePanelTicketFilter) => {
+        status: SidePanelTicketFilter
     }
     setTickets: (tickets: ConversationTicket[]) => {
         tickets: ConversationTicket[]
@@ -227,7 +252,17 @@ export interface sidepanelTicketsLogicActions {
 export interface sidepanelTicketsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         totalUnreadCount: (tickets: ConversationTicket[]) => number
-        filteredTickets: (tickets: ConversationTicket[], statusFilter: TicketStatus | 'all') => ConversationTicket[]
+        effectiveStatusFilter: (
+            statusFilter: SidePanelTicketFilter | null,
+            totalUnreadCount: number
+        ) => SidePanelTicketFilter
+        ticketFilterCounts: (tickets: ConversationTicket[]) => Record<SidePanelTicketFilter, number>
+        filteredTickets: (
+            tickets: ConversationTicket[],
+            effectiveStatusFilter: SidePanelTicketFilter,
+            currentTicket: ConversationTicket | null,
+            view: SidePanelViewState
+        ) => ConversationTicket[]
         canCreateTicket: (
             billing: BillingType | null,
             isCurrentOrganizationNew: boolean,
@@ -253,16 +288,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab', 'selectedTabOptions'],
             supportLogic,
-            [
-                'isEmailFormOpen',
-                'sendSupportRequest',
-                'pendingViewTicket',
-                'isBillingIssue',
-                'isErrorReport',
-                'supportResponseTime',
-            ],
+            ['isEmailFormOpen', 'sendSupportRequest', 'pendingViewTicket', 'isBillingIssue', 'isErrorReport'],
             billingLogic,
-            ['billing', 'billingLoading'],
+            ['billing', 'billingLoading', 'supportResponseTime'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
             preflightLogic,
@@ -292,6 +320,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setView: (view: SidePanelViewState) => ({ view }),
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
         setNewTicketDraft: (content: JSONContent | null) => ({ content }),
+        setNewTicketContext: (context: string | null) => ({ context }),
         startTicketFromSupportForm: true,
         openPendingTicket: true,
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
@@ -301,7 +330,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         restoreFromUrlToken: (token: string) => ({ token }),
         setRestoreState: (state: RestoreFlowState) => ({ state }),
         setRestoreError: (error: string | null) => ({ error }),
-        setStatusFilter: (status: TicketStatus | 'all') => ({ status }),
+        setStatusFilter: (status: SidePanelTicketFilter) => ({ status }),
     }),
     reducers({
         view: [
@@ -356,6 +385,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setView: (state, { view }) => (view === 'new' ? state : null),
             },
         ],
+        // Cleared with the draft, so a later blank "New ticket" doesn't carry it
+        newTicketContext: [
+            null as string | null,
+            {
+                setNewTicketContext: (_, { context }) => context,
+                setView: (state, { view }) => (view === 'new' ? state : null),
+            },
+        ],
         // Bumped only when a draft is injected via setNewTicketDraft (a prefilled CTA), so NewTicket
         // remounts to pick up the seeded content. Plain typing never calls this, so it doesn't remount.
         newTicketDraftRevision: [
@@ -390,8 +427,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setRestoreState: () => null,
             },
         ],
+        // `null` means "not chosen yet": the list then defaults to unread tickets when there are
+        // any, otherwise to active ones, so a long history never buries what needs attention.
         statusFilter: [
-            'all' as TicketStatus | 'all',
+            null as SidePanelTicketFilter | null,
             {
                 setStatusFilter: (_, { status }) => status,
             },
@@ -412,10 +451,57 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             (s) => [s.tickets],
             (tickets: ConversationTicket[]) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0),
         ],
+        effectiveStatusFilter: [
+            (s) => [s.statusFilter, s.totalUnreadCount],
+            (statusFilter: SidePanelTicketFilter | null, totalUnreadCount: number): SidePanelTicketFilter =>
+                statusFilter ?? (totalUnreadCount > 0 ? 'unread' : 'active'),
+        ],
+        ticketFilterCounts: [
+            (s) => [s.tickets],
+            (tickets: ConversationTicket[]): Record<SidePanelTicketFilter, number> => {
+                const counts: Record<SidePanelTicketFilter, number> = {
+                    unread: 0,
+                    active: 0,
+                    all: tickets.length,
+                    new: 0,
+                    open: 0,
+                    pending: 0,
+                    on_hold: 0,
+                    resolved: 0,
+                }
+                for (const ticket of tickets) {
+                    counts[ticket.status] += 1
+                    if (ticket.status !== 'resolved') {
+                        counts.active += 1
+                    }
+                    if ((ticket.unread_count ?? 0) > 0) {
+                        counts.unread += 1
+                    }
+                }
+                return counts
+            },
+        ],
+        // Unread threads float to the top, then most recent activity. The open thread counts as
+        // unread while it is being read: opening it marks it read, and the full-screen scene keeps
+        // the list beside the thread, so without the pin the row would drop or vanish on click.
         filteredTickets: [
-            (s) => [s.tickets, s.statusFilter],
-            (tickets: ConversationTicket[], statusFilter: TicketStatus | 'all'): ConversationTicket[] =>
-                statusFilter === 'all' ? tickets : tickets.filter((t) => t.status === statusFilter),
+            (s) => [s.tickets, s.effectiveStatusFilter, s.currentTicket, s.view],
+            (
+                tickets: ConversationTicket[],
+                effectiveStatusFilter: SidePanelTicketFilter,
+                currentTicket: ConversationTicket | null,
+                view: SidePanelViewState
+            ): ConversationTicket[] => {
+                const pinnedId = view === 'ticket' ? (currentTicket?.id ?? null) : null
+                const surfaces = (ticket: ConversationTicket): boolean =>
+                    ticket.id === pinnedId || (ticket.unread_count ?? 0) > 0
+                return tickets
+                    .filter((ticket) => ticket.id === pinnedId || ticketMatchesFilter(ticket, effectiveStatusFilter))
+                    .sort((a, b) => {
+                        const surfaceDelta = Number(surfaces(b)) - Number(surfaces(a))
+                        return surfaceDelta !== 0 ? surfaceDelta : ticketActivityTime(b) - ticketActivityTime(a)
+                    })
+            },
         ],
         // Opening a ticket is the paid part of support. Reading and replying to tickets already in
         // the account isn't — free plans can end up with tickets via billing questions or PostHog AI
@@ -667,10 +753,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setMessagesLoading(false)
             }
         },
-        sendMessage: async ({ content, onSuccess }) => {
-            if (!content.trim() || values.messageSending) {
+        sendMessage: async ({ content: typed, onSuccess }) => {
+            if (!typed.trim() || values.messageSending) {
                 return
             }
+            const content = values.view === 'new' ? appendTicketContext(typed, values.newTicketContext) : typed
             // Bailing quietly here left the button un-loaded and the typed message sitting in the box
             // with no explanation, which is the worst version of this now conversations is the only channel
             if (!posthog.conversations) {
@@ -840,6 +927,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (draft) {
                 actions.setNewTicketDraft(messageToRichContent(draft))
             }
+            actions.setNewTicketContext(request?.ticket_context || null)
             actions.setView('new')
             // Consume the support-form intent fully (or supportRouterLogic keeps treating the form as
             // open and ignores future URL-driven opens), and reset so a stale message can't resurface

@@ -8,7 +8,7 @@ from dateutil import parser
 from requests import PreparedRequest, Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
@@ -32,6 +32,11 @@ TIKTOK_AUTH_ERROR_CODES = {40105, 40110}
 # minted under a different TikTok app than the one currently configured — reconnecting to mint a
 # fresh token under the current app is the only fix; retrying with the same token cannot succeed.
 TIKTOK_APP_TOKEN_MISMATCH_MESSAGE = "app_id is inconsistent with the token's app information"
+
+# Also under the generic 40000 bucket: TikTok's wording for a revoked/invalid token on this
+# endpoint, distinct from the 40105 code `list_advertisers` otherwise relies on. Reconnecting is
+# the only fix.
+TIKTOK_INVALID_TOKEN_MESSAGE = "Access token is incorrect or has been revoked"
 
 # Throttling (400xx) and TikTok-side outages (5xxxx/60001) also arrive as HTTP 200 + a body `code`,
 # so no HTTP-level retry ever fires on them. Neither is our bug and neither is fixed by reconnecting:
@@ -60,7 +65,7 @@ def list_advertisers(access_token: str) -> list[dict]:
     # Mask the app secret (a query param) and the access token (a header) so neither lands in
     # request telemetry / captured samples. `timeout` guards the oauth_accounts web worker: TikTok
     # has no default timeout, so a hung connection would otherwise pin the worker indefinitely.
-    resolved = integration_secrets.get_secrets(["TIKTOK_ADS_CLIENT_ID", "TIKTOK_ADS_CLIENT_SECRET"])
+    resolved = credentials_service.get_secrets(["TIKTOK_ADS_CLIENT_ID", "TIKTOK_ADS_CLIENT_SECRET"])
     app_secret = resolved["TIKTOK_ADS_CLIENT_SECRET"]
     session = make_tracked_session(
         headers={"Access-Token": access_token, "Content-Type": "application/json"},

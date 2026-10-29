@@ -2,22 +2,30 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.settings import (
     CONTROL_PLANE_GROUP_CLUSTER_TYPE,
-    CONTROL_PLANES_PAGE_SIZE,
     CORE_ENTITY_PAGE_SIZE,
     DEFAULT_INITIAL_LOOKBACK_DAYS,
     KONG_KONNECT_ENDPOINTS,
+    LIST_PAGE_SIZE,
     MAX_PAGE_SIZE,
+    METRICS_MAX_LOOKBACK_DAYS,
+    METRICS_QUERY_LIMIT,
     REGION_BASE_URLS,
+    SERVICE_METRICS_GROUPS,
+    KongKonnectEndpointConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
@@ -65,8 +73,8 @@ def _clamp_future_value_to_now(value: Any) -> Any:
     return value
 
 
-def _get_base_url(region: str) -> str:
-    return REGION_BASE_URLS.get(region, REGION_BASE_URLS["us"])
+def _get_base_url(region: str, api_version: str = "v2") -> str:
+    return f"{REGION_BASE_URLS.get(region, REGION_BASE_URLS['us'])}/{api_version}"
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -114,7 +122,7 @@ def _build_body(start: str, end: str, offset: int, size: int) -> dict[str, Any]:
     }
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             KongKonnectRetryableError,
@@ -166,54 +174,171 @@ def _get_json(
     return response.json()
 
 
-def _iter_control_planes(
-    session: requests.Session, base_url: str, logger: FilteringBoundLogger
+def _iter_page_number(
+    session: requests.Session,
+    url: str,
+    sort: str | None,
+    logger: FilteringBoundLogger,
+    allow_not_found: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     page_number = 1
     while True:
-        params = {"page[size]": CONTROL_PLANES_PAGE_SIZE, "page[number]": page_number, "sort": "created_at"}
-        data = _get_json(session, f"{base_url}/control-planes", params, logger) or {}
-        control_planes = data.get("data") or []
+        params: dict[str, Any] = {"page[size]": LIST_PAGE_SIZE, "page[number]": page_number}
+        if sort:
+            params["sort"] = sort
+        data = _get_json(session, url, params, logger, allow_not_found=allow_not_found)
+        if data is None:
+            return
+        rows = data.get("data") or []
 
-        if control_planes:
-            yield control_planes
+        if rows:
+            yield rows
 
         total = ((data.get("meta") or {}).get("page") or {}).get("total")
-        if len(control_planes) < CONTROL_PLANES_PAGE_SIZE or (
-            total is not None and page_number * CONTROL_PLANES_PAGE_SIZE >= total
-        ):
+        if len(rows) < LIST_PAGE_SIZE or (total is not None and page_number * LIST_PAGE_SIZE >= total):
             break
         page_number += 1
 
 
-def _iter_core_entities(
-    session: requests.Session, base_url: str, path: str, logger: FilteringBoundLogger
+def _next_page_after(data: dict[str, Any]) -> str | None:
+    # `meta.next` is a URI path such as `/v1/realms?page[after]=...`, so read the cursor out of it.
+    next_uri = (data.get("meta") or {}).get("next")
+    if not next_uri:
+        return None
+    values = parse_qs(urlparse(next_uri).query).get("page[after]")
+    return values[0] if values else None
+
+
+def _iter_cursor(
+    session: requests.Session,
+    url: str,
+    logger: FilteringBoundLogger,
+    allow_not_found: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
+    params: dict[str, Any] = {"page[size]": LIST_PAGE_SIZE}
+    while True:
+        data = _get_json(session, url, params, logger, allow_not_found=allow_not_found)
+        if data is None:
+            return
+        rows = data.get("data") or []
+
+        if rows:
+            yield rows
+
+        page_after = _next_page_after(data)
+        if not page_after:
+            break
+        params = {"page[size]": LIST_PAGE_SIZE, "page[after]": page_after}
+
+
+def _iter_control_planes(
+    session: requests.Session, base_url: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    yield from _iter_page_number(
+        session, f"{base_url}/control-planes", KONG_KONNECT_ENDPOINTS["control_planes"].sort, logger
+    )
+
+
+def _iter_offset(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Iterator[list[dict[str, Any]]]:
+    offset: str | None = None
+    while True:
+        params: dict[str, Any] = {"size": CORE_ENTITY_PAGE_SIZE}
+        if offset:
+            params["offset"] = offset
+        data = _get_json(session, url, params, logger, allow_not_found=True)
+        if data is None:
+            # The parent was deleted between listing it and fanning out over it.
+            logger.debug(f"Kong Konnect: {url} not found, skipping")
+            return
+
+        rows = data.get("data") or []
+        if rows:
+            yield rows
+
+        offset = data.get("offset")
+        if not offset:
+            break
+
+
+def _without_fields(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    """Drop each field, given as a dotted path into nested objects, without mutating `row`."""
+    for field_path in fields:
+        key, _, rest = field_path.partition(".")
+        if key not in row:
+            continue
+        if not rest:
+            row = {k: v for k, v in row.items() if k != key}
+        elif isinstance(row[key], dict):
+            row = {**row, key: _without_fields(row[key], (rest,))}
+    return row
+
+
+def _iter_core_entities(
+    session: requests.Session,
+    base_url: str,
+    endpoint_config: KongKonnectEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KongKonnectResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    parent_config = KONG_KONNECT_ENDPOINTS[endpoint_config.parent] if endpoint_config.parent else None
+
     for control_planes in _iter_control_planes(session, base_url, logger):
         for control_plane in control_planes:
             if (control_plane.get("config") or {}).get("cluster_type") == CONTROL_PLANE_GROUP_CLUSTER_TYPE:
                 continue
 
             control_plane_id = control_plane["id"]
-            url = f"{base_url}/control-planes/{control_plane_id}{path}"
-            offset: str | None = None
-            while True:
-                params: dict[str, Any] = {"size": CORE_ENTITY_PAGE_SIZE}
-                if offset:
-                    params["offset"] = offset
-                data = _get_json(session, url, params, logger, allow_not_found=True)
-                if data is None:
-                    # The control plane was deleted between listing it and fanning out over it.
-                    logger.debug(f"Kong Konnect: control plane {control_plane_id} not found, skipping {path}")
-                    break
+            control_plane_url = f"{base_url}/control-planes/{control_plane_id}"
 
-                rows = data.get("data") or []
-                if rows:
+            if parent_config is None or endpoint_config.parent_id_field is None:
+                for rows in _iter_offset(session, f"{control_plane_url}{endpoint_config.path}", logger):
                     yield [{**row, "control_plane_id": control_plane_id} for row in rows]
+                resumable_source_manager.safe_point()
+                continue
 
-                offset = data.get("offset")
-                if not offset:
-                    break
+            for parents in _iter_offset(session, f"{control_plane_url}{parent_config.path}", logger):
+                for parent in parents:
+                    child_url = f"{control_plane_url}{endpoint_config.path.replace('{id}', parent['id'])}"
+                    for rows in _iter_offset(session, child_url, logger):
+                        yield [
+                            {**row, "control_plane_id": control_plane_id, endpoint_config.parent_id_field: parent["id"]}
+                            for row in rows
+                        ]
+                    resumable_source_manager.safe_point()
+
+
+def _iter_list(
+    session: requests.Session,
+    url: str,
+    endpoint_config: KongKonnectEndpointConfig,
+    logger: FilteringBoundLogger,
+    allow_not_found: bool = False,
+) -> Iterator[list[dict[str, Any]]]:
+    if endpoint_config.kind == "cursor":
+        return _iter_cursor(session, url, logger, allow_not_found=allow_not_found)
+    return _iter_page_number(session, url, endpoint_config.sort, logger, allow_not_found=allow_not_found)
+
+
+def _iter_top_level(
+    session: requests.Session,
+    region: str,
+    endpoint_config: KongKonnectEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KongKonnectResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    base_url = _get_base_url(region, endpoint_config.api_version)
+
+    if endpoint_config.parent is None or endpoint_config.parent_id_field is None:
+        yield from _iter_list(session, f"{base_url}{endpoint_config.path}", endpoint_config, logger)
+        return
+
+    parent_config = KONG_KONNECT_ENDPOINTS[endpoint_config.parent]
+    for parents in _iter_list(session, f"{base_url}{parent_config.path}", parent_config, logger):
+        for parent in parents:
+            child_url = f"{base_url}{endpoint_config.path.replace('{id}', parent['id'])}"
+            for rows in _iter_list(session, child_url, endpoint_config, logger, allow_not_found=True):
+                yield [{**row, endpoint_config.parent_id_field: parent["id"]} for row in rows]
+            resumable_source_manager.safe_point()
 
 
 def get_lookup_rows(
@@ -221,15 +346,23 @@ def get_lookup_rows(
     region: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KongKonnectResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = KONG_KONNECT_ENDPOINTS[endpoint]
-    base_url = _get_base_url(region)
-    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
+    session = make_tracked_session(
+        headers=_get_headers(api_token),
+        redact_values=(api_token,),
+        # Excluded fields hold credentials, which HTTP samples would capture before the rows are cleaned.
+        capture=not endpoint_config.excluded_fields,
+    )
 
-    if endpoint_config.kind == "control_planes":
-        yield from _iter_control_planes(session, base_url, logger)
+    if endpoint_config.kind == "core_entity":
+        pages = _iter_core_entities(session, _get_base_url(region), endpoint_config, logger, resumable_source_manager)
     else:
-        yield from _iter_core_entities(session, base_url, endpoint_config.path, logger)
+        pages = _iter_top_level(session, region, endpoint_config, logger, resumable_source_manager)
+
+    for rows in pages:
+        yield [_without_fields(row, endpoint_config.excluded_fields) for row in rows]
 
 
 def validate_credentials(api_token: str, region: str) -> bool:
@@ -288,6 +421,83 @@ def get_rows(
         resumable_source_manager.save_state(KongKonnectResumeConfig(start=start, end=end, offset=offset))
 
 
+def _to_day(value: Any) -> date:
+    if isinstance(value, datetime):
+        return (value.astimezone(UTC) if value.tzinfo is not None else value).date()
+    if isinstance(value, date):
+        return value
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC).date()
+
+
+def _build_metrics_body(metrics: tuple[str, ...], start: datetime, end: datetime) -> dict[str, Any]:
+    return {
+        "datasource": "api_usage",
+        "metrics": list(metrics),
+        "dimensions": ["gateway_service"],
+        "time_range": {
+            "type": "absolute",
+            "start": _format_datetime(start),
+            "end": _format_datetime(end),
+            "tz": "Etc/UTC",
+        },
+        "limit": METRICS_QUERY_LIMIT,
+    }
+
+
+def get_daily_service_metrics(
+    api_token: str,
+    region: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[KongKonnectResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    lookback_days: int = DEFAULT_INITIAL_LOOKBACK_DAYS,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_get_base_url(region)}{KONG_KONNECT_ENDPOINTS['daily_service_metrics'].path}"
+    headers = _get_headers(api_token)
+    session = make_tracked_session()
+    now = datetime.now(UTC)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.start:
+        day = _to_day(resume.start)
+    elif should_use_incremental_field and db_incremental_field_last_value:
+        day = _to_day(_clamp_future_value_to_now(db_incremental_field_last_value))
+    else:
+        day = (now - timedelta(days=lookback_days)).date()
+    day = max(day, (now - timedelta(days=METRICS_MAX_LOOKBACK_DAYS)).date())
+
+    day_start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
+    while day_start < now:
+        next_day_start = day_start + timedelta(days=1)
+        rows_by_service: dict[str, dict[str, Any]] = {}
+
+        for metrics in SERVICE_METRICS_GROUPS:
+            body = _build_metrics_body(metrics, day_start, min(next_day_start, now))
+            data = _fetch_page(session, url, headers, body, logger)
+            if (data.get("meta") or {}).get("truncated"):
+                logger.warning(
+                    f"Kong Konnect: metrics for {day_start.date()} exceed {METRICS_QUERY_LIMIT} services, "
+                    "the rest are grouped as ____OTHER____"
+                )
+            for record in data.get("data") or []:
+                event = dict(record.get("event") or {})
+                # Traffic that matched no gateway service has no service ID. An empty string keeps the
+                # primary key non-null so the merge can replace the row.
+                service = event.pop("gateway_service", None) or ""
+                rows_by_service.setdefault(service, {"day": day_start, "gateway_service": service}).update(event)
+
+        # A day still in progress is queried again on resume. A completed day, even an empty one, is not.
+        resume_day = next_day_start if next_day_start <= now else day_start
+        resumable_source_manager.save_state(KongKonnectResumeConfig(start=_format_datetime(resume_day)))
+        if rows_by_service:
+            yield list(rows_by_service.values())
+        else:
+            resumable_source_manager.safe_point()
+
+        day_start = next_day_start
+
+
 def kong_konnect_source(
     api_token: str,
     region: str,
@@ -301,8 +511,24 @@ def kong_konnect_source(
     endpoint_config = KONG_KONNECT_ENDPOINTS[endpoint]
 
     def items() -> Iterator[list[dict[str, Any]]]:
+        if endpoint_config.kind == "metrics":
+            return get_daily_service_metrics(
+                api_token=api_token,
+                region=region,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                lookback_days=lookback_days,
+            )
         if endpoint_config.kind != "analytics":
-            return get_lookup_rows(api_token=api_token, region=region, endpoint=endpoint, logger=logger)
+            return get_lookup_rows(
+                api_token=api_token,
+                region=region,
+                endpoint=endpoint,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+            )
         return get_rows(
             api_token=api_token,
             region=region,

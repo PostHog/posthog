@@ -10,6 +10,7 @@ import type {
   SourceProduct,
   SourceType,
   StoredLogEntry,
+  TaskClientProvenance,
   TaskRunArtifactMetadata,
 } from "@posthog/shared";
 import {
@@ -183,9 +184,16 @@ export function setPosthogApiClientLogger(logger: ApiClientLogger): void {
 // Host build version, set by the host at boot (default "unknown"); avoids a
 // build-time global so the package typechecks standalone and across importers.
 let clientAppVersion = "unknown";
+let taskClientProvenance: TaskClientProvenance = "posthog_desktop";
 
 export function setPosthogApiClientAppVersion(version: string): void {
   clientAppVersion = version;
+}
+
+export function setPosthogApiClientTaskClientProvenance(
+  provenance: TaskClientProvenance,
+): void {
+  taskClientProvenance = provenance;
 }
 
 export interface PostHogAPIClientOptions {
@@ -193,6 +201,7 @@ export interface PostHogAPIClientOptions {
   appVersion?: string;
   userAgent?: string | null;
   githubConnectFrom?: string;
+  taskClientProvenance?: TaskClientProvenance;
 }
 
 export function getPosthogApiClientAppVersion(): string {
@@ -231,6 +240,8 @@ export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 export const SESSION_LOGS_PAGE_TIMEOUT_MS = 30_000;
+// The task list endpoint caps a page at this many rows (TasksPagination.max_limit).
+export const TASK_LIST_MAX_PAGE_SIZE = 100;
 
 export interface TaskRunSessionLogsResult {
   entries: StoredLogEntry[];
@@ -330,6 +341,11 @@ export interface TaskListOptions {
   ciStatus?: string;
   /** List only tasks the requesting user has pinned. */
   pinned?: boolean;
+  /**
+   * List only tasks from any of these sources, in the desktop source filter's words. Filtering on
+   * the server keeps sources the user hid, such as scheduled runs, from filling the page.
+   */
+  sources?: readonly string[];
   /** Filter to tasks with a thread comment from this user ID. */
   commentedBy?: number;
   /** Filter to tasks whose thread mentions this user ID. */
@@ -429,6 +445,14 @@ export interface TaskSessionStorageAccess {
  */
 export const COMMENT_SCOPES = ["task_artifact", "canvas", "task"] as const;
 export type CommentScope = (typeof COMMENT_SCOPES)[number];
+
+export type SuggestedReviewerEdit = {
+  action: Extract<
+    NonNullable<Schemas.SignalReportArtefactWrite["action"]>,
+    "add" | "remove"
+  >;
+  targets: NonNullable<Schemas.SignalReportArtefactWrite["targets"]>;
+};
 
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
@@ -1384,6 +1408,7 @@ type AnyArtefact =
 const DISMISSAL_REASONS = new Set<ReportStateReason>([
   ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
   ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+  "pr_merged",
 ]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
@@ -1553,6 +1578,12 @@ function normalizeDismissalArtefact(
     type: "dismissal",
     ...artefactBase(value),
     content: {
+      state:
+        contentValue.state === "resolved" ||
+        contentValue.state === "suppressed" ||
+        contentValue.state === "potential"
+          ? contentValue.state
+          : null,
       reason,
       note: optionalString(contentValue.note) ?? "",
       user_id:
@@ -2091,6 +2122,7 @@ export class PostHogAPIClient {
   private _teamId: number | null = null;
   private githubConnectFrom: string;
   private readonly apiHost: string;
+  private readonly taskClientProvenance: TaskClientProvenance;
 
   constructor(
     apiHost: string,
@@ -2102,6 +2134,8 @@ export class PostHogAPIClient {
     const baseUrl = apiHost.endsWith("/") ? apiHost.slice(0, -1) : apiHost;
     this.apiHost = baseUrl;
     this.githubConnectFrom = options.githubConnectFrom ?? "posthog_code";
+    this.taskClientProvenance =
+      options.taskClientProvenance ?? taskClientProvenance;
     this.api = createApiClient(
       buildApiFetcher({
         getAccessToken,
@@ -3251,7 +3285,10 @@ export class PostHogAPIClient {
     const maxPages = pagination?.fetchAll
       ? Number.POSITIVE_INFINITY
       : (pagination?.maxPages ?? 1);
-    const pageSize = Math.min(options?.limit ?? 100, 100);
+    const pageSize = Math.min(
+      options?.limit ?? TASK_LIST_MAX_PAGE_SIZE,
+      TASK_LIST_MAX_PAGE_SIZE,
+    );
     const tasks: Task[] = [];
     let count = 0;
 
@@ -3291,7 +3328,7 @@ export class PostHogAPIClient {
     options?: TaskListOptions,
   ): Promise<{ tasks: Task[]; count: number }> {
     const teamId = await this.getTeamId();
-    const params: Record<string, string | number | boolean> = {
+    const params: Record<string, string | number | boolean | string[]> = {
       limit: options?.limit ?? 500,
     };
 
@@ -3339,6 +3376,10 @@ export class PostHogAPIClient {
       params.pinned = true;
     }
 
+    if (options?.sources?.length) {
+      params.sources = [...options.sources];
+    }
+
     if (options?.commentedBy) {
       params.commented_by = options.commentedBy;
     }
@@ -3376,7 +3417,6 @@ export class PostHogAPIClient {
     // the largest page, then pull any remaining pages in parallel by offset. The
     // old code walked `next` one blocking request at a time, so a large sidebar
     // turned into a chain of serial round-trips on every inbox open.
-    const PAGE_LIMIT = 100;
     const MAX_PAGES = 50;
     const teamId = await this.getTeamId();
     const basePath = `/api/projects/${teamId}/tasks/summaries/`;
@@ -3384,7 +3424,7 @@ export class PostHogAPIClient {
     const fetchPage = async (
       offset: number,
     ): Promise<TaskSummariesResponse> => {
-      const urlPath = `${basePath}?limit=${PAGE_LIMIT}&offset=${offset}`;
+      const urlPath = `${basePath}?limit=${TASK_LIST_MAX_PAGE_SIZE}&offset=${offset}`;
       const response = await this.api.fetcher.fetch({
         method: "post",
         url: new URL(`${this.api.baseUrl}${urlPath}`),
@@ -3403,15 +3443,19 @@ export class PostHogAPIClient {
 
     const first = await fetchPage(0);
     const all: TaskSummaryDTO[] = [...first.results];
-    const capped = Math.min(first.count, PAGE_LIMIT * MAX_PAGES);
-    if (first.count > PAGE_LIMIT * MAX_PAGES) {
+    const capped = Math.min(first.count, TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES);
+    if (first.count > TASK_LIST_MAX_PAGE_SIZE * MAX_PAGES) {
       log.warn(
         `getTaskSummaries capped at ${MAX_PAGES} pages; returning partial results`,
         { ids: ids.length, count: first.count },
       );
     }
     const offsets: number[] = [];
-    for (let offset = PAGE_LIMIT; offset < capped; offset += PAGE_LIMIT) {
+    for (
+      let offset = TASK_LIST_MAX_PAGE_SIZE;
+      offset < capped;
+      offset += TASK_LIST_MAX_PAGE_SIZE
+    ) {
       offsets.push(offset);
     }
     // Cap how many page POSTs are in flight at once. A large sidebar can span
@@ -3540,7 +3584,9 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
-        header: {},
+        header: {
+          "X-PostHog-Client-Provenance": this.taskClientProvenance,
+        },
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -4569,6 +4615,11 @@ export class PostHogAPIClient {
         method: "post",
         url,
         path: urlPath,
+        parameters: {
+          header: {
+            "X-PostHog-Client-Provenance": this.taskClientProvenance,
+          },
+        },
         overrides: {
           body: JSON.stringify({
             repository: options.repository,
@@ -6094,6 +6145,7 @@ export class PostHogAPIClient {
     reportId: string,
     artefactId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -6106,7 +6158,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 
@@ -6125,6 +6177,7 @@ export class PostHogAPIClient {
   async setSignalReportReviewers(
     reportId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
@@ -6134,7 +6187,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 
@@ -7744,6 +7797,39 @@ export class PostHogAPIClient {
                 results: insight.result,
                 columns: insight.columns ?? [],
               },
+      };
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * The insight's name and description by short id. Reads the cache only, so
+   * a reference card never runs the insight's query.
+   */
+  async getInsightSummary(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    try {
+      const urlPath = `/api/projects/${projectId}/insights/${encodeURIComponent(shortId)}/`;
+      const url = new URL(`${this.api.baseUrl}${urlPath}`);
+      url.searchParams.set("basic", "true");
+      url.searchParams.set("refresh", "force_cache");
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const insight = (await response.json()) as Pick<
+        Schemas.Insight,
+        "name" | "derived_name" | "description"
+      >;
+      return {
+        name: insight.name || insight.derived_name || null,
+        description: insight.description || null,
       };
     } catch (error) {
       if (requestErrorStatus(error) === 404) return null;

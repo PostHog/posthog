@@ -14,11 +14,23 @@ This insight is not saved in the project, so it cannot be accessed via a URL. An
 {{/insight_url}}
 {{#query_schema}}
 
+{{#is_saved_query}}
+Saved query (query_patch paths start at the root of this object):
+{{/is_saved_query}}
+{{^is_saved_query}}
 Query schema:
+{{/is_saved_query}}
 ```json
 {{{query_schema}}}
 ```
 {{/query_schema}}
+{{#effective_query_schema}}
+
+Query that produced the results below, with dashboard filters and variables applied (not a query_patch target):
+```json
+{{{effective_query_schema}}}
+```
+{{/effective_query_schema}}
 {{#results}}
 
 {{{results}}}
@@ -76,7 +88,7 @@ Here is the generated HogQL (a PostHog's subset of ClickHouse SQL) query used to
 """.strip()
 
 FUNNEL_STEPS_EXAMPLE_PROMPT = """
-You are given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---", indicating a series with a breakdown. For example, `---control` indicates that the series is for the value `control`.
+You are given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---", indicating a series with a breakdown. For example, `---control` indicates that the series is for the value `control`. The count row names what the funnel counts: persons, groups, sessions, or unique values of a custom HogQL expression.
 
 Example:
 ```

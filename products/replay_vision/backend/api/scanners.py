@@ -1,8 +1,10 @@
 import json
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
     CharField,
@@ -17,9 +19,8 @@ from django.db.models import (
     Subquery,
     Sum,
     Value,
-    Window,
 )
-from django.db.models.functions import Coalesce, NullIf, RowNumber
+from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
 
 import structlog
@@ -36,7 +37,7 @@ from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -54,14 +55,14 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes, is_scout_sandbox_request
-from posthog.ph_client import get_feature_flag_or_none
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
     ReplayVisionEstimateBurstRateThrottle,
     ReplayVisionEstimateSustainedRateThrottle,
-    ReplayVisionWatchFeedBurstRateThrottle,
-    ReplayVisionWatchFeedSustainedRateThrottle,
+    ReplayVisionHighlightFeedBurstRateThrottle,
+    ReplayVisionHighlightFeedImpressionsRateThrottle,
+    ReplayVisionHighlightFeedSustainedRateThrottle,
 )
 
 from products.access_control.backend.presentation.access_control import (
@@ -84,22 +85,15 @@ from products.replay_vision.backend.api.trigger import (
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
-from products.replay_vision.backend.billing import (
-    observation_credits_case,
-    observation_credits_for_model,
-    projected_monthly_credits,
-)
+from products.replay_vision.backend.billing import observation_credits_for_model, projected_monthly_credits
+from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE
+from products.replay_vision.backend.highlight_feed import HIGHLIGHT_FEED_MIN_ITEMS
+from products.replay_vision.backend.highlight_feed_impressions import feed_impression_counts, record_feed_impressions
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
     compute_scanner_impact,
     create_affected_cohort,
-)
-from products.replay_vision.backend.jev_watch_feed import (
-    JEV_WATCHABLE_MIN,
-    load_watch_ranks,
-    rank_watch_feed_by_jev,
-    watch_feed_ranker,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -108,6 +102,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
     hydrate_for_serialization,
 )
+from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
@@ -118,11 +113,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     apply_experiment_targeting,
     config_experiment_scope,
 )
-from products.replay_vision.backend.prompt_questions import (
-    question_fields_for_save,
-    scanner_question,
-    template_question,
-)
+from products.replay_vision.backend.prompt_questions import question_fields_for_save, scanner_question
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
@@ -139,12 +130,18 @@ from products.replay_vision.backend.quota import (
     compute_scanner_budgets,
     credits_used_by_scanner,
     current_period_bounds,
+    free_credits_ceiling,
+    org_credit_cap,
     quota_state,
+    quota_state_for_cap,
+    scanner_period_receipts,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
+    accessible_experiment_ids,
     accessible_observations,
     is_experiment_accessible,
+    readable_experiment_ids,
     readable_observation_scanner_ids,
     scanner_experiment_scope_q,
 )
@@ -155,7 +152,19 @@ from products.replay_vision.backend.scanner_config import (
     analytics_source_kwargs,
     scanner_config_error,
 )
-from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
+from products.replay_vision.backend.scanner_dashboard import (
+    DASHBOARD_SUGGESTION_MIN_OBSERVATIONS,
+    DashboardNotViewable,
+    create_scanner_dashboard,
+    live_dashboard_ids,
+    scanners_ready_for_dashboard,
+)
+from products.replay_vision.backend.scanner_draft import (
+    DraftError,
+    UnwatchableExperimentError,
+    draft_scanner_from_goal,
+    scopes_allow_read,
+)
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
     run_inline_scan,
@@ -169,19 +178,19 @@ from products.replay_vision.backend.scout_writes import (
 )
 from products.replay_vision.backend.search import parse_date_bound
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
-from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
-from products.replay_vision.backend.watch_feed import rank_watch_feed_candidates
+from products.replay_vision.backend.watch_rank import (
+    ISSUE_CATEGORIES,
+    rank_highlight_feed_by_embedding,
+    select_embedding_filler,
+    select_embedding_picks,
+)
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
-
-# The goal-based creation flow's flag. Multivariate so it can graduate to an experiment without a
-# rename; server-side so a client/rollout skew cannot half-apply the new flow.
-GOAL_FLOW_FLAG = "vision-goal-flow-v2"
 
 
 class ScannerCreationMethod(models.TextChoices):
@@ -190,9 +199,6 @@ class ScannerCreationMethod(models.TextChoices):
     Shares its values with the `creation_method` property on `replay_vision_scanner_creation_started`,
     which the app sends when the person picks a path. Same words at both ends, so a report can see
     who switched paths between starting and saving.
-
-    Separate from the creation-flow experiment arm, which says only which flow a person was offered.
-    Someone offered the AI flow can still fill the form by hand, so this is what says what they did.
 
     These are the values a caller may send. The property reported on the event can also hold an
     `EventSource` — see `_reported_creation_method`.
@@ -210,7 +216,7 @@ def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> s
     answer it at all. Every other surface reports its own source instead, which keeps the values
     mutually exclusive: `ai`/`template`/`scratch` mean a person in the editor, anything else names
     the caller. An agent creating a scanner over MCP is not someone building one by hand, and
-    letting it report `scratch` inflates the hand-built side of the creation-flow comparison.
+    letting it report `scratch` inflates the hand-built side of any comparison between the paths.
 
     Worth the override rather than only filling in a missing value: the wizard creates several times
     more scanners than the app does, and it already sends a method on some of its calls.
@@ -224,36 +230,6 @@ def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> s
     if source is None:
         return claimed
     return claimed if source == EventSource.WEB else source.value
-
-
-def _goal_flow_variant(user: User, team: Team) -> str | None:
-    """The user's arm of the creation-flow experiment, or None when the flag is off for them.
-
-    Never sends an exposure event. The frontend already records one when a person opens the editor,
-    which is the point they enter the flow; a second exposure from here would also enroll API-only
-    callers who never see the UI.
-    """
-    variant = get_feature_flag_or_none(
-        GOAL_FLOW_FLAG,
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        # Local evaluation cannot look up stored person properties, so every person property the
-        # flag's conditions read must be passed here. Without the email, an email-based variant
-        # override falls through to the rollout hash: the browser (which evaluates via /flags with
-        # the stored person) shows the goal-based UI while this returns control, and the request
-        # silently degrades to the legacy draft.
-        person_properties={"email": user.email},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    )
-    return variant if isinstance(variant, str) else None
-
-
-def _goal_flow_enabled(user: User, team: Team) -> bool:
-    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
-    it returns True for EVERY variant, control included, which would ship the new flow to the
-    experiment's control group."""
-    return (variant := _goal_flow_variant(user, team)) is not None and variant != "control"
 
 
 def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
@@ -278,7 +254,7 @@ logger = structlog.get_logger(__name__)
 
 # Query keys that narrow which sessions a scanner matches. Date keys are schedule-controlled
 # and stripped on save, so they never count as user-chosen filters.
-_QUERY_FILTER_KEYS = (
+SCANNER_QUERY_FILTER_KEYS = (
     "events",
     "actions",
     "properties",
@@ -330,11 +306,13 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "enabled": scanner.enabled,
         # An experiment scope narrows the population server-side, so it counts as filtered; the
         # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
-        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(experiment_scope),
+        "has_filters": any(query.get(key) for key in SCANNER_QUERY_FILTER_KEYS) or bool(experiment_scope),
         "has_experiment_targeting": bool(experiment_scope),
         # True when the prompt is a stock template's word for word, so a creation-flow experiment can
         # tell a scanner tailored to the team from a template saved with its defaults.
-        "uses_template_prompt": template_question(scanner.scanner_config) is not None,
+        # Spend choices, so analytics can count free-only scanners and capped ones.
+        "free_only": scanner.free_only,
+        "has_credit_limit": scanner.credit_limit is not None,
         "estimated_monthly_observations": estimate,
         "estimated_monthly_credits": (
             estimate * observation_credits_for_model(scanner.model) if estimate is not None else None
@@ -576,26 +554,35 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     )
     credits_this_month = serializers.SerializerMethodField(
         help_text=(
-            "Credits this scanner's succeeded observations consumed in the current billing period "
-            "(1 credit = $0.01). Matches the window of the org-wide quota meter."
+            "Credits billed for this scanner's observations created in the current billing period "
+            "(1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count."
         ),
     )
     observations_this_month = serializers.SerializerMethodField(
-        help_text="Succeeded observations this scanner produced in the current billing period.",
+        help_text="Billed observations this scanner created in the current billing period, including deleted ones.",
     )
     credits_used_against_limit = serializers.SerializerMethodField(
         help_text=(
             "Credits counted against `credit_limit` for the current billing period: settled receipts plus "
             "in-flight observations, priced from their frozen snapshot model. This "
             "is what the limit gate measures, so it includes work still in progress. It is not the same as "
-            "`credits_this_month`, which counts only succeeded observations."
+            "`credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the "
+            "organization's free credits, this is the organization's usage, not the scanner's own."
+        ),
+    )
+    limit_from_free_credits = serializers.SerializerMethodField(
+        help_text=(
+            "True when the organization's free credits bind this `free_only` scanner rather than its own "
+            "`credit_limit`. `credits_used_against_limit` is then the organization's usage, measured against "
+            "its free credits."
         ),
     )
     limit_reached = serializers.SerializerMethodField(
         help_text=(
-            "Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is "
-            "set and the budget left cannot cover one more observation, which is the same test the scanner's "
-            "enforcement gates apply. Always false when no limit is set."
+            "Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, "
+            "because the organization has used its free credits. True when the budget left cannot cover one "
+            "more observation, which is the same test the scanner's enforcement gates apply. Always false when "
+            "no limit is set and `free_only` is false."
         ),
     )
     sweep_throttle_factor = serializers.SerializerMethodField(
@@ -603,6 +590,19 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read "
             "budget. 1 means it checks for new recordings on the normal schedule; N means it checks once "
             "every N schedule intervals. Expensive filters raise it."
+        ),
+    )
+    dashboard_id = serializers.SerializerMethodField(
+        help_text=(
+            "Dashboard created for this scanner with the create_dashboard action. Null when none was created "
+            "or the user deleted it."
+        ),
+    )
+    dashboard_suggested = serializers.SerializerMethodField(
+        help_text=(
+            f"Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at "
+            f"least {DASHBOARD_SUGGESTION_MIN_OBSERVATIONS} succeeded observations to chart. Offer it once and do not "
+            "repeat the offer if the user declines."
         ),
     )
     last_swept_at = serializers.DateTimeField(
@@ -631,6 +631,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "sampling_rate",
             "sampling_mode",
             "credit_limit",
+            "free_only",
             "provider",
             "model",
             "enabled",
@@ -644,8 +645,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "credits_this_month",
             "observations_this_month",
             "credits_used_against_limit",
+            "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
+            "dashboard_id",
+            "dashboard_suggested",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -663,8 +667,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "credits_this_month",
             "observations_this_month",
             "credits_used_against_limit",
+            "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
+            "dashboard_id",
+            "dashboard_suggested",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -684,10 +691,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
         return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
-    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+    def _page_scanners(self) -> list[ReplayScanner] | None:
+        """The list page's scanners, or None when serializing a single scanner."""
         root = self.root
         instance = root.instance if isinstance(root, serializers.ListSerializer) else None
-        return [s.id for s in instance] if instance is not None else [scanner.id]
+        return list(instance) if instance is not None else None
+
+    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+        page = self._page_scanners()
+        return [s.id for s in page] if page is not None else [scanner.id]
 
     def _scanner_spend(self, scanner: ReplayScanner) -> ScannerSpend:
         # The context dict is shared across the list's children, so the page's totals are computed once.
@@ -700,8 +712,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         return totals.get(scanner.id, ScannerSpend(0, 0))
 
     def _scanner_budget(self, scanner: ReplayScanner) -> ScannerBudget:
-        """The limit-facing figure. Separate from `_scanner_spend` on purpose: that one is the displayed
-        spend read from observation rows, this one is the delete-proof ledger draw the cap is enforced on."""
+        """The limit-facing figure. Separate from `_scanner_spend` on purpose: that one counts settled
+        receipts only, this one also reserves in-flight observations, as the cap enforcement does."""
         budgets = self.context.get("_scanner_budgets")
         if budgets is None:
             budgets = compute_scanner_budgets(
@@ -731,6 +743,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_credits_used_against_limit(self, scanner: ReplayScanner) -> int:
         return self._scanner_budget(scanner).credits_used
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_limit_from_free_credits(self, scanner: ReplayScanner) -> bool:
+        return self._scanner_budget(scanner).free_credits_bound
+
     @extend_schema_field(serializers.IntegerField())
     def get_sweep_throttle_factor(self, scanner: ReplayScanner) -> int:
         return current_sweep_throttle_factor(
@@ -739,6 +755,28 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             scanner.sweep_throttle_factor_override,
             datetime.now(UTC),
         )
+
+    def _page_dashboard_state(self, scanner: ReplayScanner) -> tuple[dict[UUID, int], set[UUID]]:
+        # Shared across the list's children, so a page costs two queries rather than two per scanner.
+        state = self.context.get("_scanner_dashboard_state")
+        if state is None:
+            root = self.root
+            page = root.instance if isinstance(root, serializers.ListSerializer) else None
+            scanners = list(page) if page is not None else [scanner]
+            live = live_dashboard_ids(scanner.team_id, scanners)
+            ready = scanners_ready_for_dashboard(scanner.team_id, [s.id for s in scanners if s.id not in live])
+            state = (live, ready)
+            self.context["_scanner_dashboard_state"] = state
+        return state
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_dashboard_id(self, scanner: ReplayScanner) -> int | None:
+        return self._page_dashboard_state(scanner)[0].get(scanner.id)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_dashboard_suggested(self, scanner: ReplayScanner) -> bool:
+        # Readiness is only computed for scanners without a live dashboard.
+        return scanner.id in self._page_dashboard_state(scanner)[1]
 
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:
@@ -983,7 +1021,29 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         get_team = self.context.get("get_team")
         if get_team is None:  # no request context (e.g. internal serialization); don't over-redact
             return True
+        page_access = self._page_experiment_access(get_team().id)
+        if experiment_id in page_access:
+            return page_access[experiment_id]
         return is_experiment_accessible(self.user_access_control, get_team().id, experiment_id)
+
+    def _page_experiment_access(self, team_id: int) -> dict[int, bool]:
+        """Whether the caller may view each experiment the list page targets, checked in one query.
+
+        Shared through the context like `_scanner_spend`, so a page of experiment scanners costs one
+        access check instead of one per row. Outside a list it is empty and callers check one id.
+        """
+        cached = self.context.get("_page_experiment_access")
+        if cached is not None:
+            return cached
+        page_ids = {
+            scope["experiment_id"]
+            for scanner in self._page_scanners() or ()
+            if (scope := scanner.experiment_scope()) and isinstance(scope.get("experiment_id"), int)
+        }
+        accessible = accessible_experiment_ids(self.user_access_control, team_id, page_ids) if page_ids else set()
+        page_access = {experiment_id: experiment_id in accessible for experiment_id in page_ids}
+        self.context["_page_experiment_access"] = page_access
+        return page_access
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
@@ -1017,15 +1077,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         report_user_action(
             user,
             "replay_vision_scanner_created",
-            # Two different questions ride this event. `creation_flow_variant` is the experiment arm,
-            # read from the flag, so it carries intent to treat and keeps the arms comparable: someone
-            # offered the AI flow counts as treated even when they ignore it. `creation_method` is what
-            # the person actually did, which is what says whether AI-built scanners turn out better.
-            # It names the calling surface when the caller is not the app, since only the UI knows
-            # how the form was filled.
+            # `creation_method` is what the person actually did, which is what says whether AI-built
+            # scanners turn out better. It names the calling surface when the caller is not the app,
+            # since only the UI knows how the form was filled.
             {
                 **scanner_lifecycle_properties(scanner),
-                "creation_flow_variant": _goal_flow_variant(user, team),
                 "creation_method": _reported_creation_method(self.context, creation_method),
             },
             team=team,
@@ -1049,7 +1105,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
-        limit_changed = "credit_limit" in validated_data and validated_data["credit_limit"] != instance.credit_limit
+        limit_changed = any(
+            field in validated_data and validated_data[field] != getattr(instance, field)
+            for field in ("credit_limit", "free_only")
+        )
         # After `before`, so the question is not reported as an edit. A model call, so before the transaction.
         if "scanner_config" in validated_data:
             validated_data.update(
@@ -1138,21 +1197,17 @@ class _ScannerOrderByFilter(OrderByFilter):
 
     def _handle(self, qs: QuerySet[ReplayScanner], key: str, descending: bool) -> QuerySet[ReplayScanner]:
         if key == "credits_this_month":
-            # Same window and pricing as `credits_this_month`, in SQL so the database can order by it.
+            # Same receipts and window as `credits_this_month`, in SQL so the database can order by it.
             organization_id = qs.values_list("team__organization_id", flat=True).first()
             if organization_id is None:
                 return qs.order_by(self._tiebreaker)
             period = current_period_bounds(organization_id)
             spend = (
-                ReplayObservation.objects.filter(
-                    scanner_id=OuterRef("pk"),
-                    status=ObservationStatus.SUCCEEDED,
-                    created_at__gte=period.start,
-                    created_at__lt=period.end,
-                )
+                scanner_period_receipts(organization_id, period)
+                .filter(scanner_id=OuterRef("pk"))
                 .order_by()
                 .values("scanner_id")
-                .annotate(total=Sum(observation_credits_case()))
+                .annotate(total=Sum("credits"))
                 .values("total")
             )
             qs = qs.annotate(
@@ -1231,7 +1286,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         invalid = sorted(t for t in tokens if not t.isdecimal())
         if invalid:
             raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
-        return queryset.filter(created_by_id__in=tokens)
+        return queryset.filter(created_by_id__in=[int(t) for t in tokens])
 
     def _filter_experiment_id(
         self, queryset: QuerySet[ReplayScanner], _name: str, value: str
@@ -1314,6 +1369,16 @@ class BulkObserveRequestSerializer(serializers.Serializer):
     )
 
 
+class ScanOutcome(models.TextChoices):
+    STARTED = "started", "Started"
+    ALREADY_RUNNING = "already_running", "Already running"
+    ALREADY_SCANNED = "already_scanned", "Already scanned"
+    SKIPPED_LIMIT = "skipped_limit", "Skipped, in-flight limit reached"
+    SKIPPED_QUOTA = "skipped_quota", "Skipped, the org's credit quota for this period was reached"
+    SKIPPED_SCANNER_LIMIT = "skipped_scanner_limit", "Skipped, scanner's own credit limit reached"
+    FAILED = "failed", "Failed to start"
+
+
 class BulkObserveResultSerializer(serializers.Serializer):
     """Per-session outcome of a bulk scan trigger."""
 
@@ -1321,15 +1386,7 @@ class BulkObserveResultSerializer(serializers.Serializer):
     # Named scan_outcome (not outcome) so its generated enum doesn't collide with other products'
     # `outcome` enums — a bare `outcome` ChoiceField forces the shared OutcomeEnum to be renamed.
     scan_outcome = serializers.ChoiceField(
-        choices=[
-            ("started", "Started"),
-            ("already_running", "Already running"),
-            ("already_scanned", "Already scanned"),
-            ("skipped_limit", "Skipped, in-flight limit reached"),
-            ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
-            ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
-            ("failed", "Failed to start"),
-        ],
+        choices=ScanOutcome.choices,
         help_text=(
             "'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is "
             "already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a "
@@ -1364,37 +1421,38 @@ class BulkObserveResponseSerializer(serializers.Serializer):
     )
 
 
-class InlineScanRequestSerializer(serializers.Serializer):
-    """Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at."""
+class InlineScanConfigSerializer(serializers.Serializer):
+    """A question asked inline, without saving a scanner first."""
 
-    session_ids = serializers.ListField(
-        child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
-        allow_empty=False,
-        max_length=MAX_SESSIONS_PER_SCAN,
+    built_in = serializers.ChoiceField(
+        choices=BuiltInScanKey.choices,
+        required=False,
         help_text=(
-            f"Session recording IDs to scan, at most {MAX_SESSIONS_PER_SCAN} per request. Scans start "
-            "until the in-flight limit or monthly credit quota is reached; the rest are reported as "
-            "skipped rather than failing the whole batch."
+            "Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the "
+            "Summarize button in the replay player runs, so its results are shared with that button. Leave out "
+            "`prompt`, `scanner_type` and `scanner_config` when this is set."
         ),
     )
     prompt = serializers.CharField(
         max_length=MAX_PROMPT_LENGTH,
-        help_text="What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
+        required=False,
+        help_text=(
+            "What to look for in these sessions, in plain language. The same instruction a saved scanner carries. "
+            "Required unless `built_in` is set."
+        ),
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
         required=False,
-        default=ScannerType.MONITOR,
         help_text=(
             "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. "
-            "Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by "
-            "its whole config, so the Summarize button in the replay player shares this scan only when "
-            "the prompt and `scanner_config` match the ones it sends."
+            "Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the "
+            "Summarize button's summary. An inline scan is keyed by its whole config, so asking the same "
+            "question again reuses its answers."
         ),
     )
     scanner_config = serializers.JSONField(
         required=False,
-        default=dict,
         help_text=(
             "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, "
             "optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` "
@@ -1409,7 +1467,22 @@ class InlineScanRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        config = attrs["scanner_config"]
+        if (built_in := attrs.pop("built_in", None)) is not None:
+            if given := sorted({"prompt", "scanner_type", "scanner_config"} & attrs.keys()):
+                raise serializers.ValidationError(
+                    {"built_in": f"A built-in scan defines its own {', '.join(given)}, so leave those fields out."}
+                )
+            scan = BUILT_IN_SCANS[built_in]
+            return {
+                **attrs,
+                "prompt": scan.prompt,
+                "scanner_type": scan.scanner_type,
+                "scanner_config": scan.scanner_config(),
+            }
+        if not attrs.get("prompt"):
+            raise serializers.ValidationError({"prompt": "Set a prompt, or a built-in scan."})
+        attrs.setdefault("scanner_type", ScannerType.MONITOR)
+        config = attrs.setdefault("scanner_config", {})
         if attrs["scanner_type"] == ScannerType.EXPERIMENT:
             # Inline scans skip the saved-scanner path that access-checks the experiment and, for
             # now, the workflow step that attributes a session's variant. Until those run for
@@ -1428,6 +1501,21 @@ class InlineScanRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError({"scanner_config": message})
         attrs["scanner_config"] = merged
         return attrs
+
+
+class InlineScanRequestSerializer(InlineScanConfigSerializer):
+    """Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
+        allow_empty=False,
+        max_length=MAX_SESSIONS_PER_SCAN,
+        help_text=(
+            f"Session recording IDs to scan, at most {MAX_SESSIONS_PER_SCAN} per request. Scans start "
+            "until the in-flight limit or monthly credit quota is reached; the rest are reported as "
+            "skipped rather than failing the whole batch."
+        ),
+    )
 
 
 class InlineScanResponseSerializer(BulkObserveResponseSerializer):
@@ -1560,48 +1648,52 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
     )
 
 
-WATCH_FEED_DEFAULT_LIMIT = 20
-WATCH_FEED_MAX_LIMIT = 50
-WATCH_FEED_DEFAULT_DATE_FROM = "-7d"
-# Widest window one request may rank. An arbitrarily early `date_from` would make Postgres partition
-# and sort the team's entire observation history before the row caps apply.
-WATCH_FEED_MAX_WINDOW_DAYS = 90
-# Rank at most this many of the newest succeeded observations in the window. A very high-volume
-# team ranks only the newest slice, which recency-biases the feed — acceptable for a preview surface.
-WATCH_FEED_CANDIDATE_CAP = 1000
-# Within that slice, one scanner contributes at most this many rows. Without it, a busy scanner fills
-# the whole cap and quiet scanners lose not just feed slots but their own baselines — "unusual for
-# this scanner lately" silently stops firing for exactly the scanners the cap crowded out.
-WATCH_FEED_PER_SCANNER_CAP = 100
-# Ids per query when the jev feed fetches cached watchable rows the recency slice cut off. Keeps
-# each id__in list bounded while the walk stops as soon as the page is covered.
-WATCH_FEED_BYPASS_CHUNK = 200
+HIGHLIGHT_FEED_DEFAULT_LIMIT = 20
+HIGHLIGHT_FEED_MAX_LIMIT = 50
+HIGHLIGHT_FEED_DEFAULT_DATE_FROM = "-7d"
+# Widest window one request may rank.
+HIGHLIGHT_FEED_MAX_WINDOW_DAYS = 90
+# The most picks one load ranks, and the furthest `offset` may reach.
+HIGHLIGHT_FEED_CANDIDATE_CAP = 1000
+HIGHLIGHT_FEED_IMPRESSIONS_MAX_IDS = 100
+# Loads in one bucket share their picks, so a reload or tab switch skips the pick query.
+HIGHLIGHT_FEED_PICKS_BUCKET_S = 10 * 60
+# Outlives the bucket by long enough to cover a reader scrolling one load.
+HIGHLIGHT_FEED_PICKS_CACHE_TTL_S = HIGHLIGHT_FEED_PICKS_BUCKET_S + 15 * 60
 
 
-class WatchFeedReason(models.TextChoices):
-    SIGNAL_EMITTED = "signal_emitted"
-    UNUSUAL_VERDICT = "unusual_verdict"
-    NOTABLE = "notable"
-    VERDICT_YES = "verdict_yes"
-    OUTLIER_SCORE = "outlier_score"
-    RARE_TAG = "rare_tag"
-    NOVEL_SUMMARY = "novel_summary"
-    FRICTION = "friction"
-    JEV_WATCHABLE = "jev_watchable"
+def refresh_feed_viewed(rows: list[dict[str, Any]], viewer_id: int, as_of: datetime) -> list[dict[str, Any]]:
+    """Cached rows with `feed_viewed` as of `as_of`."""
+    viewed = set(
+        ReplayObservationView.objects.filter(
+            user_id=viewer_id, created_at__lte=as_of, observation_id__in=[row["id"] for row in rows]
+        ).values_list("observation_id", flat=True)
+    )
+    return [{**row, "feed_viewed": row["id"] in viewed} for row in rows]
+
+
+class HighlightFeedCategory(models.TextChoices):
+    FAILURE = "failure"
+    STRUGGLE = "struggle"
+    REVENUE = "revenue"
+
+
+class HighlightFeedReason(models.TextChoices):
+    EMBEDDING_PICK = "embedding_pick"
     UNVIEWED_RECENT = "unviewed_recent"
     RECENT = "recent"
 
 
-class WatchFeedQuerySerializer(serializers.Serializer):
-    """Query parameters of GET /vision/scanners/watch_feed/."""
+class HighlightFeedQuerySerializer(serializers.Serializer):
+    """Query parameters of GET /vision/scanners/highlight_feed/."""
 
     date_from = serializers.CharField(
         required=False,
-        default=WATCH_FEED_DEFAULT_DATE_FROM,
+        default=HIGHLIGHT_FEED_DEFAULT_DATE_FROM,
         help_text=(
             "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, "
             "or `now`; values without an explicit offset are interpreted in the project's timezone. The window "
-            f"between `date_from` and `date_to` may span at most {WATCH_FEED_MAX_WINDOW_DAYS} days."
+            f"between `date_from` and `date_to` may span at most {HIGHLIGHT_FEED_MAX_WINDOW_DAYS} days."
         ),
     )
     date_to = serializers.CharField(
@@ -1627,28 +1719,53 @@ class WatchFeedQuerySerializer(serializers.Serializer):
             "follow one area without naming every scanner in it."
         ),
     )
-    search = serializers.CharField(
+    created_by = serializers.CharField(
+        required=False,
+        help_text="Comma-separated user IDs. Restrict the feed to observations from scanners those users created.",
+    )
+    categories = serializers.CharField(
         required=False,
         help_text=(
-            "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the "
-            "notability sentence) and the scanner's name. Applied before ranking, so it searches the whole "
-            "window rather than the items that would have surfaced without it."
+            "Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` "
+            "(repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage "
+            "limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops "
+            "its sessions without promoting weaker ones."
         ),
     )
     limit = serializers.IntegerField(
         required=False,
-        default=WATCH_FEED_DEFAULT_LIMIT,
+        default=HIGHLIGHT_FEED_DEFAULT_LIMIT,
         min_value=1,
-        max_value=WATCH_FEED_MAX_LIMIT,
+        max_value=HIGHLIGHT_FEED_MAX_LIMIT,
         help_text=(
-            f"Ceiling on feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not "
-            "paginated, and routinely returns far fewer: a window is not padded to this number with "
-            "clips that carry no finding."
+            f"Ceiling on feed items to return per page, at most {HIGHLIGHT_FEED_MAX_LIMIT}. A page routinely "
+            "returns fewer: a window is not padded to this number with clips that carry no finding."
+        ),
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=HIGHLIGHT_FEED_CANDIDATE_CAP,
+        help_text="How many ranked items to skip. Send `as_of` with every page after the first.",
+    )
+    as_of = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "The time the first page loaded. Later pages rank as of that time: observations, views, "
+            "dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls."
         ),
     )
 
     def validate_tags(self, value: str) -> list[str]:
         return [tagify(tag) for tag in split_csv(value)]
+
+    def validate_categories(self, value: str) -> list[str] | None:
+        categories = set(validate_csv_choices(value, frozenset(ISSUE_CATEGORIES), "categories"))
+        if not categories:
+            raise serializers.ValidationError("Include at least one category.")
+        # Every category is the unfiltered feed, so it shares that feed's cached picks.
+        return None if categories == set(ISSUE_CATEGORIES) else sorted(categories)
 
     def validate_scanner_ids(self, value: str) -> list[UUID]:
         raw_ids = split_csv(value)
@@ -1659,108 +1776,60 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         except ValueError:
             raise serializers.ValidationError("Scanner ids must be UUIDs.")
 
+    def validate_created_by(self, value: str) -> list[int]:
+        raw_ids = split_csv(value)
+        if not raw_ids:
+            raise serializers.ValidationError("At least one user id is required when the filter is set.")
+        if any(not raw_id.isdecimal() for raw_id in raw_ids):
+            raise serializers.ValidationError("User ids must be integers.")
+        return [int(raw_id) for raw_id in raw_ids]
 
-class WatchFeedSignalSerializer(serializers.Serializer):
-    """One signal an observation raised, named rather than counted."""
 
-    problem_type = serializers.CharField(help_text="Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`.")
-    headline = serializers.CharField(
-        help_text="The finding in a few words, written by the scan. The full description lives on the signal itself."
-    )
-
-
-class WatchFeedReasonSerializer(serializers.Serializer):
+class HighlightFeedReasonSerializer(serializers.Serializer):
     """Machine-readable reason an observation made the feed; the frontend renders the copy."""
 
     kind = serializers.ChoiceField(
-        choices=WatchFeedReason.choices,
+        choices=HighlightFeedReason.choices,
         help_text=(
-            "Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), "
-            "`unusual_verdict` (a monitor answer that is the minority for that scanner this window), "
-            "`verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), "
-            "`outlier_score` (far from the scanner's window average), "
-            "`rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that "
-            "reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the "
-            "session worth watching), `friction` (the scan describes errors, retries, or dead ends), "
-            "`jev_watchable` (the decision model judged the session worth watching; teams on the "
-            "Jev ranker experiment only), "
+            "Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, "
+            "or revenue moment and ranks in its scanner's top fifth), "
             "`unviewed_recent` (new to you), `recent` (nothing special, newest available)."
         ),
     )
-    signals_count = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Signals this observation emitted, for `signal_emitted`."
-    )
-    problem_types = serializers.ListField(
-        child=serializers.CharField(),
+    watch_category = serializers.ChoiceField(
+        choices=HighlightFeedCategory.choices,
         required=False,
-        help_text=(
-            "Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per "
-            "signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped."
-        ),
+        help_text="What the session reads like, for `embedding_pick`.",
     )
-    signals = WatchFeedSignalSerializer(
-        many=True,
-        required=False,
-        help_text=(
-            "Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name "
-            "the findings instead of counting them. Absent on sessions scanned before this shipped, which carry "
-            "`problem_types` alone."
-        ),
-    )
-    verdict = serializers.CharField(
-        required=False, allow_null=True, help_text="The monitor's answer, for `unusual_verdict`."
-    )
-    verdict_share = serializers.FloatField(
-        required=False,
-        allow_null=True,
-        help_text="Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.",
-    )
-    notability = serializers.FloatField(
-        required=False,
-        allow_null=True,
-        help_text="The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.",
-    )
-    jev_probability = serializers.FloatField(
-        required=False,
-        allow_null=True,
-        help_text="The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.",
-    )
-    notability_reason = serializers.CharField(
+    similar_count = serializers.IntegerField(
         required=False,
         allow_null=True,
         help_text=(
-            "The scan's own sentence naming why the session is worth watching. Present on the `notable` and "
-            "`jev_watchable` reason kinds when the scan itself found the session notable, and preferred over "
-            "copy derived from the reason kind. Absent on observations scanned before notability shipped."
+            "Other sessions from the same scanner in the window that describe nearly the same thing, for "
+            "`embedding_pick`. The feed shows one session per group."
         ),
     )
-    score = serializers.FloatField(
-        required=False, allow_null=True, help_text="The observation's score, for `outlier_score`."
-    )
-    window_mean = serializers.FloatField(
-        required=False, allow_null=True, help_text="The scanner's mean score in the window, for `outlier_score`."
-    )
-    tag = serializers.CharField(
-        required=False, allow_null=True, help_text="The rare tag that ranked the observation, for `rare_tag`."
-    )
-    tag_share = serializers.FloatField(
+    affected_people = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.",
+        help_text=(
+            "Distinct people across the session's feed group in the window, for `embedding_pick`. A finding "
+            "that reached more people ranks higher."
+        ),
     )
 
 
-class WatchFeedItemSerializer(serializers.Serializer):
+class HighlightFeedItemSerializer(serializers.Serializer):
     """One feed entry: the observation plus why it ranked."""
 
     observation = ReplayObservationSerializer(help_text="The observation, in the standard shape.")
-    reason = WatchFeedReasonSerializer(help_text="Why this observation made the feed.")
+    reason = HighlightFeedReasonSerializer(help_text="Why this observation made the feed.")
 
 
-class WatchFeedResponseSerializer(serializers.Serializer):
-    """Response of GET /vision/scanners/watch_feed/."""
+class HighlightFeedResponseSerializer(serializers.Serializer):
+    """Response of GET /vision/scanners/highlight_feed/."""
 
-    results = WatchFeedItemSerializer(
+    results = HighlightFeedItemSerializer(
         many=True,
         help_text=(
             "Succeeded observations in the window worth watching, most interesting first, each carrying the "
@@ -1769,12 +1838,27 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "so a quiet window answers with a handful of rows rather than a full page of newest clips."
         ),
     )
-    ranker = serializers.ChoiceField(
-        choices=["weighted-score", "jev"],
+    has_more = serializers.BooleanField(
+        help_text="Whether a later page holds more ranked items. Request it with `offset` set past this page.",
+    )
+    as_of = serializers.DateTimeField(
+        help_text="The time this feed ranks as of. Send it back with later pages.",
+    )
+
+
+class HighlightFeedImpressionsSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/highlight_feed_impressions/."""
+
+    feed_load_id = serializers.UUIDField(
+        help_text="The client's id for the feed load that showed these cards. One load counts each card once.",
+    )
+    observation_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=HIGHLIGHT_FEED_IMPRESSIONS_MAX_IDS,
         help_text=(
-            "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, "
-            "`weighted-score` on the deterministic blend. The arm is decided server-side per team, so "
-            "clients read it from here rather than evaluating the flag themselves."
+            f"Observations the calling user saw in the Highlights feed, at most {HIGHLIGHT_FEED_IMPRESSIONS_MAX_IDS}. "
+            "Ids the user cannot read are ignored."
         ),
     )
 
@@ -1832,67 +1916,15 @@ class EstimateResponseSerializer(serializers.Serializer):
             "segment instead of adding it to a per-month total."
         ),
     )
+    free_only_monthly_credits_left = serializers.IntegerField(
+        help_text=(
+            "The monthly credit rate the organization's free credits still cover for one more free-only scanner, "
+            "after the other free-only scanners and backfills. The forecast caps a free-only scanner at this rate, "
+            "because free-only scanners share one pool."
+        ),
+    )
     sampling_rate = serializers.FloatField(
         help_text="Sampling rate applied to the projection. Echoed from the request.",
-    )
-
-
-class SuggestTagsRequestSerializer(serializers.Serializer):
-    """Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited."""
-
-    prompt = serializers.CharField(
-        max_length=10000,
-        help_text="The classifier's instruction prompt — the single dimension to categorize sessions by.",
-    )
-    tags = serializers.ListField(
-        child=serializers.CharField(max_length=200),
-        required=False,
-        default=list,
-        max_length=200,
-        help_text="The categories already configured, so suggestions never duplicate one the user has.",
-    )
-    multi_label = serializers.BooleanField(
-        required=False,
-        default=True,
-        help_text="Whether the classifier assigns multiple tags per session.",
-    )
-    allow_freeform_tags = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Whether the classifier may emit tags outside the fixed vocabulary.",
-    )
-    scanner_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Existing scanner to ground suggestions in its own observations (the tags and reasoning it has "
-            "already produced on real recordings). Omit for an unsaved scanner."
-        ),
-    )
-
-
-class TagSuggestionSerializer(serializers.Serializer):
-    """One grounded tag suggestion."""
-
-    tag = serializers.CharField(help_text="Suggested tag to add to the vocabulary, normalized to lowercase.")
-    rationale = serializers.CharField(
-        help_text="One sentence explaining the specific evidence this tag is grounded in."
-    )
-    source = serializers.ChoiceField(  # type: ignore[assignment]
-        choices=["observed", "product", "prompt"],
-        help_text=(
-            "Primary grounding: observed=a category this scanner already emitted on recordings; "
-            "product=the org's events/screens; prompt=the scanner's stated goal."
-        ),
-    )
-
-
-class SuggestTagsResponseSerializer(serializers.Serializer):
-    """Grounded tag suggestions for the classifier config editor."""
-
-    suggestions = TagSuggestionSerializer(
-        many=True,
-        help_text="Suggested tags to add, most relevant first. May be empty when the evidence is too thin.",
     )
 
 
@@ -1908,12 +1940,38 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         min_value=1,
         max_value=100_000_000,
         help_text=(
-            "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the "
-            "`model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on "
-            "this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and "
-            "ignored while the goal-based flow's flag is off for the caller."
+            "Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves "
+            "`sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets "
+            "`credit_limit` to it as a hard cap. Ask the person for it rather than guessing. "
+            "Required unless `free_only` is true, and not allowed with it."
         ),
     )
+    free_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Draft a scanner that runs only on the organization's free monthly credits, so it never adds "
+            "to the bill and pauses when they run out. The draft is sized to those free credits and comes "
+            "back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`."
+        ),
+    )
+    experiment_id = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=9223372036854775807,
+        help_text=(
+            "A launched experiment the person picked for the scanner to watch. "
+            "The draft is then an `experiment` scanner on it."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        has_budget = attrs.get("monthly_credit_budget") is not None
+        if attrs["free_only"] == has_budget:
+            raise ValidationError(
+                {"monthly_credit_budget": "Set either a monthly credit budget or free_only, but not both."}
+            )
+        return attrs
 
 
 class DraftScannerResponseSerializer(serializers.Serializer):
@@ -1943,14 +2001,14 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         choices=SamplingMode.choices,
         allow_null=True,
         help_text=(
-            "Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the "
-            "legacy flow, and null when the costing estimate failed — the wizard keeps its defaults."
+            "The quality pre-filter the draft chose for the goal. Null when the costing estimate "
+            "failed, in which case the wizard keeps its defaults."
         ),
     )
     sampling_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. "
+            "The random sampling rate solved from `monthly_credit_budget`, 0..1. "
             "1.0 when the budget covers every matching recording. Floored at the minimum rate, so a "
             "budget below that floor keeps the minimum. Null whenever `sampling_mode` is."
         ),
@@ -1958,30 +2016,22 @@ class DraftScannerResponseSerializer(serializers.Serializer):
     model = serializers.ChoiceField(
         choices=ScannerModel.choices,
         allow_null=True,
-        help_text=(
-            "Goal-based flow only: the observation model the draft chose for the goal, by how much "
-            "judgment it needs. Null on the legacy flow, where the wizard keeps its default model."
-        ),
+        help_text=("The observation model the draft chose for the goal, by how much judgment it needs."),
     )
     credit_limit = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a "
-            "mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow."
+            "The monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the "
+            "scanner at the credits the user agreed to. Null for a free-only draft."
         ),
     )
-    experiment_targeting = ScannerExperimentTargetingField(
-        allow_null=True,
-        help_text=(
-            "Goal-based flow only: the experiment whose participants the draft watches, when the goal "
-            "named one of the project's launched experiments. Null when it named none. Carried "
-            "separately from `query`, which never holds an exposure filter."
-        ),
+    free_only = serializers.BooleanField(
+        help_text="Whether the draft runs only on the organization's free monthly credits. Pass it on to create."
     )
     estimated_monthly_observations = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "Goal-based flow only: recordings a month the drafted scanner is projected to watch under "
+            "Recordings a month the drafted scanner is projected to watch under "
             "the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when "
             "the budget is below what the minimum sampling rate can reach, where this is the floor and "
             "exceeds the budget. Null whenever `sampling_mode` is."
@@ -2110,6 +2160,14 @@ class SelfDrivingPullRequestSerializer(serializers.Serializer):
     merged = serializers.BooleanField(help_text="Whether the pull request has merged.")
 
 
+class ScannerDashboardResponseSerializer(serializers.Serializer):
+    dashboard_id = serializers.IntegerField(help_text="Id of the scanner's dashboard.")
+    name = serializers.CharField(help_text="Name of the dashboard.")
+    created = serializers.BooleanField(
+        help_text="True when this call created the dashboard. False when the scanner already had one, which is returned instead."
+    )
+
+
 class ScannerSelfDrivingStatsSerializer(serializers.Serializer):
     """Response of GET /vision/scanners/:id/self_driving_stats/."""
 
@@ -2159,7 +2217,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         "creators",
         "stats",
         "self_driving_stats",
-        "watch_feed",
+        "highlight_feed",
     ]
     scope_object_write_actions = [
         "create",
@@ -2328,6 +2386,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     sampling_rate=source.sampling_rate,
                     sampling_mode=source.sampling_mode,
                     credit_limit=source.credit_limit,
+                    free_only=source.free_only,
                     provider=source.provider,
                     model=source.model,
                     emits_signals=source.emits_signals,
@@ -2386,37 +2445,39 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         return Response({"total": total, "enabled": enabled, "by_type": by_type})
 
     @extend_schema(
-        parameters=[WatchFeedQuerySerializer],
-        responses={200: WatchFeedResponseSerializer},
+        parameters=[HighlightFeedQuerySerializer],
+        responses={200: HighlightFeedResponseSerializer},
     )
     @action(
         detail=False,
         methods=["get"],
         pagination_class=None,
         required_scopes=["replay_scanner:read", "session_recording:read"],
-        throttle_classes=[ReplayVisionWatchFeedBurstRateThrottle, ReplayVisionWatchFeedSustainedRateThrottle],
+        throttle_classes=[ReplayVisionHighlightFeedBurstRateThrottle, ReplayVisionHighlightFeedSustainedRateThrottle],
     )
-    def watch_feed(self, request: Request, **kwargs: Any) -> Response:
-        """Succeeded observations in the window worth watching, ranked — feeds the What to watch tab."""
-        query = WatchFeedQuerySerializer(data=request.query_params)
+    def highlight_feed(self, request: Request, **kwargs: Any) -> Response:
+        """Succeeded observations in the window worth watching, ranked for the Highlights tab."""
+        query = HighlightFeedQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params = query.validated_data
         # Observations expose recording-derived output, so reading them requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        as_of = params.get("as_of") or timezone.now()
         try:
-            date_from = parse_date_bound(params["date_from"], self.team.timezone_info, end_of_range=False)
+            # Relative bounds resolve against `as_of`, so every page of one load reads the same window.
+            date_from = parse_date_bound(params["date_from"], self.team.timezone_info, end_of_range=False, now=as_of)
             date_to = (
-                parse_date_bound(params["date_to"], self.team.timezone_info, end_of_range=True)
+                parse_date_bound(params["date_to"], self.team.timezone_info, end_of_range=True, now=as_of)
                 if params.get("date_to")
                 else None
             )
         except ValueError as e:
             raise ValidationError(str(e))
-        window_end = date_to if date_to is not None else timezone.now()
-        if window_end - date_from > timedelta(days=WATCH_FEED_MAX_WINDOW_DAYS):
+        window_end = min(date_to, as_of) if date_to is not None else as_of
+        if window_end - date_from > timedelta(days=HIGHLIGHT_FEED_MAX_WINDOW_DAYS):
             raise ValidationError(
-                f"The window between date_from and date_to may span at most {WATCH_FEED_MAX_WINDOW_DAYS} days."
+                f"The window between date_from and date_to may span at most {HIGHLIGHT_FEED_MAX_WINDOW_DAYS} days."
             )
         # Scanner RBAC plus current experiment targeting; unreadable ids drop out silently so the
         # response never confirms which of the requested scanners exist.
@@ -2435,93 +2496,112 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 .values_list("id", flat=True)
             )
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in tagged_ids]
+        if params.get("created_by"):
+            created_ids = set(
+                ReplayScanner.objects.filter(
+                    team_id=self.team_id, id__in=allowed_ids, created_by_id__in=params["created_by"]
+                ).values_list("id", flat=True)
+            )
+            allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in created_ids]
+        # The scanner list stays off this base: the pick query adds it once per scanner in its lateral join.
         candidates = ReplayObservation.objects.filter(
             team_id=self.team_id,
-            scanner_id__in=allowed_ids,
             status=ObservationStatus.SUCCEEDED,
             created_at__gte=date_from,
+            created_at__lte=window_end,
+            completed_at__lte=as_of,
         )
-        if date_to is not None:
-            candidates = candidates.filter(created_at__lte=date_to)
         if params.get("scanner_type"):
             candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
-        if params.get("search"):
-            # Applied before ranking so the box searches the whole window, not the slice that would have
-            # surfaced anyway. Unindexed, but the candidate query is already bounded by team, readable
-            # scanners, succeeded status and the date window. Lookup keys are literals, not caller input.
-            term = params["search"]
-            candidates = candidates.filter(
-                Q(scanner_result__model_output__reasoning__icontains=term)
-                | Q(scanner_result__model_output__summary__icontains=term)
-                | Q(scanner_result__model_output__title__icontains=term)
-                | Q(scanner_result__model_output__notability_reason__icontains=term)
-                | Q(scanner_snapshot__name__icontains=term)
-            )
-        # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a slot.
-        candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
         viewer_id = cast(User, request.user).id
-        viewed = Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
-        candidate_rows = list(
-            candidates.annotate(
-                feed_viewed=viewed,
-                scanner_recency_rank=Window(
-                    RowNumber(),
-                    partition_by=F("scanner_id"),
-                    order_by=[F("created_at").desc(), F("id").desc()],
-                ),
+        # Before ranking, so a row the viewer marked not useful never takes a slot.
+        # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
+        dismissed_ids = sorted(
+            ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of).values_list(
+                "observation_id", flat=True
             )
-            .filter(scanner_recency_rank__lte=WATCH_FEED_PER_SCANNER_CAP)
-            .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
-            .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
-        # The flag selects one of two independent rankers; nothing is blended between them. Shadow
-        # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
-        # the hourly sweep cached. Neither arm makes a model call here. The response names the
-        # ranker that ordered it, so the shadow arm reads as weighted-score to the client.
-        ranker = "jev" if watch_feed_ranker(self.team_id) == "jev" else "weighted-score"
-        if ranker == "jev":
-            probabilities = load_watch_ranks(self.team_id, allowed_ids)
-            jev_rows = list(candidate_rows)
-            # The recency slice above holds only each scanner's newest rows, which on a high-volume
-            # scanner covers minutes. The sweep judged the whole window, so fetch the watchable rows
-            # the slice cut off, walking the cache in probability-descending chunks. Each chunk goes
-            # through `candidates` — team, scanner, date, and search — so nothing outside the
-            # request's scope can enter, and a cached id that matches no candidate row cannot use up
-            # the page: slicing the cache before filtering would let high-probability non-matches
-            # push out matching rows. The walk stops once the page is covered, and the cache itself
-            # bounds it (at most a window's judged rows per readable scanner).
-            watchable_missing = sorted(
-                (
-                    UUID(observation_id)
-                    for observation_id, probability in probabilities.items()
-                    if probability >= JEV_WATCHABLE_MIN
-                ),
-                key=lambda observation_id: probabilities[str(observation_id)],
-                reverse=True,
+        walkable = candidates.exclude(id__in=dismissed_ids)
+        viewed = Exists(
+            ReplayObservationView.objects.filter(
+                observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
             )
-            loaded_ids = {row["id"] for row in jev_rows}
-            missing = [observation_id for observation_id in watchable_missing if observation_id not in loaded_ids]
-            needed = params["limit"]
-            for start in range(0, len(missing), WATCH_FEED_BYPASS_CHUNK):
-                if needed <= 0:
-                    break
-                fetched = list(
-                    candidates.filter(id__in=missing[start : start + WATCH_FEED_BYPASS_CHUNK])
-                    .annotate(feed_viewed=viewed)
-                    .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
-                )
-                jev_rows += fetched
-                needed -= len(fetched)
-            ranked = rank_watch_feed_by_jev(jev_rows, probabilities)[: params["limit"]]
+        )
+        # Keyed on the bucket `as_of` falls in, so loads in one bucket share picks, and on the dismissals and the
+        # readable experiments, so a dismissal or an access change ranks afresh.
+        picks_key = (
+            "replay_vision:highlight_picks:"
+            + hashlib.sha256(
+                json.dumps(
+                    [
+                        self.team_id,
+                        viewer_id,
+                        int(as_of.timestamp()) // HIGHLIGHT_FEED_PICKS_BUCKET_S,
+                        params["date_from"],
+                        params.get("date_to"),
+                        list(map(str, dismissed_ids)),
+                        sorted(readable_experiment_ids(self.user_access_control, self.team_id)),
+                        sorted(map(str, allowed_ids)),
+                        params.get("scanner_type"),
+                        params.get("categories"),
+                    ]
+                ).encode()
+            ).hexdigest()
+        )
+        cached = cache.get(picks_key)
+        # Picks ranked as of a later moment may hold rows this load's first page never saw, so they don't serve it.
+        if cached is not None and cached[0] <= as_of:
+            picked_as_of, candidate_rows = cached
+            # An earlier load in the bucket ranked these, so its views may be older than this one's.
+            if picked_as_of != as_of:
+                candidate_rows = refresh_feed_viewed(candidate_rows, viewer_id, as_of)
         else:
-            ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
+            # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
+            candidate_rows = select_embedding_picks(
+                walkable,
+                allowed_ids,
+                viewed,
+                self.user_access_control,
+                self.team_id,
+                HIGHLIGHT_FEED_CANDIDATE_CAP,
+                params.get("categories") or ISSUE_CATEGORIES,
+            )
+            # Picks in one feed group collapse into one card, so the floor counts groups.
+            pick_roots = {row["watch_group_root"] for row in candidate_rows}
+            if len(pick_roots) < HIGHLIGHT_FEED_MIN_ITEMS:
+                filler_base = walkable
+                if params.get("categories"):
+                    # Padding must not bring back a session the viewer hid by its category.
+                    hidden = [category for category in ISSUE_CATEGORIES if category not in params["categories"]]
+                    filler_base = walkable.exclude(watch_rank__category__in=hidden)
+                candidate_rows += select_embedding_filler(
+                    filler_base, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
+                )
+            # The first load in the bucket keeps the entry, so concurrent loads never replace it with later picks.
+            cache.add(picks_key, (as_of, candidate_rows), HIGHLIGHT_FEED_PICKS_CACHE_TTL_S)
+        page_end = params["offset"] + params["limit"]
+        impressions = feed_impression_counts(
+            team_id=self.team_id,
+            user_id=viewer_id,
+            observation_ids=[row["id"] for row in candidate_rows],
+            as_of=as_of,
+        )
+        for row in candidate_rows:
+            row["feed_impressions"] = impressions.get(row["id"], 0)
+        ranked = rank_highlight_feed_by_embedding(candidate_rows)
+        has_more = len(ranked) > page_end
+        ranked = ranked[params["offset"] : page_end]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
             row.id: row
             for row in hydrate_for_serialization(
-                # team_id is redundant with the already-scoped candidate query these ids came from,
-                # but keeps the re-fetch fail-closed on its own.
-                ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                # Re-checks experiment access on the page's rows, because a later page can be served from picks
+                # cached before the viewer lost access. team_id keeps the re-fetch fail-closed on its own.
+                accessible_observations(
+                    self.user_access_control,
+                    self.team_id,
+                    ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                ),
                 viewer_id=request.user.id,
             )
         }
@@ -2535,7 +2615,45 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             for entry in ranked
             if entry.observation_id in rows
         ]
-        return Response({"results": results, "ranker": ranker})
+        return Response(
+            {
+                "results": results,
+                "has_more": has_more,
+                "as_of": as_of,
+            }
+        )
+
+    @extend_schema(request=HighlightFeedImpressionsSerializer, responses={204: None})
+    @action(
+        detail=False,
+        methods=["post"],
+        pagination_class=None,
+        # Per-user state, like an observation's `viewed`, so read scope is enough.
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+        throttle_classes=[ReplayVisionHighlightFeedImpressionsRateThrottle],
+    )
+    def highlight_feed_impressions(self, request: Request, **kwargs: Any) -> Response:
+        """Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time."""
+        body = HighlightFeedImpressionsSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        readable = accessible_observations(
+            self.user_access_control,
+            self.team_id,
+            ReplayObservation.objects.filter(
+                team_id=self.team_id,
+                scanner_id__in=readable_observation_scanner_ids(self.user_access_control, self.team_id),
+                id__in=body.validated_data["observation_ids"],
+            ),
+        )
+        record_feed_impressions(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+            observation_ids=list(readable.values_list("id", flat=True)),
+            feed_load_id=body.validated_data["feed_load_id"],
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=ObserveRequestSerializer,
@@ -2568,13 +2686,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
         try:
-            check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+            org_state = check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
         except QuotaLimitExceeded:
             self._report_quota_exhausted(scanner, "on_demand")
             raise
         # Deliberately outside the analytics wrapper above: that event means "the org ran out of
         # credits", and firing it for a self-imposed per-scanner cap would corrupt that metric.
-        check_scanner_quota(scanner)
+        check_scanner_quota(scanner, org_state)
         check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
@@ -2943,6 +3061,59 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
 
     @extend_schema(
+        request=None,
+        responses={
+            201: ScannerDashboardResponseSerializer,
+            200: OpenApiResponse(
+                response=ScannerDashboardResponseSerializer, description="The scanner already had a dashboard."
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="create_dashboard",
+        required_scopes=["replay_scanner:read", "session_recording:read", "dashboard:write", "insight:write"],
+    )
+    def create_dashboard(self, request: Request, **kwargs: Any) -> Response:
+        """Create a dashboard that charts this scanner's observations, and link it to the scanner.
+
+        The tiles depend on the scanner type: who the scanner matched, which accounts they belong to,
+        type-specific breakdowns, and the latest matching recordings. Calling it again returns the
+        existing dashboard rather than a second one."""
+        # The tiles show scanner reasoning and link recordings, which is the same exposure as the observations endpoint.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Creating a scanner dashboard requires session_recording read access.")
+        # `dashboard:write` in required_scopes only constrains API keys; session RBAC evaluates against this
+        # viewset's replay_scanner scope object, so the caller's dashboard access must be checked explicitly.
+        if not self.user_access_control.check_access_level_for_resource("dashboard", required_level="editor"):
+            raise PermissionDenied("Creating a scanner dashboard requires dashboard edit access.")
+        scanner = self.get_object()
+        user = cast(User, request.user)
+        try:
+            dashboard, created = create_scanner_dashboard(scanner, user)
+        except DashboardNotViewable:
+            raise PermissionDenied("This scanner already has a dashboard that you don't have access to.")
+        if created:
+            report_user_action(
+                user,
+                "replay_vision_scanner_dashboard_created",
+                {
+                    "scanner_id": str(scanner.id),
+                    "scanner_type": scanner.scanner_type,
+                    "dashboard_id": dashboard.id,
+                },
+                team=self.team,
+                request=request,
+            )
+        return Response(
+            ScannerDashboardResponseSerializer(
+                {"dashboard_id": dashboard.id, "name": dashboard.name, "created": created}
+            ).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @extend_schema(
         request=EstimateRequestSerializer,
         responses={200: EstimateResponseSerializer},
     )
@@ -2966,7 +3137,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         # Reject a scanner_id outside this project before doing any work, so it can't silently undercount the others-sum.
         # Treat missing object-level access the same as missing-entirely so a denied scanner's existence and
-        # credit usage can't be inferred by comparing responses (mirrors the `suggest_tags` action below).
+        # credit usage can't be inferred by comparing responses.
         scanner_id = body.validated_data.get("scanner_id")
         if scanner_id is not None:
             scanner = ReplayScanner.objects.filter(team_id=self.team_id, pk=scanner_id).first()
@@ -3002,7 +3173,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         # One projection read, excluding the scanner being edited, so the editor adds this estimate on top of a
         # consistent snapshot instead of subtracting a possibly-stale per-scanner field.
-        projection = spend_projection(self.team.organization_id, exclude_scanner_id=scanner_id)
+        projection = spend_projection(
+            self.team.organization_id, exclude_scanner_id=scanner_id, include_free_headroom=True
+        )
 
         return Response(
             EstimateResponseSerializer(
@@ -3014,62 +3187,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "estimated_credits_per_month": observations_per_month * credits_per_observation,
                     "other_enabled_scanners_monthly_credits": projection.scanners_monthly_credits,
                     "active_backfill_credits": projection.backfills_committed_credits,
+                    "free_only_monthly_credits_left": projection.free_only_monthly_credits_left or 0,
                     "sampling_rate": sampling_rate,
                 }
             ).data
         )
-
-    @extend_schema(
-        request=SuggestTagsRequestSerializer,
-        responses={
-            200: SuggestTagsResponseSerializer,
-            503: OpenApiResponse(
-                response=ReplayVisionErrorSerializer, description="Tag suggestions couldn't be generated."
-            ),
-        },
-    )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="suggest_tags",
-        required_scopes=["replay_scanner:read", "session_recording:read"],
-    )
-    def suggest_tags(self, request: Request, **kwargs: Any) -> Response:
-        """Suggest classifier tags grounded in the scanner's own observations and the org's product data."""
-        # Suggestions read recording-derived observation reasoning, so gate on session_recording read.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Suggesting categories requires session_recording read access.")
-
-        body = SuggestTagsRequestSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        data = body.validated_data
-
-        scanner: ReplayScanner | None = None
-        scanner_id = data.get("scanner_id")
-        if scanner_id is not None:
-            scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
-            # Observations inherit the scanner's RBAC; treat missing access as not-found so existence doesn't leak.
-            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
-                raise NotFound("Scanner not found.")
-
-        try:
-            suggestions = suggest_classifier_tags(
-                team=self.team,
-                user=cast(User, request.user),
-                prompt=data["prompt"],
-                current_tags=data["tags"],
-                multi_label=data["multi_label"],
-                allow_freeform_tags=data["allow_freeform_tags"],
-                scanner=scanner,
-                user_access_control=self.user_access_control,
-            )
-        except SuggestionError:
-            return Response(
-                {"detail": "Couldn't generate tag suggestions right now. Try again in a moment."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        return Response(SuggestTagsResponseSerializer({"suggestions": suggestions}).data)
 
     @extend_schema(
         request=DraftScannerRequestSerializer,
@@ -3095,7 +3217,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
     )
     def draft(self, request: Request, **kwargs: Any) -> Response:
-        """Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow."""
+        """Draft a full scanner configuration from a natural-language goal and a monthly credit budget."""
         # This action is `detail=False`, so the generic gate settles for editor access to any one scanner.
         # A draft spends model budget toward a scanner only editors can save, so hold it to `create`'s bar.
         if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
@@ -3113,49 +3235,63 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body.is_valid(raise_exception=True)
 
         goal = body.validated_data["goal"]
-        monthly_credit_budget = body.validated_data.get("monthly_credit_budget")
-        # A budget only means the goal-based flow when the flag says so: on a client/rollout skew
-        # the request degrades to a legacy draft instead of half-applying the new flow.
-        goal_flow = monthly_credit_budget is not None and _goal_flow_enabled(cast(User, request.user), self.team)
+        free_only = body.validated_data["free_only"]
+        if free_only:
+            cap = org_credit_cap(self.team.organization_id)
+            # A free-only scanner is sized to what the organization can spend for free, which billing can lower.
+            monthly_credit_budget = free_credits_ceiling(cap)
+            # A free-only draft saved after the free credits run out pauses before its first scan.
+            if quota_state_for_cap(self.team.organization_id, cap).credits_used >= monthly_credit_budget:
+                raise ValidationError(
+                    {
+                        "free_only": "Your organization has used its free credits for this billing period. "
+                        "Set a monthly credit budget instead."
+                    }
+                )
+        else:
+            monthly_credit_budget = body.validated_data["monthly_credit_budget"]
         # The goal is customer text, so only its length goes into telemetry.
         draft_properties: dict[str, Any] = {
             "goal_length": len(goal),
             "team_id": self.team_id,
-            "goal_flow": goal_flow,
             "monthly_credit_budget": monthly_credit_budget,
+            "free_only": free_only,
         }
         # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
         # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
         # actions, experiments) is gated per resource against these scopes inside the drafter.
         allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
         include_business_context = allowed_scopes is None
+        experiment_id = body.validated_data.get("experiment_id")
+        # Denied, out-of-scope and nonexistent ids read the same, so the error never confirms an experiment exists.
+        if experiment_id is not None and not (
+            scopes_allow_read(allowed_scopes, "experiment")
+            and is_experiment_accessible(self.user_access_control, self.team_id, experiment_id)
+        ):
+            raise ValidationError({"experiment_id": "Experiment not found in this project."})
 
         try:
-            if goal_flow:
-                drafted = draft_scanner_from_goal_v2(
-                    team=self.team,
-                    user=cast(User, request.user),
-                    goal=goal,
-                    monthly_credit_budget=cast(int, monthly_credit_budget),
-                    user_access_control=self.user_access_control,
-                    include_business_context=include_business_context,
-                    allowed_scopes=allowed_scopes,
-                )
-            else:
-                drafted = draft_scanner_from_goal(
-                    team=self.team,
-                    user=cast(User, request.user),
-                    goal=goal,
-                    user_access_control=self.user_access_control,
-                    include_business_context=include_business_context,
-                )
+            drafted = draft_scanner_from_goal(
+                team=self.team,
+                user=cast(User, request.user),
+                goal=goal,
+                monthly_credit_budget=monthly_credit_budget,
+                user_access_control=self.user_access_control,
+                include_business_context=include_business_context,
+                allowed_scopes=allowed_scopes,
+                experiment_id=experiment_id,
+                free_only=free_only,
+            )
+        except UnwatchableExperimentError:
+            raise ValidationError(
+                {"experiment_id": "Pick a running experiment that splits people, not groups, into variants."}
+            )
         except DraftError as e:
             # The 503 below is deliberately uniform, so the reason only survives here.
             logger.warning(
                 "replay_vision.scanner_draft.failed",
                 team_id=self.team_id,
                 reason=e.reason,
-                goal_flow=goal_flow,
             )
             # Report failures too, so model errors don't read as user abandonment.
             report_user_action(
@@ -3179,9 +3315,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_type": drafted.scanner_type,
                 # Whether the goal mapped to a real filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
-                # Whether the goal named an experiment, so the scan watches its participants rather
-                # than everyone who reached the same pages.
-                "has_experiment_targeting": drafted.experiment_targeting is not None,
+                "has_experiment_targeting": drafted.scanner_type == ScannerType.EXPERIMENT,
+                "experiment_picked": experiment_id is not None,
                 "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
                 "model": drafted.model,
@@ -3205,7 +3340,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "sampling_rate": drafted.sampling_rate,
                     "model": drafted.model,
                     "credit_limit": drafted.credit_limit,
-                    "experiment_targeting": drafted.experiment_targeting,
+                    "free_only": drafted.free_only,
                     "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data

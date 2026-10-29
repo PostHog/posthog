@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -23,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MicrosoftClaritySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
+    BASE_URL,
+    INSIGHTS_PATH,
     TOKEN_INVALID_ERROR,
     TOKEN_WRONG_PROJECT_ERROR,
     microsoft_clarity_source,
@@ -48,6 +51,16 @@ def _dimension_options() -> list[SourceFieldSelectConfigOption]:
 
 @SourceRegistry.register
 class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
+    codebase_detection = detect(
+        env=("^(MICROSOFT_CLARITY|MICROSOFTCLARITY)_",),
+        script_hosts=("www.clarity.ms",),
+        npm=("@microsoft/clarity", "@microsoft/react-native-clarity", "react-native-clarity"),
+        cocoapods=("Clarity",),
+        maven=("com.microsoft.clarity:clarity", "com.microsoft.clarity:clarity-compose"),
+        pub=("clarity_flutter",),
+        swiftpm=("github.com/microsoft/clarity-apps",),
+    )
+
     lists_tables_without_credentials = True  # static, single endpoint — safe for public docs
     api_docs_url = "https://learn.microsoft.com/en-us/clarity/setup-and-installation/clarity-data-export-api"
 
@@ -69,7 +82,19 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
         # re-raising once that budget is exhausted. urllib3 wraps that as "... Max retries exceeded
         # with url: ..." regardless of the underlying cause. Temporal then retries the whole
         # activity, so the failure is transient and self-recovering, not a bug to report.
-        return {"Max retries exceeded with url"}
+        #
+        # `microsoft_clarity_source` also calls `response.raise_for_status()` directly rather than
+        # through the shared REST engine, so a 5xx that survives `DEFAULT_RETRY`'s in-process
+        # retries isn't wrapped as RESTClientRetryableError either — it's still a transient Clarity
+        # outage. Match status, reason and the endpoint's base URL, not the query string, since
+        # numOfDays/dimension vary per sync.
+        return {
+            "Max retries exceeded with url",
+            f"500 Server Error: Internal Server Error for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"502 Server Error: Bad Gateway for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"503 Server Error: Service Unavailable for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"504 Server Error: Gateway Timeout for url: {BASE_URL}{INSIGHTS_PATH}",
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.canonical_descriptions import (
@@ -113,7 +138,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
             name=ExternalDataSourceType.MICROSOFTCLARITY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Microsoft Clarity",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Generate an API token in your Clarity project under **Settings -> Data Export -> Generate new API token**, then paste it below.
 
 Microsoft Clarity's export API allows a maximum of 10 requests per project per day and only returns the last 1-3 days of data (no historical backfill), so PostHog syncs a rolling snapshot on each run rather than pulling full history.""",
@@ -132,6 +157,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="num_of_days",
+                        sync_setting=True,
                         label="Reporting window",
                         required=True,
                         defaultValue=DEFAULT_NUM_OF_DAYS,
@@ -143,6 +169,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension1",
+                        sync_setting=True,
                         label="Breakdown dimension 1 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,
@@ -150,6 +177,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension2",
+                        sync_setting=True,
                         label="Breakdown dimension 2 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,
@@ -157,6 +185,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension3",
+                        sync_setting=True,
                         label="Breakdown dimension 3 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,

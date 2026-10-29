@@ -827,9 +827,9 @@ def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _Reso
         criteria = None
     exposure_config = criteria.exposure_config if criteria else None
     # This surface deliberately stays on the legacy default rather than resolving the
-    # $experiment_exposure rollout per experiment: its shared flag-evaluations query reads
-    # $feature_flag_called, and while ingestion emits both events every exposure still lands on
-    # the same sessions, so the legacy event stays correct here for now.
+    # $experiment_exposure rollout per experiment. Its reads of $feature_flag_called also match the
+    # $experiment_exposure copy, which lands on the same session with the same properties, so they
+    # find an exposure whichever of the two events reaches the events table.
     event, variant_property = get_exposure_event_and_property(
         flag_key, criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT
     )
@@ -898,20 +898,22 @@ def _query_flag_evaluations(
     flag_key_windows: dict[str, list[_ScanWindow]],
     variants: set[str],
 ) -> dict[str, dict[tuple[str, _ScanWindow], list[tuple[str, datetime]]]]:
-    """The sessions' `$feature_flag_called` events for the given experiment flag keys and
-    defined variant names, as session_id -> (flag_key, scan window) -> [(variant, first_seen)].
+    """The sessions' flag evaluations (`$feature_flag_called` and its `$experiment_exposure`
+    copy) for the given experiment flag keys and defined variant names, as
+    session_id -> (flag_key, scan window) -> [(variant, first_seen)].
     Each key is read only over its experiments' own scan windows, so an evaluation from outside
     an experiment's run window never reaches that experiment. Serves two roles: variant
     evidence for every experiment (the replay shows what the session was served, whatever the
     exposure criteria say), and the exposure moment for experiments whose criteria resolve to
     the plain default shape (`$feature_flag_called` with no extra property filters).
 
-    Shape-bound to `$feature_flag_called` on purpose — the `$feature_flag` batching key and
-    the `$feature_flag_response` variant property come with that event, so all three are
-    hardcoded together. If DEFAULT_EXPOSURE_EVENT changes in `exposure_query_logic`, this
-    query needs no rewrite: flag evaluations stay `$feature_flag_called` events, and
-    `_resolve_exposure` stops classifying criteria-less experiments as batchable, so their
-    exposure moments move to the branch path."""
+    Shape-bound to the flag-evaluation events on purpose: the `$feature_flag` batching key and
+    the `$feature_flag_response` variant property come with `$feature_flag_called` and its copy,
+    so all three are hardcoded together. A call and its copy share a timestamp, so
+    `min(timestamp)` per group is the same as for the call alone. If DEFAULT_EXPOSURE_EVENT
+    changes in `exposure_query_logic`, this query needs no rewrite: flag evaluations stay these
+    events, and `_resolve_exposure` stops classifying criteria-less experiments as batchable, so
+    their exposure moments move to the branch path."""
     if not flag_key_windows:
         return {}
     # One union branch per distinct clipped window, scanning the flag keys read over that
@@ -936,7 +938,7 @@ def _query_flag_evaluations(
                    toString(properties.$feature_flag_response) AS variant,
                    min(timestamp) AS first_seen
             FROM events
-            WHERE event = '$feature_flag_called'
+            WHERE event IN ('$feature_flag_called', '$experiment_exposure')
               AND $session_id IN {session_ids}
               AND properties.$feature_flag IN {flag_keys}
               AND toString(properties.$feature_flag_response) IN {variants}
@@ -1000,7 +1002,8 @@ def _query_exposure_event_branches(
         # Built here, after the branch cap, so classification stays DB-free for experiments
         # the slice discards (action-based conditions cost a Postgres lookup each).
         try:
-            # The same deliberate legacy-event choice as `_resolve_exposure` above.
+            # The same deliberate legacy-default choice as `_resolve_exposure` above. The
+            # conditions also match the $experiment_exposure copy (`exposure_event_name_filter`).
             conditions = build_exposure_event_conditions(
                 meta.resolution.criteria, team, meta.resolution.flag_key, default_exposure_event=DEFAULT_EXPOSURE_EVENT
             )

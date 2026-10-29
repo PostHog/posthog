@@ -27,7 +27,13 @@ import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
 import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
 
-export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
+export const MarketingAnalyticsFilters = ({
+    tabs,
+    searchOnly = false,
+}: {
+    tabs: JSX.Element
+    searchOnly?: boolean
+}): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen, isAdPerformance } =
         useValues(marketingAnalyticsLogic)
@@ -62,8 +68,8 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                         >
                             <ReloadAll />
                         </Shortcut>
-                        <ConversionGoalFilterButton />
-                        {showSearch && <IntegrationFilter />}
+                        {!searchOnly && <ConversionGoalFilterButton />}
+                        {(showSearch || searchOnly) && <IntegrationFilter />}
                     </div>
                 }
                 right={

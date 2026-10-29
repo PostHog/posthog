@@ -30,6 +30,8 @@ TEAM_READABLE_ORIGIN_PRODUCTS = [
 # and scopes. Sandbox callers bypass these filters, so the run itself still works.
 PRODUCT_PRIVATE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.BUSINESS_KNOWLEDGE,
+    Task.OriginProduct.ACCOUNT_AUDIT,
+    Task.OriginProduct.METRICS_IMPORT,
 ]
 
 

@@ -66,7 +66,7 @@ export function getDefaultKafkaSessionreplayProducerEnvConfig(): KafkaSessionrep
 
 /**
  * ML_IMAGE_SCRUB producer — same replay cluster, but a dedicated client instance so the
- * image-scrub lane's heavy, best-effort payloads (original image bytes, up to 32 MB per source
+ * image-scrub lane's heavy, best-effort payloads (original image bytes, up to 64 MiB per source
  * message) buffer in their own librdkafka queue. A scrub-topic slowdown then fails fast inside
  * this producer (failed produces are swallowed by design — a dangling ref reads as a placeholder)
  * instead of filling the shared SESSIONREPLAY queue and starving DLQ/overflow/metadata produces.

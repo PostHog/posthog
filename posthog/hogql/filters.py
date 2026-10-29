@@ -21,6 +21,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -225,6 +226,10 @@ class ReplaceFilters(CloningVisitor):
         return node
 
     def visit_placeholder(self, node):
+        if node.chain in (["filters", "previous", "dateRange", "from"], ["filters", "previous", "dateRange", "to"]):
+            return self._comparison_visitor().visit_placeholder(
+                ast.Placeholder(expr=ast.Field(chain=["filters", "dateRange", node.chain[-1]]))
+            )
         if node.chain == ["filters", "previous"]:
             return self._comparison_visitor().visit_placeholder(ast.Placeholder(expr=ast.Field(chain=["filters"])))
         # The column-bound form {filters(expr AS key, ...)}: the query author maps each filter key
@@ -305,7 +310,7 @@ class ReplaceFilters(CloningVisitor):
         while last_join is not None:
             if isinstance(last_join.table, ast.Field):
                 resolved = self._resolve_table(last_join.table.chain)
-                if isinstance(resolved, (EventsTable, AiEventsTable)):
+                if isinstance(resolved, (EventsTable, AiEventsTable, FlagEvaluationsTable)):
                     found_events = True
                 if isinstance(resolved, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
                     found_sessions = True
@@ -323,7 +328,7 @@ class ReplaceFilters(CloningVisitor):
 
         if not any([found_events, found_sessions, found_logs, found_traces, found_groups, found_persons]):
             raise QueryError(
-                f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces, groups or persons table."
+                "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, ai_events, flag_evaluations, sessions, logs, traces, groups or persons table."
             )
 
         # Person semantics apply only when persons is the sole recognized table; any query that also

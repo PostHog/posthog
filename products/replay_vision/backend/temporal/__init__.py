@@ -7,7 +7,7 @@ from products.replay_vision.backend.temporal.activities import (
     call_scanner_provider_activity,
     check_scanner_budget_activity,
     cleanup_gemini_file_activity,
-    count_in_flight_applies_activity,
+    complete_observation_requests_activity,
     count_in_flight_by_team_activity,
     create_observation_activity,
     delete_backfill_schedule_activity,
@@ -15,14 +15,11 @@ from products.replay_vision.backend.temporal.activities import (
     embed_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
-    emit_observation_signal_activity,
     emit_observation_signal_summaries_activity,
-    emit_observation_signals_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
     fetch_session_network_activity,
     finalize_observation_media_activity,
-    finalize_observation_thumbnail_activity,
     find_backfill_candidates_activity,
     find_scanner_candidates_activity,
     list_enabled_scanners_activity,
@@ -36,7 +33,6 @@ from products.replay_vision.backend.temporal.activities import (
     pause_backfill_schedule_activity,
     prepare_backfill_tick_activity,
     prepare_observation_media_activity,
-    prepare_observation_thumbnail_activity,
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
@@ -57,10 +53,6 @@ from products.replay_vision.backend.temporal.activities.refresh_learned_rules im
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
 )
-from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
-    list_stale_search_suggestions_activity,
-    refresh_scanner_search_suggestions_activity,
-)
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
 from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
@@ -68,15 +60,10 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
-from products.replay_vision.backend.temporal.jev_watch_rank import (
-    ReplayVisionJevWatchRankWorkflow,
-    judge_watch_ranks_activity,
-)
 from products.replay_vision.backend.temporal.learned_rules import RefreshLearnedRulesWorkflow
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
-from products.replay_vision.backend.temporal.search_suggestions import RefreshSearchSuggestionsWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_alerts import (
     VisionAlertCheckWorkflow,
@@ -96,9 +83,7 @@ WORKFLOWS = [
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
     RefreshLearnedRulesWorkflow,
-    RefreshSearchSuggestionsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
-    ReplayVisionJevWatchRankWorkflow,
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
 ]
@@ -120,17 +105,12 @@ ACTIVITIES: list[Callable[..., Any]] = [
     embed_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
-    emit_observation_signal_activity,
     emit_observation_signal_summaries_activity,
-    emit_observation_signals_activity,
     cleanup_gemini_file_activity,
-    prepare_observation_thumbnail_activity,
     prepare_observation_media_activity,
-    finalize_observation_thumbnail_activity,
     finalize_observation_media_activity,
     resolve_experiment_variant_activity,
     find_scanner_candidates_activity,
-    count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
     check_scanner_budget_activity,
     advance_scanner_watermark_activity,
@@ -150,10 +130,8 @@ ACTIVITIES: list[Callable[..., Any]] = [
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     start_launched_scanners_activity,
+    complete_observation_requests_activity,
     sweep_gemini_files_activity,
-    judge_watch_ranks_activity,
-    list_stale_search_suggestions_activity,
-    refresh_scanner_search_suggestions_activity,
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
     snapshot_benchmark_labels_activity,
@@ -173,23 +151,20 @@ __all__ = [
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
     "RefreshLearnedRulesWorkflow",
-    "RefreshSearchSuggestionsWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
     "SweepScannerWorkflow",
     "advance_scanner_watermark_activity",
     "call_scanner_provider_activity",
     "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
-    "count_in_flight_applies_activity",
     "count_in_flight_by_team_activity",
     "create_observation_activity",
     "delete_scanner_schedule_activity",
     "embed_observation_activity",
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
-    "emit_observation_signal_activity",
+    "complete_observation_requests_activity",
     "emit_observation_signal_summaries_activity",
-    "emit_observation_signals_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "fetch_session_network_activity",

@@ -46,8 +46,6 @@ customerJourneys projects/{}/customer_journeys
 customerJourneysDetail projects/{}/customer_journeys/{}
 customerProfileConfigs projects/{}/customer_profile_configs
 customerProfileConfigsDetail projects/{}/customer_profile_configs/{}
-dashboardCollaborators projects/{}/dashboards/{}/collaborators
-dashboardCollaboratorsDetail projects/{}/dashboards/{}/collaborators/{}
 dashboardSharing projects/{}/dashboards/{}/sharing
 dashboardSharingPassword projects/{}/dashboards/{}/sharing/passwords/{}
 dashboardSharingPasswords projects/{}/dashboards/{}/sharing/passwords
@@ -91,7 +89,6 @@ errorTrackingIssueMerge projects/{}/error_tracking/issues/{}/merge
 errorTrackingIssueSplit projects/{}/error_tracking/issues/{}/split
 errorTrackingIssues projects/{}/error_tracking/issues
 errorTrackingIssuesExists projects/{}/error_tracking/issues/exists
-errorTrackingRecommendations projects/{}/error_tracking/recommendations
 errorTrackingRelease projects/{}/error_tracking/releases/{}
 errorTrackingReleases projects/{}/error_tracking/releases
 errorTrackingSpikeDetectionConfig projects/{}/error_tracking/spike_detection_config
@@ -182,7 +179,6 @@ logsQuery projects/{}/logs/query
 logsSparkline projects/{}/logs/sparkline
 media projects/{}/uploaded_media
 messagingCategories projects/{}/messaging_categories
-messagingCategoriesImportFromCustomerIO projects/{}/messaging_categories/import_from_customerio
 messagingCategoriesOptOutSyncConfig projects/{}/messaging_categories/optout_sync_config
 messagingCategoriesRemoveCustomerIOAppConfig projects/{}/messaging_categories/remove_customerio_app_config
 messagingCategoriesRemoveTrackConfig projects/{}/messaging_categories/remove_track_config

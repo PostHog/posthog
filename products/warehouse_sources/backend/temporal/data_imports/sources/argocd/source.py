@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ArgocdSource(SimpleSource[ArgocdSourceConfig]):
+    codebase_detection = detect(env=("^ARGOCD_",), go=("github.com/argoproj/argo-cd",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -45,7 +48,7 @@ class ArgocdSource(SimpleSource[ArgocdSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Argo CD",
             keywords=["argo", "gitops", "kubernetes", "deployments"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync applications, deployment history, events, managed resources, commit metadata, projects, repositories, and clusters from your Argo CD server, e.g. to track deployment frequency and configuration drift.
 
 Generate an API token with `argocd account generate-token`. The account needs the `apiKey` capability enabled and read access to the resources you want to sync, for example:

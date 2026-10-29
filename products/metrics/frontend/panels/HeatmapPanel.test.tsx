@@ -59,6 +59,13 @@ describe('HeatmapPanel', () => {
         expect(screen.getByText(/No data for this metric/)).toBeInTheDocument()
     })
 
+    it('formats every ratio bound on one scale', () => {
+        render(<HeatmapPanel response={response({ bounds: [0.5, 1, 2] })} unit="1" />)
+        expect(screen.getByText('0.5')).toBeInTheDocument()
+        expect(screen.getByText('1')).toBeInTheDocument()
+        expect(screen.queryByText('50%')).not.toBeInTheDocument()
+    })
+
     it('formats bounds without a unit as compact numbers', () => {
         render(<HeatmapPanel response={response({ bounds: [10, 2000] })} />)
         expect(screen.getByText('10')).toBeInTheDocument()

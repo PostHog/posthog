@@ -1,6 +1,6 @@
 ---
 name: designing-replay-vision-scanners
-description: "Designs a Replay Vision scanner that produces trustworthy observations: one visible question per scanner, a type chosen from the answer shape, a query that selects only sessions able to answer it, a prompt that demands on-screen proof and allows no or inconclusive, a model picked by the cost of a wrong answer, and a first-batch calibration pass. Sizing and the create call stay in creating-replay-vision-scanners.\nTRIGGER when: user wants to design, draft, or improve a Replay Vision scanner or its prompt, asks what to scan for, asks why a scanner returns vague observations, or asks an agent to propose scanners for a product.\nDO NOT TRIGGER when: the question and prompt are settled and the job is to size and create (use creating-replay-vision-scanners), the scanner targets one experiment (use scanning-experiments-with-replay-vision), or the job is to read existing observations (use exploring-replay-vision-observations)."
+description: "Designs a Replay Vision scanner that produces trustworthy observations: one visible question per scanner, a type chosen from the answer shape, a query that selects only sessions able to answer it, a prompt that demands on-screen proof and allows no or inconclusive, a model picked by the cost of a wrong answer, and a first-batch test pass. Sizing and the create call stay in creating-replay-vision-scanners.\nTRIGGER when: user wants to design, draft, or improve a Replay Vision scanner or its prompt, asks what to scan for, asks why a scanner returns vague observations, or asks an agent to propose scanners for a product.\nDO NOT TRIGGER when: the question and prompt are settled and the job is to size and create (use creating-replay-vision-scanners), the scanner targets one experiment (use scanning-experiments-with-replay-vision), or the job is to read existing observations (use exploring-replay-vision-observations)."
 ---
 
 # Designing Replay Vision scanners
@@ -32,7 +32,7 @@ Reject these questions and rewrite them:
 - "Compare the variants." One recording holds one variant.
 - "Explain why they gave a low score." The recording shows behavior, not motive.
 
-If the user has specific sessions in front of them and a one-off question, they do not need a scanner. Use `vision-scanners-inline-scan-create` instead.
+If the user has specific sessions in front of them and a one-off question, they do not need a scanner. Use `vision-scanners-inline-scan` instead.
 
 ## Step 2: Pick the type from the answer shape
 
@@ -112,9 +112,8 @@ Do not polish the prompt before it runs. The first batch shows how the prompt ac
 1. Hand off to [[creating-replay-vision-scanners]] for the estimate, the quota check, and the create call. Ask for the scanner created disabled when the estimate is material. Return here once it exists.
 2. Run it on a small batch of recent recordings. Use the bulk scan action from the recordings list, or call `vision-scanners-scan-session` for a handful of session IDs.
 3. Read each observation beside its recording. Look for four failures: overclaims, missed proof, weak labels, and instructions the model read literally.
-4. Rate each observation in the Calibration tab. Add a sentence when the scanner got the premise wrong.
-5. Call `vision-scanners-prompt-suggestions-generate` to draft prompt edits from that feedback. Read them with `vision-scanners-prompt-suggestions-current`. Apply one with `vision-scanners-prompt-suggestions-apply` only when the user agrees, or clear it with `vision-scanners-prompt-suggestions-dismiss`.
-6. Add the cross-observation step. Create a scout from the scanner's Scouts tab. Every template ships a full brief and a schedule; only `scratch` has placeholders to fill. The scout compares observations. The scanner never does.
+4. Show the user your assessment of each observation and ask for their verdict. A rating is shared with the whole team and steers the scanner, so record one with `vision-observations-label-create` only after the user gives or confirms it. Add a sentence when the scanner got the premise wrong. To change the prompt yourself, use `vision-scanners-update`.
+5. Add the cross-observation step. Create a scout from the scanner's Scouts tab. Every template ships a full brief and a schedule; only `scratch` has placeholders to fill. The scout compares observations. The scanner never does.
 
 Return to Step 3 before Step 4 when the observations are mostly "no" or "inconclusive". A weak query is the usual cause, not a weak prompt.
 
@@ -134,5 +133,5 @@ These are PostHog's own scanners over PostHog's own product. Use the shapes, not
 
 - `allow_inconclusive` is off by default. A monitor without it must answer yes or no. That is fine when the query guarantees every session reaches the flow. When it does not, the model stretches ordinary sessions into findings.
 - A prompt that names a tag missing from the tag list is a silent bug. With freeform tags on, the model invents the tag and nobody notices.
-- Prompt edits bump `scanner_version`. Past observations keep the old prompt, so compare calibration ratings within one version.
-- One succeeded observation per scanner per session. Re-running on one is a no-op. Failed and ineligible observations do re-run, on demand or with `vision-scanners-observations-retry-create`. Test a prompt edit on fresh sessions.
+- Prompt edits bump `scanner_version`. Past observations keep the old prompt, so compare ratings within one version.
+- One succeeded observation per scanner per session. Re-running on one is a no-op. Failed and ineligible observations do re-run, on demand or with `vision-observations-retry`. Test a prompt edit on fresh sessions.

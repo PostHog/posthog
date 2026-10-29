@@ -219,6 +219,25 @@ tools:
         response:
             exclude:
                 - invite_message
+    subscriptions-summaries-list:
+        operation: subscriptions_summaries_list
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List AI summaries for an insight or dashboard
+        description: >
+            List the AI summaries that subscriptions sent for one insight or dashboard, newest first. Set exactly one of
+            `insight` or `dashboard` (numeric ID). Each row comes from a completed delivery and includes the summary
+            text, the subscription ID and title, the channel, and the covered period from `period_start` to
+            `created_at`. `period_start` is null for the first delivery of a subscription. Summaries from deleted
+            subscriptions are not returned. Use subscriptions-partial-update with `summary_prompt_guide` to change how
+            future summaries of one subscription are written. Results are cursor-paginated.
+        feature_flag: subscription-source-summaries
     subscriptions-test-delivery-create:
         operation: subscriptions_test_delivery_create
         enabled: true

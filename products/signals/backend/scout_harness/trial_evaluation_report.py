@@ -43,42 +43,65 @@ def _overall_comparable(variant: TrialVariantAggregate, baseline: TrialVariantAg
 
 
 def _comparison_outcome(variants: list[TrialVariantAggregate]) -> TrialComparisonOutcome:
+    completed = [
+        variant
+        for variant in variants
+        if variant.total_runs > 0
+        and variant.judged_runs == variant.total_runs
+        and not variant.excluded_runs
+        and not variant.judge_errors
+    ]
+    excluded = len(variants) - len(completed)
+    exclusion = (
+        f" {excluded} of {len(variants)} versions excluded because not every run completed and was judged."
+        if excluded
+        else ""
+    )
+    unknown = any(criterion.unknown for variant in completed for criterion in variant.criteria)
     reason: str | None = None
-    if len(variants) < 2:
-        reason = "Compare at least two variants to find the best result."
-    elif any(variant.judged_runs != variant.total_runs for variant in variants):
-        reason = "Some runs failed, were stopped, or could not be judged. Complete those runs before choosing a winner."
-    elif any(criterion.unknown for variant in variants for criterion in variant.criteria):
-        reason = "Some rubric checks need more evidence. The results are incomplete, so a higher pass rate may be misleading."
-    elif any(variant.score is None for variant in variants):
+    if len(completed) < 2:
+        reason = "Not enough completed versions to compare. At least two versions must complete every run and judging."
+    elif all(variant.score is None for variant in completed):
         reason = "There are not enough applicable rubric checks to compare these variants."
-    elif len({variant.total_runs for variant in variants}) != 1:
+    elif len({variant.total_runs for variant in completed}) != 1:
         reason = "The variants have different numbers of runs. Use the same number of runs for a fair comparison."
-    elif any(not _overall_comparable(variant, variants[0]) for variant in variants):
+    elif not unknown and any(not _overall_comparable(variant, completed[0]) for variant in completed):
         reason = "Different rubric checks applied to these runs. Their pass rates cannot be compared fairly."
     if reason is not None:
-        return TrialComparisonOutcome(status="inconclusive", summary=reason)
+        return TrialComparisonOutcome(status="inconclusive", summary=reason + exclusion)
 
     passed_counts = {
-        variant.variant_id: sum(criterion.passed for criterion in variant.criteria) for variant in variants
+        variant.variant_id: sum(criterion.passed for criterion in variant.criteria) for variant in completed
     }
     passed = max(passed_counts.values())
-    leaders = [variant for variant in variants if passed_counts[variant.variant_id] == passed]
+    leaders = [variant for variant in completed if passed_counts[variant.variant_id] == passed]
+    if unknown and passed == 0:
+        return TrialComparisonOutcome(
+            status="inconclusive",
+            summary="No version has a confirmed rubric pass, and some checks remain unknown." + exclusion,
+        )
     assessed = sum(criterion.passed + criterion.failed for criterion in leaders[0].criteria)
     runs = leaders[0].total_runs
     run_label = "run" if runs == 1 else "runs"
-    if len(leaders) == 1:
+    if unknown:
+        names = ", ".join(variant.label for variant in leaders)
+        position = "has" if len(leaders) == 1 else "are tied for"
+        summary = (
+            f"{names} {position} the most confirmed passes: {passed} across {runs} {run_label}. "
+            "This result is provisional: unknown checks earn no passes and could change the result when resolved."
+        )
+    elif len(leaders) == 1:
         summary = (
             f"{leaders[0].label} passed the most rubric checks: {passed} of {assessed} "
-            f"across {runs} {run_label}. Every variant was judged on the same applicable checks."
+            f"across {runs} {run_label}. Compared versions were judged on the same applicable checks."
         )
     else:
         names = ", ".join(variant.label for variant in leaders)
         summary = f"{names} tied: each passed {passed} of {assessed} rubric checks across {runs} {run_label}."
     return TrialComparisonOutcome(
-        status="winner" if len(leaders) == 1 else "tie",
+        status="provisional" if unknown else "winner" if len(leaders) == 1 else "tie",
         variant_ids=[variant.variant_id for variant in leaders],
-        summary=summary,
+        summary=summary + exclusion,
     )
 
 
@@ -205,6 +228,7 @@ def build_trial_comparison_report(
         runs=scored,
         evidence=snapshot.runs,
         limitations=[
+            "Only versions with every run completed and judged can lead. At least two completed versions with the same number of runs are required; unknown checks earn no passes and make the result provisional.",
             "Each run scores pass verdicts divided by pass and fail verdicts. Variant scores average runs with a decisive score; unknown and not applicable verdicts are excluded.",
             "Rubric coverage is the fraction of applicable verdicts that are pass or fail. Execution failures and judge errors are listed separately.",
             "The best result describes these runs only. It does not establish statistical significance or guarantee the same result on other data.",

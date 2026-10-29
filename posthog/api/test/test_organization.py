@@ -53,6 +53,29 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertNotIn("personalization", response_data)
         self.assertNotIn("setup", response_data)
 
+    @parameterized.expand(["not-a-uuid", "123"])
+    def test_retrieve_organization_with_non_uuid_id_returns_404(self, organization_id: str) -> None:
+        response = self.client.get(f"/api/organizations/{organization_id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_project_group_tags_are_visible_in_organization_projects(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.get("/api/organizations/@current")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            updated = self.client.patch(
+                f"/api/projects/{self.project.id}/",
+                {"tags": ["project-group:production-apps"]},
+                format="json",
+            )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.json())
+
+        organization = self.client.get("/api/organizations/@current")
+        self.assertEqual(organization.status_code, status.HTTP_200_OK, organization.json())
+        teams = {team["id"]: team for team in organization.json()["teams"]}
+        self.assertEqual(teams[self.team.id]["project_group"], "production-apps")
+
     def test_get_current_team_fields(self):
         self.organization.setup_section_2_completed = False
         self.organization.save()

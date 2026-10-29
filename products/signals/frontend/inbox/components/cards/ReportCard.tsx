@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { router } from 'kea-router'
 import { memo } from 'react'
 
 import { IconHide, IconUndo } from '@posthog/icons'
@@ -14,14 +13,8 @@ import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { useReportCiStatus } from '../../logics/prCiStatusLogic'
-import {
-    INBOX_SECTION_LEGACY_TAB,
-    InboxReportSectionKey,
-    SignalReport,
-    SignalReportStatus,
-    SignalSourceProduct,
-} from '../../types'
-import { dismissalReasonLabel, DismissalFeedback, isResolveReason } from '../../utils/dismissalReasons'
+import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { dismissalReasonLabel, DismissalFeedback, heldBackLabel, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
@@ -31,10 +24,9 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
-import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { ReportClaimTag } from '../badges/ReportClaimTag'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
-import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
     knownSourceProductEntries,
     SourceProductIconRow,
@@ -108,16 +100,14 @@ export function InboxCardSourceMeta({
  * "Review" action; plain reports get a dashed border, a summary placeholder, and the
  * status/actionability chips.
  *
- * Under the redesign the row itself is the way in: the whole card links to the report detail, so
- * there is no separate open button. Dismissing and resolving live in the report detail pane and the
- * bulk selection bar, where what is being judged is in full view. Other surfaces that embed this
- * card can still opt into a row-level Dismiss via `onDismiss`. The redesign also drops the status
- * and actionability chips: the state a row is in (Needs decision, Not actionable, ...) already says
- * what they said. With the flag off every row keeps its chips, its Dismiss button, and "Review".
+ * The row itself is the way in: the whole card links to the report detail, so there is no separate
+ * open button. Dismissing and resolving live in the report detail pane and the bulk selection bar,
+ * where what is being judged is in full view. Other surfaces that embed this card can still opt
+ * into a row-level Dismiss via `onDismiss`. Rows show no status or actionability chips: the state a
+ * row is in (Needs decision, Not actionable, ...) already says what they said.
  */
 function ReportCardRaw({
     report,
-    sectionKey = 'needs-decision',
     attached = false,
     onDismiss,
     onRestore,
@@ -125,9 +115,9 @@ function ReportCardRaw({
     preview = false,
     selectable = false,
     rankingSortField = null,
+    timestampField = 'updated_at',
 }: {
     report: SignalReport
-    sectionKey?: InboxReportSectionKey
     attached?: boolean
     /** Dismiss from the row. The inbox list omits it; surfaces that embed this card can opt in. */
     onDismiss?: (dismissal: DismissalFeedback) => void
@@ -141,9 +131,9 @@ function ReportCardRaw({
     selectable?: boolean
     /** The active model sort, if any. The meta row then shows the report's probability for that head. */
     rankingSortField?: InboxRankingSortField | null
+    /** The time the card shows. Match it to the active time sort, so the list reads in order. */
+    timestampField?: 'created_at' | 'updated_at'
 }): JSX.Element {
-    // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
-    // through one section key, and the two need different affordances.
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
     // section. They can't be restored or dismissed; refunding their PR lives in the detail pane.
@@ -158,17 +148,13 @@ function ReportCardRaw({
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
-    // The impact column carries its own flag on top of the redesign: its figures come from live
-    // queries, so it rolls out per team as the metric quality is verified.
-    const showImpactColumn = redesign && metricsEnabled
-    // The legacy layout addresses a report through the tab that listed it, so its back control returns there.
-    const detailUrl = inboxReportDetailUrl(
-        report.id,
-        backUrl,
-        redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
-    )
+    const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
+    const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
+    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES', 'test')
+    // The impact column carries its own flag: its figures come from live queries, so it rolls out
+    // per team as the metric quality is verified.
+    const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const detailUrl = inboxReportDetailUrl(report.id, backUrl)
 
     const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
         report.id,
@@ -193,17 +179,20 @@ function ReportCardRaw({
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
-    const showsDismiss = !!onDismiss || !redesign
+    const showsDismiss = !!onDismiss
 
     // Why the report left the inbox (reason tag + note tooltip) when we have it: the dismiss reason
     // on dismissed rows, and a resolve reason on rows resolved by hand. A report that was dismissed,
     // restored, then resolved by a merged PR keeps its old dismissal artefact, so a resolved row only
     // shows a reason that describes a resolve (see `isResolveReason`). The dedicated billing badge
-    // already marks refunded reports, so skip the duplicate chip there.
+    // already marks refunded reports, so skip the duplicate chip there. A dismissed row that nobody
+    // dismissed was held back by a judge, so it shows that verdict, with its explanation as the tooltip.
     const outcomeLabel =
         !isRefunded && (isDismissed || (isResolved && isResolveReason(report.dismissal_reason)))
-            ? dismissalReasonLabel(report.dismissal_reason)
+            ? (dismissalReasonLabel(report.dismissal_reason) ??
+              (isDismissed ? heldBackLabel(report.suppression_source) : null))
             : null
+    const outcomeTooltip = report.dismissal_note || report.suppression_explanation || undefined
 
     const cardBodyClassName = clsx(
         'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline',
@@ -213,25 +202,23 @@ function ReportCardRaw({
     )
     const cardBody = (
         <>
-            {report.priority && (
-                <div className="shrink-0">
-                    <SignalReportPriorityBadge priority={report.priority} />
-                </div>
-            )}
+            <div className="w-6 shrink-0">
+                {report.priority && <SignalReportPriorityBadge priority={report.priority} />}
+            </div>
 
-            <div className={clsx('flex flex-col gap-2 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
+            <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
                 {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
                     over that column from `@lg` up, so only the stacked width needs the reserved space. */}
                 <div
                     className={clsx(
-                        'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
+                        'min-w-0 break-words font-semibold text-[15px] leading-snug text-balance',
                         // A CI glyph widens the pill, so the title gives back the space it takes.
                         // A state that draws no glyph keeps the pill at its plain width.
                         hasPr && (glyphStatus ? 'pr-24' : 'pr-14'),
                         hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
-                    {conventionalTitle && (
+                    {hasPr && !plainReportTitles && conventionalTitle && (
                         <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
                     )}
                     {cardTitle}
@@ -242,7 +229,7 @@ function ReportCardRaw({
                         className={clsx(
                             'min-w-0',
                             !hasPr && !isReady && 'opacity-80',
-                            'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
+                            'break-words line-clamp-2 text-sm text-secondary leading-snug m-0'
                         )}
                     >
                         {headline}
@@ -252,7 +239,7 @@ function ReportCardRaw({
                         className={clsx(
                             'min-w-0',
                             !isReady && 'opacity-80',
-                            'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
+                            'break-words line-clamp-2 text-sm text-tertiary italic leading-snug m-0'
                         )}
                     >
                         No summary yet. Still collecting context.
@@ -269,16 +256,8 @@ function ReportCardRaw({
                 >
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
-                    {!hasPr &&
-                        !redesign &&
-                        !isStatusRedundantWithActionability(report.status, report.actionability) && (
-                            <SignalReportStatusBadge status={report.status} />
-                        )}
-                    {!hasPr && !redesign && report.actionability && (
-                        <SignalReportActionabilityBadge actionability={report.actionability} />
-                    )}
                     {outcomeLabel && (
-                        <Tooltip title={report.dismissal_note || undefined}>
+                        <Tooltip title={outcomeTooltip}>
                             <LemonTag
                                 size="small"
                                 icon={
@@ -294,13 +273,14 @@ function ReportCardRaw({
                             </LemonTag>
                         </Tooltip>
                     )}
+                    {!isDismissed && !isResolved && <ReportClaimTag report={report} />}
                     <SignalReportBillingBadge report={report} />
                     {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
                     {!showImpactColumn && (
                         <TZLabel
-                            time={report.updated_at ?? report.created_at}
+                            time={cardTime}
                             className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
-                            title="Last updated"
+                            title={cardTimeTitle}
                         />
                     )}
                 </div>
@@ -309,12 +289,12 @@ function ReportCardRaw({
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
                 timestamp on the same two vertical lines down the list. */}
             {showImpactColumn ? (
-                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:justify-end">
+                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:self-stretch @lg:justify-end">
                     <ReportCardImpactMetric metrics={report.metrics} />
                     <TZLabel
-                        time={report.updated_at ?? report.created_at}
+                        time={cardTime}
                         className="ml-auto shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0"
-                        title="Last updated"
+                        title={cardTimeTitle}
                     />
                 </div>
             ) : null}
@@ -364,7 +344,7 @@ function ReportCardRaw({
                 pane, where the consequences are in view. Resolved reports are terminal and a refunded
                 dismissed report can't be restored, so neither carries actions – skip the column (and
                 divider) for both. */}
-            {!isResolved && !(isDismissed && isRefunded) && (isDismissed || showsDismiss || !redesign) && (
+            {!isResolved && !(isDismissed && isRefunded) && (isDismissed || showsDismiss) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {isDismissed ? (
                         // A refunded report can't be restored (its PR can never be billed again).
@@ -385,41 +365,18 @@ function ReportCardRaw({
                             </LemonButton>
                         )
                     ) : (
-                        <>
-                            {showsDismiss && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconHide />}
-                                    tooltip="Dismiss this report"
-                                    aria-label="Dismiss this report"
-                                    loading={isDismissing}
-                                    onClick={preview ? undefined : onDismissClick}
-                                    tabIndex={preview ? -1 : undefined}
-                                >
-                                    Dismiss
-                                </LemonButton>
-                            )}
-                            {!redesign && (
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    tooltip="Open the full report to see its summary, evidence, and actions"
-                                    onClick={
-                                        preview
-                                            ? undefined
-                                            : (event) => {
-                                                  event.preventDefault()
-                                                  event.stopPropagation()
-                                                  router.actions.push(detailUrl)
-                                              }
-                                    }
-                                    tabIndex={preview ? -1 : undefined}
-                                >
-                                    Review
-                                </LemonButton>
-                            )}
-                        </>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconHide />}
+                            tooltip="Dismiss this report"
+                            aria-label="Dismiss this report"
+                            loading={isDismissing}
+                            onClick={preview ? undefined : onDismissClick}
+                            tabIndex={preview ? -1 : undefined}
+                        >
+                            Dismiss
+                        </LemonButton>
                     )}
                 </div>
             )}

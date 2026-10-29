@@ -13,13 +13,13 @@ import re
 from datetime import timedelta
 from typing import Any
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     GitHubIntegration,
@@ -33,6 +33,7 @@ from posthog.models.integration import (
 from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 
 logger = structlog.get_logger(__name__)
 
@@ -118,7 +119,7 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
         }
         if label:
             config["labels"] = [label]
-        github = GitHubIntegration(target.integration)
+        github = GitHubIntegration(target.integration, source="signals_tracker_issues", priority=Priority.CRITICAL)
         context = dict(github.create_issue(config))
         repository = str(context["repository"])
         context["repository"] = repository if "/" in repository else f"{github.organization()}/{repository}"
@@ -219,7 +220,7 @@ def create_tracker_issue_for_report(
         if tracker is None:
             return SignalReportTrackerIssue.objects.for_team(team_id).filter(report_id=report_id).first()
 
-        report_url = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+        report_url = build_report_url(team_id, report_id, ReportLinkSource.TRACKER)
         try:
             external_context = _create_provider_issue(
                 target,
@@ -360,7 +361,9 @@ def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str
         return
     context = tracker.external_context or {}
     try:
-        GitHubIntegration(tracker.integration).comment_on_issue(
+        GitHubIntegration(
+            tracker.integration, source="signals_tracker_issues", priority=Priority.BATCH
+        ).comment_on_issue(
             context["repository"],
             int(context["number"]),
             _close_notice(report_link=report_link, actor_mention=actor_mention),
@@ -376,7 +379,9 @@ def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool)
     context = tracker.external_context or {}
 
     if tracker.provider == Integration.IntegrationKind.GITHUB:
-        GitHubIntegration(integration).close_issue(context["repository"], int(context["number"]), completed=completed)
+        GitHubIntegration(integration, source="signals_tracker_issues", priority=Priority.CRITICAL).close_issue(
+            context["repository"], int(context["number"]), completed=completed
+        )
     elif tracker.provider == Integration.IntegrationKind.GITLAB:
         GitLabIntegration(integration).close_issue(int(context["issue_id"]))
     elif tracker.provider == Integration.IntegrationKind.LINEAR:
@@ -405,7 +410,7 @@ def close_tracker_issue_for_report(
         if tracker is None or tracker.closed_at is not None:
             return False
 
-        report_url = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+        report_url = build_report_url(team_id, report_id, ReportLinkSource.TRACKER)
         _comment_before_close(
             tracker,
             report_link=f"[linked PostHog report]({report_url})",

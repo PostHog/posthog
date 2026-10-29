@@ -60,7 +60,7 @@ Pick the axis that matches the question:
 - **The distribution, not the rows?** → `vision-scanners-observations-stats` gives one scanner's status mix
   and success rate, distinct sessions covered, rating totals, and the per-type distributions (monitor verdict
   counts, classifier tag rankings, scorer score summary and histogram) without paging through observations.
-- **Which recordings are worth watching?** → `vision-scanners-watch-feed` ranks succeeded observations across
+- **Which recordings are worth watching?** → `vision-scanners-highlight-feed` ranks succeeded observations across
   every readable scanner over a window (default the last 7 days) and says why each made the cut.
 - **Has something already summarized this?** → if the scanner has scouts attached, read their reports instead
   of re-deriving the pattern (`vision-scanners-scout-reports-list`, then `vision-scanners-scout-reports-get`).
@@ -137,6 +137,9 @@ Match the action to the user's intent, and **corroborate before you create work*
   tracked work, `vision-observations-create-task` opens a PostHog task from one observation (idempotent per
   observation; it does not start a coding agent). Group by distinct issue, not per observation: pick the
   clearest observation for each issue.
+- **Track the scanner on a dashboard.** If the scanner from Step 1 has `dashboard_suggested: true`, offer once to
+  create its dashboard with `vision-scanners-dashboard-create`, and drop it if the user declines. When it has
+  `dashboard_id`, link that dashboard instead of building new insights for what it already charts.
 - **Get told when it recurs.** `vision-alerts-create` puts an alert on the scanner: a `match` alert fires on
   every matching observation, a `metric` alert when a count or average score crosses a threshold over a
   window. Add a Slack or webhook destination with `vision-alerts-destinations-create`.

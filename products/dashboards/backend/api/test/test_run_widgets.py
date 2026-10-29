@@ -4,6 +4,7 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.test.utils import override_settings
 
 from parameterized import parameterized
@@ -64,7 +65,7 @@ def _empty_listing_result() -> RecordingsListingResult:
     return RecordingsListingResult(recordings=[], more_recordings_available=False, timings_header="", next_cursor=None)
 
 
-class TestWidgetRegistry(APIBaseTest):
+class TestWidgetRegistry(SimpleTestCase):
     def test_widget_registry_catalog_and_expected_types_stay_in_sync(self) -> None:
         registry_types = frozenset(WIDGET_REGISTRY.keys())
         assert EXPECTED_WIDGET_TYPES == registry_types
@@ -345,21 +346,6 @@ class TestDashboardRunWidgets(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-        self.widgets_flag_patcher = patch(
-            "products.dashboards.backend.api.dashboard.dashboard_widgets_enabled",
-            return_value=True,
-        )
-        self.widget_create_flag_patcher = patch(
-            "products.dashboards.backend.widget_create.dashboard_widgets_enabled",
-            return_value=True,
-        )
-        self.widgets_flag_patcher.start()
-        self.widget_create_flag_patcher.start()
-
-    def tearDown(self) -> None:
-        self.widget_create_flag_patcher.stop()
-        self.widgets_flag_patcher.stop()
-        super().tearDown()
 
     def _run(self, dashboard_id: int, tile_ids: list[int]) -> dict:
         response = self.client.get(
@@ -1389,15 +1375,6 @@ class TestDashboardRunWidgets(APIBaseTest):
         body = self._run(other_id, [tile_id])
 
         self.assertEqual(body["results"][0]["error"], "Tile not found or is not a widget tile.")
-
-    @patch("products.dashboards.backend.api.dashboard.dashboard_widgets_enabled", return_value=False)
-    def test_disabled_when_feature_flag_off(self, _mock_flag: MagicMock) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/run_widgets/",
-            {"tile_ids": "1"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_run_widgets_denies_without_product_access(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

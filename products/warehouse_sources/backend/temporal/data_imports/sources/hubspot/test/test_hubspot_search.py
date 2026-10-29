@@ -1,3 +1,4 @@
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -9,9 +10,11 @@ from unittest.mock import MagicMock, patch
 from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
+    PROPERTY_LENGTH_LIMIT,
     HubspotResumeConfig,
     _backfill_associations_into_results,
     _batch_read_associations,
+    _get_properties_str,
     _iso_to_ms,
     _resolve_search_properties,
     get_rows_via_search,
@@ -151,6 +154,31 @@ class TestResolveSearchProperties:
         assert "not_real" not in props
         assert "amount" in props
         logger.warning.assert_called()
+
+
+class TestGetPropertiesStr:
+    def test_truncates_with_headroom_below_hubspots_url_ceiling(self) -> None:
+        # Regression: HubSpot's own paginated `next` link re-serializes `associations` as
+        # repeated query keys instead of the compact comma-joined form the initial request
+        # sends, adding bytes on a resumed page. A cap that only just fit the initial URL (the
+        # old 16_000) left no room for that and produced a production 431 (Request Header
+        # Fields Too Large). The properties value alone must leave real headroom, not just stay
+        # under HubSpot's ~16_300-char ceiling.
+        many_props = [f"custom_property_name_{i}" for i in range(2000)]
+        logger = MagicMock()
+
+        props_str = _get_properties_str(
+            props=many_props,
+            api_key="k",
+            refresh_token="r",
+            object_type="contact",
+            logger=logger,
+            include_custom_props=False,
+        )
+
+        assert len(urllib.parse.quote(props_str)) <= 12_000
+        assert len(props_str.split(",")) < len(many_props)
+        logger.warning.assert_called_once()
 
 
 class TestBatchReadAssociations:
@@ -722,10 +750,19 @@ class TestGetRowsFullRefresh:
         assert len(captured_urls) == 2
         assert captured_urls[1] == "https://api.hubapi.com/page2"
 
-    def test_resume_from_next_url(self) -> None:
+    def test_resume_replaces_oversized_properties_but_keeps_cursor(self) -> None:
+        # Regression: a URL saved by an older sync (or before a PROPERTY_LENGTH_LIMIT reduction)
+        # can carry a `properties` value too large for the current cap. HubSpot's 431 doesn't
+        # care when the URL was built, only how large it is now, so resuming must rebuild the
+        # properties query rather than replaying the saved one verbatim — while still resuming
+        # from (not restarting past) HubSpot's opaque pagination cursor.
         from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import get_rows
 
-        resume = HubspotResumeConfig(next_url="https://api.hubapi.com/resume-here")
+        oversized_properties = ",".join(f"custom_property_name_{i}" for i in range(2000))
+        stale_url = (
+            f"https://api.hubapi.com/crm/v3/objects/deals?properties={oversized_properties}&limit=100&after=NTI1cGFnZTI"
+        )
+        resume = HubspotResumeConfig(next_url=stale_url)
         manager = _make_manager(can_resume=True, resume_state=resume)
         logger = MagicMock()
 
@@ -751,7 +788,11 @@ class TestGetRowsFullRefresh:
                 )
             )
 
-        assert captured_urls[0] == "https://api.hubapi.com/resume-here"
+        requested_url = captured_urls[0]
+        assert "after=NTI1cGFnZTI" in requested_url
+        properties_value = requested_url.split("properties=")[1].split("&")[0]
+        assert properties_value != oversized_properties
+        assert len(urllib.parse.quote(properties_value)) <= PROPERTY_LENGTH_LIMIT
 
     def test_truncated_json_body_is_retried(self) -> None:
         # Regression: a truncated/partial page body raises requests' JSONDecodeError
@@ -790,6 +831,44 @@ class TestGetRowsFullRefresh:
             )
 
         # The truncated response was reissued (same URL) and the retry yielded the row.
+        assert len(captured_urls) == 2
+        assert captured_urls[0] == captured_urls[1]
+        assert sum(t.num_rows for t in tables) == 1
+
+    def test_408_is_retried_then_succeeds(self) -> None:
+        # Regression: a 408 (Request Timeout) used to fall through to raise_for_hubspot_status
+        # and crash the whole sync instead of being retried like a 429/5xx.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import get_rows
+
+        manager = _make_manager()
+        logger = MagicMock()
+
+        timeout_resp = _make_response(408, text="Request Timeout")
+        good = _make_response(200, {"results": [{"id": "1", "properties": {"hs_object_id": "1"}}]})
+
+        iter_resp = iter([timeout_resp, good])
+        captured_urls: list[str] = []
+
+        def _get(url, headers=None, timeout=None):  # noqa: ARG001
+            captured_urls.append(url)
+            return next(iter_resp)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})(),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    include_custom_props=False,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
         assert len(captured_urls) == 2
         assert captured_urls[0] == captured_urls[1]
         assert sum(t.num_rows for t in tables) == 1

@@ -18,7 +18,7 @@ import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 import posthog from 'posthog-js'
 
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { execHog } from 'lib/hog'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
@@ -41,16 +41,23 @@ import {
     DashboardFilter,
     ConditionalFormattingRule,
     VisualizationNode,
+    NodeKind,
     HeatmapSettings,
     HogQLVariable,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType } from '~/types'
 
+import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
+import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
+import { getBIAutoChartType } from 'products/business_intelligence/frontend/biEditorTypes'
+import { createBIMemberDisplayLookup } from 'products/business_intelligence/frontend/biMemberAliases'
 import {
+    getBISeriesSettings,
     getBIVisualizationResponse,
     getBIVisualizationSource,
 } from 'products/business_intelligence/frontend/biQueryResults'
+import { isBIPivotTable } from 'products/business_intelligence/frontend/biTableLayout'
 
 import type {
     DataNode,
@@ -69,7 +76,7 @@ import type {
     TraceSpansQueryResponse,
 } from '../../schema/schema-general'
 import type { TraceSpansTreeQueryResponse } from '../../schema/schema-general'
-import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { humanizeEventColumnValue } from './eventColumnLabels'
@@ -93,6 +100,10 @@ export interface Column {
     dataIndex: number
 }
 
+export interface TableRow {
+    rowIndex: number
+}
+
 export interface TableDataCell<T extends string | number | boolean | Date | null> {
     value: T
     formattedValue: string | object | null
@@ -113,6 +124,7 @@ export interface AxisSeries<T> {
 }
 
 export interface DataVisualizationLogicProps {
+    loadQueue?: DataNodeLogicProps['loadQueue']
     key: string
     query: VisualizationNode
     editMode?: boolean
@@ -123,6 +135,7 @@ export interface DataVisualizationLogicProps {
     insightLoading?: boolean
     dashboardId?: DashboardType['id']
     loadPriority?: number
+    retainResponseOnUnmount?: boolean
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
     filtersOverride?: DashboardFilter | null
@@ -567,6 +580,21 @@ export function applyVisualizationType(
         yAxis = yAxis.slice(0, 1)
     }
 
+    // With several values a part-of-whole chart draws one part per column and ignores the x-axis, so a
+    // numeric column a line or scatter chart moved onto the x-axis goes back to the values. A series
+    // breakdown still needs the x-axis, so it stays then.
+    const numericXAxisColumn = numericalColumns.find((column) => column.name === selectedXAxis)
+    if (
+        PART_OF_WHOLE_DISPLAY_TYPES.includes(visualizationType) &&
+        !chartSettings.seriesBreakdownColumn &&
+        yAxis.length > 1 &&
+        numericXAxisColumn &&
+        !yAxis.some((series) => series.column === numericXAxisColumn.name)
+    ) {
+        yAxis = [{ column: numericXAxisColumn.name, settings: DefaultAxisSettings() }, ...yAxis]
+        chartSettings.xAxis = undefined
+    }
+
     if (
         [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
         shouldUseFirstNumericColumnAsContinuousChartXAxis(columns, numericalColumns, selectedXAxis, selectedYAxis)
@@ -678,6 +706,8 @@ export interface dataVisualizationLogicValues {
     dashboardId: any
     dataVisualizationProps: DataVisualizationLogicProps
     effectiveVisualizationType: ChartDisplayType
+    getSourceTableCell: (rowIndex: number, columnIndex: number) => TableDataCell<any>
+    getTableCell: (rowIndex: number, columnIndex: number) => TableDataCell<any>
     hasDateTimeColumns: boolean
     hasMoreData: boolean
     hasSortedTable: boolean
@@ -703,10 +733,10 @@ export interface dataVisualizationLogicValues {
     showTableSettings: boolean
     sourceFeatures: Set<QueryFeature>
     sourceTabularColumns: AxisSeries<any>[]
-    sourceTabularData: TableDataCell<any>[][]
+    tableResults: HogQLQueryResponse['results']
+    tableRows: TableRow[]
     tabularColumnSettings: (SelectedYAxis | null)[] | null
     tabularColumns: AxisSeries<any>[]
-    tabularData: TableDataCell<any>[][]
     visualizationType: ChartDisplayType
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[]
@@ -891,44 +921,54 @@ export interface dataVisualizationLogicMeta {
             response: AnyResponseType | null,
             columns: Column[],
             chartSettings: ChartSettings,
-            effectiveVisualizationType: ChartDisplayType
+            effectiveVisualizationType: ChartDisplayType,
+            query: VisualizationNode
         ) => AxisSeries<number | null>[]
         xData: (
             selectedXAxis: string | null,
             response: AnyResponseType | null,
-            columns: Column[]
+            columns: Column[],
+            query: VisualizationNode
         ) => AxisSeries<string> | null
         sourceTabularColumns: (
             tabularColumnSettings: (SelectedYAxis | null)[] | null,
             response: AnyResponseType | null,
             columns: Column[]
         ) => AxisSeries<any>[]
-        sourceTabularData: (
+        tableResults: (response: AnyResponseType | null) => HogQLQueryResponse['results']
+        getSourceTableCell: (
             sourceTabularColumns: AxisSeries<any>[],
-            response: AnyResponseType | null,
-            chartSettings: ChartSettings
-        ) => TableDataCell<any>[][]
+            tableResults: any[],
+            chartSettings: ChartSettings,
+            query: VisualizationNode
+        ) => (rowIndex: number, columnIndex: number) => TableDataCell<any>
         tabularColumns: (
             sourceTabularColumns: AxisSeries<any>[],
-            sourceTabularData: TableDataCell<any>[][],
+            tableResults: any[],
             isTransposed: boolean
         ) => AxisSeries<any>[]
-        tabularData: (
+        tableRows: (tableResults: any[], sourceTabularColumns: AxisSeries<any>[], isTransposed: boolean) => TableRow[]
+        getTableCell: (
+            getSourceTableCell: (rowIndex: number, columnIndex: number) => TableDataCell<any>,
             sourceTabularColumns: AxisSeries<any>[],
-            sourceTabularData: TableDataCell<any>[][],
             isTransposed: boolean
-        ) => TableDataCell<any>[][]
+        ) => (rowIndex: number, columnIndex: number) => TableDataCell<any>
         dataVisualizationProps: (arg: any) => DataVisualizationLogicProps
         effectiveVisualizationType: (
             visualizationType: ChartDisplayType,
             autoVisualizationType: ChartDisplayType
         ) => ChartDisplayType
-        autoVisualizationType: (columns: Column[], response: AnyResponseType | null) => ChartDisplayType
+        autoVisualizationType: (
+            columns: Column[],
+            response: AnyResponseType | null,
+            query: VisualizationNode
+        ) => ChartDisplayType
         needsHogVm: (
             visualizationType: ChartDisplayType,
             effectiveVisualizationType: ChartDisplayType,
             columns: Column[],
-            conditionalFormattingRules: ConditionalFormattingRule[]
+            conditionalFormattingRules: ConditionalFormattingRule[],
+            query: VisualizationNode
         ) => boolean
         hogVmLoadFailed: (needsHogVm: boolean, hogVmLoadError: unknown) => boolean
         isTableVisualization: (effectiveVisualizationType: ChartDisplayType) => boolean
@@ -953,11 +993,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
+                loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 key: props.key,
                 query: getBIVisualizationSource(props.query),
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
+                retainResponseOnUnmount: props.retainResponseOnUnmount,
                 variablesOverride: props.variablesOverride,
                 filtersOverride: props.filtersOverride,
                 limitContext: props.limitContext,
@@ -976,7 +1018,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         actions: [
             dataNodeLogic({
+                loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
+                retainResponseOnUnmount: props.retainResponseOnUnmount,
                 key: props.key,
                 query: getBIVisualizationSource(props.query),
                 dataNodeCollectionId: props.dataNodeCollectionId,
@@ -1440,7 +1484,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (key: string, dashboardId, activeSceneId: string | null) => {
                 // Keys for SQL editor visualizations can render outside the SQLEditor scene,
                 // e.g. in embedded mode, so key matching keeps sizing consistent.
-                const sqlEditorVisualization =
+                const editorVisualization =
+                    activeSceneId === Scene.BusinessIntelligence ||
                     activeSceneId === Scene.SQLEditor ||
                     key.includes('SQLEditor') ||
                     key.startsWith('data-warehouse-editor-data-node-')
@@ -1449,7 +1494,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return true
                 }
 
-                return !key.includes('new-SQL') && !dashboardId && !sqlEditorVisualization
+                return !key.includes('new-SQL') && !dashboardId && !editorVisualization
             },
         ],
         sourceFeatures: [
@@ -1465,7 +1510,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (query: VisualizationNode): boolean => query.tableSettings?.transpose ?? false,
         ],
         yData: [
-            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType],
+            (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType, s.query],
             (
                 ySeries: (SelectedYAxis | null)[] | null,
                 response:
@@ -1485,7 +1530,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
                 columns: Column[],
                 chartSettings: ChartSettings,
-                visualizationType: ChartDisplayType
+                visualizationType: ChartDisplayType,
+                query: VisualizationNode
             ): AxisSeries<number | null>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
@@ -1499,6 +1545,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                           ? response.result
                           : []
 
+                const seriesRows = visualizationType === ChartDisplayType.ActionsTable ? [] : data
                 const mappedSeries = visualizationType === ChartDisplayType.Metric ? ySeries.slice(0, 1) : ySeries
                 const seriesData = mappedSeries
                     .map((series): AxisSeries<number | null> | null => {
@@ -1513,7 +1560,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                         return {
                             column,
-                            data: data.map((n) => {
+                            data: seriesRows.map((n) => {
                                 try {
                                     const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
 
@@ -1536,7 +1583,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                     return showNullsAsZero ? 0 : null
                                 }
                             }),
-                            settings: series.settings,
+                            settings: getBISeriesSettings(query, series.settings),
                         }
                     })
                     .filter((series): series is AxisSeries<number | null> => Boolean(series))
@@ -1545,7 +1592,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         xData: [
-            (s) => [s.selectedXAxis, s.response, s.columns],
+            (s) => [s.selectedXAxis, s.response, s.columns, s.query],
             (
                 xSeries: string | null,
                 response:
@@ -1563,7 +1610,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
-                columns: Column[]
+                columns: Column[],
+                query: VisualizationNode
             ): AxisSeries<string> | null => {
                 if (!response) {
                     return {
@@ -1605,7 +1653,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return {
                     column,
-                    data: data.map((n: any) => humanizeEventColumnValue(column.name, n[column.dataIndex])),
+                    data: data.map((n: any) =>
+                        query.kind === NodeKind.BIVisualizationNode
+                            ? n[column.dataIndex]
+                            : humanizeEventColumnValue(column.name, n[column.dataIndex])
+                    ),
                 }
             },
         ],
@@ -1645,117 +1697,117 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 })
             },
         ],
-        sourceTabularData: [
-            (s) => [s.sourceTabularColumns, s.response, s.chartSettings],
+        tableResults: [
+            (s) => [s.response],
+            (response: AnyResponseType | null): HogQLQueryResponse['results'] => {
+                if (response && 'results' in response && Array.isArray(response.results)) {
+                    return response.results
+                }
+                if (response && 'result' in response && Array.isArray(response.result)) {
+                    return response.result
+                }
+                return []
+            },
+        ],
+        getSourceTableCell: [
+            (s) => [s.sourceTabularColumns, s.tableResults, s.chartSettings, s.query],
             (
                 sourceTabularColumns: AxisSeries<any>[],
-                response:
-                    | Record<string, any>
-                    | null
-                    | import('~/queries/schema/schema-general').ErrorTrackingQueryResponse
-                    | import('~/queries/schema/schema-general').HogQLAutocompleteResponse
-                    | import('~/queries/schema/schema-general').HogQLMetadataResponse
-                    | import('~/queries/schema/schema-general').HogQLQueryResponse<any[]>
-                    | import('~/queries/schema/schema-general').HogQueryResponse
-                    | import('~/queries/schema/schema-general').LogAttributesQueryResponse
-                    | import('~/queries/schema/schema-general').LogValuesQueryResponse
-                    | import('~/queries/schema/schema-general').MetricsQueryResponse
-                    | import('~/queries/schema/schema-general').SessionsQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
-                chartSettings: ChartSettings
-            ): TableDataCell<any>[][] => {
-                if (!response) {
-                    return []
-                }
-
+                data: HogQLQueryResponse['results'],
+                chartSettings: ChartSettings,
+                query: VisualizationNode
+            ): ((rowIndex: number, columnIndex: number) => TableDataCell<any>) => {
                 const showNullsAsZero = chartSettings.showNullsAsZero ?? false
-                const data =
-                    'results' in response && Array.isArray(response.results)
-                        ? response.results
-                        : 'result' in response && Array.isArray(response.result)
-                          ? response.result
-                          : []
+                const dimensions = new Map(
+                    query.kind === NodeKind.BIVisualizationNode
+                        ? getBIResultDimensions(query.config).map(({ column, field }) => [column, field])
+                        : []
+                )
+                const memberDisplay =
+                    query.kind === NodeKind.BIVisualizationNode ? createBIMemberDisplayLookup(query.config) : undefined
 
-                return data.map((row): TableDataCell<any>[] => {
-                    return sourceTabularColumns.map((column): TableDataCell<any> => {
-                        if (!column) {
-                            return {
-                                value: null,
-                                formattedValue: null,
-                                type: 'STRING',
-                            }
+                return (rowIndex, columnIndex): TableDataCell<any> => {
+                    const column = sourceTabularColumns[columnIndex]
+                    if (!column) {
+                        return {
+                            value: null,
+                            formattedValue: null,
+                            type: 'STRING',
                         }
+                    }
 
-                        const value = row[column.column.dataIndex]
+                    const value = data[rowIndex][column.column.dataIndex]
+                    const dimension = dimensions.get(column.column.name)
+                    const alias = dimension ? memberDisplay?.(dimension, value) : undefined
+                    if (alias !== undefined) {
+                        return { value, formattedValue: alias, type: column.column.type.name }
+                    }
 
-                        if (column.column.type.isNumerical) {
-                            try {
-                                if (value === null) {
-                                    const nullReplacement = showNullsAsZero ? 0 : null
+                    if (column.column.type.isNumerical) {
+                        try {
+                            if (value === null) {
+                                const nullReplacement = showNullsAsZero ? 0 : null
 
-                                    return {
-                                        value: nullReplacement,
-                                        formattedValue: formatDataWithSettings(nullReplacement, column.settings),
-                                        type: column.column.type.name,
-                                    }
+                                return {
+                                    value: nullReplacement,
+                                    formattedValue: formatDataWithSettings(nullReplacement, column.settings),
+                                    type: column.column.type.name,
                                 }
+                            }
 
-                                const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
+                            const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
 
-                                if (
-                                    column.settings?.formatting?.decimalPlaces != null &&
-                                    column.settings.formatting.style !== 'short'
-                                ) {
-                                    return {
-                                        value,
-                                        formattedValue: formatDataWithSettings(
-                                            parseFloat(
-                                                (parseFloat(value.toString()) * multiplier).toFixed(
-                                                    column.settings.formatting.decimalPlaces
-                                                )
-                                            ),
-                                            column.settings
-                                        ),
-                                        type: column.column.type.name,
-                                    }
-                                }
-
-                                const isInt = Number.isInteger(value)
+                            if (
+                                column.settings?.formatting?.decimalPlaces != null &&
+                                column.settings.formatting.style !== 'short'
+                            ) {
                                 return {
                                     value,
                                     formattedValue: formatDataWithSettings(
-                                        isInt
-                                            ? parseInt(value.toString(), 10) * multiplier
-                                            : parseFloat(value.toString()) * multiplier,
+                                        parseFloat(
+                                            (parseFloat(value.toString()) * multiplier).toFixed(
+                                                column.settings.formatting.decimalPlaces
+                                            )
+                                        ),
                                         column.settings
                                     ),
                                     type: column.column.type.name,
                                 }
-                            } catch {
-                                return {
-                                    value: 0,
-                                    formattedValue: '0',
-                                    type: column.column.type.name,
-                                }
+                            }
+
+                            const isInt = Number.isInteger(value)
+                            return {
+                                value,
+                                formattedValue: formatDataWithSettings(
+                                    isInt
+                                        ? parseInt(value.toString(), 10) * multiplier
+                                        : parseFloat(value.toString()) * multiplier,
+                                    column.settings
+                                ),
+                                type: column.column.type.name,
+                            }
+                        } catch {
+                            return {
+                                value: 0,
+                                formattedValue: '0',
+                                type: column.column.type.name,
                             }
                         }
+                    }
 
-                        return {
-                            value: convertTableValue(value, column.column.type.name),
-                            formattedValue: formatDataWithSettings(value, column.settings),
-                            type: column.column.type.name,
-                        }
-                    })
-                })
+                    return {
+                        value: convertTableValue(value, column.column.type.name),
+                        formattedValue: formatDataWithSettings(value, column.settings),
+                        type: column.column.type.name,
+                    }
+                }
             },
         ],
         tabularColumns: [
-            (s) => [s.sourceTabularColumns, s.sourceTabularData, s.isTransposed],
+            (s) => [s.sourceTabularColumns, s.tableResults, s.isTransposed],
             (
                 sourceTabularColumns: AxisSeries<any>[],
-                sourceTabularData: TableDataCell<any>[][],
+                tableResults: HogQLQueryResponse['results'],
                 isTransposed: boolean
             ): AxisSeries<any>[] => {
                 if (!isTransposed) {
@@ -1785,7 +1837,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                             },
                         },
                     },
-                    ...sourceTabularData.map(
+                    ...Array.from(
+                        { length: tableResults.length },
                         (_, index): AxisSeries<any> => ({
                             column: {
                                 name: `${TRANSPOSED_ROW_COLUMN_PREFIX}${index}`,
@@ -1808,49 +1861,49 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ]
             },
         ],
-        tabularData: [
-            (s) => [s.sourceTabularColumns, s.sourceTabularData, s.isTransposed],
-            (
-                sourceTabularColumns: AxisSeries<any>[],
-                sourceTabularData: TableDataCell<any>[][],
-                isTransposed: boolean
-            ): TableDataCell<any>[][] => {
-                if (!isTransposed) {
-                    return sourceTabularData
-                }
-
-                if (sourceTabularData.length === 0) {
+        tableRows: [
+            (s) => [s.tableResults, s.sourceTabularColumns, s.isTransposed],
+            (results: HogQLQueryResponse['results'], columns: AxisSeries<any>[], isTransposed: boolean): TableRow[] => {
+                if (results.length === 0) {
                     return []
                 }
-
-                return sourceTabularColumns.map((column, columnIndex) => [
-                    {
-                        value: column.column.name,
-                        formattedValue: null,
-                        type: 'STRING',
-                        sourceColumnName: column.column.name,
-                        isTransposedHeader: true,
-                    },
-                    ...sourceTabularData.map((row) => ({
-                        ...row[columnIndex],
-                        sourceColumnName: column.column.name,
-                    })),
-                ])
+                return Array.from({ length: isTransposed ? columns.length : results.length }, (_, rowIndex) => ({
+                    rowIndex,
+                }))
             },
+        ],
+        getTableCell: [
+            (s) => [s.getSourceTableCell, s.sourceTabularColumns, s.isTransposed],
+            (
+                getSourceTableCell: (rowIndex: number, columnIndex: number) => TableDataCell<any>,
+                columns: AxisSeries<any>[],
+                isTransposed: boolean
+            ): ((rowIndex: number, columnIndex: number) => TableDataCell<any>) =>
+                (rowIndex, columnIndex): TableDataCell<any> => {
+                    if (!isTransposed) {
+                        return getSourceTableCell(rowIndex, columnIndex)
+                    }
+                    const sourceColumnName = columns[rowIndex].column.name
+                    if (columnIndex === 0) {
+                        return {
+                            value: sourceColumnName,
+                            formattedValue: null,
+                            type: 'STRING',
+                            sourceColumnName,
+                            isTransposedHeader: true,
+                        }
+                    }
+                    return { ...getSourceTableCell(columnIndex - 1, rowIndex), sourceColumnName }
+                },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         effectiveVisualizationType: [
             (s) => [s.visualizationType, s.autoVisualizationType],
-            (visualizationType: ChartDisplayType, autoVisualizationType: ChartDisplayType): ChartDisplayType => {
-                if (visualizationType === ChartDisplayType.Auto) {
-                    return autoVisualizationType
-                }
-
-                return visualizationType
-            },
+            (visualizationType: ChartDisplayType, autoVisualizationType: ChartDisplayType): ChartDisplayType =>
+                visualizationType === ChartDisplayType.Auto ? autoVisualizationType : visualizationType,
         ],
         autoVisualizationType: [
-            (s) => [s.columns, s.response],
+            (s) => [s.columns, s.response, s.query],
             (
                 columns: Column[],
                 response:
@@ -1867,21 +1920,33 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').SessionsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
-                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse
-            ): ChartDisplayType => getAutoVisualizationType(columns, rowCountFromResponse(response)),
+                    | import('~/queries/schema/schema-general').TraceSpansQueryResponse,
+                query: VisualizationNode
+            ): ChartDisplayType =>
+                query.kind === NodeKind.BIVisualizationNode
+                    ? getBIAutoChartType(query.config)
+                    : getAutoVisualizationType(columns, rowCountFromResponse(response)),
         ],
         // The Hog VM and its crypto polyfills are large, so only a table that shows formatting rules loads them.
         // Auto resolves to a table until columns arrive, so it waits for them before it decides.
         needsHogVm: [
-            (s) => [s.visualizationType, s.effectiveVisualizationType, s.columns, s.conditionalFormattingRules],
+            (s) => [
+                s.visualizationType,
+                s.effectiveVisualizationType,
+                s.columns,
+                s.conditionalFormattingRules,
+                s.query,
+            ],
             (
                 visualizationType: ChartDisplayType,
                 effectiveVisualizationType: ChartDisplayType,
                 columns: Column[],
-                rules: ConditionalFormattingRule[]
+                rules: ConditionalFormattingRule[],
+                query: VisualizationNode
             ): boolean =>
                 (visualizationType !== ChartDisplayType.Auto || columns.length > 0) &&
-                effectiveVisualizationType === ChartDisplayType.ActionsTable &&
+                (effectiveVisualizationType === ChartDisplayType.ActionsTable ||
+                    (query.kind === NodeKind.BIVisualizationNode && isBIPivotTable(query.config))) &&
                 rules.length > 0,
         ],
         hogVmLoadFailed: [
@@ -1942,6 +2007,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             const rules = values.conditionalFormattingRules
             const saveableRules = rules.filter((n) => n.columnName && n.input && n.templateId && n.bytecode.length)
 
+            if (values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('conditional_formatting_updated', values.query.config, {
+                    rule_count: saveableRules.length,
+                })
+            }
+
             actions.setQuery((query) => ({
                 ...query,
                 tableSettings: {
@@ -1961,6 +2032,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         },
     })),
     listeners(({ props, values, actions, sharedListeners }) => ({
+        setSideBarTab: ({ tab }) => {
+            if (tab === SideBarTab.ConditionalFormatting && values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('conditional_formatting_opened', values.query.config)
+            }
+        },
         loadHogVm: async () => {
             try {
                 actions.setHogVm(await retryImport(() => import('lib/hog')))
@@ -1973,6 +2049,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
         },
         updateChartSettings: ({ settings }) => {
+            if (values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('chart_settings_changed', values.query.config, {
+                    setting_keys: Object.keys(settings),
+                })
+            }
             actions.setQuery((query) => ({
                 ...query,
                 chartSettings: mergeChartSettings(query.chartSettings ?? ({} as ChartSettings), settings),

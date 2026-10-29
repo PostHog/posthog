@@ -137,8 +137,7 @@ const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
             nodeid: 'products/replay/test_snapshots.py::test_resume_keeps_cursor',
             file: 'products/replay/test_snapshots.py',
             owner_team: TEAM,
-            status: 'FLAKY',
-            quarantine_setting: 'AUTO_QUARANTINE',
+            status: 'flaky',
             quarantined_at: '2026-06-12T09:00:00Z',
             age_days: 21,
             overdue: true,
@@ -155,7 +154,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-07-03T12:00:00Z',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
-        pageUrl: urls.engineeringAnalyticsTeam(TEAM),
+        pageUrl: urls.engineeringAnalyticsTeam(TEAM, 'PostHog/posthog'),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-team-tests-table"]',
         },

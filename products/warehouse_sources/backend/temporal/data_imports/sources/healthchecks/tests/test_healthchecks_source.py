@@ -1,6 +1,9 @@
-import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.healthchecks import (
     HealthchecksSourceConfig,
 )
@@ -20,11 +23,6 @@ class TestHealthchecksSource:
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog with no I/O, so the public docs table list can render.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["flips"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "flips"
 
     @mock.patch.object(HealthchecksSource, "is_database_host_valid")
     def test_validate_credentials_rejects_unsafe_host(self, mock_host_valid):
@@ -97,28 +95,24 @@ class TestHealthchecksSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.healthchecks.source.healthchecks_source"
-    )
-    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_host_valid, mock_healthchecks_source):
-        mock_host_valid.return_value = (True, None)
-        inputs = mock.MagicMock()
-        inputs.schema_name = "checks"
-        inputs.team_id = self.team_id
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = 1700000000
+    def test_source_for_pipeline_omits_cursor_when_not_incremental(self):
+        result = SourceDriver(self.source, self.config).run(
+            "flips",
+            [
+                ScriptedResponse(json={"checks": [{"uuid": "u-1"}]}),
+                ScriptedResponse(json=[]),
+            ],
+            db_incremental_field_last_value=1700000000,
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_healthchecks_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.requests[1].param("start") is None
 
     @mock.patch.object(HealthchecksSource, "is_database_host_valid")
     def test_source_for_pipeline_rejects_unsafe_host(self, mock_host_valid):
         mock_host_valid.return_value = (False, "Host is not allowed")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "flips"
-        inputs.team_id = self.team_id
 
-        with pytest.raises(ValueError, match="Host is not allowed"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, self.config).run("flips", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Host is not allowed" in str(result.raised)

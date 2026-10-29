@@ -30,6 +30,7 @@ MANIFEST = "manifest-b"
 OLD_MANIFEST = "manifest-a"
 SERVED_VERSION = "2026-09-01"
 SERVED_KEY = f"report_embeddings@{SERVED_VERSION}"
+OLD_SERVED_VERSION = "2026-08-25"
 
 
 def _score(
@@ -116,9 +117,10 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         manifest: str = MANIFEST,
         hours_ago: int = 1,
         served_version: str = SERVED_VERSION,
+        team: Team | None = None,
     ) -> None:
         SignalReportArtefact.objects.create(
-            team=self.team,
+            team=team or self.team,
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
             content=_score(
@@ -132,7 +134,6 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
     def _due(self, limit: int = 100) -> list[str]:
         candidates = reports_due_for_scoring(
             self.now,
-            manifest_version=MANIFEST,
             served_key=SERVED_KEY,
             rendering=EMBEDDING_RENDERING_TITLE_SUMMARY,
             limit=limit,
@@ -155,12 +156,13 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         self._vector(edited, hours_ago=2)
         assert SignalReport.objects.get(id=edited).updated_at == updated_at
 
+        # A manifest that changes only the challengers keeps the served key, so the score stays current.
         other_manifest = self._report()
         self._scored(other_manifest, vector_at=self._vector(other_manifest, hours_ago=5), manifest=OLD_MANIFEST)
 
         # A served override changes the served model under the same manifest version.
         other_served = self._report()
-        self._scored(other_served, vector_at=self._vector(other_served, hours_ago=5), served_version="2026-08-25")
+        self._scored(other_served, vector_at=self._vector(other_served, hours_ago=5), served_version=OLD_SERVED_VERSION)
 
         retracted = self._report()
         self._vector(retracted, hours_ago=5)
@@ -176,13 +178,27 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         wrong_team = self._report(team=other_team)
         self._vector(wrong_team, hours_ago=5, team_id=self.team.pk)
 
-        assert sorted(self._due()) == sorted([unscored, edited, other_manifest, other_served])
+        # A newer current score stored under another team must not count as this report's score.
+        cross_team_score = self._report()
+        cross_team_vector = self._vector(cross_team_score, hours_ago=5)
+        self._scored(cross_team_score, vector_at=cross_team_vector, served_version=OLD_SERVED_VERSION, hours_ago=3)
+        self._scored(cross_team_score, vector_at=cross_team_vector, team=other_team)
+        SignalReportArtefact.objects.filter(team=other_team, report_id=cross_team_score).update(
+            created_at=self.now + datetime.timedelta(hours=1)
+        )
+
+        assert sorted(self._due()) == sorted([unscored, edited, other_served, cross_team_score])
 
     def test_the_cap_keeps_unscored_reports_first_then_the_oldest_scores(self) -> None:
         recently_scored, long_ago_scored, unscored = self._report(), self._report(), self._report()
-        self._scored(recently_scored, vector_at=self._vector(recently_scored, hours_ago=5), manifest=OLD_MANIFEST)
         self._scored(
-            long_ago_scored, vector_at=self._vector(long_ago_scored, hours_ago=5), manifest=OLD_MANIFEST, hours_ago=3
+            recently_scored, vector_at=self._vector(recently_scored, hours_ago=5), served_version=OLD_SERVED_VERSION
+        )
+        self._scored(
+            long_ago_scored,
+            vector_at=self._vector(long_ago_scored, hours_ago=5),
+            served_version=OLD_SERVED_VERSION,
+            hours_ago=3,
         )
         self._vector(unscored, hours_ago=5)
 
@@ -193,7 +209,9 @@ class TestScoreInboxReports(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.serving = SimpleNamespace(
-            manifest=SimpleNamespace(manifest_version=MANIFEST, served=SimpleNamespace(key=SERVED_KEY)),
+            manifest=SimpleNamespace(
+                manifest_version=MANIFEST, served=SimpleNamespace(key=SERVED_KEY), project_vectors=None
+            ),
             served_override=None,
         )
         self._patch(sweep, "read_ranking_overrides", return_value=NO_OVERRIDES)
@@ -201,6 +219,8 @@ class TestScoreInboxReports(SimpleTestCase):
         self.served_rendering = self._patch(scorer, "served_rendering", return_value=EMBEDDING_RENDERING_TITLE_SUMMARY)
         self.due = self._patch(sweep, "reports_due_for_scoring", return_value=[])
         self.score_reports = self._patch(scorer, "score_reports", side_effect=self._outcomes)
+        self.project_vectors = MagicMock()
+        self.pass_project_vectors = self._patch(scorer, "pass_project_vectors", return_value=self.project_vectors)
         self.capture = MagicMock()
         self.capture_scopes = 0
         self._patch(sweep, "ph_scoped_capture", new=self._capture_scope)
@@ -230,6 +250,7 @@ class TestScoreInboxReports(SimpleTestCase):
         now: datetime.datetime,
         serving: Any = None,
         capture: Any = None,
+        project_vectors: Any = None,
     ) -> list:
         if team_id in self.failing_teams:
             raise self.failing_teams[team_id]
@@ -276,10 +297,13 @@ class TestScoreInboxReports(SimpleTestCase):
             (call.args[0], call.args[1], call.kwargs["persist"]) for call in self.score_reports.call_args_list
         ) == [(1, ["a", "novec-c"], True), (2, ["b"], True)]
         assert all(
-            call.kwargs["serving"] is self.serving and call.kwargs["capture"] is self.capture
+            call.kwargs["serving"] is self.serving
+            and call.kwargs["capture"] is self.capture
+            and call.kwargs["project_vectors"] is self.project_vectors
             for call in self.score_reports.call_args_list
         )
         assert (self.load_serving_set.call_count, self.capture_scopes, self.capture.flush.call_count) == (1, 1, 2)
+        self.pass_project_vectors.assert_called_once_with(self.serving, [1, 2])
         self.logger.info.assert_any_call(
             "inbox_ranking_sweep_started", candidates=3, teams=2, manifest_version=MANIFEST, peak_rss_mb=ANY
         )
@@ -402,8 +426,12 @@ class TestParseOverrides(SimpleTestCase):
                 "inbox_ranking_override_invalid",
             ),
             (
-                "unknown_gate",
-                {"expires_at": EXPIRES, "promotion": {"skip_gates": {"report_embeddings": ["auc"]}}},
+                "retired_promotion_block",
+                {
+                    "expires_at": EXPIRES,
+                    "served": "report_embeddings@2026-10-03",
+                    "promotion": {"force": ["report_embeddings"]},
+                },
                 NO_OVERRIDES,
                 "inbox_ranking_override_invalid",
             ),
@@ -425,19 +453,11 @@ class TestParseOverrides(SimpleTestCase):
                     "expires_at": EXPIRES,
                     "served": "report_embeddings@2026-10-03",
                     "pin": ["report_embeddings@2026-09-26"],
-                    "promotion": {
-                        "freeze": ["tabular_xgb"],
-                        "force": ["report_embeddings"],
-                        "skip_gates": {"report_embeddings": ["min_days", "ece"]},
-                    },
                 },
                 RankingOverrides(
                     expires_at=datetime.datetime(2026, 10, 11, tzinfo=datetime.UTC),
                     served="report_embeddings@2026-10-03",
                     pin=("report_embeddings@2026-09-26",),
-                    freeze=frozenset({"tabular_xgb"}),
-                    force=frozenset({"report_embeddings"}),
-                    skip_gates={"report_embeddings": frozenset({"min_days", "ece"})},
                 ),
                 None,
             ),
@@ -447,18 +467,3 @@ class TestParseOverrides(SimpleTestCase):
         with patch("products.signals.backend.ranking.overrides.logger") as logger:
             assert parse_overrides(payload, now=NOW) == expected
         assert [call.args[0] for call in logger.warning.call_args_list] == ([warning] if warning else [])
-
-    def test_freeze_wins_over_force_and_skip_gates(self) -> None:
-        overrides = parse_overrides(
-            {
-                "expires_at": EXPIRES,
-                "promotion": {
-                    "freeze": ["report_embeddings"],
-                    "force": ["report_embeddings"],
-                    "skip_gates": {"report_embeddings": ["ece"]},
-                },
-            },
-            now=NOW,
-        )
-        promotion = overrides.promotion_for("report_embeddings")
-        assert (promotion.freeze, promotion.force, promotion.skip_gates) == (True, False, frozenset())

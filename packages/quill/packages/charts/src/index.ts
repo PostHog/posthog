@@ -79,12 +79,14 @@ export { Heatmap } from './charts/Heatmap/Heatmap'
 export type {
     HeatmapBrushData,
     HeatmapCellDatum,
+    HeatmapCellStyle,
     HeatmapConfig,
     HeatmapProps,
     HeatmapRowMeta,
     HeatmapTooltipContext,
 } from './charts/Heatmap/Heatmap'
 export type { HeatmapColorScale } from './charts/Heatmap/heatmap-layout'
+export type { HeatmapCellLabelFormatter } from './charts/Heatmap/HeatmapCellLabels'
 
 // Slope chart
 export { SlopeChart } from './charts/SlopeChart/SlopeChart'
@@ -112,6 +114,54 @@ export type { PieTooltipProps } from './charts/PieChart/PieTooltip'
 export { useRadialLayout } from './core/radial-context'
 export type { RadialLayoutContextValue } from './core/radial-context'
 export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
+
+// Proportion bar
+export { ProportionBar } from './charts/ProportionBar/ProportionBar'
+export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
+
+// Bar list
+export { BarList } from './charts/BarList/BarList'
+export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
+export { StackedBarList } from './charts/BarList/StackedBarList'
+export type { StackedBarListConfig, StackedBarListProps } from './charts/BarList/StackedBarList'
+
+// Sankey
+export { SankeyChart } from './charts/SankeyChart/SankeyChart'
+export type {
+    SankeyChartConfig,
+    SankeyChartProps,
+    SankeyHighlight,
+    SankeyTooltipContext,
+    SankeyTooltipHit,
+} from './charts/SankeyChart/types'
+export type {
+    SankeyChartLayout,
+    SankeyLinkDatum,
+    SankeyLinkInput,
+    SankeyNodeAlign,
+    SankeyNodeDatum,
+    SankeyNodeInput,
+} from './charts/SankeyChart/sankey-data'
+export { MAX_SANKEY_COLUMN } from './charts/SankeyChart/sankey-data'
+export { useSankeyLayout } from './charts/SankeyChart/sankey-context'
+export type { SankeyLayoutContextValue } from './charts/SankeyChart/sankey-context'
+export type { SankeyLastColumnLabels } from './charts/SankeyChart/sankey-labels'
+// The layout engine on its own, for hosts that draw their own SVG (user paths).
+export {
+    sankeyCenter,
+    sankeyJustify,
+    sankeyLayout,
+    sankeyLeft,
+    sankeyLinkHorizontal,
+    sankeyRight,
+} from './charts/SankeyChart/sankey-layout'
+export type {
+    SankeyGraph,
+    SankeyInputGraph,
+    SankeyLayout,
+    SankeyLink,
+    SankeyNode,
+} from './charts/SankeyChart/sankey-layout'
 
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'
@@ -150,9 +200,20 @@ export type {
 export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
-export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export {
+    ChartThemeProvider,
+    themeDefaultsFromCssVars,
+    themeFromCssVars,
+    useChartTheme,
+    useResolvedChartTheme,
+    DEFAULT_CHART_COLORS,
+} from './core/theme'
 export { applyChartDefaults, DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
+
+// Grid and axis lines, for chart types built on the Chart core
+export { drawAxes, drawGrid, resolveAxisLineColor } from './core/canvas-renderer'
+export type { DrawAxesOptions, DrawGridOptions } from './core/canvas-renderer'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
@@ -206,8 +267,4 @@ export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'
 export { useChartLegend, applyHiddenSeries } from './components/Legend/useChartLegend'
-export type {
-    ChartLegendRenderProps,
-    ChartLegendState,
-    LegendItemControls,
-} from './components/Legend/useChartLegend'
+export type { ChartLegendRenderProps, ChartLegendState, LegendItemControls } from './components/Legend/useChartLegend'

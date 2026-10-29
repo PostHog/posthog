@@ -34,7 +34,7 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
 
     if (emailSendingPauseRequiresSupport) {
         return (
-            <LemonBanner type="error" data-attr="workflow-email-paused-banner">
+            <LemonBanner type="error" className="shrink-0" data-attr="workflow-email-paused-banner">
                 {emailSendingPausedByStaff
                     ? 'PostHog staff paused email sending for this workflow to protect delivery for everyone.'
                     : 'Email sending for this workflow was paused again soon after it was resumed.'}{' '}
@@ -47,6 +47,7 @@ export function WorkflowEmailPauseBanner(): JSX.Element | null {
     return (
         <LemonBanner
             type="error"
+            className="shrink-0"
             data-attr="workflow-email-paused-banner"
             action={{
                 children: 'Resume sending',

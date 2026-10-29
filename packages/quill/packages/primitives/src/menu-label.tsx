@@ -7,8 +7,12 @@ import './menu-label.css'
 
 // Section label for menus/lists. Defaults to a <div>; pass render=<label /> to
 // bind it to a control.
-function MenuLabel({ className, render, ...props }: useRender.ComponentProps<'div'>): React.ReactElement {
+const MenuLabel = React.forwardRef<HTMLDivElement, useRender.ComponentProps<'div'>>(function MenuLabel(
+    { className, render, ...props },
+    ref
+) {
     return useRender({
+        ref,
         defaultTagName: 'div',
         props: mergeProps<'div'>(
             {
@@ -20,6 +24,6 @@ function MenuLabel({ className, render, ...props }: useRender.ComponentProps<'di
         ),
         render,
     })
-}
+})
 
 export { MenuLabel }

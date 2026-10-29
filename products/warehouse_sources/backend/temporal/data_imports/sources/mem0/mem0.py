@@ -8,7 +8,7 @@ it is redacted from logs and raised error messages.
 """
 
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
@@ -20,12 +20,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -35,6 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     MEM0_BASE_URL,
     MEM0_ENDPOINTS,
     MEMORIES_ENDPOINT,
+    MEMORY_HISTORY_ENDPOINT,
+    ORGANIZATIONS_ENDPOINT,
+    PROJECTS_ENDPOINT,
 )
 
 logger = structlog.get_logger(__name__)
@@ -196,6 +206,14 @@ def mem0_source(
         resource = _entities_resource(client, team_id, job_id, org_id, project_id)
     elif endpoint == EVENTS_ENDPOINT:
         resource = _events_resource(client, team_id, job_id, resumable_source_manager, resume)
+    elif endpoint == MEMORY_HISTORY_ENDPOINT:
+        resource = _memory_history_resource(
+            client, team_id, job_id, should_use_incremental_field, db_incremental_field_last_value
+        )
+    elif endpoint == ORGANIZATIONS_ENDPOINT:
+        resource = _organizations_resource(client, team_id, job_id)
+    elif endpoint == PROJECTS_ENDPOINT:
+        resource = _projects_resource(client, team_id, job_id)
     else:
         raise ValueError(f"Unknown Mem0 endpoint: {endpoint}")
 
@@ -260,8 +278,6 @@ def _memories_resource(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> Any:
-    config = MEM0_ENDPOINTS[MEMORIES_ENDPOINT]
-
     # On resume the pinned cutoff (not a freshly computed one) drives the filter, otherwise the
     # resumed run paginates a different server-side result set than the pages already fetched.
     if resume is not None and resume.next_url:
@@ -276,6 +292,37 @@ def _memories_resource(
         initial_paginator_state = None
 
     filters = _build_memories_filters(incremental_field or "updated_at", cutoff)
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (the merge dedupes) rather than skipping it. The cutoff is pinned so a
+        # resumed run filters on the same value the original run started with.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(
+                Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=state["next_url"], cutoff=cutoff)
+            )
+
+    return _memories_pages(
+        client,
+        team_id,
+        job_id,
+        filters,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def _memories_pages(
+    client: ClientConfig,
+    team_id: int,
+    job_id: str,
+    filters: dict[str, Any],
+    db_incremental_field_last_value: Any,
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
+    initial_paginator_state: dict[str, Any] | None = None,
+) -> Iterator[list[Any]]:
+    config = MEM0_ENDPOINTS[MEMORIES_ENDPOINT]
 
     rest_config: RESTAPIConfig = {
         "client": client,
@@ -295,21 +342,12 @@ def _memories_resource(
         ],
     }
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
-        # the last page (the merge dedupes) rather than skipping it. The cutoff is pinned so a
-        # resumed run filters on the same value the original run started with.
-        if state and state.get("next_url"):
-            resumable_source_manager.save_state(
-                Mem0ResumeConfig(endpoint=MEMORIES_ENDPOINT, next_url=state["next_url"], cutoff=cutoff)
-            )
-
     resource = rest_api_resource(
         rest_config,
         team_id,
         job_id,
         db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
+        resume_hook=resume_hook,
         initial_paginator_state=initial_paginator_state,
     )
 
@@ -388,3 +426,105 @@ def _events_resource(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+
+
+def _memory_history_resource(
+    client: ClientConfig,
+    team_id: int,
+    job_id: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Any:
+    # The history endpoint takes no filters, so an incremental run only visits memories updated
+    # since the watermark: every history entry also moves its memory's `updated_at`. Deleted
+    # memories leave the listing, so their history is out of reach either way.
+    cutoff = (
+        _format_cutoff(db_incremental_field_last_value)
+        if should_use_incremental_field and db_incremental_field_last_value
+        else None
+    )
+    filters = _build_memories_filters("updated_at", cutoff)
+    config = MEM0_ENDPOINTS[MEMORY_HISTORY_ENDPOINT]
+
+    # No resume hook: fan-out resume state lists every finished parent, which grows with the
+    # memory store. A restarted run re-reads the history and the merge dedupes it.
+    rest_config: RESTAPIConfig = {
+        "client": client,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": MEMORIES_ENDPOINT,
+                "endpoint": {"path": MEM0_ENDPOINTS[MEMORIES_ENDPOINT].path, "method": "POST"},
+                "data_iterator": lambda: _memories_pages(client, team_id, job_id, filters, None),
+            },
+            {
+                "name": MEMORY_HISTORY_ENDPOINT,
+                "table_name": MEMORY_HISTORY_ENDPOINT,
+                "write_disposition": (
+                    {"disposition": "merge", "strategy": "upsert"} if should_use_incremental_field else "replace"
+                ),
+                "endpoint": {
+                    "path": config.path,
+                    "method": "GET",
+                    "params": {"memory_id": {"type": "resolve", "resource": MEMORIES_ENDPOINT, "field": "id"}},
+                    "paginator": SinglePagePaginator(),
+                    # A memory deleted between the listing and its history fetch.
+                    "response_actions": [{"status_code": 404, "action": "ignore"}],
+                },
+            },
+        ],
+    }
+
+    return _child_resource(rest_config, MEMORY_HISTORY_ENDPOINT, team_id, job_id)
+
+
+def _organizations_config() -> EndpointResource:
+    return {
+        "name": ORGANIZATIONS_ENDPOINT,
+        "endpoint": {
+            "path": MEM0_ENDPOINTS[ORGANIZATIONS_ENDPOINT].path,
+            "method": "GET",
+            "paginator": SinglePagePaginator(),
+        },
+    }
+
+
+def _organizations_resource(client: ClientConfig, team_id: int, job_id: str) -> Any:
+    rest_config: RESTAPIConfig = {
+        "client": client,
+        "resource_defaults": {},
+        "resources": [_organizations_config()],
+    }
+
+    return rest_api_resource(rest_config, team_id, job_id, None)
+
+
+def _projects_resource(client: ClientConfig, team_id: int, job_id: str) -> Any:
+    rest_config: RESTAPIConfig = {
+        "client": client,
+        "resource_defaults": {},
+        "resources": [
+            _organizations_config(),
+            {
+                "name": PROJECTS_ENDPOINT,
+                "table_name": PROJECTS_ENDPOINT,
+                "write_disposition": "replace",
+                "include_from_parent": ["org_id"],
+                "endpoint": {
+                    "path": MEM0_ENDPOINTS[PROJECTS_ENDPOINT].path,
+                    "method": "GET",
+                    "params": {"org_id": {"type": "resolve", "resource": ORGANIZATIONS_ENDPOINT, "field": "org_id"}},
+                    "paginator": SinglePagePaginator(),
+                },
+            },
+        ],
+    }
+
+    return _child_resource(rest_config, PROJECTS_ENDPOINT, team_id, job_id).add_map(
+        rename_parent_fields(ORGANIZATIONS_ENDPOINT, {"org_id": "org_id"})
+    )
+
+
+def _child_resource(rest_config: RESTAPIConfig, name: str, team_id: int, job_id: str) -> Any:
+    resources = rest_api_resources(rest_config, team_id, job_id, None)
+    return next(r for r in resources if getattr(r, "name", None) == name)

@@ -14,6 +14,7 @@ import {
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -33,12 +34,15 @@ import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohor
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
+import { BroadcastPushPerformance } from './BroadcastPushPerformance'
+import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 import { broadcastPath } from './broadcastUsage'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { ComposerDraftFeedback } from './ComposerDraftFeedback'
+import { QuillBroadcastActionsMenu } from './QuillBroadcastActionsMenu'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     waiting: 'default',
@@ -277,11 +281,14 @@ export function BroadcastSummary(): JSX.Element {
         summaryTab,
         goalEnabled,
         conversion,
+        channel,
+        push,
     } = useValues(broadcastWizardLogic)
     const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
 
     const confirmMoveToDraft = (): void => {
@@ -363,7 +370,24 @@ export function BroadcastSummary(): JSX.Element {
               }
             : null,
     ]
-    const actionsMenu = (
+    const actionsMenu = todayRailNav ? (
+        <QuillBroadcastActionsMenu
+            items={actionItems.flatMap((item) =>
+                item
+                    ? [
+                          {
+                              label: item.label,
+                              onClick: item.onClick,
+                              disabledReason: 'disabledReason' in item ? item.disabledReason : undefined,
+                              danger: 'status' in item && item.status === 'danger',
+                              'data-attr': item['data-attr'],
+                          },
+                      ]
+                    : []
+            )}
+            loading={movingToDraft || duplicating}
+        />
+    ) : (
         <LemonMenu items={actionItems}>
             <LemonButton
                 type="secondary"
@@ -459,16 +483,29 @@ export function BroadcastSummary(): JSX.Element {
                                                 <span>{scheduleSummary}</span>
                                             )}
                                         </SummaryRow>
-                                        <SummaryRow label="Subject">
-                                            {email.subject || <span className="text-muted">No subject</span>}
-                                        </SummaryRow>
+                                        {channel === 'push' ? (
+                                            <SummaryRow label="Notification title">
+                                                {push.title || <span className="text-muted">No title</span>}
+                                            </SummaryRow>
+                                        ) : (
+                                            <SummaryRow label="Subject">
+                                                {email.subject || <span className="text-muted">No subject</span>}
+                                            </SummaryRow>
+                                        )}
                                         {goalEnabled && <SummaryRow label="Goal">{goalSummary(conversion)}</SummaryRow>}
                                     </div>
                                     <div className="flex flex-col gap-2">
                                         <h2 className="m-0 text-base font-semibold">
                                             {latestBatchJobId ? 'Performance (latest send)' : 'Performance'}
                                         </h2>
-                                        {latestBatchJob ? (
+                                        {latestBatchJob && channel === 'push' ? (
+                                            <BroadcastPushPerformance
+                                                runId={latestBatchJob.id}
+                                                runStartedAt={latestBatchJob.created_at}
+                                                hasGoal={goalEnabled}
+                                                channel={channel}
+                                            />
+                                        ) : latestBatchJob ? (
                                             <BroadcastPerformance
                                                 runId={latestBatchJob.id}
                                                 runStartedAt={latestBatchJob.created_at}
@@ -487,9 +524,12 @@ export function BroadcastSummary(): JSX.Element {
                             key: 'content',
                             'data-attr': 'broadcast-summary-tab-content',
                             label: 'Content',
-                            content: (
-                                <BroadcastEmailPreview intro="Preview the email for anyone in the audience, or send yourself a test." />
-                            ),
+                            content:
+                                channel === 'push' ? (
+                                    <BroadcastPushPreview />
+                                ) : (
+                                    <BroadcastEmailPreview intro="Preview the email for anyone in the audience, or send yourself a test." />
+                                ),
                         },
                         {
                             key: 'runs',

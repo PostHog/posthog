@@ -78,7 +78,7 @@ function BillingUpgradeButton({
 }: {
     platformAndSupportProduct: BillingProductV2Type
 }): JSX.Element {
-    const { billing, billingManagedByPartnerDisabledReason } = useValues(billingLogic)
+    const { billing, selfServeBillingDisabledReason } = useValues(billingLogic)
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product: platformAndSupportProduct }))
     const { reportBillingCTAShown } = useActions(eventUsageLogic)
@@ -90,7 +90,7 @@ function BillingUpgradeButton({
             size="lg"
             data-attr="startup-program-upgrade-cta"
             loading={!!billingProductLoading}
-            disabled={!!billingManagedByPartnerDisabledReason}
+            disabled={!!selfServeBillingDisabledReason}
             onClick={() =>
                 startPaymentEntryFlow(platformAndSupportProduct, window.location.pathname + window.location.search)
             }
@@ -99,11 +99,11 @@ function BillingUpgradeButton({
         </Button>
     )
 
-    if (billingManagedByPartnerDisabledReason) {
+    if (selfServeBillingDisabledReason) {
         return (
             <Tooltip>
                 <TooltipTrigger render={button} />
-                <TooltipContent>{billingManagedByPartnerDisabledReason}</TooltipContent>
+                <TooltipContent>{selfServeBillingDisabledReason}</TooltipContent>
             </Tooltip>
         )
     }
@@ -131,7 +131,22 @@ export function StartupProgram(): JSX.Element {
         shouldShowEmailDomainBlockedGate,
         user,
     } = useValues(startupProgramLogic)
-    const { billing, billingLoading, accountOwner } = useValues(billingLogic)
+    const { billing, billingLoading, accountOwner, ycCreditsState } = useValues(billingLogic)
+
+    const expiryDate = billing?.amount_off_expires_at?.format('LL')
+    const ycCreditsMessage = {
+        renewing: (
+            <>
+                Your credits will renew automatically <span className="font-semibold">every year, forever</span>, until
+                you hit $25M in funding.
+            </>
+        ),
+        ending: expiryDate
+            ? `Your YC credits expire on ${expiryDate} and won't renew.`
+            : "Your YC credits won't renew.",
+        ended: "Your YC credits are used up and won't renew.",
+        used_until_renewal: `You've used this year's YC credits, so you pay for usage until they renew${expiryDate ? ` on ${expiryDate}` : ''}.`,
+    }[ycCreditsState ?? 'renewing']
 
     const currentProgramName = currentStartupProgramLabel === StartupProgramLabel.YC ? 'YC Program' : 'Startup Program'
     const platformAndSupportProduct = billing?.products?.find(
@@ -144,12 +159,7 @@ export function StartupProgram(): JSX.Element {
         return (
             <StartupProgramNotice title={`You are already in the ${currentProgramName}`}>
                 <Text>It looks like your organization is already part of our {currentProgramName}.</Text>
-                {currentStartupProgramLabel === StartupProgramLabel.YC && (
-                    <Text>
-                        Your credits will renew automatically <span className="font-semibold">every year, forever</span>
-                        , until you hit $25M in funding.
-                    </Text>
-                )}
+                {currentStartupProgramLabel === StartupProgramLabel.YC && <Text>{ycCreditsMessage}</Text>}
                 <Text>If you have any questions, please contact our support team.</Text>
             </StartupProgramNotice>
         )
@@ -387,11 +397,7 @@ export function StartupProgram(): JSX.Element {
                                     </CardHeader>
                                     <CardContent className="flex flex-col items-start gap-2">
                                         {currentStartupProgramLabel === StartupProgramLabel.YC ? (
-                                            <Text>
-                                                Your credits will renew automatically{' '}
-                                                <span className="font-semibold">every year, forever</span>, until you
-                                                hit $25M in funding.
-                                            </Text>
+                                            <Text>{ycCreditsMessage}</Text>
                                         ) : (
                                             <Text>
                                                 If you qualify for the YC Program and your Startup Program credits

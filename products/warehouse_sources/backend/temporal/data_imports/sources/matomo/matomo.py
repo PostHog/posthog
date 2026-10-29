@@ -6,11 +6,14 @@ from urllib.parse import urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.settings import (
@@ -114,7 +117,7 @@ def get_rows(
     session = _get_session(api_token)
     api_url = f"{normalize_host(host)}/index.php"
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((MatomoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),
@@ -251,6 +254,15 @@ def get_rows(
                 )
         return
 
+    if config.kind == "list":
+        body = call(config.method, dict(config.params))
+        # Current Matomo returns a list; older releases key the same rows by id in an object.
+        items = body.values() if isinstance(body, dict) else body if isinstance(body, list) else []
+        rows = [row for row in items if isinstance(row, dict)]
+        if rows:
+            yield rows
+        return
+
     # Per-day report walk, oldest-first. Recent days re-archive, so
     # incremental runs re-pull a trailing lookback window.
     today = datetime.now(tz=UTC).date()
@@ -268,7 +280,7 @@ def get_rows(
 
     day = start
     while day <= today:
-        body = call(config.method, {"period": "day", "date": day.isoformat(), "filter_limit": -1})
+        body = call(config.method, {"period": "day", "date": day.isoformat(), "filter_limit": -1, **config.params})
         rows = body if isinstance(body, list) else ([body] if isinstance(body, dict) and body else [])
         rows = [{**row, "_date": day.isoformat()} for row in rows if isinstance(row, dict)]
         if rows:

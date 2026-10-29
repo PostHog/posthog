@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery
 
 from .. import RetentionResultsFormatter
 
 
-class TestRetentionResultsFormatter(BaseTest):
+class TestRetentionResultsFormatter(SimpleTestCase):
     def test_format_retention(self):
         results = [
             {

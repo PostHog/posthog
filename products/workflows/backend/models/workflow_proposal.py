@@ -14,7 +14,7 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
     Approving one stages its content into the workflow's `draft` — the same move as restoring a
     revision — so nothing here can reach the live config without a human publishing it.
 
-    Behind the `self-optimising-workflows` flag. Only PostHog's own scout files one, so the row
+    Only PostHog's own scout files one, so the row
     records no author; `source_id` names the run or finding it came from, so a retry lands on the
     row it already made.
     """
@@ -98,6 +98,12 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
     )
     applied_version = models.IntegerField(
         null=True, blank=True, help_text="Workflow version the approved change went live as."
+    )
+    rejection_reason = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Why the person who rejected this said no. The producer reads it before suggesting again.",
     )
 
     def save(self, *args: Any, **kwargs: Any) -> None:

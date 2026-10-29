@@ -1,19 +1,22 @@
 import datetime
+import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.codebase_detection import Detection, NotDetectable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
@@ -30,8 +33,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
+    default_credential_kind,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    is_unreachable_vendor_error,
+    unreachable_vendor_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceInputs,
@@ -115,6 +125,36 @@ def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
     return any(pattern.lower() in error_msg_lower for pattern in patterns)
 
 
+CredentialProbe = TypeVar("CredentialProbe", bound=Callable[..., tuple[bool, str | None]])
+
+_GUARDED_PROBE = "_reports_unreachable_vendor"
+
+
+def _report_unreachable_vendor(probe: CredentialProbe) -> CredentialProbe:
+    """Wrap a `validate_credentials` override so that an unreachable vendor gives `(False, message)`.
+
+    The API calls the probe while a person creates or edits a source. A raised transport error there
+    shows them a message that blames their credentials. Every other error still raises."""
+
+    @functools.wraps(probe)
+    def guarded(self: "_BaseSource[Any]", *args: Any, **kwargs: Any) -> tuple[bool, str | None]:
+        try:
+            return probe(self, *args, **kwargs)
+        except Exception as error:
+            if not is_unreachable_vendor_error(error):
+                raise
+            # The class name only: a transport error message can repeat a URL that holds a credential.
+            logger.warning(
+                "validate_credentials could not reach the vendor",
+                source_type=str(self.source_type),
+                error_class=type(error).__name__,
+            )
+        return False, unreachable_vendor_message(self._vendor_label())
+
+    setattr(guarded, _GUARDED_PROBE, True)
+    return cast(CredentialProbe, guarded)
+
+
 @dataclasses.dataclass(frozen=True)
 class VersionDeprecation:
     """Deprecation metadata for a single supported version of a source's vendor API."""
@@ -172,6 +212,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # discovery but can never run a scheduled import.
     supports_scheduled_sync: bool = True
 
+    # For a source PostHog creates and syncs itself, one run at a time, when the data behind it
+    # changes (an uploaded file). The API refuses to create one from a request body, and refuses to
+    # turn on its schedule, because each scheduled run would bill the same rows again.
+    syncs_on_demand: bool = False
+
+    # False keeps the source out of the source catalog, for a source the app sets up through its own
+    # flow and never through the generic setup form.
+    listed_in_catalog: bool = True
+
     # Sources with stable upstream resource ids need unfiltered discovery when a stored schema name
     # may no longer match after an upstream rename.
     uses_stable_schema_resource_ids: bool = False
@@ -199,6 +248,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
+    # How the wizard tells that a codebase uses this source. Every released source sets it, and
+    # `tests/test_codebase_detection.py` fails for one that does not.
+    codebase_detection: Detection | NotDetectable | None = None
+
+    # Makes the wizard send users to the app's new-source form even when every field could be typed in
+    # a terminal. Sources whose fields need OAuth, a file upload or an account picker go there anyway.
+    setup_requires_ui: bool = False
+
     def history_lookback_for_schema(
         self, schema_name: str, config: ConfigType | None = None
     ) -> datetime.timedelta | None:
@@ -210,6 +267,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         when the config could not be read, and an override must still answer in that case.
         """
         return self.history_lookback
+
+    def row_filter_columns_for_schema(self, schema_name: str) -> tuple["RowFilterColumn", ...] | None:
+        """The columns a row filter on one schema may use, or None for every column of the table.
+
+        Override in a source whose API filters on a fixed set of fields. An empty tuple means the
+        schema accepts no row filter. Only read when `supports_row_filters` is True.
+        """
+        return None
 
     @property
     @abstractmethod
@@ -396,10 +461,27 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         return None
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # Every override gets the guard, so a new source cannot forget it.
+        probe = cls.__dict__.get("validate_credentials")
+        if callable(probe) and not getattr(probe, _GUARDED_PROBE, False):
+            cls.validate_credentials = _report_unreachable_vendor(probe)  # type: ignore[method-assign]
+
+    def _vendor_label(self) -> str:
+        # The label is for a message only, so a source config that cannot build must not hide the result.
+        try:
+            return self.get_source_config.label or str(self.source_type.value)
+        except Exception:
+            return "the vendor"
+
     def validate_credentials(
         self, config: ConfigType, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message.
+
+        Every override runs inside a guard that turns an unreachable vendor (a dropped connection, a
+        timeout, a server error) into `(False, message)`, so an override can let those errors raise.
 
         ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
         instance being validated, or ``None`` (→ `default_version`) before a row exists."""
@@ -439,6 +521,37 @@ class _BaseSource(ABC, Generic[ConfigType]):
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
 
+    @property
+    def credential_kind(self) -> str | None:
+        """The ``Integration`` kind that holds this source's typed-in credentials, or None when the source has none.
+
+        The default is the kind of the source's OAuth field, else the kebab-case source type. Override it when the
+        source has the credential shape of an existing kind (Postgres is ``postgresql``), or when kebab-case splits
+        a brand name (MySQL is ``mysql``). The kind is stored data and `facade/credential_kinds.py` freezes it, so
+        never change the kind of a released source. A subclass inherits an override, so it must set its own kind."""
+        return default_credential_kind(self.source_type, self.get_source_config)
+
+    @property
+    def credential_auth_type(self) -> str:
+        """The default auth type (``oauth``, ``token`` or ``credentials``) of rows of ``credential_kind``.
+
+        The default comes from the connection fields. It is stored data and `facade/credential_auth_types.py`
+        freezes it, so never change it for a released source."""
+        # The derivation module imports this module.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_auth_type import (  # noqa: PLC0415
+            derive_credential_auth_type,
+        )
+
+        return derive_credential_auth_type(self.get_source_config)
+
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        """Whether a ``validate_credentials`` message means only that the host could not be reached
+        over the network. The update serializer may then save the change with a warning for a team
+        that uses internal hosts, because the API can lack a network path that the workers have. A
+        message that reports rejected credentials or a rejected config must return ``False``.
+        Default: no message qualifies."""
+        return False
+
     def server_managed_job_input_fields(
         self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
     ) -> list[str]:
@@ -447,6 +560,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
+
+    # Feature flag a team must have before the API lets it discover tables for or create a source of
+    # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
+    # not be reachable through the API without the flag sets this as well.
+    requires_team_feature_flag: str | None = None
+
+    # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
+    # uploaded file. They are neither credentials nor settings a person picks, so they stay in
+    # ``job_inputs`` when the connection fields move to their own store. Keys that start with
+    # ``cdc_`` are runtime state for every source and need no entry here.
+    runtime_job_input_keys: frozenset[str] = frozenset()
 
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.
@@ -484,6 +608,28 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
+        return None
+
+    def on_source_deleted(self, source_model: "ExternalDataSource") -> None:
+        """Best-effort cleanup once the source is soft-deleted, for example of files PostHog stores
+        for it. Runs inside the delete's transaction, so work outside the database belongs in
+        `transaction.on_commit`. No-op by default."""
+        return None
+
+    def has_cleanup_after_sync(self, source_model: "ExternalDataSource") -> bool:
+        """Whether `cleanup_after_sync` has work to do after a sync of one of the source's schemas
+        completes. Kept cheap and false for most sources, because a true answer adds a step to the
+        post-import workflow."""
+        return False
+
+    def cleanup_after_sync(self, source_model: "ExternalDataSource", job: "ExternalDataJob") -> None:
+        """Runs after `job` completed and its table was loaded, when `has_cleanup_after_sync` said so.
+        No-op by default."""
+        return None
+
+    def manual_sync_refusal(self, source_model: "ExternalDataSource") -> str | None:
+        """Why a user can't start a sync of the source's schemas now, as a message for the user, or None
+        when they can. For a source whose inputs can't run a sync yet, such as one that waits for a file."""
         return None
 
 

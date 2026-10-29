@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AxisLinesConfig,
     ChartLegendConfig,
@@ -29,6 +30,9 @@ import type { ValueLabelsConfig } from '../utils/use-value-labels'
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
+    valueDomain?: LineChartConfig['valueDomain']
+    /** Reserve space for custom overlays; unspecified sides keep their computed margins. */
+    margins?: LineChartConfig['margins']
     xAxis?: XAxisConfig
     /** Single object = one y-axis (today's behavior). Array = one entry per axis for dual y-axis
      *  charts: set `id` (matches `Series.yAxisId`; first entry defaults to `'left'`) and `position`
@@ -68,10 +72,13 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
      *  collapses onto the first occurrence's position and draws the series backwards. Display
      *  formatting belongs in `xAxis.timezone`/`interval` (auto tick formatter) or `tickFormatter`. */
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: TimeSeriesLineChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
     className?: string
@@ -82,19 +89,22 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
 export function TimeSeriesLineChart<Meta = unknown>({
     series,
     labels,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
+    onPointContextMenu,
     onDateRangeZoom,
     dataAttr,
     className,
     children,
     onError,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis,
         yAxis,
+        margins,
         valueLabels,
         goalLines,
         confidenceIntervals,
@@ -133,13 +143,17 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, finalSeries)
     const boundsDomain = useValueBounds(primaryYAxis)
     // A capped axis still has to stretch to reach an off-scale goal line.
-    const valueDomain = useMemo(() => mergeValueDomains(goalLineDomain, boundsDomain), [goalLineDomain, boundsDomain])
+    const valueDomain = useMemo(
+        () => mergeValueDomains(config?.valueDomain, mergeValueDomains(goalLineDomain, boundsDomain)),
+        [config?.valueDomain, goalLineDomain, boundsDomain]
+    )
 
     // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)
     // keeps the baseline clamped to 0. A log scale has no zero baseline to clamp, so it's a no-op there.
     const floatBaseline = primaryYAxis?.startAtZero === false && primaryYAxis?.scale !== 'log'
 
     const lineChartConfig: LineChartConfig = {
+        margins,
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         xTickLabelRotation: xAxis?.tickLabelRotation,
@@ -170,13 +184,16 @@ export function TimeSeriesLineChart<Meta = unknown>({
                 theme={theme}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                onPointContextMenu={onPointContextMenu}
                 onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
                 onError={onError}
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {valueLabelsConfig && (
+                    <ValueLabels {...valueLabelsConfig} position="end" valueFormatter={valueLabelFormatter} />
+                )}
                 {children}
             </LineChart>
         </ChartLegend>

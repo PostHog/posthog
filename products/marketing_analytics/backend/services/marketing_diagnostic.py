@@ -114,6 +114,8 @@ async def get_marketing_diagnostic(
     include_conversion_goals: bool = True,
     attribution_lookback_days: int = 7,
     user: User | None = None,
+    cache_source_scan: bool = False,
+    refresh_source_scan: bool = False,
 ) -> MarketingDiagnosticResponse:
     """Fetch all per-domain signals in parallel and combine into a unified view.
 
@@ -130,6 +132,8 @@ async def get_marketing_diagnostic(
             source_type=source_type,
             lookback_days=attribution_lookback_days,
             custom_source_mappings=custom_source_mappings,
+            cache_scan=cache_source_scan,
+            refresh_scan=refresh_source_scan,
         ),
     ]
     if include_conversion_goals:

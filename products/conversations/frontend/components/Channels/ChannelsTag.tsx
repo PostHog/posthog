@@ -34,6 +34,21 @@ export function getReplyPlaceholder(channel?: TicketChannel): string {
     return label ? `Reply in ${label}...` : 'Type your message...'
 }
 
+// Where a reply goes, as the composer header names it.
+export function getReplyDestination(channel?: TicketChannel): string {
+    const label = channel ? replyChannelLabel[channel] : undefined
+    if (label) {
+        return `Reply in ${label}`
+    }
+    if (channel === 'email') {
+        return 'Reply by email'
+    }
+    if (channel === 'widget') {
+        return 'Reply in the chat widget'
+    }
+    return 'Reply'
+}
+
 export function hasReplyChannelBranding(channel?: TicketChannel): channel is TicketChannel {
     return !!channel && channel in replyChannelLabel
 }

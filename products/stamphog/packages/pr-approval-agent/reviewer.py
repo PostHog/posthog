@@ -19,7 +19,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gates import manifest_basenames
 from gateway import CLAUDE_REVIEWER_MODEL, analytics_extra_properties, gateway_env, resolve_gateway_config
-from github import PRData, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
+from github import PRData, describe_review_evidence, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from verdict_rule import FACT_FIELDS, FACTS_SCHEMA, InvalidFactsError, ReviewFacts, derive_verdict
 from version import STAMPHOG_VERSION
@@ -58,6 +58,9 @@ INLINE_COMMENT_CAP = 60
 DISCUSSION_HEAD_KEEP = 15
 DISCUSSION_TAIL_KEEP = 35
 AUTHOR_DISCUSSION_KEEP = 10
+# Every review gets one budget. The reviewer spends its first turn reading the diff, so a small
+# budget ends a PR of any size in ERROR instead of a verdict.
+MAX_TURNS = 20
 
 
 # _sanitize_untrusted lives in policy.py (shared with the folder-prose
@@ -147,15 +150,26 @@ def _cap_assurance_facts(facts: ReviewFacts, classification: dict, head_reviewed
     the current head. The model judges whether that team owns the risky part and whether that
     review covers it, so both must hold. An injected claim or a misread can then narrow
     assurance for a risky change but never create it.
+
+    A completed external review of the current head is the one assurance the pipeline adds by
+    itself. It comes from the hosted server's records, not from the model or the PR. It counts only
+    when it skipped no changed file, because the risky part could be in any file it did not read.
     """
     on_owning_team = bool(classification.get("ownership", {}).get("teams")) and bool(
         classification.get("author_on_owning_team", True)
     )
     familiarity = classification.get("familiarity")
     strong = familiarity is not None and familiarity.band == "STRONG"
+    reviews_on_current_head = facts.reviews_on_current_head if head_reviewed else ()
+    for completed_review in (classification.get("assurance") or {}).get("head_review_evidence") or []:
+        if completed_review.get("skipped_paths"):
+            continue
+        reviewer = str(completed_review.get("reviewer"))
+        if reviewer not in reviews_on_current_head:
+            reviews_on_current_head = (*reviews_on_current_head, reviewer)
     return dataclasses.replace(
         facts,
-        reviews_on_current_head=facts.reviews_on_current_head if head_reviewed else (),
+        reviews_on_current_head=reviews_on_current_head,
         owning_team_author=facts.owning_team_author and on_owning_team,
         strong_familiarity=facts.strong_familiarity and strong,
     )
@@ -418,14 +432,6 @@ _INVOCATION_LINES = {
 }
 
 
-def max_turns(classification: dict, gate_context: dict) -> int:
-    """The reviewer's turn budget for this PR."""
-    # Gate denials and trivial PRs don't need deep exploration —
-    # just read the diff and report.
-    quick = gate_context["gate_verdict"] == "DENIED" or classification.get("t1_subclass") == "T1a-trivial"
-    return 5 if quick else 20
-
-
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
@@ -496,7 +502,7 @@ class Reviewer:
             # ships in the head tree, regardless of CLI defaults.
             mcp_servers={},
             strict_mcp_config=True,
-            max_turns=max_turns(classification, gate_context),
+            max_turns=MAX_TURNS,
             model=CLAUDE_REVIEWER_MODEL,
             permission_mode="dontAsk",
             output_format=FACTS_SCHEMA,
@@ -812,8 +818,9 @@ class Reviewer:
     def _format_assurance(self, cl: dict) -> str:
         """Render the TRUSTED one-line assurance digest of review state.
 
-        Computed from GitHub review metadata (states, head-ness), not from
-        author-controlled text, so it sits with the other trusted gate facts.
+        Computed from GitHub review metadata (states, head-ness) and the hosted
+        server's external review evidence, not from author-controlled text, so it
+        sits with the other trusted gate facts.
         """
         a = cl.get("assurance") or {}
         approvers = [_sanitize_untrusted(u, max_len=50) for u in a.get("head_approvals", [])]
@@ -822,6 +829,8 @@ class Reviewer:
         discussion = a.get("discussion", 0)
 
         parts = []
+        for completed_review in a.get("head_review_evidence") or []:
+            parts.append(describe_review_evidence(completed_review))
         if approvers:
             names = ", ".join(f"@{u}" for u in approvers)
             parts.append(f"{_plural(len(approvers), 'current-head approval')} ({names})")

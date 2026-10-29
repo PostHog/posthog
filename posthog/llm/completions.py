@@ -45,7 +45,7 @@ def hit_openai(
         optional_params["response_format"] = response_format
 
     result = openai_client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model=settings.OPENAI_MODEL,
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse

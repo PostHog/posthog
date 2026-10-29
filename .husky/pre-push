@@ -95,7 +95,7 @@ fi
 # Advisories never block; HOGLI_PREFLIGHT_DISABLED=1 makes it a no-op; no hogli → skip.
 if command -v hogli >/dev/null 2>&1
 then
-    hogli ci:preflight --strict || {
+    HOGLI_GIT_HOOK=pre-push hogli ci:preflight --strict || {
         echo "pre-push: ci:preflight found failures — run 'hogli ci:preflight --fix', resolve, and push again."
         exit 1
     }

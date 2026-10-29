@@ -36,6 +36,8 @@ from products.autoresearch.backend.training.runner import (
     run_training,
 )
 
+_UNSCORABLE = UnscorableChampion(failure_kind="limit_exceeded", onset=date(2026, 9, 2))
+
 
 class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
     def _make_pipeline(self) -> AutoresearchPipeline:
@@ -52,13 +54,14 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("without_notebook", False, None),
-            ("with_notebook", True, None),
-            ("unscorable_champion", False, UnscorableChampion(failure_kind="limit_exceeded", onset=date(2026, 9, 2))),
+            ("without_notebook", False, None, False),
+            ("with_notebook", True, None, False),
+            ("unscorable_champion", False, _UNSCORABLE, False),
+            ("rescue", False, _UNSCORABLE, True),
         ]
     )
     def test_prompt_renders_without_unresolved_placeholders(
-        self, _name: str, report_notebook: bool, unscorable: UnscorableChampion | None
+        self, _name: str, report_notebook: bool, unscorable: UnscorableChampion | None, rescue: bool
     ) -> None:
         pipeline = self._make_pipeline()
         prompt = build_agent_description(
@@ -67,10 +70,12 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
             training_run_id="run-123",
             report_notebook=report_notebook,
             unscorable_champion=unscorable,
+            rescue=rescue,
         )
         if unscorable is not None:
             assert "**The current champion cannot score.**" in prompt
             assert "`limit_exceeded` since 2026-09-02" in prompt
+        assert ("**This is a rescue run.**" in prompt) is rescue
         # `{anchors}` and `{lookback_days}` are intentional — they are documented
         # placeholders the agent is taught to use inside its own SQL, and `{init}`
         # is the literal mermaid `%%{init}%%` directive the report section forbids.
@@ -374,6 +379,40 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
         assert len(kwargs["title"]) == 255
         self.pipeline.refresh_from_db()
         assert self.pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING
+
+    @parameterized.expand(
+        [
+            ("blank_settings", None, None, ("claude", "claude-opus-5-5", "medium")),
+            ("sonnet_override", "claude-sonnet-5-5", "high", ("claude", "claude-sonnet-5-5", "high")),
+            ("codex_override", "gpt-6.1-sol", None, ("codex", "gpt-6.1-sol", "medium")),
+            ("stale_stored_model", "claude-retired-model", "low", ("claude", "claude-opus-5-5", "low")),
+            ("effort_the_model_lacks", "gpt-5", "max", ("codex", "gpt-5", "medium")),
+        ]
+    )
+    def test_dispatch_runs_on_the_pipeline_model(
+        self,
+        facade: MagicMock,
+        _name: str,
+        agent_model: str | None,
+        agent_reasoning_effort: str | None,
+        expected: tuple[str, str, str],
+    ) -> None:
+        self._dispatched(facade)
+        AutoresearchPipeline.objects.filter(pk=self.pipeline.pk).update(
+            agent_model=agent_model, agent_reasoning_effort=agent_reasoning_effort
+        )
+        self.pipeline.refresh_from_db()
+
+        training_run = run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
+
+        kwargs = facade.create_and_run_task.call_args.kwargs
+        assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == expected
+        training_run.refresh_from_db()
+        assert (
+            training_run.agent_runtime_adapter,
+            training_run.agent_model,
+            training_run.agent_reasoning_effort,
+        ) == expected
 
     def test_a_task_run_that_ended_at_dispatch_fails_the_training_run(self, facade: MagicMock) -> None:
         self._dispatched(facade)

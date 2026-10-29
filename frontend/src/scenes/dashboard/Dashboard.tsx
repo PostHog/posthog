@@ -10,12 +10,13 @@ import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -27,15 +28,18 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
 import { teamLogic } from '../teamLogic'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardFlagCalledBanner } from './DashboardFlagCalledBanner'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
 import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
+import { DashboardWarehouseSyncBanner } from './DashboardWarehouseSyncBanner'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -60,6 +64,14 @@ interface DashboardProps {
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    /** Shows the dashboard without tile menus or drag-to-edit controls. */
+    readOnly?: boolean
+    /** Extra controls for the dashboard header, when a page shows the dashboard as its main content. */
+    headerActions?: JSX.Element
+    /** Uses less vertical space above the tiles, for a page where the dashboard is a product's home. */
+    compact?: boolean
+    /** The parent page reloads the dashboard when PostHog AI adds charts to it, so the header does not. */
+    parentReloadsOnAIChanges?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -91,12 +103,22 @@ export function Dashboard({
     themes,
     backTo,
     showCreateAnomalyAlertButton,
+    readOnly,
+    headerActions,
+    compact,
+    parentReloadsOnAIChanges,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
-            <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
+        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard, readOnly }}>
+            <DashboardScene
+                backTo={backTo}
+                showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                headerActions={headerActions}
+                compact={compact}
+                parentReloadsOnAIChanges={parentReloadsOnAIChanges}
+            />
         </BindLogic>
     )
 }
@@ -104,9 +126,15 @@ export function Dashboard({
 function DashboardScene({
     backTo,
     showCreateAnomalyAlertButton,
+    headerActions,
+    compact,
+    parentReloadsOnAIChanges,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    headerActions?: JSX.Element
+    compact?: boolean
+    parentReloadsOnAIChanges?: boolean
 }): JSX.Element {
     const {
         placement,
@@ -115,15 +143,18 @@ function DashboardScene({
         tiles,
         itemsLoading,
         dashboardLoading,
+        dashboardStreaming,
         layoutEditMode,
         dashboardFailedToLoad,
+        internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const closeAddInsightToDashboardModal = (): void => {
@@ -146,8 +177,8 @@ function DashboardScene({
     useOnMountEffect(() => {
         reportDashboardViewed()
 
-        // request cancellation of any running queries when this component is no longer in the dom
-        return () => abortAnyRunningQuery()
+        // request cancellation of any running insight, widget and tile group loads when this component is no longer in the dom
+        return () => cancelDashboardRefresh()
     })
 
     // `error404` only becomes true once a load has settled as a 404, so pending loads fall through to the empty/loading state
@@ -172,9 +203,13 @@ function DashboardScene({
     }
 
     return (
-        <SceneContent className={cn('dashboard')}>
+        <SceneContent className={cn('dashboard', compact && 'gap-y-2')}>
             {placement == DashboardPlacement.Dashboard && (
-                <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
+                <DashboardHeader
+                    loading={!dashboard && !dashboardFailedToLoad}
+                    extraActions={headerActions}
+                    reloadOnAIChanges={!parentReloadsOnAIChanges}
+                />
             )}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
@@ -197,16 +232,20 @@ function DashboardScene({
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
+            {/* Outside the tile-count branches: a dashboard can keep subscriptions and delivery history after its tiles are removed. */}
+            {placement === DashboardPlacement.Dashboard && !!dashboard?.id && (
+                <SubscriptionSummaries dashboardId={dashboard.id} className="mt-2 mb-2" />
+            )}
 
-            {dashboardFailedToLoad ? (
+            {dashboardFailedToLoad && !tiles?.length ? (
                 <InsightErrorState
-                    title="There was an error loading this dashboard"
-                    onRetry={
-                        placement === DashboardPlacement.Export
-                            ? undefined
-                            : () => loadDashboard({ action: DashboardLoadAction.Update })
+                    title={
+                        internetConnectionIssue
+                            ? "We couldn't connect to PostHog. Check your connection and try again."
+                            : 'There was an error loading this dashboard'
                     }
-                    retryLoading={dashboardLoading}
+                    onRetry={placement === DashboardPlacement.Export ? undefined : retryDashboardLoad}
+                    retryLoading={dashboardLoading || dashboardStreaming}
                     placement={placement}
                 />
             ) : !tiles || tiles.length === 0 ? (
@@ -217,10 +256,30 @@ function DashboardScene({
                         '-mt-4': placement == DashboardPlacement.ProjectHomepage,
                     })}
                 >
+                    {dashboardFailedToLoad && (
+                        <LemonBanner
+                            type="warning"
+                            className="mb-4"
+                            action={
+                                placement === DashboardPlacement.Export
+                                    ? undefined
+                                    : {
+                                          children: 'Try again',
+                                          onClick: retryDashboardLoad,
+                                          loading: dashboardLoading || dashboardStreaming,
+                                          'data-attr': 'dashboard-load-retry',
+                                      }
+                            }
+                        >
+                            This dashboard couldn't finish loading.
+                        </LemonBanner>
+                    )}
                     <DashboardRetentionBanner />
+                    <DashboardFlagCalledBanner />
                     <DashboardQueryScanBanner />
+                    <DashboardWarehouseSyncBanner />
 
-                    <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
+                    <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />
                         {layoutEditMode &&
                             canEditDashboard &&

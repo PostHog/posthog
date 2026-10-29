@@ -4,9 +4,15 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { isEventsQuery, isHogQLQuery, isMarketingAnalyticsTableQuery, isPersonsNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isHogQLQuery,
+    isMarketingAnalyticsTableQuery,
+    isPersonsNode,
+} from '~/queries/utils'
 
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
@@ -56,56 +62,43 @@ export const flattenObject = (obj: any, prefix?: string, separator = '.'): Recor
     return flattened
 }
 
-// Helper function to process a single row and return flattened data
-const processRowData = (row: DataTableRow, columns: string[], query: DataTableNode): Record<string, any> => {
-    const flattenedRecord: Record<string, any> = {}
+const flattenCell = (value: any, col: string): Record<string, any> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value) ? flattenObject(value, col) : { [col]: value }
 
+// Returns one flattened group per column, so duplicate column names do not overwrite each other
+const processRowData = (row: DataTableRow, columns: string[], query: DataTableNode): Record<string, any>[] => {
     if (isHogQLQuery(query.source) || isMarketingAnalyticsTableQuery(query.source)) {
         const data = row.result ?? {}
-        columns.forEach((col, index) => {
-            const value = Array.isArray(data) ? data[index] : (data as Record<string, any>)[index]
-            if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-                Object.assign(flattenedRecord, flattenObject(value, col))
-            } else {
-                flattenedRecord[col] = value
-            }
-        })
-    } else if (isEventsQuery(query.source)) {
-        columns.forEach((col, colIndex) => {
+        return columns.map((col, index) =>
+            flattenCell(Array.isArray(data) ? data[index] : (data as Record<string, any>)[index], col)
+        )
+    } else if (isEventsQuery(query.source) || isActorsQuery(query.source)) {
+        return columns.map((col, colIndex) => {
             if (columnDisallowList.includes(col)) {
-                return
+                return {}
             }
 
-            let value = Array.isArray(row.result)
+            const value = Array.isArray(row.result)
                 ? row.result[colIndex]
                 : (row.result as Record<string, any>)?.[colIndex]
             const colName = extractExpressionComment(col)
 
             if (col === 'person') {
-                value = asDisplay(value)
-                flattenedRecord[colName] = value
-            } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-                Object.assign(flattenedRecord, flattenObject(value, colName))
-            } else {
-                flattenedRecord[colName] = value
+                return { [colName]: asDisplay(value) }
             }
+            if (removeExpressionComment(col) === 'person_display_name') {
+                return { [colName]: value?.display_name }
+            }
+            return flattenCell(value, colName)
         })
     } else if (isPersonsNode(query.source)) {
         const record = row.result as Record<string, any> | undefined
         const recordWithPerson = { ...record, person: record?.name } as Record<string, any>
-        const filteredColumns = columns.filter((n) => !columnDisallowList.includes(n))
 
-        filteredColumns.forEach((col) => {
-            const value = recordWithPerson[col]
-            if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-                Object.assign(flattenedRecord, flattenObject(value, col))
-            } else {
-                flattenedRecord[col] = value
-            }
-        })
+        return columns.map((col) => (columnDisallowList.includes(col) ? {} : flattenCell(recordWithPerson[col], col)))
     }
 
-    return flattenedRecord
+    return []
 }
 
 export const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): string[][] => {
@@ -114,24 +107,25 @@ export const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[]
         return []
     }
 
-    // Process all rows and collect all possible columns
-    const allColumns = new Set<string>()
-    const processedRows = dataTableRows.map((row) => {
-        const flattenedRecord = processRowData(row, columns, query)
-        Object.keys(flattenedRecord).forEach((col) => allColumns.add(col))
-        return flattenedRecord
+    const processedRows = dataTableRows.map((row) => processRowData(row, columns, query))
+
+    // Keep the query column order, and put flattened sub-columns right after their parent column
+    const groupKeys = columns.map((_, index) => {
+        const keys = new Set<string>()
+        processedRows.forEach((groups) => Object.keys(groups[index] ?? {}).forEach((key) => keys.add(key)))
+        return Array.from(keys)
     })
 
-    // If no columns were discovered, return empty result
-    if (allColumns.size === 0) {
+    const header = groupKeys.flat()
+    if (header.length === 0) {
         return []
     }
 
-    // Create consistent CSV structure with all discovered columns
-    const sortedColumns = Array.from(allColumns).sort()
-    const csvData = processedRows.map((flattenedRecord) => sortedColumns.map((col) => flattenedRecord[col] ?? ''))
+    const csvData = processedRows.map((groups) =>
+        groupKeys.flatMap((keys, index) => keys.map((key) => groups[index]?.[key] ?? ''))
+    )
 
-    return [sortedColumns, ...csvData]
+    return [header, ...csvData]
 }
 
 export const getJsonTableData = (
@@ -200,9 +194,14 @@ export const getJsonTableData = (
     return []
 }
 
-export function copyTableToCsv(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
+export function copyTableToCsv(
+    dataTableRows: DataTableRow[],
+    columns: string[],
+    query: DataTableNode,
+    includeHeader: boolean = true
+): void {
     try {
-        const tableData = getCsvTableData(dataTableRows, columns, query)
+        const tableData = getCsvTableData(dataTableRows, columns, query).slice(includeHeader ? 0 : 1)
 
         const csv = Papa.unparse(tableData)
 

@@ -60,7 +60,7 @@ IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_
 NEW_SELF_DRIVING_GRACE = timedelta(hours=24)
 
 
-@dataclass
+@dataclass(frozen=False)
 class EmitSignalInputs:
     team_id: int
     source_product: str
@@ -74,6 +74,10 @@ class EmitSignalInputs:
     # the Temporal/S3 JSON round-trip. Surfaced to the research agent as authoritative direction when
     # present; not required by any source.
     remediation: Optional[dict] = None
+    signal_id: str | None = None
+    sync_with_source: bool = False
+    source_match_signal_id: str | None = None
+    source_match_report_id: str | None = None
 
 
 @dataclass
@@ -131,6 +135,7 @@ class ExistingReportMatch:
     report_id: str
     match_metadata: MatchedMetadata
     report_title: str | None = None
+    source_synced: bool = False
 
 
 @dataclass
@@ -197,6 +202,7 @@ class SignalReportSummaryWorkflowInputs:
     requested_implementation_user_id: int | None = None
     requested_implementation_task_id: str | None = None
     requested_after_run_count: int | None = None
+    signal_id: str | None = None
 
 
 @dataclass

@@ -150,6 +150,15 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(runner.clickhouse_query_type(), expected_query_type)
 
+    def test_bypass_run_does_not_share_cache_or_single_flight_with_user_run(self) -> None:
+        query = WebOverviewQuery(dateRange=DateRange(date_from="2023-12-08", date_to="2023-12-15"), properties=[])
+
+        user_run = WebOverviewQueryRunner(team=self.team, query=query)
+        bypass_run = WebOverviewQueryRunner(team=self.team, query=query, bypass_warehouse_access_control=True)
+
+        assert user_run.get_cache_key() != bypass_run.get_cache_key()
+        assert user_run.single_flight_variant() != bypass_run.single_flight_variant()
+
 
 class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(

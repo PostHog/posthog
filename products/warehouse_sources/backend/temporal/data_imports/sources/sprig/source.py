@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SprigSource(ResumableSource[SprigSourceConfig, SprigResumeConfig]):
+    codebase_detection = detect(
+        script_hosts=("cdn.sprig.com",),
+        npm=("@sprig-technologies/sprig-browser", "react-native-userleap"),
+        cocoapods=("UserLeapKit",),
+        maven=("com.userleap:userleap-android-sdk",),
+        pub=("sprig_flutter_plugin",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.sprig.com/reference/sprig-api/overview"
 
@@ -46,7 +55,7 @@ class SprigSource(ResumableSource[SprigSourceConfig, SprigResumeConfig]):
             name=ExternalDataSourceType.SPRIG,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Sprig",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Sprig API key to automatically pull your survey and response data into the PostHog Data warehouse.
 
 Find your API key under **Integrations > Enrichment > Data Import API** in Sprig (Admin or Developer role required). Free/Starter plans need to contact [support@sprig.com](mailto:support@sprig.com) to enable API access first.""",

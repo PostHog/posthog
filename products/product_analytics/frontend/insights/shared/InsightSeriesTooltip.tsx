@@ -9,33 +9,35 @@ import { percentage } from 'lib/utils/numbers'
 import { alphabet } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationValue } from 'scenes/insights/utils'
+import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
+import { CompareLabelType, IntervalType } from '~/types'
+
 import {
     FormattedDateOptions,
     getDatumTitle,
     getFormattedDate,
     getTooltipTitle,
     SeriesDatum,
-} from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatAggregationValue, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
-import { teamLogic } from 'scenes/teamLogic'
+} from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
-import { ActionFilter, CompareLabelType, IntervalType } from '~/types'
-
+import { getResultSeriesName } from './resultSeriesName'
 import { getSeriesIdentification, type SeriesIdentification } from './seriesIdentification'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type InsightSeriesMetaBase = {
-    action?: ActionFilter
-    /** Series name for rows without an `action` — formula series carry their formula label here. */
+    series?: ResultSeries
+    /** Series name for rows without a series node — formula series carry their formula label here. */
     series_name?: string
     breakdown_value?: string | number | string[] | null
     compare_label?: SeriesDatum['compare_label']
     days?: string[]
     order?: number
-    filter?: SeriesDatum['filter']
 }
 
 type InsightSeriesTooltipEntry<Meta extends InsightSeriesMetaBase> = TooltipContext<Meta>['seriesData'][number]
@@ -65,6 +67,8 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     sortedByValue?: boolean
     /** Hide rows whose value is exactly 0 (e.g. absent lifecycle statuses). */
     hideZeroRows?: boolean
+    /** Append a total row that sums the series at the hovered point (stacked bars). */
+    showTotal?: boolean
     /** Override the default "click to view X" footer, for charts whose click goes somewhere other than persons. */
     footerOverride?: React.ReactNode
 }
@@ -112,7 +116,7 @@ function formatHeaderDate(date: string | undefined, options: FormattedDateOption
 
 // ── SeriesLabel ────────────────────────────────────────────────────────────
 
-/** `SeriesDatum` plus the series name for rows whose meta has no `action` (formula series). */
+/** `SeriesDatum` plus the series name for rows whose meta has no series node (formula series). */
 type TooltipSeriesDatum = SeriesDatum & { series_name?: string }
 
 interface SeriesLabelProps {
@@ -157,7 +161,7 @@ export function SeriesLabel({
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: 'currentColor', borderColor: 'currentColor' }}
             >
-                {alphabet[datum.action?.order ?? datum.order]}
+                {alphabet[datum.series?.order ?? datum.order]}
             </SeriesGlyph>
         ) : null
 
@@ -186,7 +190,7 @@ export function SeriesLabel({
                     value is what tells the rows apart, and a long event name would otherwise
                     truncate it away. The letter and the separator stay put. */}
                 <span className="opacity-50 truncate min-w-0 shrink">
-                    {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : datum.series_name) ?? datum.label}
+                    {(datum.series ? getResultSeriesName(datum.series) : null) ?? datum.series_name ?? datum.label}
                 </span>
                 <span className="opacity-50 shrink-0">&nbsp;·&nbsp;</span>
             </>
@@ -233,6 +237,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     renderSeriesOverride,
     sortedByValue = true,
     hideZeroRows,
+    showTotal,
     footerOverride,
 }: InsightSeriesTooltipProps<Meta>): React.ReactElement {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -252,12 +257,11 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                 label: entry.series.label,
                 color: entry.color,
                 count: entry.value,
-                action: meta.action,
+                series: meta.series,
                 series_name: meta.series_name,
                 breakdown_value: meta.breakdown_value ?? undefined,
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
-                filter: meta.filter,
             })
         })
         return m
@@ -319,7 +323,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         (value: number, entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
             const datum = datumByKey.get(entry.series.key)
             return formatAggregationValue(
-                datum?.action?.math_property,
+                datum?.series?.math?.math_property,
                 value,
                 (v) =>
                     formatRowValue(v, {
@@ -394,6 +398,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             {...context}
             sortedByValue={sortedByValue}
             hideZeroRows={hideZeroRows}
+            showTotal={showTotal}
             showHeader={showHeader !== false}
             labelFormatter={labelFormatter}
             labelRenderer={labelRenderer}

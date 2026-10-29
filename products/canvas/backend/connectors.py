@@ -31,6 +31,7 @@ from rest_framework import serializers
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -187,7 +188,7 @@ class GitHubGetFileContentsPayloadSerializer(GitHubRepositorySerializer):
 
 
 def _github_client(integration: UserIntegration) -> UserGitHubIntegration:
-    return UserGitHubIntegration(integration, source=_GITHUB_SOURCE)
+    return UserGitHubIntegration(integration, source=_GITHUB_SOURCE, priority=Priority.NORMAL)
 
 
 def _github_repo_path(client: UserGitHubIntegration, repository: str) -> str:

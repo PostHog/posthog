@@ -14,8 +14,6 @@ from products.replay_vision.backend.temporal.scanners.base import (
     Segment,
     confidence_field,
     key_moment_field,
-    notability_field,
-    notability_reason_field,
     thumbnail_field,
 )
 
@@ -98,8 +96,6 @@ class ClassifierScanner(BaseScanner, frozen=True):
                     ),
                 ),
             )
-        fields["notability_reason"] = (str | None, notability_reason_field())
-        fields["notability"] = (float | None, notability_field())
         fields["confidence"] = (float, confidence_field())
         fields["key_moment_t"] = (int | None, key_moment_field())
         fields["thumbnail_t"] = (int | None, thumbnail_field())

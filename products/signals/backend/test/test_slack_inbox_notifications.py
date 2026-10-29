@@ -3,8 +3,11 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.conf import settings
 
+from rest_framework.exceptions import ValidationError
+from slack_sdk.errors import SlackApiError
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -18,6 +21,8 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -27,11 +32,11 @@ from products.signals.backend.slack_inbox_notifications import (
     _build_signal_thread_blocks,
     _meets_min_priority,
     _resolve_reviewer_mentions,
-    _resolve_suggested_reviewer_user_ids,
     _signal_source_line,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
+    resolve_suggested_reviewer_user_ids,
 )
 from products.signals.backend.slack_report_threads import report_id_for_slack_thread
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
@@ -95,76 +100,68 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     report = SignalReport(
         id="report-uuid",
         team_id=42,
-        title="Checkout errors spiked",
-        summary="Error rate rose after deploy.\nIgnored second line.",
+        title="fix(checkout): Checkout errors spiked",
+        summary=(
+            "Error rate rose after deploy.\nIgnored second line.\n\n"
+            "## Problem\n\nThe payment form throws.\n\n"
+            "## Impact\n\nAbout **300 buyers** could not pay\nin the last hour.\n\nA second paragraph stays out.\n\n"
+            "## Expected impact\n\nFailures should drop to zero."
+        ),
         signal_count=12,
     )
-    blocks, text = _build_message_blocks(
-        report,
-        priority="P1",
-        source_products=["error_tracking"],
-        reviewer_mentions=["<@U123>"],
-    )
+    blocks, text = _build_message_blocks(report, reviewer_mentions=["<@U123>"])
 
     assert blocks[0]["text"]["text"] == "Checkout errors spiked"
-    section_text = blocks[1]["text"]
-    assert section_text.startswith("**❗ P1 · Error tracking**")
-    assert "Error rate rose after deploy." in section_text
-    assert "Ignored second line." not in section_text
+    assert blocks[1]["text"] == (
+        "Error rate rose after deploy.\n\n**Impact:** About **300 buyers** could not pay in the last hour."
+    )
     # A mention in plain_text would render as the raw token, never pinging anyone.
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    context_text = blocks[2]["elements"][0]["text"]
-    assert "12 signals" in context_text
-    assert "👤 Suggested reviewers: <@U123>" in context_text
-    assert "Inbox" not in context_text
+    assert blocks[2]["elements"][0]["text"] == "👤 Suggested owner: <@U123>"
     buttons = blocks[3]["elements"]
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
-    assert text == "Report (P1): Checkout errors spiked"
+    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
+    assert text == "Checkout errors spiked"
+
+
+@pytest.mark.parametrize(
+    ("summary", "expected"),
+    [
+        ("Lead.\n\n## Impact\n\nUsers lose data.\n\n## Solution\n\nFix it.", "Users lose data."),
+        ("Lead.\n\n## Impact\n\nSee [the chart](chart:errors) here.", "See the chart here."),
+        ("Lead.\n\n## Expected impact\n\nFailures drop to zero.", ""),
+        ("Lead only, no sections.", ""),
+    ],
+)
+def test_build_message_blocks_shows_only_the_impact_section(summary: str, expected: str) -> None:
+    report = SignalReport(id="report-uuid", title="Impact test", summary=summary)
+    blocks, _ = _build_message_blocks(report, reviewer_mentions=[])
+
+    body = blocks[1]["text"]
+    if expected:
+        assert body.endswith(f"**Impact:** {expected}")
+    else:
+        assert "Impact" not in body
 
 
 def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
     report = SignalReport(id="report-uuid", title="Shared channel")
-    blocks, _ = _build_message_blocks(
-        report,
-        priority="P2",
-        source_products=[],
-        reviewer_mentions=["<@U1>", "<@U2>"],
-    )
+    blocks, _ = _build_message_blocks(report, reviewer_mentions=["<@U1>", "<@U2>"])
 
-    assert blocks[1]["text"] == "**🟠 P2**"
-    assert blocks[2]["elements"][0]["text"] == "👤 Suggested reviewers: <@U1> <@U2>"
-
-
-def test_build_message_blocks_includes_repository_in_metadata_line() -> None:
-    report = SignalReport(id="report-uuid", title="Repo test")
-    blocks, _ = _build_message_blocks(
-        report,
-        priority="P2",
-        source_products=["error_tracking"],
-        reviewer_mentions=[],
-        repository="PostHog/posthog",
-    )
-
-    assert blocks[1]["text"] == "**🟠 P2 · Error tracking · PostHog/posthog**"
+    assert blocks[1]["text"] == "**Shared channel**"
+    assert blocks[2]["elements"][0]["text"] == "👤 Suggested owners: <@U1> <@U2>"
 
 
 def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
-    # A crafted summary/repository must not inject Slack mentions (<!here>, <@U…>) into mrkdwn.
+    # A crafted summary must not inject Slack mentions (<!here>, <@U…>) into mrkdwn.
     report = SignalReport(
         id="report-uuid",
         title="Injection test",
-        summary="<!here> everyone & <@U999> look",
+        summary="<!here> everyone & <@U999> look\n\n## Impact\n\n<!channel> is affected",
         signal_count=1,
     )
-    blocks, _ = _build_message_blocks(
-        report,
-        priority="P2",
-        source_products=[],
-        reviewer_mentions=[],
-        repository="<!channel>/repo",
-    )
+    blocks, _ = _build_message_blocks(report, reviewer_mentions=[])
 
     section_text = blocks[1]["text"]
     assert "<!here>" not in section_text
@@ -177,29 +174,6 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
     assert "everyone & " in section_text
 
 
-@pytest.mark.parametrize(
-    ("priority", "expected_priority_label"),
-    [
-        (AutonomyPriority.P0, "‼️ P0"),
-        (AutonomyPriority.P1, "❗ P1"),
-        (AutonomyPriority.P2, "🟠 P2"),
-        (AutonomyPriority.P3, "🟡 P3"),
-        (AutonomyPriority.P4, "🔵 P4"),
-    ],
-)
-def test_build_message_blocks_prefixes_priority_with_emoji(priority: str, expected_priority_label: str) -> None:
-    report = SignalReport(id="report-uuid", title="Priority test")
-    blocks, _ = _build_message_blocks(
-        report,
-        priority=priority,
-        source_products=[],
-        reviewer_mentions=["<@U123>"],
-    )
-
-    assert blocks[1]["text"] == f"**{expected_priority_label}**"
-    assert blocks[2]["elements"][0]["text"] == "👤 Suggested reviewers: <@U123>"
-
-
 def test_resolve_reviewer_mentions_uses_slack_mention_when_lookup_succeeds() -> None:
     user = User(first_name="Marcus", last_name="Twix", email="marcus@example.com")
     slack = MagicMock()
@@ -210,14 +184,29 @@ def test_resolve_reviewer_mentions_uses_slack_mention_when_lookup_succeeds() -> 
         assert _resolve_reviewer_mentions(slack, [user]) == ["<@U_SLACK>"]
 
 
-def test_resolve_reviewer_mentions_falls_back_to_name_when_slack_user_not_found() -> None:
-    user = User(first_name="Marcus", last_name="Twix", email="marcus@example.com")
+@pytest.mark.parametrize(
+    ("lookup_result", "expected_lookups"),
+    [
+        (None, 2),
+        # A lookup error stops the remaining lookups, because each one fails the same way.
+        (SlackApiError("missing_scope", {"ok": False, "error": "missing_scope"}), 1),
+        (ValidationError({"slack_notification_direct_message": "Slack is unavailable"}), 1),
+    ],
+    ids=["slack_user_not_found", "missing_scope", "lookup_budget_spent"],
+)
+def test_resolve_reviewer_mentions_falls_back_to_name(lookup_result: object, expected_lookups: int) -> None:
+    users = [
+        User(first_name="Marcus", last_name="Twix", email="marcus@example.com"),
+        User(first_name="Ada", last_name="Lime", email="ada@example.com"),
+    ]
     slack = MagicMock()
     with patch(
         "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
-        return_value=None,
-    ):
-        assert _resolve_reviewer_mentions(slack, [user]) == ["Marcus Twix"]
+        side_effect=lookup_result if isinstance(lookup_result, Exception) else None,
+        return_value=lookup_result,
+    ) as lookup:
+        assert _resolve_reviewer_mentions(slack, users) == ["Marcus Twix", "Ada Lime"]
+    assert lookup.call_count == expected_lookups
 
 
 def test_resolve_reviewer_mentions_caps_at_five() -> None:
@@ -340,23 +329,25 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
         ),
     ):
         slack_cls.return_value.client = fake_client
-        sent = dispatch_inbox_item_notifications(str(report.id), team.id, source_products=["error_tracking"])
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == expected_conversation
-    assert "Report (P1)" in call_kwargs["text"]
+    assert call_kwargs["text"] == "Test report"
     blocks = call_kwargs["blocks"]
     assert blocks[0]["text"]["text"] == "Test report"
-    assert blocks[1]["text"].startswith("**❗ P1 · Error tracking**")
-    context_text = blocks[2]["elements"][0]["text"]
+    context_texts = [block["elements"][0]["text"] for block in blocks if block["type"] == "context"]
     if expects_mention:
-        assert "👤 Suggested reviewers: <@U_REVIEWER>" in context_text
+        assert "👤 Suggested owner: <@U_REVIEWER>" in context_texts
     else:
-        assert "Suggested reviewers" not in context_text
+        assert not any("Suggested owner" in text for text in context_texts)
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+    actions = next(block for block in blocks if block["type"] == "actions")
+    assert actions["elements"][0]["url"] == (
+        f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
+    )
 
 
 @pytest.mark.django_db
@@ -376,6 +367,35 @@ def test_dispatch_skips_a_direct_message_to_an_ineligible_member(org_and_team):
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         slack_cls.return_value.client = fake_client
         slack_cls.return_value.get_user_by_id.return_value = None
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_report_authored_by_scout_kept_out_of_inbox(org_and_team):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "digest-reviewer@example.com", "digest-bot")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["digest-bot"])
+    config = SignalScoutConfig.objects.for_team(team.id).create(
+        team=team, skill_name="signals-scout-digest", output_destinations={"inbox": False}
+    )
+    task = apps.get_model("tasks", "Task").objects.create(team=team, title="scout", description="d")
+    SignalScoutRun.objects.for_team(team.id).create(
+        team=team,
+        task_run=apps.get_model("tasks", "TaskRun").objects.create(team=team, task=task),
+        scout_config=config,
+        skill_name=config.skill_name,
+        skill_version=1,
+        emitted_report_ids=[str(report.id)],
+    )
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
     assert sent == 0
@@ -470,7 +490,7 @@ def test_dispatch_falls_back_to_team_channel_without_suggested_reviewers(org_and
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 1
     assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "CTEAM"
-    assert "Suggested reviewers" not in json.dumps(fake_client.chat_postMessage.call_args.kwargs["blocks"])
+    assert "Suggested owner" not in json.dumps(fake_client.chat_postMessage.call_args.kwargs["blocks"])
 
 
 @pytest.mark.django_db
@@ -501,7 +521,7 @@ def test_reviewer_resolution_uses_only_the_latest_reviewer_row(
         content=json.dumps([{"user_uuid": str(current_reviewer.uuid)}]),
     )
 
-    assert _resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
+    assert resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
 
 
 @pytest.mark.django_db
@@ -697,40 +717,6 @@ def test_dispatch_team_channel_tags_only_fallback_reviewers(org_and_team):
 
 
 @pytest.mark.django_db
-def test_dispatch_includes_repository_from_repo_selection_artefact(org_and_team):
-    org, team = org_and_team
-    user = _make_reviewer_user(org, "reviewer-repo@example.com", "repo-bot")
-    integration = _make_slack_integration(team, user)
-    SignalUserAutonomyConfig.objects.create(
-        user=user,
-        slack_notification_integration=integration,
-        slack_notification_channel="C123|#inbox",
-    )
-    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["repo-bot"])
-    SignalReportArtefact.objects.create(
-        team=team,
-        report=report,
-        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-        content=json.dumps({"repository": "PostHog/posthog", "reason": "owns the code"}),
-    )
-
-    fake_client = MagicMock()
-    with (
-        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
-        patch(
-            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
-            return_value=None,
-        ),
-    ):
-        slack_cls.return_value.client = fake_client
-        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
-
-    assert sent == 1
-    blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
-    assert "PostHog/posthog" in blocks[1]["text"]
-
-
-@pytest.mark.django_db
 def test_dispatch_respects_per_user_min_priority_filter(org_and_team):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer3@example.com", "skip-bot")
@@ -881,7 +867,7 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
     assert call_kwargs["channel"] == "C123"
     # The single message still tags both reviewers that resolved to the channel.
     context_text = call_kwargs["blocks"][2]["elements"][0]["text"]
-    assert "👤 Suggested reviewers: <@U_ONE> <@U_TWO>" in context_text
+    assert "👤 Suggested owners: <@U_ONE> <@U_TWO>" in context_text
 
 
 @pytest.mark.parametrize(
@@ -1269,7 +1255,7 @@ def test_notification_respects_project_access(
         post_message = slack_cls.return_value.client.chat_postMessage
         post_message.assert_called_once()
         assert post_message.call_args.kwargs["channel"] == team_channel
-        assert "Suggested reviewers" not in json.dumps(post_message.call_args.kwargs["blocks"])
+        assert "Suggested owner" not in json.dumps(post_message.call_args.kwargs["blocks"])
 
 
 @pytest.mark.django_db
@@ -1370,37 +1356,9 @@ def test_reviewer_added_excludes_actor(org_and_team):
 
 
 @pytest.mark.django_db
-def test_reviewer_added_task_still_dispatches_when_source_product_lookup_fails(org_and_team):
-    # Source products are cosmetic; a failure fetching them must not suppress the ping.
-    org, team = org_and_team
-    with (
-        # The task imports this lazily from signal_metadata, so patch it at its source module.
-        patch(
-            "products.signals.backend.signal_metadata.fetch_source_products_for_reports",
-            side_effect=Exception("clickhouse unavailable"),
-        ),
-        patch("products.signals.backend.tasks.dispatch_reviewer_added_notifications") as mock_dispatch,
-    ):
-        send_reviewer_added_slack_notifications(
-            report_id="019f0000-0000-7000-8000-000000000000",
-            team_id=team.id,
-            added_github_logins=["someone"],
-        )
-
-    mock_dispatch.assert_called_once()
-    assert mock_dispatch.call_args.kwargs["source_products"] is None
-
-
-@pytest.mark.django_db
 def test_reviewer_added_task_decodes_uuid_from_the_legacy_argument(org_and_team):
     _, team = org_and_team
-    with (
-        patch(
-            "products.signals.backend.signal_metadata.fetch_source_products_for_reports",
-            return_value={},
-        ),
-        patch("products.signals.backend.tasks.dispatch_reviewer_added_notifications") as mock_dispatch,
-    ):
+    with patch("products.signals.backend.tasks.dispatch_reviewer_added_notifications") as mock_dispatch:
         send_reviewer_added_slack_notifications(
             report_id="019f0000-0000-7000-8000-000000000000",
             team_id=team.id,

@@ -161,4 +161,38 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "error": "Error message if the query failed to generate, otherwise empty.",
         },
     },
+    "ReportElements": {
+        "description": "An element (chart, table, or control) placed on a page within a Sigma report.",
+        "docs_url": "https://help.sigmacomputing.com/reference/list-report-elements",
+        "columns": {
+            "reportId": "Identifier of the report this element belongs to.",
+            "elementId": "Unique identifier for the element, within its report.",
+            "name": "Name of the element.",
+            "type": "The element's type (e.g. chart, table, control).",
+            "columns": "Column names the element pulls from its underlying data source.",
+            "vizualizationType": "The visualization type rendered by the element, when applicable.",
+            "error": "Error message if the element failed to compute, otherwise empty.",
+        },
+    },
+    "ReportPages": {
+        "description": "A page within a Sigma report.",
+        "docs_url": "https://help.sigmacomputing.com/reference/list-report-pages",
+        "columns": {
+            "reportId": "Identifier of the report this page belongs to.",
+            "pageId": "Unique identifier for the page, within its report.",
+            "name": "Display name of the page.",
+            "hidden": "Whether the page is hidden from end users.",
+        },
+    },
+    "ReportQueries": {
+        "description": "The SQL query behind one element of a Sigma report, used to audit what a report runs against its data source.",
+        "docs_url": "https://help.sigmacomputing.com/reference/list-report-queries",
+        "columns": {
+            "reportId": "Identifier of the report this query belongs to.",
+            "elementId": "Identifier of the element the query was generated for, within its report.",
+            "name": "Name of the element the query was generated for.",
+            "sql": "The SQL text Sigma runs for this element.",
+            "error": "Error message if the query failed to generate, otherwise empty.",
+        },
+    },
 }

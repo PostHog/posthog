@@ -4,6 +4,10 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.source import AutumnSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.autumn import AutumnSourceConfig
 
@@ -92,10 +96,9 @@ class TestAutumnSource:
     def test_validate_credentials_uses_the_pinned_version(
         self, pinned_version: Optional[str], expected_version: str
     ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.autumn.source.validate_autumn_credentials",
-            return_value=(True, None),
-        ) as mock_validate:
-            self.source.validate_credentials(self.config, team_id=123, api_version=pinned_version)
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
+            valid, error = self.source.validate_credentials(self.config, team_id=123, api_version=pinned_version)
 
-        mock_validate.assert_called_once_with("am_sk_test", expected_version)
+        assert (valid, error) == (True, None)
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].headers["x-api-version"] == expected_version

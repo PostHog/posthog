@@ -37,20 +37,23 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
     mirrored_property_for_column,
-    native_property_path_overlaps_restriction,
+    property_path_overlaps_restriction,
     restricted_feature_flag_names,
+    restricted_key_path,
     restricted_property_keys_for_table_type,
 )
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
     constant_type_from_runtime_type,
+    convert_literal_to_runtime_type,
     parse_sql_runtime_type,
     runtime_type_from_constant_type,
 )
@@ -60,6 +63,8 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERMANENT_SDK_DEBUG_PROPERTIES,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
     TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
     TEMPORARY_EVENT_PROPERTY_ROOTS,
     TEMPORARY_PROPERTIES_COLUMN,
@@ -69,8 +74,6 @@ from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.workload import Workload
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
-# In non-nullable materialized columns these stored strings are treated as NULL.
-MAT_COL_NULL_SENTINELS = ["", "null"]
 MAX_MATERIALIZED_LIKE_PATTERN_LENGTH = 16 * 1024
 
 # Leave the legacy $ai_* bloom-filter columns to the printer: its comparison code already keeps them index-eligible
@@ -129,9 +132,7 @@ def resolve_materialized_property_source(
     # read, comparison, key-existence). The column holds the raw value, so a comparison like `WHERE properties.x = 'y'`
     # could otherwise read it and probe the value. Declining here makes the comparison optimizers fall back; the read
     # itself becomes a constant NULL in `_substitute_value_read`.
-    if property_name in restricted_property_keys_for_table_type(
-        field_type.table_type, context
-    ) or native_property_path_overlaps_restriction(property_name, field_type.table_type, context):
+    if property_path_overlaps_restriction(property_name, field_type.table_type, context):
         return None
 
     table_type = _unwrap_to_table_type(field_type)
@@ -193,7 +194,7 @@ def resolve_materialized_property_source(
 def resolve_json_subcolumn_source(
     field_type: ast.FieldType, table_name: str, field_name: str, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
-    if native_property_path_overlaps_restriction(property_name, field_type.table_type, context):
+    if property_path_overlaps_restriction(property_name, field_type.table_type, context):
         return None
     if not context.uses_new_events_schema():
         return None
@@ -394,10 +395,9 @@ def _materialized_head_expr(
         return column_field
 
     # Non-nullable materialized column: scrub the '' / 'null' string sentinels back to NULL.
-    scrubbed_empty = ast.Call(name="nullIf", args=[column_field, _sentinel("")])
     if materialization_mode == MaterializationMode.LEGACY_NULL_AS_STRING:
-        return scrubbed_empty
-    return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
+        return null_if_sentinels(column_field, ("",))
+    return null_if_sentinels(column_field)
 
 
 def _json_subcolumn_access(
@@ -433,36 +433,44 @@ def _json_subcolumn_access(
     return value
 
 
+def _declared_json_path_type(
+    field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
+) -> str:
+    """The type the native table declares for the path, or '' for a Dynamic path.
+
+    A declared column cannot hold NULL, so a missing key sits there as the type's default ('' or []) and the read has
+    to map that default back to NULL. A Dynamic path is NULL when the key is missing, so an empty value there is a
+    value the customer sent and reads as legacy reads it.
+    """
+    if source.json_column is not None:
+        return ""
+    is_person = False
+    table_type: ast.Type | None = field_type.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+        is_person = is_person or isinstance(table_type, ast.VirtualTableType)
+        table_type = table_type.table_type
+    if not isinstance(table_type, ast.TableType):
+        return ""
+    declared_types = PERSON_PROPERTIES_JSON_SUBCOLUMNS if is_person else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+    return declared_types.get(".".join(str(key) for key in keys), "")
+
+
 def _is_declared_array_path(
     field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
 ) -> bool:
     """Whether the native events table declares an array type for the path, so that every row holds an array there."""
-    if source.json_column is not None or field_type.name != "properties":
-        return False
-    table_type: ast.Type | None = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
-    if not isinstance(table_type, ast.TableType):
-        return False
-    declared_type = EVENTS_PROPERTIES_JSON_SUBCOLUMNS.get(".".join(str(key) for key in keys), "")
-    return declared_type.startswith("Array(")
+    return _declared_json_path_type(field_type, keys, source).startswith("Array(")
 
 
-def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
-    json_value = ast.Call(
-        name="nullIf",
-        args=[
-            ast.Call(
-                name="nullIf",
-                args=[
-                    ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-                    _sentinel("[]"),
-                ],
-            ),
-            _sentinel("{}"),
-        ],
-        type=ast.StringType(nullable=True),
-    )
+def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool, declared: bool) -> ast.Expr:
+    json_value: ast.Expr = ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    if declared:
+        # A declared array column holds [] for a missing key, so an empty container reads as NULL there.
+        json_value = ast.Call(
+            name="nullIf",
+            args=[ast.Call(name="nullIf", args=[json_value, _sentinel("[]")]), _sentinel("{}")],
+            type=ast.StringType(nullable=True),
+        )
     if as_json:
         return json_value
 
@@ -531,19 +539,19 @@ def _json_subcolumn_value_expr(
         return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
 
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
-    scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
+    # A declared column stores a missing key as '', and an index into a declared array reads '' past its end, so both
+    # map '' back to NULL. A Dynamic path is NULL for a missing key and keeps '' as a value.
+    declared = index_position is not None or bool(_declared_json_path_type(field_type, keys, source))
+    scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json, declared=declared)
+    missing: ast.Expr = ast.Call(name="isNull", args=[clone_expr(value)])
+    if declared:
+        missing = ast.Call(
+            name="isNull",
+            args=[ast.Call(name="nullIf", args=[ast.Call(name="toString", args=[clone_expr(value)]), _sentinel("")])],
+        )
     scalar_or_null = ast.Call(
         name="if",
-        args=[
-            ast.Call(
-                name="isNull",
-                args=[
-                    ast.Call(name="nullIf", args=[ast.Call(name="toString", args=[clone_expr(value)]), _sentinel("")])
-                ],
-            ),
-            ast.Constant(value=None, type=ast.StringType(nullable=True)),
-            scalar_value,
-        ],
+        args=[missing, ast.Constant(value=None, type=ast.StringType(nullable=True)), scalar_value],
         type=ast.StringType(nullable=True),
     )
     if index_position is not None:
@@ -678,7 +686,24 @@ def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
         "or",
         [
             _call("has", [ast.Array(exprs=[_const(root) for root in sorted(TEMPORARY_EVENT_PROPERTY_ROOTS)]), name]),
-            _call("startsWith", [clone_expr(name), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
+            _call(
+                "and",
+                [
+                    _call("startsWith", [clone_expr(name), _const(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)]),
+                    _call(
+                        "not",
+                        [
+                            _call(
+                                "has",
+                                [
+                                    ast.Array(exprs=[_const(key) for key in sorted(PERMANENT_SDK_DEBUG_PROPERTIES)]),
+                                    clone_expr(name),
+                                ],
+                            )
+                        ],
+                    ),
+                ],
+            ),
         ],
     )
 
@@ -908,7 +933,12 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
     source_property = _mirrored_source_property(field_type, context)
-    if (source_property or first_key) in restricted_property_keys_for_table_type(field_type.table_type, context):
+    restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, context)
+    if (
+        source_property in restricted_keys
+        if source_property is not None
+        else restricted_key_path(node.keys, restricted_keys) is not None
+    ):
         _record_property_usage(context, None)
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
@@ -1328,6 +1358,10 @@ class ClickHousePropertyResolver(CloningVisitor):
                         type=node.type,
                     )
 
+        boolean_conversion = self._rewrite_boolean_property_conversion(node)
+        if boolean_conversion is not None:
+            return boolean_conversion
+
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:
             return json_string_on_events_json
@@ -1382,6 +1416,33 @@ class ClickHousePropertyResolver(CloningVisitor):
             )
 
         return super().visit_call(node)
+
+    def _rewrite_boolean_property_conversion(self, node: ast.Call) -> ast.Expr | None:
+        match node:
+            case ast.Call(
+                name="transform",
+                args=[
+                    ast.Call(name="toString", args=[operand]) as string_read,
+                    ast.Constant(value=["true", "false"]),
+                    ast.Constant(value=[1, 0]),
+                    ast.Constant(value=None),
+                ],
+            ):
+                access = self._lowered_property_operand(operand)
+                if access is None or not all(isinstance(key, str) for key in access.keys):
+                    return None
+                field_type = _blob_field_type_of(access)
+                assert field_type is not None
+                keys = cast(list[str], access.keys)
+                if self._is_virtual_feature_flag_property(field_type, keys[0]):
+                    return None
+                source = resolve_materialized_property_source(field_type, ".".join(keys), self.context)
+                if source is None or source.kind != "json_subcolumn":
+                    return None
+                # Object and array text cannot match either Boolean spelling.
+                value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
+                return replace(node, args=[replace(string_read, args=[value]), *node.args[1:]])
+        return None
 
     def _rewrite_feature_flag_json_call(self, node: ast.Call) -> ast.Expr | None:
         """A JSON function over a virtual flag key, rewritten on native events to parse the flag read.
@@ -1784,7 +1845,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         first_key = first_key_arg.value
         if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
             return ast.Constant(value=False, type=ast.BooleanType(nullable=False))
-        if native_property_path_overlaps_restriction(first_key, field_type.table_type, self.context):
+        if property_path_overlaps_restriction(first_key, field_type.table_type, self.context):
             # Read the masked document so nested and computed keys cannot inspect a restricted child.
             if not _is_moved_events_property(field_type, first_key, self.context):
                 return None
@@ -1842,6 +1903,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             or self._optimize_materialized_array_compare(node)
             or self._optimize_materialized_array_ilike(node)
             or self._optimize_materialized_array_multisearch(node)
+            or self._optimize_native_json_string_compare(node)
             or self._optimize_materialized_equals(node)
             or self._optimize_materialized_range(node)
             or self._optimize_materialized_ilike(node)
@@ -1965,9 +2027,9 @@ class ClickHousePropertyResolver(CloningVisitor):
     ) -> _OptimizableProperty | None:
         """A single-key string property backed by an individually materialized column, or None.
 
-        Unwraps a `toString(properties.x)` wrapper, requires a single key, skips properties whose resolved type isn't a
-        string unless a dynamic JSON value is being compared as a string, and requires a materialized column (not a
-        property group). The plain and `toString(...)` forms both resolve to the same lowered property.
+        Unwraps a `toString(properties.x)` wrapper, requires a single key with string semantics, and requires a
+        materialized column or JSON subcolumn (not a property group). The plain and `toString(...)` forms both resolve
+        to the same lowered property.
         """
         single = self._single_key_property(expr)
         if single is None and isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
@@ -1982,14 +2044,9 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
 
         is_dynamic_json_string_comparison = allow_dynamic_json and _is_dynamic_json_source(source)
-        if self.context.property_metadata is not None:
-            prop_info = self.context.property_metadata.event_properties.get(property_name)
-            if (
-                prop_info is not None
-                and prop_info.get("type") not in (None, "String")
-                and not is_dynamic_json_string_comparison
-            ):
-                return None
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        if not isinstance(property_type.resolve_constant_type(self.context), ast.StringType):
+            return None
 
         if not _is_string_column(source) and not is_dynamic_json_string_comparison:
             return None
@@ -1998,6 +2055,27 @@ class ClickHousePropertyResolver(CloningVisitor):
             key=property_name,
             source=source,
         )
+
+    def _numeric_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
+        """A Numeric JSON property compared to non-numeric text, read as text the way the legacy table compares it.
+
+        A property definition keeps the type of the first value seen, so a Numeric key can still hold text that a
+        Float64 read never matches.
+        """
+        single = self._single_key_property(expr)
+        if single is None:
+            return None
+        field_type, property_name = single
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
+        if semantic_type.family != "float":
+            return None
+        if all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
+            return None
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or not _is_dynamic_json_source(source):
+            return None
+        return _OptimizableProperty(field_type=field_type, key=property_name, source=source)
 
     def _materialized_property_for_op(self, expr: ast.Expr) -> _OptimizableProperty | None:
         """A single-key materialized-column property (any resolved type), for IN comparisons that don't need a string."""
@@ -2351,6 +2429,53 @@ class ClickHousePropertyResolver(CloningVisitor):
         )
         return contains if node.op == ast.CompareOperationOp.Gt else _call("not", [contains])
 
+    def _optimize_native_json_string_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        op_name = {
+            ast.CompareOperationOp.Eq: "equals",
+            ast.CompareOperationOp.NotEq: "notEquals",
+            ast.CompareOperationOp.In: "in",
+            ast.CompareOperationOp.NotIn: "notIn",
+        }.get(node.op)
+        if op_name is None:
+            return None
+        property_expr = node.left
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            constant = _string_pattern_constant(node.right)
+            if constant is None:
+                property_expr = node.right
+                constant = _string_pattern_constant(node.left)
+            values = [constant.value] if constant is not None else None
+        else:
+            values = self._extract_string_constants(node.right)
+        if not values or any(not value or value.startswith(("[", "{")) for value in values):
+            return None
+        if self._is_boolean_conversion(property_expr):
+            return None
+        prop = self._materialized_string_property(
+            property_expr, allow_dynamic_json=True
+        ) or self._numeric_property_to_compare_as_text(property_expr, values)
+        if prop is None or prop.source.kind != "json_subcolumn":
+            return None
+
+        declared_types = (
+            EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+            if _is_events_properties(prop.field_type, self.context)
+            else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        )
+        declared_type = declared_types.get(prop.key) if prop.source.json_column is None else None
+        column = prop.bare_column()
+        if declared_type not in ("String", "LowCardinality(String)"):
+            # A bare Dynamic comparison converts the constant to each runtime type and can throw.
+            # The String cast matches the scalar read; containers cannot match these constants.
+            column = ast.TypeCast(expr=column, type_name="Nullable(String)", type=ast.StringType(nullable=True))
+        value: ast.Expr = (
+            ast.Tuple(exprs=[_const(value) for value in values])
+            if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn)
+            else _const(values[0])
+        )
+        _record_property_usage(self.context, prop.source.kind)
+        return _call(op_name, [column, value])
+
     def _optimize_materialized_equals(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return None
@@ -2618,7 +2743,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
 
         # Bail if a value could collide with a stored NULL sentinel.
-        null_sentinels = [""] if prop.source.is_nullable else MAT_COL_NULL_SENTINELS
+        null_sentinels = ("",) if prop.source.is_nullable else MAT_COL_NULL_SENTINELS
         if any(v in null_sentinels for v in values):
             return None
 

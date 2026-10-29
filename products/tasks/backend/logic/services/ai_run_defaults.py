@@ -115,7 +115,9 @@ def _canonical_team_id(team_id: int) -> int:
     return resolve_effective_team_id(team_id)
 
 
-def apply_ai_run_defaults(selection: dict, team_id: int, user_id: int | None) -> ResolvedAIRunConfig | None:
+def apply_ai_run_defaults(
+    selection: dict, team_id: int, user_id: int | None, *, runtime: str = ACP
+) -> ResolvedAIRunConfig | None:
     """Fill `selection`'s `(runtime_adapter, model, reasoning_effort)` keys in place from
     the stored defaults, returning the config that applied — or `None` when the caller
     pinned a selection or no level has one, leaving `selection` untouched.
@@ -127,6 +129,7 @@ def apply_ai_run_defaults(selection: dict, team_id: int, user_id: int | None) ->
     resolved = resolve_ai_run_selection(
         team_id,
         user_id,
+        runtime=runtime,
         runtime_adapter=selection.get("runtime_adapter"),
         model=selection.get("model"),
         reasoning_effort=selection.get("reasoning_effort"),

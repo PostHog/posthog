@@ -12,7 +12,11 @@ from parameterized import parameterized
 from posthog.models.team.team import Team
 
 from products.alerts.backend.facade.destinations import serialize_deliveries
-from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
+from products.alerts.backend.logic.destination_configs import (
+    DESTINATION_SPECS,
+    HOG_FUNCTION_DESTINATION_TYPES,
+    build_alert_destination_config,
+)
 from products.alerts.backend.logic.destinations import (
     SPEC_BY_TEMPLATE_ID,
     AlertDestinationGroupKey,
@@ -170,7 +174,7 @@ def _group_key_of(config: AlertDestinationConfig) -> AlertDestinationGroupKey:
 
 
 class TestAlertDestinationGroupKey:
-    @pytest.mark.parametrize("destination_type", list(DestinationType))
+    @pytest.mark.parametrize("destination_type", HOG_FUNCTION_DESTINATION_TYPES)
     def test_a_config_built_for_any_destination_type_is_readable(self, destination_type: DestinationType) -> None:
         assert _group_key_of(_config_for(destination_type, "$logs_alert_firing")).is_config_readable
 
@@ -184,7 +188,7 @@ class TestAlertDestinationGroupKey:
 
     def test_template_ids_and_destination_types_name_each_other_one_to_one(self) -> None:
         assert set(SPEC_BY_TEMPLATE_ID) == {spec.template_id for spec in DESTINATION_SPECS.values()}
-        assert {spec.type for spec in SPEC_BY_TEMPLATE_ID.values()} == set(DestinationType)
+        assert {spec.type for spec in SPEC_BY_TEMPLATE_ID.values()} == set(HOG_FUNCTION_DESTINATION_TYPES)
 
 
 class TestGroupAlertDestinationRows:
@@ -206,6 +210,22 @@ class TestGroupAlertDestinationRows:
                 ops
             },
         }
+
+    def test_one_webhook_url_with_and_without_added_headers_is_two_groups(self) -> None:
+        plain, authed = uuid4(), uuid4()
+        with_header = {
+            **webhook_inputs("https://example.com/hook"),
+            "headers": {"value": {"Authorization": "Bearer not-a-real-token"}},
+        }
+
+        groups = group_alert_destination_rows(
+            [
+                AlertDestinationRow(plain, "template-webhook", webhook_inputs("https://example.com/hook")),
+                AlertDestinationRow(authed, "template-webhook", with_header),
+            ]
+        )
+
+        assert list(groups.values()) == [{plain}, {authed}]
 
     def test_an_unreadable_row_collapses_its_whole_template_into_one_group(self) -> None:
         unreadable, readable, webhook = uuid4(), uuid4(), uuid4()
@@ -688,20 +708,27 @@ class TestAlertInternalEventDelivery(APIBaseTest):
 
 
 class TestProduceAlertInternalEvent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("id_in_properties", {"alert_id": "alert-1"}, None, "alert-1"),
+            ("id_passed_for_an_event_without_it", {"alert_configuration_id": "cfg-1"}, "cfg-1", "cfg-1"),
+        ]
+    )
     @patch("products.alerts.backend.logic.destinations.capture_exception")
     @patch(
         "products.alerts.backend.logic.destinations.produce_internal_event",
         side_effect=RuntimeError("broker down"),
     )
-    def test_a_producer_failure_is_swallowed_so_a_batch_caller_still_saves(
-        self, _produce_internal_event, capture_exception
+    def test_a_producer_failure_is_swallowed_and_names_its_alert(
+        self, _name, properties, alert_id, reported_alert_id, _produce_internal_event, capture_exception
     ) -> None:
         result = produce_alert_internal_event(
-            team_id=1, event_name="$logs_alert_firing", properties={"alert_id": "alert-1"}
+            team_id=1, event_name="$logs_alert_firing", properties=properties, alert_id=alert_id
         )
 
         assert result is None
         capture_exception.assert_called_once()
+        assert capture_exception.call_args.args[1]["alert_id"] == reported_alert_id
 
 
 class TestFlushAlertInternalEvents(SimpleTestCase):
@@ -827,7 +854,7 @@ class TestRedactUrlsInName:
         assert redact_urls_in_name(name) == expected
 
 
-class TestSerializeDeliveries(APIBaseTest):
+class TestSerializeDeliveries(SimpleTestCase):
     def test_serialize_deliveries_roundtrips_dataclass_fields(self) -> None:
         delivery = AlertDelivery(channel="email", target="a@example.com", at="2026-08-11T00:00:00+00:00")
         result = serialize_deliveries([delivery])

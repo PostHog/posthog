@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PackagistSource(ResumableSource[PackagistSourceConfig, PackagistResumeConfig]):
+    codebase_detection = detect(env=("^PACKAGIST_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://packagist.org/apidoc"
 
@@ -47,7 +50,7 @@ class PackagistSource(ResumableSource[PackagistSourceConfig, PackagistResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Packagist",
             keywords=["composer", "php"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Pull metadata, download statistics, and security advisories for PHP packages from [Packagist](https://packagist.org) (the Composer package registry) into the PostHog Data warehouse.
 
 Packagist's read APIs are public, so no credentials are required. Enter the packages you want to track, one per line (or comma-separated), as `vendor/package` names. A bare vendor name syncs every package published by that vendor. For example:
@@ -66,6 +69,7 @@ Download statistics sync incrementally per day; the other tables sync as a full 
                 [
                     SourceFieldInputConfig(
                         name="packages",
+                        sync_setting=True,
                         label="Packages",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

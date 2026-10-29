@@ -17,11 +17,11 @@ from slack_sdk.web.slack_response import SlackResponse
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
-from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 
+from products.cdp.backend.filters import compile_filters_bytecode
 from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS, update_alert
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.tasks.tasks import dispatch_error_tracking_alert_deliveries
@@ -273,10 +273,10 @@ class TestAlertMessages(SimpleTestCase):
         inputs = AlertDeliveryWorkflowInputs(
             notification_id="notif-1", team_id=1, issue_id="issue-1", event="$error_tracking_issue_created"
         )
-        assert issue_url(inputs).endswith("/project/1/error_tracking/issue-1")
-        assert issue_url(dataclasses.replace(inputs, fingerprint="")).endswith("/project/1/error_tracking/issue-1")
+        assert issue_url(inputs).endswith("/project/1/error-tracking/issue-1")
+        assert issue_url(dataclasses.replace(inputs, fingerprint="")).endswith("/project/1/error-tracking/issue-1")
         with_fingerprint = dataclasses.replace(inputs, fingerprint="a/b c")
-        assert issue_url(with_fingerprint).endswith("/project/1/error_tracking/fingerprint/a%2Fb%20c")
+        assert issue_url(with_fingerprint).endswith("/project/1/error-tracking/fingerprint/a%2Fb%20c")
 
 
 class TestSlackThreadDelivery(AlertTestMixin):

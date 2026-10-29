@@ -6,6 +6,7 @@ Do not treat every dashboard change as a widget change.
 ## Choose the change type
 
 - For dashboard metadata, layouts, insight tiles, text cards, button tiles, or templates, use the product models and API in this directory.
+- For dashboard performance work, read [PERFORMANCE.md](./PERFORMANCE.md) before changing loading, scrolling, edit-mode transitions, tile movement, resize, or chart rendering. It covers work across tiles, browser layout, chart drawing, and measurement.
 - For a tile with `widget_id`, read [`CONTRIBUTING.md`](./CONTRIBUTING.md). It defines widget architecture, registry parity, generated files, and validation commands.
 - For dashboard creation or updates through PostHog tools, read [`building-a-dashboard`](./skills/building-a-dashboard/SKILL.md).
 - For scheduled dashboard delivery, read [`managing-subscriptions`](../subscriptions/skills/managing-subscriptions/SKILL.md).

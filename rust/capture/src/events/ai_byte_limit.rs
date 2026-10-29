@@ -1,7 +1,7 @@
 //! The AI lane's per-project byte budget. The lane is the whole gate: every
 //! `$ai_` event (`v0_request::is_ai_event`) is bound for the AI Kafka topic on
 //! every deployment, stamped `DataType::AiEvents` in v0 and
-//! `Destination::AiEvents` in v1. Import deployments are exempt — backfills
+//! `Destination::AiMain` in v1. Import deployments are exempt — backfills
 //! are never throttled, matching the other limiters — which setup enforces by
 //! not building the limiter at all in import mode.
 //!

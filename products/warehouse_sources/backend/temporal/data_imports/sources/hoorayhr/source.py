@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HoorayHRSource(SimpleSource[HoorayHRSourceConfig]):
+    codebase_detection = detect(env=("^(HOORAY_HR|HOORAYHR)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.hoorayhr.io/documentation"
 
@@ -43,7 +46,7 @@ class HoorayHRSource(SimpleSource[HoorayHRSourceConfig]):
             name=ExternalDataSourceType.HOORAYHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="HoorayHR",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your HoorayHR API key to pull your HR data (users, time off, sick leave, contracts, and more) into the PostHog Data warehouse.
 
 You need the admin role in your HoorayHR company to create an API key: go to [Settings → API keys](https://app.hoorayhr.io/settings/api-keys) and click "New API key". The key (prefixed `pk_`) is shown only once, so copy it right away.""",

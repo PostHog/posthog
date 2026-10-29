@@ -1,6 +1,7 @@
 from typing import Optional, cast
 from urllib.parse import urlsplit
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitguardianSource(ResumableSource[GitguardianSourceConfig, GitGuardianResumeConfig]):
+    codebase_detection = detect(env=("^GITGUARDIAN_",), pypi=("pygitguardian", "ggshield"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -56,10 +59,10 @@ class GitguardianSource(ResumableSource[GitguardianSourceConfig, GitGuardianResu
             name=ExternalDataSourceType.GITGUARDIAN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitGuardian",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter a GitGuardian API token to sync your secret incidents, occurrences, incident activity logs, secret detectors, monitored sources, honeytokens, honeytoken events, members, teams, and team memberships into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.BETA,
+            caption="""Enter a GitGuardian API token to sync your secret incidents, public secret incidents, occurrences, incident activity logs, incident notes, incident leaks, secret detectors, custom tags, monitored sources, honeytokens, honeytoken events, members, teams, team memberships, team sources, public perimeter developers, and audit logs into the PostHog Data warehouse.
 
-Create a service account token (recommended for unattended syncs) or a personal access token in your [GitGuardian API settings](https://dashboard.gitguardian.com/api). Grant the read scopes for the tables you want to sync: `incidents:read`, `sources:read`, `honeytokens:read`, `members:read`, and `teams:read`. Reading incidents requires a token with at least the Manager access level.
+Create a service account token (recommended for unattended syncs) or a personal access token in your [GitGuardian API settings](https://dashboard.gitguardian.com/api). Grant the read scopes for the tables you want to sync: `incidents:read`, `custom_tags:read`, `sources:read`, `honeytokens:read`, `members:read`, `teams:read`, `audit_logs:read`, and `public-perimeter:read`. Reading incidents requires a token with at least the Manager access level.
 
 Workspaces on the EU instance should set the API URL to `https://api.eu1.gitguardian.com`; self-hosted instances should enter their own API URL.
 """,

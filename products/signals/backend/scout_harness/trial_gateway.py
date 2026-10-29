@@ -9,18 +9,21 @@ from products.tasks.backend.facade.api import mint_private_gateway_token, revoke
 
 
 def create_trial_gateway_token(run: SignalScoutRun) -> str:
-    from products.signals.backend.facade.api import (  # noqa: PLC0415 -- the facade imports report tools
-        is_scout_trial_task_run,
+    from products.signals.backend.scout_harness.trial_launch import (  # noqa: PLC0415 -- launch serialization imports report tools
+        bound_trial_run,
     )
 
     ensure_scout_trial_capture_ready()
     current = SignalScoutRun.objects.for_team(run.team_id).select_related("task_run__task__team").get(id=run.id)
     task_run = current.task_run
     task = task_run.task
+    bound = bound_trial_run(run.team_id, task.id)
     if (
         task.team_id != run.team_id
         or task_run.team_id != run.team_id
-        or not is_scout_trial_task_run(team_id=run.team_id, task_id=task.id, task_run_id=task_run.id)
+        or bound is None
+        or bound.id != current.id
+        or bound.task_run_id != task_run.id
     ):
         raise GatewayNotConfiguredError("Report safety requires a validated scout trial")
     actor = User.objects.filter(

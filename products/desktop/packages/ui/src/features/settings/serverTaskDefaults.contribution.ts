@@ -3,13 +3,8 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import { SERVER_TASK_DEFAULTS_FLAG } from "@posthog/shared";
 import { createAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStore } from "@posthog/ui/features/auth/store";
-import {
-  FEATURE_FLAGS,
-  type FeatureFlags,
-} from "@posthog/ui/features/feature-flags/identifiers";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { logger } from "@posthog/ui/shell/logger";
 import { inject, injectable } from "inversify";
@@ -30,12 +25,9 @@ export class ServerTaskDefaultsContribution implements Contribution {
   constructor(
     @inject(HOST_TRPC_CLIENT)
     private readonly hostClient: HostTrpcClient,
-    @inject(FEATURE_FLAGS)
-    private readonly flags: FeatureFlags,
   ) {}
 
   start(): void {
-    this.flags.onFlagsLoaded(() => void this.reconcile(true));
     useAuthStore.subscribe((state, prev) => {
       if (
         state.authState.currentProjectId !== prev.authState.currentProjectId ||
@@ -58,7 +50,6 @@ export class ServerTaskDefaultsContribution implements Contribution {
   // `fetchAlways` reads the server even when Desktop has nothing new, to pick
   // up a change made on web.
   private async reconcile(fetchAlways: boolean): Promise<void> {
-    if (!this.flags.isEnabled(SERVER_TASK_DEFAULTS_FLAG)) return;
     const settings = useSettingsStore.getState();
     const authState = useAuthStore.getState().authState;
     const projectId = authState.currentProjectId;

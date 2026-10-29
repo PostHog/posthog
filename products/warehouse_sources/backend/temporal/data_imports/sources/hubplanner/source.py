@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HubplannerSource(ResumableSource[HubplannerSourceConfig, HubPlannerResumeConfig]):
+    codebase_detection = detect(env=("^HUBPLANNER_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://github.com/hubplanner/API"
 
@@ -54,7 +57,7 @@ class HubplannerSource(ResumableSource[HubplannerSourceConfig, HubPlannerResumeC
 Generate a **Read Only** API key in Hub Planner under **Settings → API** (admin access required).""",
             iconPath="/static/services/hubplanner.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hubplanner",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

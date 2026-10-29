@@ -105,7 +105,12 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-state_updated_at"],
                 name="et_issue_team_state_idx",
                 condition=models.Q(state_updated_at__isnull=False),
-            )
+            ),
+            models.Index(
+                fields=["team", "-created_at"],
+                name="et_issue_active_created_idx",
+                condition=models.Q(status="active"),
+            ),
         ]
 
     def merge(
@@ -597,10 +602,22 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
     order_key = models.IntegerField(null=False, blank=False)
     # Fraction of matching events to suppress (1.0 = all, 0.5 = half, etc.)
     sampling_rate = models.FloatField(null=False, default=1.0)
+    # Set only on rows that a built-in filter switch manages. Users cannot edit these rows directly.
+    built_in_key = models.CharField(max_length=64, null=True, blank=True)
+    # Hash of the definition filters behind this row, so the refresh workflow finds rows whose definition changed.
+    built_in_hash = models.CharField(max_length=64, null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["team_id"]),
+        ]
+        constraints = [
+            # built_in_key leads so the cross-team refresh of stale rows can use this index too.
+            models.UniqueConstraint(
+                fields=["built_in_key", "team"],
+                condition=models.Q(built_in_key__isnull=False),
+                name="et_supp_rule_built_in_key_uniq",
+            ),
         ]
         db_table = "posthog_errortrackingsuppressionrule"
 
@@ -695,15 +712,6 @@ class ErrorTrackingStackFrame(UUIDTModel):
             # Recent-frames-per-team scans, such as the source maps recommendation. Without
             # created_at in the index, a 24h window has to visit every frame the team ever stored.
             models.Index(fields=["team", "created_at"], name="et_frame_team_created_at_idx"),
-            # Covers the source maps recommendation's count of recent JavaScript frames. The
-            # predicate holds the language test, so Postgres answers the count from the index
-            # and never detoasts the wide `contents` column.
-            models.Index(
-                fields=["team", "created_at"],
-                include=["resolved"],
-                condition=models.Q(contents__lang="javascript"),
-                name="et_frame_team_created_js_idx",
-            ),
         ]
 
         constraints = [
@@ -986,7 +994,7 @@ class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
     enabled = models.BooleanField(default=True)
     triggers = models.JSONField(default=list)  # list of Trigger values
     # Same property-filter shape hog functions store, with the compiled HogQL bytecode
-    # embedded under "bytecode" (see posthog.cdp.filters.compile_filters_bytecode).
+    # embedded under "bytecode" (see products.cdp.backend.filters.compile_filters_bytecode).
     filters = models.JSONField(default=dict, blank=True)
     # Minimum seconds between thread-opening notifications per (alert, issue).
     # Replies into an existing thread are never throttled. 0 disables the throttle.
@@ -1169,3 +1177,24 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
             # Retention cleanup.
             models.Index(fields=["created_at"], name="idx_et_issue_change_created"),
         ]
+
+
+class ErrorTrackingIssueSummary(TeamScopedRootMixin, UUIDModel):
+    """The model-written summary of one issue, generated on first read and served from here after that.
+
+    `input_hash` covers the inputs that make a summary stale, so a read can tell when to regenerate.
+    """
+
+    # db_constraint=False keeps inserts lock-free on posthog_team (a hot table);
+    # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="summary")
+    content = models.JSONField()
+    input_hash = models.CharField(max_length=64)
+    model = models.CharField(max_length=128)
+    generated_at = models.DateTimeField()
+    # When the inputs were last compared with `input_hash`. The regenerate interval runs from here.
+    checked_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "posthog_errortrackingissuesummary"

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CalendarificSource(SimpleSource[CalendarificSourceConfig]):
+    codebase_detection = detect(env=("^CALENDARIFIC_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"
@@ -100,6 +103,7 @@ class CalendarificSource(SimpleSource[CalendarificSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="country",
+                        sync_setting=True,
                         label="Country code",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -109,6 +113,7 @@ class CalendarificSource(SimpleSource[CalendarificSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="year",
+                        sync_setting=True,
                         label="Year",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -118,5 +123,5 @@ class CalendarificSource(SimpleSource[CalendarificSourceConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

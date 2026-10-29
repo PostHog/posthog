@@ -111,6 +111,16 @@ def test_a_page_reaches_the_pipeline_with_its_resume_state_only_when_nothing_wra
     assert events == expected
 
 
+def test_the_resource_says_whether_the_page_handed_on_advanced_the_cursor() -> None:
+    resource = _resource(paged_config(ITEMS, ["items"], total_pages=1), "items", lambda state: None)
+
+    with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
+        advanced = [resource.last_page_advanced_cursor for _page in resource]
+
+    # The last page comes with no next-page state, so a cursor committed then still names it.
+    assert advanced == [True, False]
+
+
 def test_a_safe_point_inside_the_hook_waits_until_the_page_is_handed_on() -> None:
     events: list[Any] = []
 
@@ -195,3 +205,65 @@ def test_a_fan_out_resumed_from_the_state_staged_with_a_page_reads_every_row_onc
     rows.extend(row["id"] for page in resumed for row in page)
 
     assert rows == ["a1", "a2", "b1"]
+
+
+def _two_parents_per_page(parents: str) -> dict[str, list[list[dict[str, Any]]]]:
+    pages = [[{"id": parent} for parent in parents[index : index + 2]] for index in range(0, len(parents), 2)]
+    return {"/parents": pages, **{f"/parents/{parent}/children": [[{"id": f"{parent}1"}]] for parent in parents}}
+
+
+PARENT_PER_PAGE = {
+    "/parents": [[{"id": parent}] for parent in "abcde"],
+    **{f"/parents/{parent}/children": [[{"id": f"{parent}1"}]] for parent in "abcde"},
+}
+POSITIONED_RESOURCES: list[Any] = ["parents", {**FANOUT_RESOURCES[1], "resume_parent_pagination": True}]
+
+
+@pytest.mark.parametrize(
+    "stop_after_rows,deleted_before_resume",
+    [(1, ""), (3, ""), (5, ""), (4, "abc")],
+    ids=["first_page", "second_page", "third_page", "parents_deleted_before_the_saved_page"],
+)
+def test_a_fan_out_that_saves_the_parent_position_reads_every_remaining_parent_once(
+    stop_after_rows: int, deleted_before_resume: str
+) -> None:
+    states: list[Any] = []
+    first = _resource(paged_config(_two_parents_per_page("abcdefgh"), POSITIONED_RESOURCES), "children", states.append)
+    rows: list[str] = []
+    with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
+        for index, page in enumerate(first, start=1):
+            rows.extend(row["id"] for row in page)
+            if index == stop_after_rows:
+                break
+
+    remaining = "".join(parent for parent in "abcdefgh" if parent not in deleted_before_resume)
+    resumed = _resource(
+        paged_config(_two_parents_per_page(remaining), POSITIONED_RESOURCES),
+        "children",
+        lambda _state: None,
+        states[-1],
+    )
+    rows.extend(row["id"] for page in resumed for row in page)
+
+    assert rows == [f"{parent}1" for parent in "abcdefgh"]
+    assert len(states[-1]["completed"]) <= 4
+
+
+def test_a_saved_state_without_a_parent_position_still_skips_its_finished_parents() -> None:
+    states: list[Any] = []
+    listing = {
+        **PARENT_PER_PAGE,
+        "/parents": [[{"id": "z"}], *PARENT_PER_PAGE["/parents"]],
+        "/parents/z/children": [[{"id": "z1"}]],
+    }
+    legacy = {"completed": ["/parents/a/children", "/parents/b/children"], "current": None, "child_state": None}
+    resumed = _resource(paged_config(listing, POSITIONED_RESOURCES), "children", states.append, legacy)
+
+    with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
+        rows = [row["id"] for page in resumed for row in page]
+
+    assert rows == ["z1", "c1", "d1", "e1"]
+    # A parent added at the front is saved before the run reaches the parents the old state finished.
+    assert states[0]["completed"] == ["/parents/a/children", "/parents/b/children"]
+    assert states[-1]["parent"] == {"page": 4}
+    assert states[-1]["completed"] == ["/parents/d/children", "/parents/e/children"]

@@ -143,7 +143,31 @@ describe('BI drill-down', () => {
         expect(queries.rows.source.query).toContain('{filters.previous}')
         expect(queries.rows.source.query).toContain("toStartOfDay({filters.compareDate(timestamp)}) = '2026-06-01'")
         expect(queries.rows.source.query).toContain("event = 'purchase · web'")
-        expect(queries.worksheet).toBeNull()
+        expect(queries.worksheet?.config.comparisonPeriod).toBe('previous')
+        expect(queries.worksheet?.source.query).toContain('{filters.previous}')
+        expect(parseBIEditorState(BIEditorView.BI, queries.worksheet?.config)).not.toBeNull()
+    })
+
+    it('keeps every comparison breakdown, including nulls and separator text, in a filtered worksheet', () => {
+        const node = buildWorksheet({
+            ...config,
+            compareFilter: { compare: true },
+            columns: [field('event'), field('properties.country'), field('properties.browser')],
+        }).node
+        expect(node.source.query).toContain('replaceAll(replaceAll(')
+        const record = getBIChartRecord(
+            node,
+            'bi_row_timestamp',
+            '2026-06-01',
+            'Previous period · purchase\\sweb · (empty) · Firefox'
+        )
+        const selection = getBIDrillSelection(node.config, record)
+        const queries = getBIDrillQueries(node, selection)!
+        expect(selection.filters).toHaveLength(4)
+        expect(queries.worksheet?.source.query).toContain("event = 'purchase · web'")
+        expect(queries.worksheet?.source.query).toContain('properties.country IS NULL')
+        expect(queries.worksheet?.source.query).toContain("properties.browser = 'Firefox'")
+        expect(queries.worksheet?.source.query).not.toContain('UNION ALL')
     })
 
     it('selects the remainder with null-safe membership and removes the top N restriction', () => {

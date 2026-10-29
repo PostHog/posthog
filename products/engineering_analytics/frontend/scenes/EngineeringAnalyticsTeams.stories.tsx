@@ -126,7 +126,7 @@ type Story = StoryObj<typeof meta>
 export const TeamCIHealthRoster: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsTeams(),
+        pageUrl: urls.engineeringAnalyticsTeams('PostHog/posthog'),
         // The friction column appears only after its own request lands, later than the roster rows.
         testOptions: { waitForSelector: '[data-attr="engineering-analytics-teams-friction"]' },
     },
@@ -135,7 +135,7 @@ export const TeamCIHealthRoster: Story = {
 export const TeamCIHealthLoadError: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsTeams(),
+        pageUrl: urls.engineeringAnalyticsTeams('PostHog/posthog'),
         testOptions: { waitForSelector: '.text-danger' },
     },
     decorators: [

@@ -1,19 +1,19 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from uuid import NAMESPACE_URL, uuid5
 
-from django.conf import settings
 from django.contrib.postgres.expressions import ArraySubquery
-from django.db.models import F, Lookup, Q
+from django.db.models import F, Lookup, Q, QuerySet
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
@@ -26,6 +26,8 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportTask,
 )
+from products.signals.backend.report_lifecycle import report_status_filter
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.task_run_artefacts import (
     NON_PR_BEARING_TASK_RUN_TYPES,
     SIGNALS_PRODUCT,
@@ -36,6 +38,8 @@ from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
+_LinkModel = TypeVar("_LinkModel", SignalReportArtefact, SignalReportAssignment, SignalReportTask)
+
 if TYPE_CHECKING:
     from django.db.backends.base.base import BaseDatabaseWrapper
     from django.db.models.sql.compiler import SQLCompiler
@@ -45,7 +49,12 @@ if TYPE_CHECKING:
 # A report in one of these statuses is finished with its pull request. Anything else still holds
 # it open — a status this list doesn't know about keeps the PR, which is the safe direction.
 _FINISHED_REPORT_STATUSES = frozenset(
-    {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
+    {
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.DELETED,
+    }
 )
 
 _PULL_REQUEST_URL_BODY = (
@@ -65,34 +74,69 @@ class _EqualsAny(Lookup):
         return f"{lhs} = ANY({rhs})", (*lhs_params, *rhs_params)
 
 
-def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
+def implementation_pr_report_filter(
+    *, team_id: int, active_only: bool = False, report_ids: Sequence[Any] | None = None
+) -> Q:
+    """Matches the reports with an implementation PR.
+
+    `report_ids` narrows every link subquery to those reports, so a caller that asks about a few
+    reports does not scan the team's links and PR-bearing task runs. The answer for those reports
+    is the same either way.
+    """
+
     # Every branch is a team-scoped subquery on the report id. A join through `assignment` or
     # `pull_request` lets the planner scan every team's rows before it applies the team scope.
-    assignments = SignalReportAssignment.all_teams.filter(team_id=team_id, pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    def for_reports(queryset: QuerySet[_LinkModel]) -> QuerySet[_LinkModel]:
+        return queryset if report_ids is None else queryset.filter(report_id__in=report_ids)
+
+    assignments = for_reports(
+        SignalReportAssignment.all_teams.filter(team_id=team_id, pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    )
     pull_requests = SignalReportPullRequest.objects.for_team(team_id).filter(url__regex=_PULL_REQUEST_URL_PATTERN)
-    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
-        team_id,
+    task_conditions = [
         pr_bearing_task_run_filter(),
         Q(output__pr_url__regex=_PULL_REQUEST_URL_PATTERN) | Q(output__pr_urls__regex=_PULL_REQUEST_URL_ARRAY_PATTERN),
-    )
+    ]
+    if report_ids is not None:
+        pull_requests = pull_requests.filter(
+            id__in=SignalReportArtefact.objects.filter(
+                team_id=team_id, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, report_id__in=report_ids
+            ).values("pull_request_id")
+        )
+        task_conditions.append(
+            Q(task_id__in=for_reports(SignalReportArtefact.objects.filter(team_id=team_id)).values("task_id"))
+            | Q(task_id__in=for_reports(SignalReportTask.objects.filter(team_id=team_id)).values("task_id"))
+            | Q(
+                task_id__in=for_reports(SignalReportAssignment.all_teams.filter(team_id=team_id)).values(
+                    "actor_task_id"
+                )
+            )
+        )
+    task_ids = tasks_facade.task_ids_with_pr_url_subquery(team_id, *task_conditions)
     task_run_artefacts = (
-        SignalReportArtefact.objects.filter(
-            team_id=team_id,
-            type=SignalReportArtefact.ArtefactType.TASK_RUN,
-            task_id__in=task_ids,
-            content__regex=rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"',
+        for_reports(
+            SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                task_id__in=task_ids,
+                content__regex=rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"',
+            )
         )
         .exclude(content__regex=rf'"type"\s*:\s*"({"|".join(sorted(NON_PR_BEARING_TASK_RUN_TYPES))})"')
         .values("report_id")
     )
-    legacy_tasks = SignalReportTask.objects.filter(
-        team_id=team_id,
-        task_id__in=task_ids,
-        relationship__in=_PR_BEARING_LEGACY_TASK_RELATIONSHIPS,
+    legacy_tasks = for_reports(
+        SignalReportTask.objects.filter(
+            team_id=team_id,
+            task_id__in=task_ids,
+            relationship__in=_PR_BEARING_LEGACY_TASK_RELATIONSHIPS,
+        )
     ).values("report_id")
-    assignment_tasks = SignalReportAssignment.all_teams.filter(
-        team_id=team_id,
-        actor_task_id__in=task_ids,
+    assignment_tasks = for_reports(
+        SignalReportAssignment.all_teams.filter(
+            team_id=team_id,
+            actor_task_id__in=task_ids,
+        )
     ).values("report_id")
 
     if active_only:
@@ -108,10 +152,12 @@ def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) 
 
     # `pull_request_id IN (subquery)` keeps the cross-team merge join. Only the array form makes
     # Postgres probe `signals_artefact_pr_report_idx` with this team's PR ids.
-    pull_request_links = SignalReportArtefact.objects.filter(
-        _EqualsAny(F("pull_request_id"), ArraySubquery(pull_requests.values("id"))),
-        team_id=team_id,
-        type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+    pull_request_links = for_reports(
+        SignalReportArtefact.objects.filter(
+            _EqualsAny(F("pull_request_id"), ArraySubquery(pull_requests.values("id"))),
+            team_id=team_id,
+            type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+        )
     ).values("report_id")
 
     return (
@@ -340,7 +386,7 @@ def implementation_pr_needed_by_another_report(*, team_id: int, report_id: str, 
             ),
         )
         .exclude(id=report_id)
-        .exclude(status__in=_FINISHED_REPORT_STATUSES)
+        .exclude(report_status_filter(_FINISHED_REPORT_STATUSES, team_id=team_id))
         .exists()
     )
 
@@ -439,7 +485,9 @@ def _close_implementation_pr(
             )
             return False
 
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+        )
         if github is None:
             logger.info(
                 "close_implementation_pr_no_integration", report_id=str(report_id), repository=parsed.repository
@@ -481,7 +529,7 @@ def _close_implementation_pr(
             return False
         comment = _pr_close_comment(
             reason,
-            report_link=f"[linked PostHog report]({settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id})",
+            report_link=f"[linked PostHog report]({build_report_url(team_id, report_id, ReportLinkSource.GITHUB_PR)})",
             actor_mention=github_mention_for_user(actor_user_id),
             replacement_pr_url=replacement_pr_url,
         )

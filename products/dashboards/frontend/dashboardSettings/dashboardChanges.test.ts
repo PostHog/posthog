@@ -9,6 +9,17 @@ import {
 } from './dashboardChanges'
 
 describe('getDashboardFilterChanges', () => {
+    it('lists a changed metric variable selection', () => {
+        expect(
+            getDashboardFilterChanges(
+                { metricVariables: [{ name: 'job', source: 'custom', current: { values: ['api'] } }] },
+                { metricVariables: [{ name: 'job', source: 'custom', current: { values: ['api', 'web'], all: true } }] }
+            )
+        ).toEqual([
+            { label: 'Metric variables', previousValue: ['$job = api'], value: ['$job = All'], status: 'changed' },
+        ])
+    })
+
     it('lists new, changed, and removed property filters with their values', () => {
         expect(
             getDashboardFilterChanges(
@@ -97,6 +108,7 @@ describe('getDashboardFilterChanges', () => {
         ['interval', { interval: null }],
         ['test accounts', { filterTestAccounts: null }],
         ['breakdown', { breakdown_filter: null }],
+        ['compare', { compareFilter: null }],
     ])('reports no change when %s returns to inherit', (_name, reverted) => {
         expect(getDashboardFilterChanges({}, reverted)).toEqual([])
     })
@@ -141,6 +153,24 @@ describe('getDashboardFilterChanges', () => {
     it('lists a switch from excluded to included test accounts', () => {
         expect(getDashboardFilterChanges({ filterTestAccounts: true }, { filterTestAccounts: false })).toEqual([
             { label: 'Test accounts', previousValue: ['Excluded'], value: ['Included'], status: 'changed' },
+        ])
+    })
+
+    it.each([
+        ['forces no comparison', { compare: false }, 'No comparison'],
+        ['forces the previous period', { compare: true }, 'Previous period'],
+        ['forces a custom rolling range', { compare: true, compare_to: '-1m' }, '1 month earlier'],
+    ])('describes a compare filter that %s', (_name, compareFilter, expectedValue) => {
+        expect(getDashboardFilterChanges({}, { compareFilter })).toEqual([
+            { label: 'Compare', previousValue: [], value: [expectedValue], status: 'new' },
+        ])
+    })
+
+    it('lists a switch from no comparison to the previous period', () => {
+        expect(
+            getDashboardFilterChanges({ compareFilter: { compare: false } }, { compareFilter: { compare: true } })
+        ).toEqual([
+            { label: 'Compare', previousValue: ['No comparison'], value: ['Previous period'], status: 'changed' },
         ])
     })
 

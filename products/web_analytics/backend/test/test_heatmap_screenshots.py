@@ -628,7 +628,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
 
-    @patch("products.web_analytics.backend.api.heatmaps_api.MAX_CAPTURE_IMAGE_PIXELS", 100)
+    @patch("products.web_analytics.backend.api.heatmaps_utils.MAX_CAPTURE_IMAGE_PIXELS", 100)
     def test_capture_rejects_oversized_dimensions(self, _mock_task: MagicMock) -> None:
         resp = self._capture()
         self.assertEqual(resp.status_code, 400)

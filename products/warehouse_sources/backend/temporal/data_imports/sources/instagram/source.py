@@ -1,9 +1,11 @@
+from datetime import date
 from typing import Optional, cast
 
 import structlog
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, INSTAGRAM_OAUTH_SCOPE, InstagramIntegration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -13,7 +15,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -54,11 +60,14 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class InstagramSource(ResumableSource[InstagramSourceConfig, InstagramResumeConfig], OAuthMixin):
+    codebase_detection = detect(env=("^INSTAGRAM_",))
+
     api_docs_url = "https://developers.facebook.com/docs/instagram-platform"
     # Meta pins the Graph API by URL path segment and keeps each version alive for
     # roughly two years, so the pin is a real choice rather than a constant.
     supported_versions = ("v22.0", "v23.0", "v26.0")
     default_version = "v26.0"
+    deprecated_versions = (VersionDeprecation(version="v22.0", sunset_at=date(2027, 5, 20)),)
 
     lists_tables_without_credentials = True
 
@@ -78,7 +87,7 @@ Connect your Instagram account, then pick the professional account you want to s
             iconPath="/static/services/instagram.png",
             docsUrl="https://posthog.com/docs/cdp/sources/instagram",
             keywords=["ig", "meta", "social"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             featureFlag="dwh-instagram",
             fields=cast(
                 list[FieldType],
@@ -107,6 +116,7 @@ Connect your Instagram account, then pick the professional account you want to s
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -134,6 +144,13 @@ Connect your Instagram account, then pick the professional account you want to s
             # Retrying can't bring the row back; only reconnecting can.
             "Integration not found": (
                 "The Instagram connection for this source no longer exists. Reconnect your Instagram account."
+            ),
+            # Meta's code 100 catch-all for a GET on a node the token can no longer reach — the
+            # account was unlinked from its page, the post was deleted, or a permission was
+            # revoked without tripping one of the auth/permission codes above.
+            "does not exist, cannot be loaded due to missing permissions, or does not support this operation": (
+                "Instagram could not find the account or content this sync needs. Reconnect your Instagram "
+                "account and confirm it's still linked to the page you authorized."
             ),
         }
 

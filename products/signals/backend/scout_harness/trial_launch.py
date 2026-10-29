@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models import Team, User
 from posthog.storage import object_storage
+from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_scope_posture
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
@@ -40,7 +41,6 @@ from products.tasks.backend.facade.run_config import (
 
 MAX_TRIAL_LAUNCH_BYTES = 16 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
-SCOUT_TRIAL_TASK_STATE_KEY = "scout_trial"
 
 
 class ScoutTrialLaunchError(ValueError):
@@ -251,7 +251,14 @@ def assert_trial_model_access(launch: TrialLaunch) -> None:
 def assert_trial_capabilities_supported(config: SignalScoutConfig, skill: LoadedSkill) -> None:
     if not skill_uses_report_channel(skill.allowed_tools):
         raise ScoutTrialLaunchError("Live trials support scouts that create or edit reports.")
-    if config.structured_output_schema or config.write_scopes or config.mcp_gateway_server_ids:
+    # Trials run without any grant, which costs a scout that holds only the default grant nothing it
+    # needs to be compared: its notebook is a write-up of a report, and the report is what is judged.
+    granted_writes = scout_scope_posture("signals_scout", config.write_scopes)["extra_write_scopes"]
+    if (
+        config.structured_output_schema
+        or set(granted_writes) - SCOUT_DEFAULT_WRITE_SCOPES
+        or config.mcp_gateway_server_ids
+    ):
         raise ScoutTrialLaunchError("This scout requires writes or external tools that live trials do not support yet.")
 
 
@@ -461,9 +468,22 @@ def create_trial_launch(
 def bound_trial_run(team_id: int, task_id: UUID | str | None) -> SignalScoutRun | None:
     if task_id is None:
         return None
-    return (
+    run = (
         SignalScoutRun.objects.for_team(team_id)
-        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
-        .select_related("task_run")
+        .filter(
+            task_run__task_id=task_id,
+            task_run__team_id=team_id,
+            task_run__task__team_id=team_id,
+            task_run__task__deleted=False,
+            task_run__task__origin_product="signals_scout",
+            metadata__scout_trial__version=1,
+        )
+        .select_related("task_run__task")
         .first()
     )
+    if run is None or run.metadata is None:
+        return None
+    launch_id = run.metadata["scout_trial"].get("launch_id")
+    if not isinstance(launch_id, str) or run.task_run.task.origin_key != f"scout-trial:{launch_id}":
+        return None
+    return run

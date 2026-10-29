@@ -2,8 +2,9 @@ import { BIConfig, BIField, BITableCalculation, BIValue } from '~/queries/schema
 import { escapeHogQLString, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-import { biComparisonCategory } from './biComparison'
+import { biComparisonSeries } from './biComparison'
 import { limitBIComparisonQuery } from './biComparisonLimit'
+import { isBIPivotTable } from './biTableLayout'
 import { buildBIFilledPeriod, getBIMissingDatesDisabledReason } from './biTimeSeries'
 
 export const BI_TABLE_CALCULATIONS: { value: BITableCalculation['type']; label: string }[] = [
@@ -80,7 +81,7 @@ export interface BIAnalysisInput {
 
 export function hasBIAnalysis(config: BIConfig): boolean {
     return (
-        config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+        isBIPivotTable(config) ||
         (!!config.missingDates && !getBIMissingDatesDisabledReason(config)) ||
         !!config.topN ||
         !!config.resultFilters?.length ||
@@ -139,7 +140,7 @@ function groupingSets(config: BIConfig, input: BIAnalysisInput): string[][] {
     if (![ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap].includes(config.chartType)) {
         return sets
     }
-    const pivot = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const pivot = isBIPivotTable(config)
     if (pivot && config.totals?.rows) {
         sets.push(rows)
     }
@@ -178,7 +179,7 @@ function groupingSets(config: BIConfig, input: BIAnalysisInput): string[][] {
 
 export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): string {
     const dimensions = [...input.rows, ...input.columns]
-    const pivot = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const pivot = isBIPivotTable(config)
     const ctes: string[] = []
     const topMeasure = config.values.length
         ? input.measures.find((measure) => measure.value === config.values[config.topN?.measureIndex ?? 0])
@@ -275,9 +276,13 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
             dimensions.find((dimension) => ['date', 'datetime'].includes(dimension.field.type)) ??
             input.columns[0] ??
             input.rows[0]
-        const breakdown = dimensions.find((dimension) => dimension !== xDimension)
         select.push(
-            `${breakdown ? `concat(bi_period, ' · ', ${biComparisonCategory(displayed[dimensions.indexOf(breakdown)])})` : 'bi_period'} AS bi_comparison`
+            `${biComparisonSeries(
+                'bi_period',
+                dimensions
+                    .filter((dimension) => dimension !== xDimension)
+                    .map((dimension) => displayed[dimensions.indexOf(dimension)])
+            )} AS bi_comparison`
         )
     }
     let order = input.orderBy

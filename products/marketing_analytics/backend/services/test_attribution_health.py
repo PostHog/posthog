@@ -1,19 +1,22 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
 from products.marketing_analytics.backend.services.attribution_health import (
     HOGQL_GROUP_LIMIT,
+    AttributionHealthResponse,
     _suggest_integration_by_alias_token,
     _UtmRow,
     get_attribution_health,
@@ -552,3 +555,35 @@ class TestAttributionHealthFutureTimestampClickhouse(ClickhouseTestMixin, BaseTe
         assert response.total_events_with_utm == 1
         assert google.last_event_with_matching_utm_at is not None
         assert google.last_event_with_matching_utm_at <= timezone.now()
+
+
+class TestSourceScanCache(SimpleTestCase):
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+    def test_cached_scan_refresh_and_project_isolation(self) -> None:
+        team = Mock(spec=Team, pk=101)
+        other_team = Mock(spec=Team, pk=102)
+        with patch(
+            "products.marketing_analytics.backend.services.attribution_health.execute_hogql_query",
+            return_value=SimpleNamespace(results=[["facebook", 12, None, 0, 0, 0]]),
+        ) as query:
+
+            def scan(project: Team, *, refresh: bool = False) -> AttributionHealthResponse:
+                return async_to_sync(get_attribution_health)(
+                    project, custom_source_mappings={}, cache_scan=True, refresh_scan=refresh
+                )
+
+            assert scan(team).total_events_with_utm == 12
+            query.return_value = SimpleNamespace(results=[["facebook", 24, None, 0, 0, 0]])
+            assert scan(team).total_events_with_utm == 12
+            assert query.call_count == 1
+            assert scan(team, refresh=True).total_events_with_utm == 12
+            assert query.call_count == 1
+            with time_machine.travel(timezone.now() + timedelta(hours=1, seconds=1)):
+                assert scan(team, refresh=True).total_events_with_utm == 24
+            assert query.call_count == 2
+            assert scan(other_team).total_events_with_utm == 24
+            assert query.call_count == 3
+            query.return_value = SimpleNamespace(results=[["facebook", 36, None, 0, 0, 0]])
+            with time_machine.travel(timezone.now() + timedelta(days=8)):
+                assert scan(team).total_events_with_utm == 36
+            assert query.call_count == 4

@@ -6,6 +6,7 @@ import {
     signedClientIpHeaders,
 } from '@/lib/client-ip-signature'
 import { env } from '@/lib/env'
+import { findPostHogPermissionError } from '@/lib/errors'
 import type { CloudRegion } from '@/tools/types'
 
 const MCP_HONO_US_URL = 'https://mcp.us.posthog.com'
@@ -13,20 +14,19 @@ const MCP_HONO_EU_URL = 'https://mcp.eu.posthog.com'
 
 const KV_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
 
-type ResolvedUser = { distinctId: string; region: CloudRegion }
-
-async function resolveUser(
+async function resolveRegion(
     token: string,
     userHash: string,
     kv: KVNamespace | undefined
-): Promise<ResolvedUser | undefined> {
+): Promise<CloudRegion | undefined> {
     if (kv) {
-        const [distinctId, region] = await Promise.all([
-            kv.get(`${userHash}:distinct_id`),
-            kv.get(`${userHash}:region`),
-        ])
-        if (distinctId && region) {
-            return { distinctId, region: region as CloudRegion }
+        try {
+            const region = await kv.get(`${userHash}:region`)
+            if (region) {
+                return region as CloudRegion
+            }
+        } catch (err) {
+            console.error('[MCP proxy] error reading cached region:', err)
         }
     }
 
@@ -42,21 +42,29 @@ async function resolveUser(
         new ApiClient({ apiToken: token, baseUrl: euBase }).users().me(),
     ])
 
-    let resolved: ResolvedUser | undefined
+    // Only the home region answers 403 (token known, `user:read` missing). The other region answers
+    // 401, which would make the client refresh a valid token forever.
+    let region: CloudRegion | undefined
     if (usResult.success) {
-        resolved = { distinctId: usResult.data.distinct_id, region: 'us' }
+        region = 'us'
     } else if (euResult.success) {
-        resolved = { distinctId: euResult.data.distinct_id, region: 'eu' }
+        region = 'eu'
+    } else if (findPostHogPermissionError(usResult.error)) {
+        region = 'us'
+    } else if (findPostHogPermissionError(euResult.error)) {
+        region = 'eu'
     }
 
-    if (resolved && kv) {
-        await Promise.all([
-            kv.put(`${userHash}:distinct_id`, resolved.distinctId, { expirationTtl: KV_TTL_SECONDS }),
-            kv.put(`${userHash}:region`, resolved.region, { expirationTtl: KV_TTL_SECONDS }),
-        ])
+    if (region && kv) {
+        // A failed cache write must not discard the region the probes resolved.
+        try {
+            await kv.put(`${userHash}:region`, region, { expirationTtl: KV_TTL_SECONDS })
+        } catch (err) {
+            console.error('[MCP proxy] error caching region:', err)
+        }
     }
 
-    return resolved
+    return region
 }
 
 function getHonoTargetUrl(region: CloudRegion): string {
@@ -72,9 +80,9 @@ export async function resolveProxyRegion(
     kv: KVNamespace | undefined
 ): Promise<CloudRegion> {
     try {
-        const user = await resolveUser(token, userHash, kv)
-        if (user) {
-            return user.region
+        const region = await resolveRegion(token, userHash, kv)
+        if (region) {
+            return region
         }
         console.info('[MCP proxy] could not resolve user region, defaulting to us')
     } catch (err) {

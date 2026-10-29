@@ -4,11 +4,19 @@ import { useState } from 'react'
 import { IconBell } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { AccountsEvents } from '../Accounts/constants'
+import { QuillTaskDigestButton } from './QuillTaskDigestButton'
 import { TaskDigestModal } from './TaskDigestModal'
 
 export function TaskDigestButton(): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillTaskDigestButton />
+    }
 
     return (
         <>

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 72 enabled ops
+ * PostHog API - MCP 73 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -113,6 +113,7 @@ export const AccountsListParams = () => zod.object({
         ),
 })
 
+export const accountsListQueryInactiveLastDefault = false
 export const accountsListQueryIncludeChurnedDefault = false
 export const accountsListQueryIncludeIgnoredDefault = false
 
@@ -121,6 +122,12 @@ export const AccountsListQueryParams = () => zod.object({
         .boolean()
         .optional()
         .describe('When true, returns only accounts where no user actively holds any relationship.'),
+    inactive_last: zod
+        .boolean()
+        .default(accountsListQueryInactiveLastDefault)
+        .describe(
+            'When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.'
+        ),
     include_churned: zod
         .boolean()
         .default(accountsListQueryIncludeChurnedDefault)
@@ -216,6 +223,12 @@ export const AccountsCreateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -434,6 +447,12 @@ export const AccountsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -1054,8 +1073,6 @@ export const customerTasksPartialUpdateBodyNameMax = 400
 
 export const CustomerTasksPartialUpdateBody = () => zod.object({
     account_id: zod.string().nullish().describe('UUID of a visible account, or null to remove the account link.'),
-    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
-    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
     due_at: zod.iso
         .datetime({ offset: true })
@@ -1070,6 +1087,8 @@ export const CustomerTasksPartialUpdateBody = () => zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
 })
 
 export const CustomerTasksActivitiesListParams = () => zod.object({
@@ -1726,6 +1745,24 @@ export const FeatureRequestsHistoryListParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const FeatureRequestsLinkGithubCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FeatureRequestsLinkGithubCreateBody = () => zod.object({
+    integration_id: zod.number().min(1).describe('GitHub integration ID connected to this project.'),
+    issue_url: zod.url().describe('GitHub issue URL. Pull request URLs are not supported.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
 })
 
 export const FeatureRequestsRemoveEvidenceCreateParams = () => zod.object({

@@ -380,9 +380,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def publish_instructions(self, request, pk=None, **kwargs):
         sandbox_task_id = self._sandbox_task_id(request)
         if sandbox_task_id is not None and not tasks_facade.task_can_publish_channel_instructions(
-            sandbox_task_id, self.team_id, pk
+            sandbox_task_id, self.team_id
         ):
-            raise PermissionDenied("This loop can update only the CONTEXT.md configured for this run.")
+            raise PermissionDenied("This run can't update CONTEXT.md in this project.")
 
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -393,7 +393,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self._user_id(),
                 content=serializer.validated_data["content"],
                 base_version=serializer.validated_data.get("base_version"),
-                # The facade never sees the request, so the loop-vs-person split is set here.
+                # The facade never sees the request, so the agent-vs-person split is set here.
                 source="agent" if sandbox_task_id is not None else "user",
             )
         except tasks_facade.ChannelInstructionsVersionConflictError as err:

@@ -11,6 +11,7 @@ export interface FlagEvaluationsConfig {
     excludedTeams: number[]
     /** Keeps the events writes for teams on FLAG_EVALUATIONS_ONLY. */
     flagEvaluationsOnlyDisabled: boolean
+    routesToRealtimeOnlyEvents: boolean
 }
 
 /**
@@ -31,12 +32,14 @@ export interface FlagEvaluationsConfig {
  * set fails to start at all while the topic is unreachable. Clear the topic too.
  */
 export class FlagEvaluationsService {
+    readonly routesToRealtimeOnlyEvents: boolean
     private isEnabled: ValueMatcher<number>
     private flagEvaluationsOnlyDisabled: boolean
 
     constructor(config: FlagEvaluationsConfig) {
         this.isEnabled = buildTeamGate(config.teams, config.excludedTeams)
         this.flagEvaluationsOnlyDisabled = config.flagEvaluationsOnlyDisabled
+        this.routesToRealtimeOnlyEvents = config.routesToRealtimeOnlyEvents
     }
 
     isEnabledForTeam(teamId: number): boolean {
@@ -57,7 +60,10 @@ export type FlagEvaluationsEnvConfig = Pick<
     | 'INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS'
     | 'INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED'
 > &
-    Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC'>
+    Pick<
+        IngestionOutputsConfig,
+        'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC' | 'INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC'
+    >
 
 /**
  * Builds the flag evaluations service, or undefined when the fork is off. The
@@ -96,5 +102,6 @@ export function createFlagEvaluationsService(envConfig: FlagEvaluationsEnvConfig
         teams,
         excludedTeams,
         flagEvaluationsOnlyDisabled: envConfig.INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED,
+        routesToRealtimeOnlyEvents: envConfig.INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC !== '',
     })
 }

@@ -1,11 +1,12 @@
 from typing import Optional
 
-from unittest.mock import patch
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.awin import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig
 
 
@@ -35,6 +36,7 @@ class TestAwinSourceClass:
 
     @parameterized.expand([("valid", True, True, None), ("invalid", False, False, "Invalid Awin API token")])
     def test_validate_credentials(self, _name: str, api_result: bool, ok: bool, err: Optional[str]) -> None:
-        with patch.object(source_module, "validate_awin_credentials", return_value=api_result):
+        with scripted_network([ScriptedResponse(status=200 if api_result else 401)]) as network:
             result = AwinSource().validate_credentials(AwinSourceConfig(api_token="x"), team_id=1)
         assert result == (ok, err)
+        assert [request.path for request in network.requests_log] == ["/accounts"]

@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class SecureframeEndpointConfig:
     name: str
     path: str
@@ -12,6 +13,9 @@ class SecureframeEndpointConfig:
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style
     # field, which would rewrite partitions on every sync.
     partition_key: Optional[str] = None
+    # Parent endpoints that each own a child list at `{parent path}/{parent id}{path}`. The rows of
+    # every parent kind land in this one table.
+    fanout_parents: tuple[str, ...] = ()
 
 
 # Every list endpoint in the Secureframe public API paginates with `page`/`per_page`
@@ -83,6 +87,29 @@ SECUREFRAME_ENDPOINTS: dict[str, SecureframeEndpointConfig] = {
         name="cloud_resources",
         path="/cloud_resources",
         partition_key="created_at",
+    ),
+    "poam_items": SecureframeEndpointConfig(
+        name="poam_items",
+        path="/poam_items",
+        partition_key="created_at",
+    ),
+    "ssp_policies": SecureframeEndpointConfig(
+        name="ssp_policies",
+        path="/ssp_policies",
+        partition_key="created_at",
+    ),
+    "comments": SecureframeEndpointConfig(
+        name="comments",
+        path="/comments",
+        partition_key="created_at",
+    ),
+    # Secureframe lists framework scopes only per asset, so this fans out over every device, cloud
+    # resource and repository. Each row carries its own asset_type and asset_id.
+    "framework_asset_scopes": SecureframeEndpointConfig(
+        name="framework_asset_scopes",
+        path="/framework_asset_scopes",
+        partition_key="created_at",
+        fanout_parents=("devices", "cloud_resources", "repositories"),
     ),
 }
 

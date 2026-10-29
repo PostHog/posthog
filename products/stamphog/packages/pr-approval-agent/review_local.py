@@ -251,6 +251,8 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
                 }
             )
 
+    review_evidence = [item for item in context.get("review_evidence") or [] if isinstance(item, dict)]
+
     return PRData(
         number=int(pr.get("number") or 0),
         repo=context.get("repo") or "",
@@ -274,6 +276,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
         default_branch=default_branch,
+        review_evidence=review_evidence,
     )
 
 
@@ -653,6 +656,23 @@ def run(context: dict) -> dict:
                     f"{bot_list} still {'have' if len(in_flight) > 1 else 'has'} a review in flight (👀) — "
                     "not approving over an unfinished review. The review re-runs on the next push, or "
                     "re-request one once the reviewer finishes."
+                ),
+                "risk": "unknown",
+                "issues": [],
+            }
+            return pipeline.to_dict()
+
+        # The server waited for these reviews too, so a review still pending here outlasted the
+        # server's budget. Same answer as an in-flight bot: WAIT, never approve over it.
+        if gate_verdict != "DENIED" and (pending := pipeline.pr.pending_review_evidence()):
+            reviewers = " and ".join(str(item.get("reviewer")) for item in pending)
+            verb = "are" if len(pending) > 1 else "is"
+            pipeline.final_verdict = "WAIT"
+            pipeline.reviewer_output = {
+                "verdict": "WAIT",
+                "reasoning": (
+                    f"{reviewers} {verb} still reviewing this commit, so stamphog does not approve yet. "
+                    "The review runs again on the next push, or you can re-request it once that review finishes."
                 ),
                 "risk": "unknown",
                 "issues": [],

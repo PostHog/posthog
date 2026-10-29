@@ -51,6 +51,7 @@ def test_only_the_recorded_thread_resolves_to_the_report(team, channel, thread_t
         integration_id=_integration(team).id,
         channel="CTEAM",
         thread_ts="1700000000.000100",
+        kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
     )
 
     resolved = report_id_for_slack_thread(
@@ -82,6 +83,7 @@ def test_thread_recorded_for_another_teams_report_does_not_resolve(team, boundar
         integration_id=_integration(other_team).id,
         channel="CTEAM",
         thread_ts="1700000000.000100",
+        kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
     )
 
     assert report_id_for_slack_thread(
@@ -110,6 +112,7 @@ def test_re_recording_the_same_thread_keeps_the_first_report(team, second_worksp
             integration_id=integration.id,
             channel="CTEAM",
             thread_ts="1700000000.000100",
+            kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
         )
 
     assert SignalReportSlackThread.objects.for_team(team.id).count() == (1 if second_workspace == "T123" else 2)

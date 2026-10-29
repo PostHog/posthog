@@ -1172,6 +1172,11 @@ class ProductYamlCheck(ProductCheck):
         elif not isinstance(owners, list) or not all(isinstance(o, str) for o in owners):
             result.issues.append("product.yaml 'owners' must be a list of strings")
 
+        # The owners resolver ignores a value that is not a boolean, so a typo here would silently leave the paths
+        # not sensitive.
+        if "sensitive" in data and not isinstance(data["sensitive"], bool):
+            result.issues.append("product.yaml 'sensitive' must be true or false")
+
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         else:
@@ -1270,10 +1275,10 @@ class OrphanedTestFilesCheck(ProductCheck):
     _EXTERNAL_RUNNER_PREFIXES = (
         "dags/",  # ci-dagster.yml: pytest posthog/dags products/**/dags
     )
-    # Per-product exemptions — paths that another workflow targets directly
-    # (e.g. ci-backend.yml's Temporal segment) rather than `backend:test`.
+    # Exempt paths tested outside `backend:test`, including the Temporal tests in
+    # .depot/workflows/ci-backend.yml.
     _PRODUCT_SPECIFIC_EXEMPTIONS = {
-        # ci-backend.yml "Run Temporal tests" step pytest paths:
+        # .depot/workflows/ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
         "warehouse_sources": ("backend/temporal/",),

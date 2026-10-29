@@ -17,6 +17,7 @@ from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties, groups
 
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.error_tracking.backend.presentation.views.issues import AssigneeType
 
 logger = structlog.get_logger(__name__)
 
@@ -58,7 +59,7 @@ class ErrorTrackingGroupingRuleAssigneeIdField(serializers.Field):
 
 class ErrorTrackingGroupingRuleAssigneeRequestSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=["user", "role"],
+        choices=AssigneeType.choices,
         help_text="Assignee type. Use `user` for a user ID or `role` for a role UUID.",
     )
     id = ErrorTrackingGroupingRuleAssigneeIdField(

@@ -8,7 +8,6 @@ import {
   runHogFlow,
   updateHogFlowSchedule,
 } from "@posthog/api-client/hogFlowLoops";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   isLoopShapedHogFlow,
   type LoopHogFlowSource,
@@ -171,9 +170,6 @@ export async function runLoopHogFlow(
   client: ApiClient,
   projectId: string,
   hogFlowId: string,
-): Promise<LoopSchemas.LoopFireRun> {
+): Promise<void> {
   await runHogFlow(client, projectId, hogFlowId, crypto.randomUUID());
-  // The run endpoint queues an invocation; the task it creates only exists
-  // once the workflow step runs, so there is no task id to hand back yet.
-  return { created: true, reason: "created", task_id: null, task_run_id: null };
 }

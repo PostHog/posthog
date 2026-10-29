@@ -1,6 +1,6 @@
 services:
     clickhouse:
-        image: clickhouse/clickhouse-server:26.6.2.158
+        image: ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-aca5bdabb92f
         ulimits:
             nofile:
                 soft: 262144

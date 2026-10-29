@@ -468,6 +468,9 @@ export class ActionMatcher {
             part.uniqueOrder = parts.filter((p) => equal(p.requirements, part.requirements)).length
             parts.push(part)
         }
+        if (parts.some((part) => part.unsatisfiable)) {
+            return false
+        }
         // Matching elements against selector parts
         // Initial base element is the imaginary parent of the outermost known element
         let baseElementIndex = elements.length
@@ -554,15 +557,19 @@ class SelectorPart {
     directDescendant: boolean
     uniqueOrder: number
     requirements: Partial<Element>
+    unsatisfiable: boolean
 
     constructor(tag: string, directDescendant: boolean, escapeSlashes: boolean) {
-        const ATTRIBUTE_SELECTOR_REGEX = /\[(.*)=[\'|\"](.*)[\'|\"]\]/
+        // Non-greedy and quote-balanced, so two attribute selectors on one element are
+        // read as two attributes instead of collapsing into one nonsense key.
+        const ATTRIBUTE_SELECTOR_REGEX = /\[\s*([^\]\s=]+)\s*=\s*(['"])(.*?)\2\s*\]/
         const COLON_SELECTOR_REGEX = /:([A-Za-z-]+)\((\d+)\)/
         const FINAL_TAG_REGEX = /^([A-Za-z0-9]+)/
 
         this.directDescendant = directDescendant
         this.uniqueOrder = 0
         this.requirements = {}
+        this.unsatisfiable = false
 
         let attributeSelector = tag.match(ATTRIBUTE_SELECTOR_REGEX)
         while (attributeSelector) {
@@ -570,24 +577,33 @@ class SelectorPart {
                 tag.slice(0, attributeSelector.index) +
                 tag.slice(attributeSelector.index! + attributeSelector[0].length)
             const attribute = attributeSelector[1].toLowerCase()
+            const attributeValue = attributeSelector[3]
             switch (attribute) {
                 case 'id':
-                    this.requirements.attr_id = attributeSelector[2].toLowerCase()
+                    this.noteConflict(this.requirements.attr_id, attributeValue.toLowerCase())
+                    this.requirements.attr_id = attributeValue.toLowerCase()
                     break
                 case 'href':
-                    this.requirements.href = attributeSelector[2]
+                    this.noteConflict(this.requirements.href, attributeValue)
+                    this.requirements.href = attributeValue
                     break
                 default:
                     if (!this.requirements.attributes) {
                         this.requirements.attributes = {}
                     }
-                    this.requirements.attributes[attribute] = attributeSelector[2]
+                    this.noteConflict(this.requirements.attributes[attribute], attributeValue)
+                    this.requirements.attributes[attribute] = attributeValue
                     break
             }
             attributeSelector = tag.match(ATTRIBUTE_SELECTOR_REGEX)
         }
-        let colonSelector = tag.match(COLON_SELECTOR_REGEX)
-        while (colonSelector) {
+        // The re-match has to sit in the update expression: the `continue`s below would
+        // otherwise skip it, leaving colonSelector truthy while tag shrinks to "".
+        for (
+            let colonSelector = tag.match(COLON_SELECTOR_REGEX);
+            colonSelector;
+            colonSelector = tag.match(COLON_SELECTOR_REGEX)
+        ) {
             tag = tag.slice(0, colonSelector.index) + tag.slice(colonSelector.index! + colonSelector[0].length)
             const parsedArgument = parseInt(colonSelector[2])
             if (!parsedArgument) {
@@ -595,15 +611,16 @@ class SelectorPart {
             }
             switch (colonSelector[1]) {
                 case 'nth-child':
+                    this.noteConflict(this.requirements.nth_child, parsedArgument)
                     this.requirements.nth_child = parsedArgument
                     break
                 case 'nth-of-type':
+                    this.noteConflict(this.requirements.nth_of_type, parsedArgument)
                     this.requirements.nth_of_type = parsedArgument
                     break
                 default:
                     continue // unsupported selector
             }
-            colonSelector = tag.match(COLON_SELECTOR_REGEX)
         }
         if (tag.includes('.')) {
             const classParts = tag.split('.')
@@ -617,6 +634,13 @@ class SelectorPart {
         const finalTag = tag.match(FINAL_TAG_REGEX)
         if (finalTag) {
             this.requirements.tag_name = finalTag[1]
+        }
+    }
+
+    /** No element carries two values for one key, so [type="button"][type="submit"] matches nothing. */
+    private noteConflict(current: string | number | undefined, next: string | number): void {
+        if (current !== undefined && current !== next) {
+            this.unsatisfiable = true
         }
     }
 

@@ -250,14 +250,7 @@ function LatestActivity({ conversation }: { conversation: AccountConversation })
 // Synced emails and support messages are stored as Markdown, with links folded in as `[label](url)` or `<url>`.
 function ConversationMessageContent({ content }: { content: string }): JSX.Element {
     return (
-        <LemonMarkdown
-            className="break-words text-sm"
-            lowKeyHeadings
-            disableImages="all"
-            disableDocsRedirect
-            disableMentions
-            wrapCode
-        >
+        <LemonMarkdown className="break-words text-sm" lowKeyHeadings disableImages="all" disableMentions wrapCode>
             {content}
         </LemonMarkdown>
     )
@@ -336,7 +329,7 @@ function ConversationDetail({
     if (conversation.source === 'slack') {
         return (
             <div className="flex flex-col gap-4 bg-surface-primary p-4">
-                <LemonMarkdown lowKeyHeadings disableImages disableDocsRedirect>
+                <LemonMarkdown lowKeyHeadings disableImages>
                     {conversation.summary.content}
                 </LemonMarkdown>
                 {conversation.summary.messages.length > 0 && (

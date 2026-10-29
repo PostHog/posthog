@@ -1,6 +1,7 @@
 import re
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Response
 
@@ -13,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
     find_values,
@@ -29,7 +33,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.settings import REVERB_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.settings import (
+    PER_PAGE,
+    REVERB_ENDPOINTS,
+    ReverbEndpointConfig,
+)
 
 BASE_URL = "https://api.reverb.com/api"
 
@@ -37,6 +45,8 @@ BASE_URL = "https://api.reverb.com/api"
 # appears embedded in the `_links.line_items.href` URL (e.g. ".../my/payouts/54/line_items").
 # Extract it so payouts have a stable primary key to merge on.
 _PAYOUT_ID_RE = re.compile(r"/my/payouts/(\d+)/line_items")
+# Payments have the same gap: the id only appears in `_links.self.href` (".../my/payments/selling/2").
+_PAYMENT_ID_RE = re.compile(r"/my/payments/selling/(\d+)")
 
 
 @frozen
@@ -64,12 +74,24 @@ def _incremental_window(start_param: str, end_param: str, cursor_path: str) -> I
     }
 
 
-def _inject_payout_id(row: dict[str, Any]) -> dict[str, Any]:
-    href = ((row.get("_links") or {}).get("line_items") or {}).get("href") or ""
-    match = _PAYOUT_ID_RE.search(href)
-    if match:
-        row["id"] = int(match.group(1))
-    return row
+def _inject_id_from_link(link_name: str, pattern: re.Pattern[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _inject(row: dict[str, Any]) -> dict[str, Any]:
+        href = ((row.get("_links") or {}).get(link_name) or {}).get("href") or ""
+        match = pattern.search(href)
+        if match:
+            row["id"] = int(match.group(1))
+        return row
+
+    return _inject
+
+
+_inject_payout_id = _inject_id_from_link("line_items", _PAYOUT_ID_RE)
+_inject_payment_id = _inject_id_from_link("self", _PAYMENT_ID_RE)
+
+_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "Payouts": _inject_payout_id,
+    "Payments": _inject_payment_id,
+}
 
 
 class ReverbPageNumberPaginator(PageNumberPaginator):
@@ -115,7 +137,9 @@ def _client_config(api_token: str, page_size: int, api_version: str) -> ClientCo
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     config = REVERB_ENDPOINTS[name]
-    params: dict[str, Any] = {"per_page": config.page_size}
+    if config.fanout:
+        raise ValueError(f"Fan-out endpoint '{name}' must use the fan-out path")
+    params: dict[str, Any] = {"per_page": config.page_size, **config.params}
 
     endpoint_config: Endpoint = {
         "path": config.path,
@@ -146,6 +170,58 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     }
 
 
+def _fanout_resource(api_token: str, endpoint: str, team_id: int, job_id: str, api_version: str) -> Iterable[Any]:
+    config = REVERB_ENDPOINTS[endpoint]
+    assert config.fanout is not None
+    parent_config = REVERB_ENDPOINTS[config.fanout.parent_name]
+    child_endpoint_extra: Endpoint = (
+        {"data_selector": config.response_key, "paginator": ReverbPageNumberPaginator(page_size=config.page_size)}
+        if config.response_key
+        else {"paginator": "single_page"}
+    )
+    # Parent pagination is not resumable in the framework's fan-out, so this path takes no resume
+    # manager. Both parents are full-refresh listings re-fetched every run.
+    return cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=REVERB_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(api_token, PER_PAGE, api_version),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param=None,
+            parent_endpoint_extra={
+                "data_selector": parent_config.response_key,
+                "paginator": ReverbPageNumberPaginator(page_size=parent_config.page_size),
+            },
+            child_endpoint_extra=child_endpoint_extra,
+            parent_data_map=_ROW_MAPS.get(config.fanout.parent_name),
+        ),
+    )
+
+
+def _source_response(
+    config: ReverbEndpointConfig,
+    items: Callable[[], Iterable[Any]],
+    column_hints: Optional[dict[str, Any]] = None,
+) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        sort_mode=config.sort_mode,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=column_hints,
+    )
+
+
 def reverb_source(
     api_token: str,
     endpoint: str,
@@ -157,6 +233,10 @@ def reverb_source(
     api_version: str,
 ) -> SourceResponse:
     config = REVERB_ENDPOINTS[endpoint]
+
+    if config.fanout:
+        fanout_resource = _fanout_resource(api_token, endpoint, team_id, job_id, api_version)
+        return _source_response(config, lambda: fanout_resource)
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_token, config.page_size, api_version),
@@ -185,21 +265,11 @@ def reverb_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    if endpoint == "Payouts":
-        resource = resource.add_map(_inject_payout_id)
+    row_map = _ROW_MAPS.get(endpoint)
+    if row_map is not None:
+        resource = resource.add_map(row_map)
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        sort_mode=config.sort_mode,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _source_response(config, lambda: resource, resource.column_hints)
 
 
 def validate_credentials(api_token: str, api_version: str) -> tuple[bool, int | None]:

@@ -1,24 +1,26 @@
-from collections.abc import Iterable
+import re
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+import time_machine
+from unittest.mock import patch
 
-import requests_mock
 from requests import HTTPError
 
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptwatch import (
     PromptWatchSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.promptwatch import (
     PromptWatchResumeConfig,
-    promptwatch_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.settings import (
@@ -26,10 +28,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatc
     BASE_URL,
     MAX_PAGES,
     NON_RETRYABLE_ERRORS,
-    PROJECT_ERROR,
     QUOTA_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.source import PromptWatchSource
+
+LOGGER_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.promptwatch.logger"
 
 
 @pytest.fixture
@@ -37,29 +40,16 @@ def config() -> PromptWatchSourceConfig:
     return PromptWatchSourceConfig(api_key="fake-api-key", project_id="test-project", start_date="2026-01-01")
 
 
-@pytest.fixture
-def inputs() -> SourceInputs:
-    return SourceInputs(
-        schema_name="responses",
-        schema_id="schema",
-        source_id="source",
-        team_id=1,
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field="createdAt",
-        incremental_field_type=None,
-        job_id="job",
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
+def run(config: PromptWatchSourceConfig, schema_name: str, script: Any, **kwargs: Any) -> DriveResult:
+    return SourceDriver(PromptWatchSource(), config).run(schema_name, script, **kwargs)
 
 
-@pytest.fixture
-def manager() -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = False
-    return manager
+def incremental_inputs(incremental: bool, watermark: object = None) -> dict[str, Any]:
+    # The driver syncs incrementally whenever it is given a field to sync on.
+    inputs: dict[str, Any] = {"db_incremental_field_last_value": watermark}
+    if incremental:
+        inputs["incremental_field"] = "createdAt"
+    return inputs
 
 
 @pytest.mark.parametrize(
@@ -74,82 +64,89 @@ def manager() -> MagicMock:
 )
 def test_response_requests(
     config: PromptWatchSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
     incremental: bool,
     watermark: str | datetime | None,
     expected: str,
 ) -> None:
-    inputs.should_use_incremental_field = incremental
-    inputs.db_incremental_field_last_value = watermark
-    with requests_mock.Mocker() as mock:
-        mock.get(
-            f"{BASE_URL}/v2/responses",
-            [
-                {"json": {"responses": [{"id": "first"}], "totalPages": 2}},
-                {"json": {"responses": [{"id": "last"}], "totalPages": 2}},
-            ],
-        )
-        response = PromptWatchSource().source_for_pipeline(config, manager, inputs)
-        items = cast(Iterable[list[dict[str, str]]], response.items())
-        assert list(items) == [[{"id": "first"}], [{"id": "last"}]]
-        assert response.sort_mode == "asc"
-        assert len(mock.request_history) == 2
-        for index, request in enumerate(mock.request_history, start=1):
-            assert request.headers["X-API-Key"] == "fake-api-key"
-            assert request.headers["X-Project-Id"] == "test-project"
-            assert request.qs["page"] == [str(index)]
-            assert request.qs["size"] == ["50"]
-            assert request.qs["sortby"] == ["createdat"]
-            assert request.qs["sortorder"] == ["asc"]
-            assert request.qs["from"] == [expected.lower()]
-            assert request.qs["until"] == mock.request_history[0].qs["until"]
-        assert [call.args[0].page for call in manager.save_state.call_args_list] == [2, 0]
+    result = run(
+        config,
+        "responses",
+        [
+            ScriptedResponse(json={"responses": [{"id": "first"}], "totalPages": 2}),
+            ScriptedResponse(json={"responses": [{"id": "last"}], "totalPages": 2}),
+        ],
+        **incremental_inputs(incremental, watermark),
+    )
+
+    assert result.items == [[{"id": "first"}], [{"id": "last"}]]
+    assert result.response is not None
+    assert result.response.sort_mode == "asc"
+    assert len(result.requests) == 2
+    for index, request in enumerate(result.requests, start=1):
+        assert request.headers["x-api-key"] == "fake-api-key"
+        assert request.headers["x-project-id"] == "test-project"
+        assert request.param("page") == str(index)
+        assert request.param("size") == "50"
+        assert request.param("sortBy") == "createdAt"
+        assert request.param("sortOrder") == "asc"
+        assert request.param("from") == expected
+        assert request.param("until") == result.requests[0].param("until")
+    assert [state.page for state in result.saved_states] == [2, 0]
 
 
 @pytest.mark.parametrize(
-    "endpoint,body",
+    "endpoint,body,params",
     [
-        ("prompts", {"prompts": [{"id": "prompt"}], "totalPages": 1}),
-        ("monitors", [{"id": "monitor"}]),
-        ("tags", {"tags": [{"id": "tag"}]}),
-        ("topics", {"topics": [{"id": "topic"}]}),
-        ("personas", {"personas": [{"id": "persona"}]}),
+        ("prompts", {"prompts": [{"id": "prompt"}], "totalPages": 1}, {"sortBy": "createdAt"}),
+        ("monitors", [{"id": "monitor"}], {}),
+        ("tags", {"tags": [{"id": "tag"}]}, {}),
+        ("topics", {"topics": [{"id": "topic"}]}, {}),
+        ("personas", {"personas": [{"id": "persona"}]}, {}),
+        ("models", {"models": [{"id": "model"}], "total": 1}, {"includeDeprecated": "true"}),
+        ("brands", {"brands": [{"id": "brand"}], "total": 1, "totalPages": 1}, {"page": "1", "sortBy": None}),
     ],
 )
-def test_configuration_tables(
-    config: PromptWatchSourceConfig, inputs: SourceInputs, manager: MagicMock, endpoint: str, body: object
-) -> None:
-    inputs.schema_name = endpoint
-    config.project_id = None
-    with requests_mock.Mocker() as mock:
-        mock.get(f"{BASE_URL}/v2/{endpoint}", json=body)
-        pages = list(promptwatch_source(config, inputs, manager, "v2"))
-        assert len(pages) == 1 and len(pages[0]) == 1
-        assert len(mock.request_history) == 1
-        assert "from" not in mock.last_request.qs
-        assert "until" not in mock.last_request.qs
-        assert "X-Project-Id" not in mock.last_request.headers
+def test_configuration_tables(endpoint: str, body: object, params: dict[str, str | None]) -> None:
+    config = PromptWatchSourceConfig(api_key="fake-api-key", start_date="2026-01-01")
+
+    result = run(config, endpoint, [ScriptedResponse(json=body)])
+
+    assert len(result.items) == 1 and len(result.items[0]) == 1
+    assert len(result.requests) == 1
+    assert result.requests[0].path == f"/api/v2/{endpoint}"
+    for name, value in params.items():
+        assert result.requests[0].param(name) == value
+    assert "from" not in result.requests[0].query
+    assert "until" not in result.requests[0].query
+    assert "x-project-id" not in result.requests[0].headers
 
 
 @pytest.mark.parametrize("page", [0, 2])
-def test_resume(config: PromptWatchSourceConfig, inputs: SourceInputs, manager: MagicMock, page: int) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = PromptWatchResumeConfig(
-        page=page, from_date="2026-01-02T00:00:00+00:00", until="2026-01-03T00:00:00+00:00"
+def test_resume(config: PromptWatchSourceConfig, page: int) -> None:
+    result = run(
+        config,
+        "responses",
+        [ScriptedResponse(json={"responses": [{"id": "last"}], "totalPages": 2})],
+        resume_state=PromptWatchResumeConfig(
+            page=page, from_date="2026-01-02T00:00:00+00:00", until="2026-01-03T00:00:00+00:00"
+        ),
+        **incremental_inputs(True, "2026-01-02T12:00:00Z"),
     )
-    inputs.db_incremental_field_last_value = "2026-01-02T12:00:00Z"
-    with requests_mock.Mocker() as mock:
-        mock.get(f"{BASE_URL}/v2/responses", json={"responses": [{"id": "last"}], "totalPages": 2})
-        pages = list(promptwatch_source(config, inputs, manager, "v2"))
-        if page == 0:
-            assert pages == []
-            assert mock.call_count == 0
-        else:
-            assert pages == [[{"id": "last"}]]
-            assert mock.last_request.qs["page"] == ["2"]
-            assert mock.last_request.qs["from"] == ["2026-01-02t00:00:00+00:00"]
-            assert mock.last_request.qs["until"] == ["2026-01-03t00:00:00+00:00"]
+
+    if page == 0:
+        assert result.items == []
+        assert result.requests == []
+    else:
+        assert result.items == [[{"id": "last"}]]
+        assert result.requests[-1].param("page") == "2"
+        assert result.requests[-1].param("from") == "2026-01-02T00:00:00+00:00"
+        assert result.requests[-1].param("until") == "2026-01-03T00:00:00+00:00"
+
+
+def test_a_run_with_no_saved_state_starts_from_the_first_page(config: PromptWatchSourceConfig) -> None:
+    result = run(config, "responses", [ScriptedResponse(json={"responses": [], "totalPages": 0})])
+
+    assert result.requests[0].param("page") == "1"
 
 
 @pytest.mark.parametrize(
@@ -162,37 +159,34 @@ def test_resume(config: PromptWatchSourceConfig, inputs: SourceInputs, manager: 
 )
 def test_empty_and_oversized_tables(
     config: PromptWatchSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
     rows: list[dict[str, str]],
     total_pages: int,
     incremental: bool,
     error: str | None,
     expected_pages: int,
 ) -> None:
-    inputs.should_use_incremental_field = incremental
-    with (
-        requests_mock.Mocker() as mock,
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.promptwatch.promptwatch.logger"
-        ) as logger,
-    ):
-        mock.get(f"{BASE_URL}/v2/responses", json={"responses": rows, "totalPages": total_pages})
-        if error:
-            with pytest.raises(NonReportableError, match=error):
-                list(promptwatch_source(config, inputs, manager, "v2"))
-            assert error in NON_RETRYABLE_ERRORS
-        else:
-            assert list(promptwatch_source(config, inputs, manager, "v2")) == ([rows] * expected_pages if rows else [])
-        assert [request.qs["page"] for request in mock.request_history] == [
-            [str(page)] for page in range(1, expected_pages + 1)
-        ]
-        if total_pages > MAX_PAGES and incremental:
-            logger.warning.assert_called_once_with(
-                "promptwatch.page_cap_reached", maximum_page=MAX_PAGES, total_pages=total_pages
-            )
-        else:
-            logger.warning.assert_not_called()
+    with patch(LOGGER_PATCH) as logger:
+        result = run(
+            config,
+            "responses",
+            lambda _request: ScriptedResponse(json={"responses": rows, "totalPages": total_pages}),
+            **incremental_inputs(incremental),
+        )
+
+    if error:
+        assert isinstance(result.raised, NonReportableError)
+        assert re.search(error, str(result.raised))
+        assert error in NON_RETRYABLE_ERRORS
+    else:
+        assert result.raised is None
+        assert result.items == ([rows] * expected_pages if rows else [])
+    assert result.params("page") == [str(page) for page in range(1, expected_pages + 1)]
+    if total_pages > MAX_PAGES and incremental:
+        logger.warning.assert_called_once_with(
+            "promptwatch.page_cap_reached", maximum_page=MAX_PAGES, total_pages=total_pages
+        )
+    else:
+        logger.warning.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -201,8 +195,6 @@ def test_empty_and_oversized_tables(
         (200, {"valid": True, "project": {"id": "test-project"}}, None),
         (200, {"valid": False}, AUTH_ERROR),
         (200, {"valid": True, "project": None}, "Enter a project ID when you use an organization API key."),
-        (401, {"message": "Invalid API key"}, AUTH_ERROR),
-        (403, {"message": "Forbidden"}, PROJECT_ERROR),
         (
             429,
             {
@@ -215,19 +207,21 @@ def test_empty_and_oversized_tables(
 def test_credential_validation(
     config: PromptWatchSourceConfig, status: int, body: dict[str, object], message: str | None
 ) -> None:
-    with requests_mock.Mocker() as mock:
-        mock.get(f"{BASE_URL}/v2/auth/validate", status_code=status, json=body)
+    with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
         assert validate_credentials(config, "v2") == (message is None, message)
-        assert mock.call_count == 1
-        assert mock.last_request.headers["X-API-Key"] == "fake-api-key"
-        assert mock.last_request.headers["X-Project-Id"] == "test-project"
+
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.url == f"{BASE_URL}/v2/auth/validate"
+    assert request.headers["x-api-key"] == "fake-api-key"
+    assert request.headers["x-project-id"] == "test-project"
 
 
 def test_invalid_date(config: PromptWatchSourceConfig) -> None:
     config.start_date = "not-a-date"
-    with requests_mock.Mocker() as mock:
+    with scripted_network([]) as network:
         assert validate_credentials(config, "v2") == (False, "Enter the response start date in YYYY-MM-DD format.")
-        assert mock.call_count == 0
+    assert network.requests_log == []
 
 
 @pytest.mark.parametrize(
@@ -240,61 +234,201 @@ def test_invalid_date(config: PromptWatchSourceConfig) -> None:
         (500, {"error": "Internal Server Error"}, True),
     ],
 )
-def test_error_classification(
-    config: PromptWatchSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    status: int,
-    body: dict[str, str],
-    retry: bool,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(RESTClient._send_request.retry, "wait", lambda _: 0)  # type: ignore[attr-defined]
-    with requests_mock.Mocker() as mock:
-        mock.get(
-            f"{BASE_URL}/v2/responses",
-            [
-                {"status_code": status, "json": body},
-                {"json": {"responses": [], "totalPages": 0}},
-            ],
-        )
-        if retry:
-            list(promptwatch_source(config, inputs, manager, "v2"))
-            assert mock.call_count == 2
-        else:
-            with pytest.raises((HTTPError, NonReportableError)) as exc:
-                list(promptwatch_source(config, inputs, manager, "v2"))
-            assert any(pattern in str(exc.value) for pattern in PromptWatchSource().get_non_retryable_errors())
-            assert mock.call_count == 1
+def test_error_classification(config: PromptWatchSourceConfig, status: int, body: dict[str, str], retry: bool) -> None:
+    result = run(
+        config,
+        "responses",
+        [
+            ScriptedResponse(status=status, json=body),
+            ScriptedResponse(json={"responses": [], "totalPages": 0}),
+        ],
+        **incremental_inputs(True),
+    )
+
+    if retry:
+        assert result.raised is None
+        assert len(result.requests) == 2
+    else:
+        assert isinstance(result.raised, HTTPError | NonReportableError)
+        assert any(pattern in str(result.raised) for pattern in PromptWatchSource().get_non_retryable_errors())
+        assert len(result.requests) == 1
 
 
 @pytest.mark.parametrize("total_pages", [None, "2", -1, True])
-def test_invalid_pagination(
-    config: PromptWatchSourceConfig, inputs: SourceInputs, manager: MagicMock, total_pages: object
-) -> None:
-    with requests_mock.Mocker() as mock:
-        mock.get(f"{BASE_URL}/v2/responses", json={"responses": [{"id": "record"}], "totalPages": total_pages})
-        with pytest.raises(ValueError, match="invalid pagination metadata"):
-            list(promptwatch_source(config, inputs, manager, "v2"))
-        assert mock.call_count == 1
+def test_invalid_pagination(config: PromptWatchSourceConfig, total_pages: object) -> None:
+    result = run(
+        config,
+        "responses",
+        [ScriptedResponse(json={"responses": [{"id": "record"}], "totalPages": total_pages})],
+        **incremental_inputs(True),
+    )
+
+    assert isinstance(result.raised, ValueError)
+    assert "invalid pagination metadata" in str(result.raised)
+    assert len(result.requests) == 1
 
 
 @pytest.mark.parametrize("status", [200, 429])
-def test_malformed_response_retries(
-    config: PromptWatchSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    status: int,
-    monkeypatch: pytest.MonkeyPatch,
+def test_malformed_response_retries(config: PromptWatchSourceConfig, status: int) -> None:
+    result = run(
+        config,
+        "responses",
+        [
+            ScriptedResponse(status=status, body=b'{"responses":'),
+            ScriptedResponse(json={"responses": [], "totalPages": 0}),
+        ],
+        **incremental_inputs(True),
+    )
+
+    assert result.raised is None
+    assert len(result.requests) == 2
+
+
+def citation(url_id: str) -> dict[str, Any]:
+    return {"url": {"id": url_id, "url": f"https://{url_id}.example.com", "domain": {"domainName": "example.com"}}}
+
+
+@time_machine.travel(datetime(2026, 5, 10, 15, tzinfo=UTC), tick=False)
+def test_grouped_citations(config: PromptWatchSourceConfig) -> None:
+    result = run(
+        config,
+        "grouped_citations",
+        [
+            ScriptedResponse(json={"data": [citation("a")], "pagination": {"totalPages": 2}}),
+            ScriptedResponse(json={"data": [citation("b")], "pagination": {"totalPages": 2}}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [row["urlId"] for row in result.rows] == ["a", "b"]
+    assert result.rows[0]["url"]["url"] == "https://a.example.com"
+    assert result.response is not None
+    assert result.response.primary_keys == ["urlId"]
+    assert result.response.sort_mode is None
+    assert result.paths == ["/api/v2/citations/grouped"] * 2
+    assert result.params("page") == ["1", "2"]
+    assert result.params("startDate") == ["2026-02-08"] * 2
+    assert result.params("endDate") == ["2026-05-10"] * 2
+    assert result.params("sortBy") == ["count"] * 2
+    assert result.params("sortOrder") == ["desc"] * 2
+    assert "from" not in result.requests[0].query
+    assert [state.page for state in result.saved_states] == [2, 0]
+
+
+def test_grouped_citations_resume_keeps_the_saved_window(config: PromptWatchSourceConfig) -> None:
+    result = run(
+        config,
+        "grouped_citations",
+        [ScriptedResponse(json={"data": [citation("b")], "pagination": {"totalPages": 2}})],
+        resume_state=PromptWatchResumeConfig(page=2, from_date="2026-01-01", until="2026-04-01"),
+    )
+
+    assert [row["urlId"] for row in result.rows] == ["b"]
+    assert result.params("page") == ["2"]
+    assert result.params("startDate") == ["2026-01-01"]
+    assert result.params("endDate") == ["2026-04-01"]
+
+
+@pytest.mark.parametrize(
+    "endpoint,body,error",
+    [
+        ("grouped_citations", {"data": [citation("a")], "pagination": {"totalPages": MAX_PAGES + 1}}, None),
+        ("brands", {"brands": [{"id": "brand"}], "total": 2000, "totalPages": MAX_PAGES + 1}, "PROMPTWATCH_ROW_LIMIT"),
+        ("grouped_citations", {"data": [citation("a")], "pagination": {}}, "invalid pagination metadata"),
+        ("grouped_citations", {"data": [citation("a")], "pagination": None}, "invalid pagination metadata"),
+    ],
+)
+def test_page_limits_for_new_tables(
+    config: PromptWatchSourceConfig, endpoint: str, body: dict[str, Any], error: str | None
 ) -> None:
-    monkeypatch.setattr(RESTClient._send_request.retry, "wait", lambda _: 0)  # type: ignore[attr-defined]
-    with requests_mock.Mocker() as mock:
-        mock.get(
-            f"{BASE_URL}/v2/responses",
-            [
-                {"status_code": status, "text": '{"responses":'},
-                {"json": {"responses": [], "totalPages": 0}},
-            ],
+    with patch(LOGGER_PATCH) as logger:
+        result = run(config, endpoint, lambda _request: ScriptedResponse(json=body))
+
+    if error:
+        assert result.raised is not None
+        assert error in str(result.raised)
+        assert len(result.requests) == 1
+    else:
+        assert result.raised is None
+        assert result.params("page") == [str(page) for page in range(1, MAX_PAGES + 1)]
+        logger.warning.assert_called_once_with(
+            "promptwatch.page_cap_reached", maximum_page=MAX_PAGES, total_pages=MAX_PAGES + 1
         )
-        list(promptwatch_source(config, inputs, manager, "v2"))
-        assert mock.call_count == 2
+
+
+def visitor_body(dates: list[str], series: dict[str, list[int]]) -> dict[str, Any]:
+    return {"dates": dates, "series": [{"name": name, "data": data} for name, data in series.items()]}
+
+
+@time_machine.travel(datetime(2026, 5, 10, 15, tzinfo=UTC), tick=False)
+@pytest.mark.parametrize(
+    "incremental,watermark,windows",
+    [
+        (False, None, [("2026-03-12", "2026-05-10")]),
+        (True, None, [("2026-03-12", "2026-05-10")]),
+        (False, "2026-05-08", [("2026-03-12", "2026-05-10")]),
+        (True, "2026-05-08", [("2026-05-07", "2026-05-10")]),
+        (True, datetime(2026, 5, 8, 0, tzinfo=UTC), [("2026-05-07", "2026-05-10")]),
+        (True, "2026-05-12", []),
+        (
+            True,
+            "2026-01-01",
+            [("2025-12-31", "2026-02-28"), ("2026-03-01", "2026-04-29"), ("2026-04-30", "2026-05-10")],
+        ),
+    ],
+)
+def test_visitor_trend_windows(
+    config: PromptWatchSourceConfig,
+    incremental: bool,
+    watermark: str | datetime | None,
+    windows: list[tuple[str, str]],
+) -> None:
+    result = run(
+        config,
+        "visitor_trends",
+        lambda _request: ScriptedResponse(json=visitor_body([], {})),
+        **incremental_inputs(incremental, watermark),
+    )
+
+    assert result.raised is None
+    assert result.rows == []
+    assert result.paths == ["/api/v2/analytics/visitors/trend"] * len(windows)
+    assert list(zip(result.params("startDate"), result.params("endDate"))) == windows
+    assert result.params("timezone") == ["UTC"] * len(windows)
+
+
+@time_machine.travel(datetime(2026, 3, 15, 15, tzinfo=UTC), tick=False)
+def test_visitor_trend_rows(config: PromptWatchSourceConfig) -> None:
+    result = run(
+        config,
+        "visitor_trends",
+        [
+            ScriptedResponse(
+                json=visitor_body(["2026-03-14", "2026-03-15"], {"chatgpt.com": [620, 655], "claude.ai": [0, 12]})
+            )
+        ],
+        **incremental_inputs(True, "2026-03-15"),
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"date": "2026-03-14", "referrer": "chatgpt.com", "visitors": 620},
+        {"date": "2026-03-15", "referrer": "chatgpt.com", "visitors": 655},
+        {"date": "2026-03-14", "referrer": "claude.ai", "visitors": 0},
+        {"date": "2026-03-15", "referrer": "claude.ai", "visitors": 12},
+    ]
+    assert result.response is not None
+    assert result.response.primary_keys == ["date", "referrer"]
+    assert result.saved_states == []
+
+
+@time_machine.travel(datetime(2026, 3, 15, 15, tzinfo=UTC), tick=False)
+def test_visitor_trend_series_length_mismatch_fails(config: PromptWatchSourceConfig) -> None:
+    result = run(
+        config,
+        "visitor_trends",
+        [ScriptedResponse(json=visitor_body(["2026-03-14", "2026-03-15"], {"chatgpt.com": [620]}))],
+        **incremental_inputs(True, "2026-03-15"),
+    )
+
+    assert isinstance(result.raised, ValueError)

@@ -1,11 +1,11 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from langchain_core.messages import AIMessage
 
 from ee.hogai.chat_agent.memory.parsers import check_memory_collection_completed, compressed_memory_parser
 
 
-class TestParsers(BaseTest):
+class TestParsers(SimpleTestCase):
     def test_compressed_memory_parser(self):
         memory = "Hello\n\nWorld "
         self.assertEqual(compressed_memory_parser(memory), "Hello\nWorld ")

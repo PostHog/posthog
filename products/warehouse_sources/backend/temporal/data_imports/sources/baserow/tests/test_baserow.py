@@ -1,7 +1,6 @@
-import json
 import threading
 from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -14,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.ba
     BaserowResumeConfig,
     _BoundedSession,
     _read_capped,
-    baserow_rows_source,
     check_table_read_permission,
     list_tables,
     normalize_base_url,
@@ -25,7 +23,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.se
     DEFAULT_BASE_URL,
     READ_TIMEOUT_SECONDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.source import BaserowSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baserow import (
+    BaserowSourceConfig,
+)
 
 BASE_URL = "https://api.baserow.io"
 
@@ -173,13 +180,12 @@ class TestCheckTableReadPermission:
         ],
     )
     def test_maps_status_to_reason(self, status_code: int, expects_reason: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow._get_session"
-        ) as mock_session:
-            mock_session.return_value.get.return_value = MagicMock(status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             reason = check_table_read_permission(None, "tok", 42)
 
         assert (reason is not None) is expects_reason
+        assert network.requests_log[0].path == "/api/database/rows/table/42/"
+        assert network.requests_log[0].param("size") == "1"
 
 
 class TestListTables:
@@ -191,15 +197,10 @@ class TestListTables:
         ],
     )
     def test_non_json_response_raises_clear_error(self, status_code: int, body: bytes) -> None:
-        response = Response()
-        response.status_code = status_code
-        response._content = body
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow._get_session"
-        ) as mock_session:
-            mock_session.return_value.get.return_value = response
+        with scripted_network([ScriptedResponse(status=status_code, body=body)]) as network:
             with pytest.raises(ValueError, match="unexpected response"):
                 list_tables(None, "tok")
+        assert [request.path for request in network.requests_log] == ["/api/database/tables/all-tables/"]
 
 
 def _streamed_response(chunks: list[bytes], status_code: int = 200) -> Response:
@@ -266,108 +267,61 @@ class TestBoundedSession:
         assert parent_send.call_args.kwargs["timeout"] == 5
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
-
-
 class TestBaserowRowsSourceResumeBehavior:
-    """End-to-end pagination + resume behaviour of ``baserow_rows_source`` via ``rest_api_resource``."""
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(BaserowSource(), BaserowSourceConfig(database_token="test-token", base_url=None))
 
-    def _drive(
-        self, manager: MagicMock, responses: list[Response]
-    ) -> tuple[list[list[dict[str, Any]]], list[tuple[str, dict[str, Any]]]]:
-        """Drive ``baserow_rows_source`` with a mocked HTTP session.
+    @staticmethod
+    def _tables() -> ScriptedResponse:
+        return ScriptedResponse(json=[{"id": 42, "name": "Projects", "database_id": 1}])
 
-        Returns ``(rows, sent)`` where ``sent`` is a list of ``(url, params)`` captured at
-        send-time — the underlying Request object is mutated in-place by the paginator
-        between pages, so we can't rely on mock ``call_args_list`` to preserve history.
-        """
-        sent: list[tuple[str, dict[str, Any]]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent.append((request.url, dict(request.params or {})))
-            return next(response_iter)
-
-        # The rows source injects its own bounded session, so intercept the factory rather
-        # than RESTClient's internal make_tracked_session (which it no longer calls).
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow._bounded_session"
-        ) as mock_factory:
-            mock_session = MagicMock()
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-            mock_factory.return_value = mock_session
-
-            source = baserow_rows_source(
-                base_url=None,
-                database_token="test-token",
-                table_id=42,
-                schema_name="Projects",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-            pages = list(cast(Iterable[list[dict[str, Any]]], source.items()))
-            return pages, sent
+    @staticmethod
+    def _page(rows: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+        return ScriptedResponse(json={"count": len(rows), "next": next_url, "previous": None, "results": rows})
 
     def test_fresh_run_pages_through_next_urls_and_checkpoints(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
         page_2 = f"{BASE_URL}/api/database/rows/table/42/?page=2&size=200&user_field_names=true"
-        responses = [
-            _make_http_response({"count": 3, "next": page_2, "previous": None, "results": [{"id": 1}, {"id": 2}]}),
-            _make_http_response({"count": 3, "next": None, "previous": "prev", "results": [{"id": 3}]}),
-        ]
-        pages, sent = self._drive(manager, responses)
+        result = self._driver().run(
+            "Projects", [self._tables(), self._page([{"id": 1}, {"id": 2}], page_2), self._page([{"id": 3}])]
+        )
 
         # The resource yields one batch (list of row dicts) per page.
-        assert [[row["id"] for row in page] for page in pages] == [[1, 2], [3]]
+        assert [[row["id"] for row in page] for page in result.items] == [[1, 2], [3]]
         # First request hits the table path with the declared params; the second follows the
         # self-contained next URL with the original params dropped.
-        assert sent[0][0] == f"{DEFAULT_BASE_URL}/api/database/rows/table/42/"
-        assert sent[0][1] == {"size": 200, "user_field_names": "true"}
-        assert sent[1] == (page_2, {})
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [BaserowResumeConfig(next_url=page_2)]
+        assert result.requests[1].path == "/api/database/rows/table/42/"
+        assert result.requests[1].query == {"size": ("200",), "user_field_names": ("true",)}
+        assert result.requests[2].url == page_2
+        assert result.saved_states == [BaserowResumeConfig(next_url=page_2)]
+        assert result.committed_states == [BaserowResumeConfig(next_url=page_2)]
+        assert result.raised is None
 
     def test_resume_starts_from_saved_next_url(self) -> None:
         saved_url = f"{BASE_URL}/api/database/rows/table/42/?page=5&size=200&user_field_names=true"
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = BaserowResumeConfig(next_url=saved_url)
+        result = self._driver().run(
+            "Projects",
+            [self._tables(), self._page([{"id": 801}])],
+            resume_state=BaserowResumeConfig(next_url=saved_url),
+        )
 
-        responses = [_make_http_response({"count": 900, "next": None, "previous": "prev", "results": [{"id": 801}]})]
-        _, sent = self._drive(manager, responses)
-
-        assert sent[0][0] == saved_url
+        assert result.requests[1].url == saved_url
+        assert result.rows == [{"id": 801}]
+        assert result.raised is None
 
     def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run("Projects", [self._tables(), self._page([{"id": 1}])])
 
-        responses = [_make_http_response({"count": 1, "next": None, "previous": None, "results": [{"id": 1}]})]
-        self._drive(manager, responses)
-
-        manager.save_state.assert_not_called()
+        assert result.saved_states == []
+        assert result.raised is None
 
     def test_cross_origin_next_url_aborts_the_sync(self) -> None:
         # Guards the wiring: the rows resource must run the origin-pinned paginator, so a
         # tampered body can't bounce the token-bearing request to another host.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "Projects", [self._tables(), self._page([{"id": 1}], "https://evil.example.com/rows/?page=2")]
+        )
 
-        responses = [
-            _make_http_response(
-                {"count": 3, "next": "https://evil.example.com/rows/?page=2", "previous": None, "results": [{"id": 1}]}
-            ),
-        ]
-        with pytest.raises(ValueError, match="not on the configured instance"):
-            self._drive(manager, responses)
+        assert isinstance(result.raised, ValueError)
+        assert "not on the configured instance" in str(result.raised)
+        assert result.paths == ["/api/database/tables/all-tables/", "/api/database/rows/table/42/"]

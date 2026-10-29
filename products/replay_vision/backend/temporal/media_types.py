@@ -1,6 +1,7 @@
 """Types for the observation media workflow: a thumbnail per succeeded observation, plus a frame per summary chapter."""
 
 import datetime as dt
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -39,40 +40,6 @@ class ObservationMediaInputs(BaseModel, frozen=True):
     thumbnail_video_s: int | None = None
 
 
-class ExtractThumbnailActivityInput(BaseModel, frozen=True):
-    """Input to the legacy single-frame `extract-thumbnail` activity, kept for media workflows started before the
-    batch path; field names match its TypeScript interface."""
-
-    source_s3_uri: str
-    video_time_s: float
-    footer_crop_px: int = LEGACY_ANALYSIS_FOOTER_HEIGHT_PX
-    width: int = THUMBNAIL_WIDTH_PX
-    s3_bucket: str
-    s3_key_prefix: str
-    id: str
-
-
-class ExtractThumbnailActivityOutput(BaseModel, frozen=True):
-    s3_uri: str
-    file_size_bytes: int = 0
-
-
-class PrepareObservationThumbnailOutput(BaseModel, frozen=True):
-    media_asset_id: int
-    activity_input: ExtractThumbnailActivityInput
-    video_start_ms: int
-    rec_start_ms: int | None
-
-
-class FinalizeObservationThumbnailInputs(BaseModel, frozen=True):
-    team_id: int
-    observation_id: UUID
-    media_asset_id: int
-    video_start_ms: int
-    rec_start_ms: int | None
-    result: ExtractThumbnailActivityOutput
-
-
 class ExtractThumbnailsFrame(BaseModel, frozen=True):
     video_time_s: float
     id: str
@@ -87,6 +54,9 @@ class ExtractThumbnailsActivityInput(BaseModel, frozen=True):
     frames: list[ExtractThumbnailsFrame]
     footer_crop_px: int
     width: int
+    small_width: int | None = None
+    # A history from before WebP decodes to the PNG it asked for.
+    image_format: Literal["png", "webp"] = "png"
     s3_bucket: str
     s3_key_prefix: str
 
@@ -95,6 +65,8 @@ class ExtractedFrame(BaseModel, frozen=True):
     id: str
     s3_uri: str
     file_size_bytes: int
+    # Missing when the small copy failed, or when a worker that predates it ran the render.
+    small_s3_uri: str | None = None
 
 
 class ExtractThumbnailsActivityOutput(BaseModel, frozen=True):
@@ -107,9 +79,10 @@ class PreparedFrame(BaseModel, frozen=True):
     kind: str
     position: int
     media_asset_id: int
+    # Defaults for a history recorded before small copies existed.
+    small_media_asset_id: int | None = None
     object_id: str
     video_start_ms: int
-    rec_start_ms: int | None
 
 
 class PrepareObservationMediaOutput(BaseModel, frozen=True):
