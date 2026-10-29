@@ -841,7 +841,8 @@ class _EventsScanSwapper(ScanVisitor):
                 continue
             source = sources.source_of(join)
             source_clones = clones.get(id(source), []) if source is not None else []
-            if not source_clones:
+            # The pin check above reads the filters of one SELECT. A join that several SELECTs share cannot swap.
+            if not source_clones or len({id(clone.original_select) for clone in source_clones}) > 1:
                 return _UNMOVABLE_SHAPE
             # A query can hold one node in several places, such as one SELECT in two branches of a UNION. Cloning
             # copies each place apart, so one original join can have several clones, and each one has to swap.
@@ -876,6 +877,7 @@ class _EventsScanSwapper(ScanVisitor):
 class _JoinClone:
     # Keeps the original join alive, so no other node can take the id that keys it.
     original: ast.JoinExpr
+    original_select: ast.SelectQuery
     select: ast.SelectQuery
     join: ast.JoinExpr
 
@@ -886,8 +888,10 @@ _JoinClones = dict[int, list[_JoinClone]]
 def _join_clones(original: ast.AST, clone: ast.AST) -> _JoinClones:
     """Each join of `original`, with the `SelectQuery` and `JoinExpr` in each of its places in `clone`, a copy of it."""
     clones: _JoinClones = {}
-    for (_, join), (clone_select, clone_join) in zip(_joins(original), _joins(clone), strict=True):
-        clones.setdefault(id(join), []).append(_JoinClone(original=join, select=clone_select, join=clone_join))
+    for (original_select, join), (clone_select, clone_join) in zip(_joins(original), _joins(clone), strict=True):
+        clones.setdefault(id(join), []).append(
+            _JoinClone(original=join, original_select=original_select, select=clone_select, join=clone_join)
+        )
     return clones
 
 
