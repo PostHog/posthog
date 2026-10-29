@@ -30,6 +30,7 @@ from ...logic.pull_requests import (
     docs_head_branch,
     open_writer_pull_requests,
     section_marker,
+    source_repository_github,
 )
 from ...logic.records import (
     PULL_REQUEST_FAILURE_STATE_KEY,
@@ -280,7 +281,7 @@ def ended_run_problem(run: TaskRunDTO, docs_repository: str) -> str | None:
 
 def run_writer_request(writer: WriterSettings, team: Team, section: str, branch: str) -> tuple[WriterPullRequest, bool]:
     request = smoke_request(REGISTRY[DocsRequestSource.COMMAND_TAG].assess(unreachable_source()), section, branch)
-    routing = route_request(request, team_id=team.id)
+    routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
     task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)
     pushed_branch = joining.head_branch if joining is not None else branch

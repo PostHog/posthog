@@ -15,7 +15,7 @@ from ..feature_flags import is_agent_launch_enabled
 from ..settings import writer_settings
 from .caps import OPEN_PULL_REQUEST_CAP, alert_cap_reached, daily_run_cap_reached, unpublished_writer_runs
 from .launch import start_writer
-from .pull_requests import open_writer_pull_requests
+from .pull_requests import open_writer_pull_requests, source_repository_github
 from .records import WriterPullRequest
 from .routing import route_request
 
@@ -51,7 +51,7 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     if daily_run_cap_reached(writer):
         alert_cap_reached("daily_run", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
-    routing = route_request(request, team_id=team_id)
+    routing = route_request(request, team_id=team_id, github=source_repository_github(team_id))
     open_pull_requests = open_writer_pull_requests(writer)
     if open_pull_requests is None:
         alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)

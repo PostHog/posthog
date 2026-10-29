@@ -25,6 +25,7 @@ from .records import (
     pull_request_json,
     request_json,
 )
+from .routing import SOURCE_REPOSITORY
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +68,10 @@ def docs_github(team_id: int, docs_owner: str) -> GitHubIntegration | None:
         if str(integration.config.get("account", {}).get("name", "")).lower() == docs_owner.lower():
             return GitHubIntegration(integration, source="knowledge_writer", priority=Priority.CRITICAL)
     return None
+
+
+def source_repository_github(team_id: int) -> GitHubIntegration | None:
+    return docs_github(team_id, SOURCE_REPOSITORY.split("/", 1)[0])
 
 
 def github_app_login() -> str | None:
