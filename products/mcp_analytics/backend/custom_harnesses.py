@@ -7,7 +7,7 @@ from posthog.utils import get_safe_cache, safe_cache_add, safe_cache_delete
 from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.models import MCPCustomHarness
 
-# Short, because a read that races a save can cache the old rules after the save's delete.
+# Short, because a read that races a save, or a failed delete after a save, leaves the old rules in the cache.
 CUSTOM_HARNESS_RULES_CACHE_TTL_SECONDS = 5 * 60
 
 RulePairs = tuple[tuple[str, str], ...]
