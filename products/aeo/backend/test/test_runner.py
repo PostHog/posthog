@@ -3,6 +3,7 @@ import threading
 from typing import NoReturn
 
 import pytest
+import time_machine
 
 from django.utils import timezone
 
@@ -65,6 +66,19 @@ def test_select_prompts_skips_inactive_archived_and_recently_checked_prompts(tea
     assert sorted(p.prompt for p in selected) == ["q0?", "q2?"]
 
 
+@pytest.mark.parametrize(
+    "now, expected",
+    [
+        (dt.datetime(2026, 10, 29, 6, 59, tzinfo=dt.UTC), dt.datetime(2026, 10, 28, 7, 0, tzinfo=dt.UTC)),
+        (dt.datetime(2026, 10, 29, 7, 0, tzinfo=dt.UTC), dt.datetime(2026, 10, 29, 7, 0, tzinfo=dt.UTC)),
+        (dt.datetime(2026, 10, 29, 23, 30, tzinfo=dt.UTC), dt.datetime(2026, 10, 29, 7, 0, tzinfo=dt.UTC)),
+    ],
+    ids=["before_boundary", "at_boundary", "late_evening"],
+)
+def test_run_day_start_is_the_latest_boundary_at_or_before_now(now: dt.datetime, expected: dt.datetime) -> None:
+    assert runner.run_day_start(now) == expected
+
+
 class _StubEngine:
     name = "stub-engine"
     model = "stub"
@@ -91,15 +105,16 @@ def test_run_records_checks_and_rotates_without_a_team_scope(
 
     AEOPrompt.objects.for_team(team.id).filter(prompt="q0?").update(current_version=3)
 
-    first, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
-    second, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
-    resumed, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
+    with time_machine.travel(dt.datetime(2026, 10, 29, 12, 0, tzinfo=dt.UTC), tick=False):
+        first, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
+        second, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
+        resumed, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
 
     assert (first.rows_written, second.rows_written) == (2, 2)
     assert (resumed.prompts, resumed.rows_written, resumed.error) == (
         0,
         0,
-        "nothing due: every active prompt was checked in the last 20h",
+        "nothing due: every active prompt was checked since 2026-10-29T07:00:00+00:00",
     )
     checks = AEOCitationCheck.objects.for_team(team.id)
     assert checks.filter(cited=True).count() == 4

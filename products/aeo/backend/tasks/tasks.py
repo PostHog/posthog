@@ -13,11 +13,14 @@ covered. A per-team lease stops two dispatches from running at once.
 
 from __future__ import annotations
 
+import threading
+
 from django.conf import settings
 
 import structlog
 from celery import shared_task
 from redis.exceptions import LockError
+from redis.lock import Lock
 
 from posthog.celery_queues import CeleryQueue
 from posthog.models.team import Team
@@ -38,12 +41,13 @@ logger = structlog.get_logger(__name__)
 RUN_SOFT_TIME_LIMIT_SECONDS = 10 * 60 * 60
 RUN_TIME_LIMIT_SECONDS = RUN_SOFT_TIME_LIMIT_SECONDS + 300
 
-# The per-team lease is renewed after every completed prompt instead of lasting the whole
-# time limit. A worker that outlives its termination grace period is SIGKILLed, which skips
-# every `finally`, so a lease as long as the time limit would block the catch-up dispatches
-# for the rest of the day. One prompt is bounded by the engines' request timeouts (well under
-# this), so a run that renews nothing for this long is dead or hung and may be superseded.
-RUN_LEASE_SECONDS = 30 * 60
+# The per-team lease is short and renewed by a side thread while the run is alive, instead of
+# lasting the whole time limit. A worker that outlives its termination grace period is SIGKILLed,
+# which skips every `finally`, so a lease as long as the time limit would block the catch-up
+# dispatches for the rest of the day. Renewal does not depend on prompts completing, so a run
+# stalled on slow engine retries keeps its lease.
+RUN_LEASE_SECONDS = 10 * 60
+RUN_LEASE_RENEW_SECONDS = 60
 
 
 def _citation_tracking_enabled(team: Team) -> bool:
@@ -101,16 +105,31 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     if not lease.acquire(blocking=False):
         logger.info("aeo_citation_task_already_running", team_id=team_id)
         return
+    stop_renewing = threading.Event()
+    renewer = threading.Thread(target=_renew_lease, args=(lease, stop_renewing, team_id), daemon=True)
+    renewer.start()
     try:
-        run_citation_checks(team, on_prompt_done=lease.reacquire)
+        run_citation_checks(team)
     except Exception:
         # The runner already absorbs per-prompt failures, so anything reaching here is
         # unexpected. Re-raise so Celery marks the task failed and alerting sees it.
         logger.exception("aeo_citation_task_failed", team_id=team_id)
         raise
     finally:
+        stop_renewing.set()
+        renewer.join(timeout=RUN_LEASE_RENEW_SECONDS)
         try:
             lease.release()
         except LockError:
             # The lease expired during a gap longer than its TTL and a later dispatch may own it now.
             logger.warning("aeo_citation_task_lease_expired", team_id=team_id)
+
+
+def _renew_lease(lease: Lock, stop: threading.Event, team_id: int) -> None:
+    while not stop.wait(RUN_LEASE_RENEW_SECONDS):
+        try:
+            lease.reacquire()
+        except LockError:
+            # The lease expired and a later dispatch may own it; the run keeps going and release() tolerates it.
+            logger.warning("aeo_citation_task_lease_lost", team_id=team_id)
+            return

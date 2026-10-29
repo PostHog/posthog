@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import uuid
 import datetime as dt
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
@@ -45,23 +44,20 @@ def run_citation_checks(
     engines: Optional[list[CitationEngine]] = None,
     limit: Optional[int] = None,
     record: bool = True,
-    on_prompt_done: Optional[Callable[[], object]] = None,
 ) -> tuple[CitationRunSummary, list[dict[str, Any]]]:
     """Run every due prompt against every engine; record the results.
 
     Returns (summary, per-check field values). Rows are written per prompt so an
     interrupted run keeps the checks it already paid for, and a later run skips
     the prompts it covered. With record=False the engines still run (and cost
-    money) but nothing is written — smoke-test mode. `on_prompt_done` is called
-    after each prompt completes, so the caller can prove the run is still alive.
+    money) but nothing is written — smoke-test mode.
     """
     engines = engines if engines is not None else available_engines()
     if not engines:
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
         return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
 
-    recheck_hours: int = settings.AEO_RECHECK_INTERVAL_HOURS
-    checked_before = timezone.now() - dt.timedelta(hours=recheck_hours)
+    checked_before = run_day_start(timezone.now())
     prompts = select_prompts(
         team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit, checked_before=checked_before
     )
@@ -70,7 +66,9 @@ def run_citation_checks(
             logger.warning("aeo_citation_run_no_prompts", team_id=team.id)
             return _empty_summary(team, "no active prompts — run `seed_aeo_prompts` first"), []
         logger.info("aeo_citation_run_nothing_due", team_id=team.id, checked_before=checked_before.isoformat())
-        return _empty_summary(team, f"nothing due: every active prompt was checked in the last {recheck_hours}h"), []
+        return _empty_summary(
+            team, f"nothing due: every active prompt was checked since {checked_before.isoformat()}"
+        ), []
 
     run_id = str(uuid.uuid4())
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
@@ -108,8 +106,6 @@ def run_citation_checks(
                     write_failures += len(result.fields_per_engine)
             if done % 100 == 0:
                 logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
-            if on_prompt_done is not None:
-                on_prompt_done()
     except BaseException:
         # A Celery time limit or a worker shutdown lands here. Drop the queued prompts so they
         # make no more paid calls whose results nobody records.
@@ -218,6 +214,14 @@ def _record_prompt_checks(
         logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
         return False
     return True
+
+
+def run_day_start(now: dt.datetime) -> dt.datetime:
+    """The most recent run-day boundary at or before `now`, in UTC."""
+    boundary = now.astimezone(dt.UTC).replace(
+        hour=settings.AEO_RUN_DAY_START_UTC_HOUR, minute=0, second=0, microsecond=0
+    )
+    return boundary if boundary <= now else boundary - dt.timedelta(days=1)
 
 
 def select_prompts(team: Team, limit: int, *, checked_before: Optional[dt.datetime] = None) -> list[AEOPrompt]:
