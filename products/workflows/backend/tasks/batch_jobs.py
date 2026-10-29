@@ -1,3 +1,5 @@
+from django.db import DatabaseError
+
 from celery import shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
@@ -32,10 +34,14 @@ def resume_batch_jobs_waiting_for_realtime_cohort(team_id: int, cohort_id: int) 
 
 @shared_task(
     ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
+    queue=CeleryQueue.LONG_RUNNING.value,
     # The run parks until this finishes, so a task a dying worker held runs again instead of waiting out the deadline.
     acks_late=True,
     reject_on_worker_lost=True,
+    # The query's own failures are recorded on the run; only a database error around them escapes here.
+    autoretry_for=(DatabaseError,),
+    retry_backoff=True,
+    max_retries=3,
 )
 @skip_team_scope_audit
 def resolve_batch_job_audience_snapshot(

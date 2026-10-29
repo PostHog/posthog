@@ -4,7 +4,6 @@ from itertools import batched
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -72,9 +71,14 @@ def request_audience_snapshot(
         resolve_batch_job_audience_snapshot,
     )
 
-    transaction.on_commit(
-        lambda: resolve_batch_job_audience_snapshot.delay(team_id, str(job.id), dedupe_key, max_audience_size)
-    )
+    try:
+        resolve_batch_job_audience_snapshot.delay(team_id, str(job.id), dedupe_key, max_audience_size)
+    except Exception:
+        # Nothing will resolve the audience, so release the claim and let the resolver's next request try again.
+        HogFlowBatchJob.objects.filter(pk=job.pk, audience_status=HogFlowBatchJobAudienceStatus.RESOLVING).update(
+            audience_status=None, updated_at=timezone.now()
+        )
+        raise
     return AudienceSnapshotStatus(status=HogFlowBatchJobAudienceStatus.RESOLVING, audience_size=None, error=None)
 
 
@@ -114,7 +118,8 @@ def resolve_audience_snapshot(
             job.team,
             batch_job_audience_filters(job),
             dedupe_key=dedupe_key,
-            limit=max_audience_size,
+            # One past the cap, so the resolver still sees the audience overflow and warns about it.
+            limit=max_audience_size + 1,
             settings=query_settings,
         )
         _replace_audience_members(job, person_ids)
@@ -127,12 +132,19 @@ def resolve_audience_snapshot(
             updated_at=timezone.now(),
         )
         return
-    HogFlowBatchJob.objects.filter(pk=job.pk).update(
-        audience_status=HogFlowBatchJobAudienceStatus.READY,
-        audience_size=len(person_ids),
-        audience_error=None,
-        updated_at=timezone.now(),
+    still_running = (
+        HogFlowBatchJob.objects.filter(pk=job.pk)
+        .exclude(status__in=TERMINAL_STATES)
+        .update(
+            audience_status=HogFlowBatchJobAudienceStatus.READY,
+            audience_size=len(person_ids),
+            audience_error=None,
+            updated_at=timezone.now(),
+        )
     )
+    if not still_running:
+        # The run ended while the query ran, and its cleanup already passed.
+        delete_audience_snapshot(team_id=job.team_id, batch_job_id=str(job.id))
 
 
 def _replace_audience_members(job: HogFlowBatchJob, person_ids: list[str]) -> None:

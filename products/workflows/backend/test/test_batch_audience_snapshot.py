@@ -80,7 +80,8 @@ class TestBatchAudienceSnapshot(TestCase):
         assert job.audience_size == len(PERSON_IDS)
         assert self._members(job) == PERSON_IDS
         assert mock_query.call_args.kwargs["dedupe_key"] == "email"
-        assert mock_query.call_args.kwargs["limit"] == 100
+        # One past the cap, so an audience over the cap still trips the resolver's truncation warning.
+        assert mock_query.call_args.kwargs["limit"] == 101
         # The whole audience runs under the long cap, not the interactive one.
         assert mock_query.call_args.kwargs["settings"].max_execution_time == 1200
 
@@ -105,6 +106,36 @@ class TestBatchAudienceSnapshot(TestCase):
         assert job.audience_status == HogFlowBatchJobAudienceStatus.FAILED
         assert expected_reason in (job.audience_error or "")
         assert "connection reset" not in (job.audience_error or "")
+
+    def test_request_releases_the_claim_when_the_task_cannot_be_queued(self, _dispatch):
+        job = self._job()
+
+        with (
+            patch(RESOLVE_TASK, side_effect=ConnectionError("broker unavailable")),
+            self.assertRaises(ConnectionError),
+        ):
+            request_audience_snapshot(
+                team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=5
+            )
+
+        job.refresh_from_db()
+        assert job.audience_status is None
+
+    def test_resolve_drops_the_audience_of_a_run_that_ended_while_the_query_ran(self, _dispatch):
+        job = self._job(audience_status=HogFlowBatchJobAudienceStatus.RESOLVING)
+
+        def cancel_during_query(*_args, **_kwargs):
+            HogFlowBatchJob.objects.filter(pk=job.pk).update(status=HogFlowBatchJobState.CANCELLED)
+            return PERSON_IDS
+
+        with patch(QUERY, side_effect=cancel_during_query):
+            resolve_audience_snapshot(
+                team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=100
+            )
+
+        job.refresh_from_db()
+        assert job.audience_status == HogFlowBatchJobAudienceStatus.RESOLVING
+        assert self._members(job) == []
 
     def test_resolve_skips_a_run_that_already_ended(self, _dispatch):
         job = self._job(status=HogFlowBatchJobState.CANCELLED, audience_status=HogFlowBatchJobAudienceStatus.RESOLVING)
