@@ -60,7 +60,7 @@ class DocsCommandRequest:
     requested_by: str
 
 
-IntakeStatus = Literal["no_docs", "unconfigured", "duplicate", "capped", "shadow", "joined", "started"]
+IntakeStatus = Literal["no_docs", "unconfigured", "duplicate", "capped", "shadow", "section_busy", "joined", "started"]
 
 
 @dataclass(frozen=True)

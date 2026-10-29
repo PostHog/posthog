@@ -178,7 +178,7 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
 
 
 @pytest.mark.django_db
-def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_section_request_joins_it(
+def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_section_request_waits_then_joins_it(
     team, writer_env, django_capture_on_commit_callbacks
 ) -> None:
     opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
@@ -190,6 +190,15 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     ):
         started = intake.submit(first_verdict, team_id=team.id)
     assert started.task_id is not None
+    second_verdict = _verdict(pull_request_number=456, suggested_page_urls=(SECTION_PAGE,))
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        busy = intake.submit(second_verdict, team_id=team.id)
+    assert busy.status == "section_busy"
+    start_workflow.assert_not_called()
     with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")):
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
     with patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request:
@@ -205,7 +214,6 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
 
     first_body = create_pull_request.call_args.kwargs["body"]
-    second_verdict = _verdict(pull_request_number=456, suggested_page_urls=(SECTION_PAGE,))
     with (
         patch(FLAG_CHECK, return_value=True),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, first_body))),

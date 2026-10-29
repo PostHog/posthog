@@ -13,7 +13,13 @@ from products.tasks.backend.facade import api as tasks_facade
 from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
 from ..feature_flags import is_agent_launch_enabled
 from ..settings import writer_settings
-from .caps import OPEN_PULL_REQUEST_CAP, alert_cap_reached, daily_run_cap_reached, unpublished_writer_runs
+from .caps import (
+    OPEN_PULL_REQUEST_CAP,
+    WriterSectionBusy,
+    alert_cap_reached,
+    daily_run_cap_reached,
+    in_flight_writer_runs,
+)
 from .launch import start_writer
 from .pull_requests import open_writer_pull_requests, source_repository_github
 from .records import WriterPullRequest
@@ -52,18 +58,23 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
         alert_cap_reached("daily_run", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
     routing = route_request(request, team_id=team_id, github=source_repository_github(team_id))
+    in_flight = in_flight_writer_runs(writer)
+    if routing.section and routing.section in in_flight.busy_sections:
+        return IntakeOutcome(status="section_busy")
     open_pull_requests = open_writer_pull_requests(writer)
     if open_pull_requests is None:
         alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
     joining = pull_request_to_join(open_pull_requests, routing.section)
-    if joining is None and len(open_pull_requests) + unpublished_writer_runs(writer) >= OPEN_PULL_REQUEST_CAP:
+    if joining is None and len(open_pull_requests) + in_flight.unpublished_runs >= OPEN_PULL_REQUEST_CAP:
         alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
     try:
         task_id = start_writer(request, routing, team=team, writer=writer, joining=joining)
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
+    except WriterSectionBusy:
+        return IntakeOutcome(status="section_busy")
     if joining is not None:
         return IntakeOutcome(status="joined", task_id=task_id, pull_request_url=joining.url)
     return IntakeOutcome(status="started", task_id=task_id)
