@@ -573,7 +573,17 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     tools_data = format_tool_definitions(extract_event_tools(properties))
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
+    # The plain prompt is the text-only fallback, for decision models and for a provider that rejects images.
     user_prompt = _build_user_prompt(io.input_raw, io.output_raw, tools_data, images=None)
+    image_prompt = None
+    if _judge_sees_images(evaluation):
+        images = JudgeImages(evaluation["team_id"])
+        marked = _build_user_prompt(io.input_raw, io.output_raw, tools_data, images=images)
+        if marked is not None and marked != user_prompt:
+            image_prompt = ImagePrompt(text=marked, images=images)
+    if user_prompt is None and image_prompt is not None:
+        # Inline base64 can push the plain text over the limit when the marked text still fits.
+        user_prompt = image_prompt.text
     if user_prompt is None:
         return build_skipped_evaluation_result(
             output_type=output_type,
@@ -581,14 +591,6 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
             reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
             skip_reason="generation_output_too_long",
         )
-
-    # The plain prompt stays the text-only fallback, for decision models and for a provider that rejects images.
-    image_prompt = None
-    if _judge_sees_images(evaluation):
-        images = JudgeImages(evaluation["team_id"])
-        marked = _build_user_prompt(io.input_raw, io.output_raw, tools_data, images=images)
-        if marked is not None and marked != user_prompt:
-            image_prompt = ImagePrompt(text=marked, images=images)
 
     return call_llm_judge(
         evaluation=evaluation,
