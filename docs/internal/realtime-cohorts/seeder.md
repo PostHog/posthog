@@ -121,7 +121,7 @@ WHERE team_id = <team>
   [AND hash(person) % bands = band]
 ```
 
-- **Flag calls table.** The run's pinned payload can name `events` or `flag_evaluations` in `flag_calls_table`. A missing key reads as `events`, and an unknown value fails the run. A chunk of a run pinned to `flag_evaluations` reads `$feature_flag_called` from `flag_evaluations` and its other event names from `events`, in two queries that fold into one set of tiles. Each query projects and filters only for the conditions on its own event names. The `flag_evaluations` query selects an empty `elements_chain`, because the table has none, and bounds arrival on `inserted_at` alone. A chunk that queries `flag_evaluations` also fails once its day reaches the table's TTL, checked before its queries and again after them, because the TTL may have dropped some of the day's rows.
+- **Flag calls table.** The run's pinned payload can name `events` or `flag_evaluations` in `flag_calls_table`. A missing key reads as `events`, and an unknown value fails the run. A chunk of a run pinned to `flag_evaluations` reads `$feature_flag_called` from `flag_evaluations` and its other event names from `events`, in two queries that fold into one set of tiles. Each query projects and filters only for the conditions on its own event names. The `flag_evaluations` query selects an empty `elements_chain`, because the table has none, and bounds arrival on `inserted_at` alone. The 90-day import writes each row with `inserted_at` equal to its `timestamp`, so an imported row passes the `S_chunk` bound even when the import writes it after the chunk's claim. While the import runs, a chunk can miss rows that are not yet written, and two queries over the same chunk can read different rows. Django must therefore pin `flag_evaluations` for a team only after the import covers the run's whole lookback. A chunk that queries `flag_evaluations` also fails once its day reaches the table's TTL, checked before its queries and again after them, because the TTL may have dropped some of the day's rows.
 - **Canonical persons.** The join maps each distinct id through the latest person override, so events of merged persons count toward the survivor.
 - **Timezone days.** The day's bounds are computed in the run's pinned timezone.
 - **Arrival bound.** Only events that reached ClickHouse before `S_chunk` count.
@@ -390,7 +390,7 @@ Only such a column is used, because a column with another expression, such as a 
 The column holds '' for a blob ClickHouse cannot parse, so the test admits '' there instead of reading the blob.
 Without one, the test extracts from the blob: ClickHouse still decompresses the blob for the event's rows, but only the matching rows are transferred and evaluated.
 The filter is dropped when the query would grow past the 8192 bytes the client sends by GET, since the `cohort_seeder` profile refuses the POST form.
-`seeder_scan_row_filter_total{outcome}` reports per chunk whether the filter read materialized columns, read the blob, did not apply, or was dropped for length.
+`seeder_scan_row_filter_total{outcome,table}` reports, once for each table a scanned chunk reads, whether the filter read materialized columns, read the blob, did not apply, or was dropped for length.
 
 ### Column-backed keys
 
@@ -438,7 +438,7 @@ ClickHouse computes a column added after the data was written from `properties` 
 The materializer backfills only `MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS`, which defaults to 0.
 So check `system.parts_columns` for the lookback before a long run: an old partition without the column reads the blob as before.
 
-`seeder_scan_properties_source_total{source}` reports per chunk where `properties` came from.
+`seeder_scan_properties_source_total{source,table}` reports, once for each table a scanned chunk reads, where `properties` came from.
 `columns` and `empty` keep ClickHouse off the blob.
 `rebuilt_inexact_key`, `rebuilt_no_column`, `rebuilt_ambiguous_value` and `rebuilt_too_long` name why a chunk kept the rebuild, and `rebuilt_no_column` includes a failed or timed-out lookup.
 A chunk that reads a key holding the boolean `false`, such as a flag response, counts under `rebuilt_ambiguous_value`.
