@@ -120,27 +120,19 @@ function cssRemovalRange(content: string): [number, number] | undefined {
         : range
 }
 
-// CSS bundles with maps under the given roots. Their maps are cleaned up too, but only when they
-// resolve inside a root, so a stylesheet can't make hog delete a file elsewhere.
-export function cssTargets(
-    files: string[],
-    roots: string[],
-    publicPathPrefix: string | undefined,
-    warnings: string[]
-): CleanupTarget[] {
-    const canonicalRoots = roots.map((root) => {
-        const absolute = realpathSync(root)
-        return statSync(absolute).isFile() ? dirname(absolute) : absolute
-    })
+// CSS bundles with maps under the given roots, so their maps are cleaned up too.
+export function cssTargets(files: string[], publicPathPrefix: string | undefined, warnings: string[]): CleanupTarget[] {
     const targets: CleanupTarget[] = []
     for (const file of files.filter((path) => path.endsWith('.css'))) {
         let source: string
+        let mapPath: string | undefined
         try {
             source = decodeUtf8(readFileSync(realpathSync(file)))
+            mapPath = findSourceMap(realpathSync(file), cssReference(source), publicPathPrefix)
         } catch {
+            warnings.push(`Skipping sourcemap cleanup for ${file}: its sourcemap reference can't be read.`)
             continue
         }
-        const mapPath = findSourceMap(realpathSync(file), cssReference(source), publicPathPrefix)
         if (mapPath === undefined) {
             continue
         }
@@ -148,13 +140,6 @@ export function cssTargets(
         try {
             map = loadMapContent(decodeUtf8(readFileSync(mapPath)))
         } catch {
-            continue
-        }
-        const canonicalMap = realpathSync(mapPath)
-        if (!canonicalRoots.some((root) => !relative(root, canonicalMap).startsWith('..'))) {
-            warnings.push(
-                `Skipping CSS sourcemap cleanup for ${mapPath} because it resolves outside the selected paths.`
-            )
             continue
         }
         targets.push({
@@ -168,12 +153,24 @@ export function cssTargets(
     return targets
 }
 
-export function cleanUp(targets: CleanupTarget[]): CleanupResult {
+// Only maps that resolve inside a selected path are cleaned up, so a bundle or a stylesheet can't
+// make hog delete a file elsewhere.
+export function cleanUp(targets: CleanupTarget[], roots: string[]): CleanupResult {
+    const canonicalRoots = roots.map((root) => {
+        const absolute = realpathSync(root)
+        return statSync(absolute).isFile() ? dirname(absolute) : absolute
+    })
     const warnings: string[] = []
     const skippedMaps = new Set<string>()
     const maps = new Map<string, Set<string>>()
     for (const target of targets) {
         const canonicalMap = existsSync(target.mapPath) ? realpathSync(target.mapPath) : target.mapPath
+        if (!canonicalRoots.some((root) => !relative(root, canonicalMap).startsWith('..'))) {
+            warnings.push(
+                `Skipping sourcemap cleanup for ${target.mapPath} because it resolves outside the selected paths.`
+            )
+            continue
+        }
         if (!maps.has(canonicalMap)) {
             maps.set(canonicalMap, new Set())
         }

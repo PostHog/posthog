@@ -157,9 +157,10 @@ export function sourcePaths(source: Source, filter: SourceFilter, warnings: stri
 export function sourceStep(
     bytes: Uint8Array,
     filter: SourceFilter,
-    warnings: string[]
+    warnings: string[],
+    ignored: (path: string) => boolean
 ): ((zip: ZipWriter) => void) | undefined {
-    const paths = sourcePaths(new BufferSource(bytes), filter, warnings)
+    const paths = sourcePaths(new BufferSource(bytes), filter, warnings).filter((path) => !ignored(path))
     if (paths.length === 0) {
         return undefined
     }
