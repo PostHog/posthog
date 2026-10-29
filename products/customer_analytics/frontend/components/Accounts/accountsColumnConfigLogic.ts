@@ -99,7 +99,7 @@ export const DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS = 7
 
 const CUSTOM_PROPERTY_COLUMN_REGEX = /^accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)` AS (cp_[0-9a-fA-F]+)$/
 
-// Keep stored column strings scalar so saved views and shared URLs stay stable.
+// Keep stored column strings scalar so saved column identities stay stable.
 export function applyColumnDisplayToSelect(columns: string[], columnDisplay: AccountColumnDisplayState): string[] {
     if (Object.keys(columnDisplay).length === 0) {
         return columns
@@ -838,7 +838,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             (loading: boolean, projectId: number | null, currentProjectId: number | null): boolean =>
                 loading && (projectId === null || projectId === currentProjectId),
         ],
-        // Keep legacy names so defaults dedupe persisted selections.
         defaultSelectColumns: [
             (s) => [s.relationshipDefinitionsById],
             (definitions: Record<string, AccountsTableRelationshipDefinition>): string[] => [

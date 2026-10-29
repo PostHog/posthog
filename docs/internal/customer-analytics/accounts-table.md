@@ -15,7 +15,15 @@ A saved empty list means the user chose no pinned properties and no longer inher
 
 The first table response contains rows, ordered columns, and the metadata needed to show and edit those columns.
 A default view sends `useDefaultColumns: true`. The backend selects the name, tags, note count, and all project relationships.
-A saved view sends its selected columns with relationship definition IDs. Role keys are not supported.
+Saved views store their selected column expressions. Relationship expressions contain the definition ID and a stable alias:
+
+```text
+accounts.relationships.values.`<definition-id>` AS rel_<definition-id-without-hyphens>
+```
+
+Relationship sort entries use the same alias followed by `ASC` or `DESC`.
+The column picker and default-column builder create this format. Saved views preserve it unchanged.
+The query planner sends typed definition references to the table endpoint.
 Empty results still include column metadata.
 
 The table and overview queries start without waiting for definition catalogs.

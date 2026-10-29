@@ -53,7 +53,7 @@ const buildView = (overrides: Partial<ColumnConfigurationApi> = {}): ColumnConfi
     ],
     name: 'Enterprise',
     filters: { search: 'example', assignmentStatus: 'assigned', assignedTo: [1] },
-    order_by: ['csm DESC'],
+    order_by: ['rel_11111111222233334444555555555555 DESC'],
     properties: { tiles: [{ id: 't1', label: 'Accounts', metric: { type: 'count' } }] },
     visibility: 'shared',
     created_by: MOCK_DEFAULT_USER.id,
@@ -539,7 +539,7 @@ describe('accountsViewsLogic', () => {
         expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
     })
 
-    it('normalizes legacy saved columns without marking the view dirty', async () => {
+    it('normalizes saved tag columns without marking the view dirty', async () => {
         const view = buildView({ columns: ['accounts.tags.account_id AS account_id', 'accounts.tags.names AS names'] })
         mockList.mockResolvedValue(response([view]))
         localStorage.setItem(scopedKey, JSON.stringify(view.id))

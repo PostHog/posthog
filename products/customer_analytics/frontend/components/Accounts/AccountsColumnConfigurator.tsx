@@ -299,8 +299,6 @@ function SelectedAccountColumn({
     const { aliasToDefinition, aliasToRelationshipDefinition } = useValues(accountsColumnConfigLogic)
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
     const alias = extractDisplayLabel(column)
-    // Custom-property and relationship columns are aliased to opaque `cp_<id>` / `rel_<id>`
-    // (or legacy role keys); show the definition name instead.
     const label =
         aliasToDefinition[alias]?.name ??
         aliasToRelationshipDefinition[alias]?.name ??
