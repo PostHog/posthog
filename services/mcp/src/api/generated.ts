@@ -3371,6 +3371,43 @@ export namespace Schemas {
       value: number;
     }
 
+    export type AccountsTableCustomPropertyDisplayType = typeof AccountsTableCustomPropertyDisplayType[keyof typeof AccountsTableCustomPropertyDisplayType];
+
+
+    export const AccountsTableCustomPropertyDisplayType = {
+      Text: 'text',
+      Link: 'link',
+      Number: 'number',
+      Currency: 'currency',
+      Percent: 'percent',
+      Date: 'date',
+      Datetime: 'datetime',
+      Boolean: 'boolean',
+      Select: 'select',
+    } as const;
+
+    export interface AccountsTableCustomPropertyOption {
+      color: string;
+      id?: string | null;
+      label: string;
+    }
+
+    export interface AccountsTableCustomPropertySource {
+      id: string;
+    }
+
+    export interface AccountsTableCustomPropertyDefinition {
+      description?: string | null;
+      display_type: AccountsTableCustomPropertyDisplayType;
+      has_workflow_reference: boolean;
+      id: string;
+      is_big_number?: boolean | null;
+      is_canonical: boolean;
+      name: string;
+      options?: AccountsTableCustomPropertyOption[] | null;
+      source?: AccountsTableCustomPropertySource | null;
+    }
+
     export type AccountsTableCustomPropertyOperator = typeof AccountsTableCustomPropertyOperator[keyof typeof AccountsTableCustomPropertyOperator];
 
 
@@ -3472,6 +3509,14 @@ export namespace Schemas {
     } as const;
     export type AccountsTableUnassignedFilter = typeof AccountsTableUnassignedFilterValue;
 
+    export interface AccountsTableRelationshipDefinition {
+      description?: string | null;
+      id: string;
+      is_controlled: boolean;
+      is_single_holder?: boolean | null;
+      name: string;
+    }
+
     /**
      * Requested direct Account fields, keyed by their typed field reference.
      */
@@ -3513,6 +3558,8 @@ export namespace Schemas {
     }
 
     export interface AccountsTableQueryResponse {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -3527,6 +3574,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -3561,6 +3609,8 @@ export namespace Schemas {
       filterGroups?: ((AccountsTableAccountFieldFilter | AccountsTableRelationshipFilter | AccountsTableCustomPropertyFilter)[])[] | null;
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableAssignedFilter | AccountsTableUnassignedFilter | AccountsTableRelationshipFilter | AccountsTableAccountIdFilter | AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)[] | null;
+      /** Omit missing definitions and custom-property filters incompatible with their current types. */
+      ignoreMissingDefinitions?: boolean | null;
       /** Include churned accounts. Churned accounts are hidden by default. */
       includeChurned?: boolean | null;
       /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -3575,6 +3625,7 @@ export namespace Schemas {
       response?: AccountsTableQueryResponse | null;
       sort?: AccountsTableSort | null;
       tags?: QueryLogTags | null;
+      useDefaultColumns?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -9105,6 +9156,8 @@ export namespace Schemas {
     }
 
     export interface Response20 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -9119,6 +9172,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -24193,6 +24247,26 @@ export namespace Schemas {
       /** Star a new channel for the requester. This field does not change stars on an existing channel. */
       star?: boolean;
     }
+
+    /**
+     * * `outside_traffic` - Outside traffic
+     * * `usage` - Usage
+     * * `one_person` - One person
+     * * `tracking` - Tracking
+     * * `weekly_pattern` - Weekly pattern
+     * * `unclear` - Unclear
+     */
+    export type ChartCauseEnum = typeof ChartCauseEnum[keyof typeof ChartCauseEnum];
+
+
+    export const ChartCauseEnum = {
+      OutsideTraffic: 'outside_traffic',
+      Usage: 'usage',
+      OnePerson: 'one_person',
+      Tracking: 'tracking',
+      WeeklyPattern: 'weekly_pattern',
+      Unclear: 'unclear',
+    } as const;
 
     /**
      * * `author_scout` - author_scout
@@ -51771,6 +51845,11 @@ export namespace Schemas {
       /** Whether exact source-side column metadata is available for safe source-query projection. */
       readonly source_column_metadata_available: boolean;
       /**
+         * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+         * @nullable
+         */
+      readonly history_table_name: string | null;
+      /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
          */
@@ -65445,6 +65524,74 @@ export namespace Schemas {
        * * `quick` - Read within a small budget, so the checks can run on every load
        * * `full` - Read with the same limits as the insight's own query */
       depth?: InsightDataChecksDepthEnum;
+    }
+
+    export interface InsightExplainChapter {
+      /** Identifier of the chapter, as it was sent. */
+      id: string;
+      /** What most likely caused the chapter: outside traffic, a real change in usage, one person or a test account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts.
+       *
+       * * `outside_traffic` - Outside traffic
+       * * `usage` - Usage
+       * * `one_person` - One person
+       * * `tracking` - Tracking
+       * * `weekly_pattern` - Weekly pattern
+       * * `unclear` - Unclear */
+      cause: ChartCauseEnum;
+      /** How sure the model is of the cause, from 0 to 1. */
+      confidence: number;
+    }
+
+    export interface InsightExplain {
+      /** The likely cause of each chapter the model answered, in the order they were sent. */
+      chapters: InsightExplainChapter[];
+    }
+
+    export interface InsightExplainChapterFacts {
+      /**
+         * Identifier of the chapter. The response returns the chapter under the same one.
+         * @maxLength 64
+         */
+      id: string;
+      /**
+         * What the chapter is about, for example 'A peak on October 2'.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * The computed facts of the chapter in one or two sentences, with their numbers and dates.
+         * @maxLength 600
+         */
+      summary: string;
+      /**
+         * Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.
+         * @maxItems 6
+         * @items.maxLength 600
+         */
+      evidence?: string[];
+    }
+
+    export interface InsightExplainRequest {
+      /**
+         * Name of the series that the explanation follows.
+         * @maxLength 200
+         */
+      series_label: string;
+      /**
+         * Name of the insight. Blank for an insight that has no name yet.
+         * @maxLength 400
+         */
+      insight_name?: string;
+      /**
+         * The computed facts of the whole chart, such as its typical level, its range and how it ends.
+         * @maxLength 600
+         */
+      overview?: string;
+      /**
+         * The chapters of the explanation in reading order. At most 8. Empty when nothing stands out on the chart.
+         * @maxItems 8
+         */
+      chapters: InsightExplainChapterFacts[];
     }
 
     /**
@@ -80966,6 +81113,11 @@ export namespace Schemas {
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
+    /**
+     * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+     */
+    export type SignalSourceConfigConfigSet = { [key: string]: unknown };
+
     export interface SignalSourceConfig {
       readonly id: string;
       source_product: SignalSourceProductEnum;
@@ -80973,6 +81125,10 @@ export namespace Schemas {
       enabled?: boolean;
       /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: SignalSourceConfigConfig;
+      /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+      config_set?: SignalSourceConfigConfigSet;
+      /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+      config_remove?: string[];
       readonly created_at: string;
       readonly updated_at: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -87965,6 +88121,11 @@ export namespace Schemas {
       /** Whether exact source-side column metadata is available for safe source-query projection. */
       readonly source_column_metadata_available?: boolean;
       /**
+         * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+         * @nullable
+         */
+      readonly history_table_name?: string | null;
+      /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
          */
@@ -92634,6 +92795,11 @@ export namespace Schemas {
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
+    /**
+     * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+     */
+    export type PatchedSignalSourceConfigConfigSet = { [key: string]: unknown };
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SignalSourceProductEnum;
@@ -92641,6 +92807,10 @@ export namespace Schemas {
       enabled?: boolean;
       /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
       config?: PatchedSignalSourceConfigConfig;
+      /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+      config_set?: PatchedSignalSourceConfigConfigSet;
+      /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+      config_remove?: string[];
       readonly created_at?: string;
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -101484,6 +101654,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative59 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -101498,6 +101670,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -102114,6 +102287,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative89 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -102128,6 +102303,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -110644,6 +110820,40 @@ export namespace Schemas {
          * @nullable
          */
       readonly task_id: string | null;
+    }
+
+    export interface SignalReportBulkClaimRequest {
+      /**
+         * Report ids to claim for the caller in one call (1–100). Duplicates are de-duplicated. Each id is claimed independently, so a report that cannot be claimed does not block the rest.
+         * @minItems 1
+         * @maxItems 100
+         */
+      ids: string[];
+      /** Take over a report that an agent or an internal task holds. A report that a person holds directly is never taken over and comes back as a conflict. */
+      takeover_agent_claims?: boolean;
+    }
+
+    export interface SignalReportBulkClaimResult {
+      /** The report id this result refers to. */
+      id: string;
+      /** One of: claimed, conflict, not_found. claimed: the caller holds the claim, including when it already did. conflict: the claim was refused, because someone else holds the report or its status does not allow a claim (a 409 on the single-report endpoint). not_found: no report with this id is visible to you. */
+      outcome: string;
+      /**
+         * Human-readable explanation for a conflict or not_found outcome.
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface SignalReportBulkClaimResponse {
+      /** One result per requested id, in request order (after de-duplication). */
+      results: SignalReportBulkClaimResult[];
+      /** Number of reports the caller now holds. */
+      claimed_count: number;
+      /** Number of reports whose claim was refused. */
+      conflict_count: number;
+      /** Number of requested ids not visible to the caller. */
+      not_found_count: number;
     }
 
     /**
@@ -129170,7 +129380,18 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: AccountRelationshipDefinitionsListPagination;
     };
+
+    export type AccountRelationshipDefinitionsListPagination = typeof AccountRelationshipDefinitionsListPagination[keyof typeof AccountRelationshipDefinitionsListPagination];
+
+
+    export const AccountRelationshipDefinitionsListPagination = {
+      None: 'none',
+    } as const;
 
     export type AccountTrackRulesRunsListParams = {
     /**
@@ -131802,7 +132023,18 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: CustomPropertyDefinitionsListPagination;
     };
+
+    export type CustomPropertyDefinitionsListPagination = typeof CustomPropertyDefinitionsListPagination[keyof typeof CustomPropertyDefinitionsListPagination];
+
+
+    export const CustomPropertyDefinitionsListPagination = {
+      None: 'none',
+    } as const;
 
     export type CustomPropertyDefinitionsValuesRetrieveParams = {
     /**
@@ -137617,6 +137849,18 @@ export namespace Schemas {
 
 
     export const InsightsDataChecksCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsExplainCreateParams = {
+    format?: InsightsExplainCreateFormat;
+    };
+
+    export type InsightsExplainCreateFormat = typeof InsightsExplainCreateFormat[keyof typeof InsightsExplainCreateFormat];
+
+
+    export const InsightsExplainCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

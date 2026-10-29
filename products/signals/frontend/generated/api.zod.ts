@@ -1421,6 +1421,30 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Claim many reports for the current user, internal task, or external agent in one call. Each id is claimed independently, and the call is 200 even when some claims are refused: inspect `results` and the counts. Use the single-report claim endpoint to release a claim or to add pull requests.
+ * @summary Claim many signal reports
+ */
+export const signalsReportsBulkClaimBodyIdsMax = 100
+
+export const signalsReportsBulkClaimBodyTakeoverAgentClaimsDefault = false
+
+export const SignalsReportsBulkClaimBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(signalsReportsBulkClaimBodyIdsMax)
+        .describe(
+            'Report ids to claim for the caller in one call (1–100). Duplicates are de-duplicated. Each id is claimed independently, so a report that cannot be claimed does not block the rest.'
+        ),
+    takeover_agent_claims: zod
+        .boolean()
+        .default(signalsReportsBulkClaimBodyTakeoverAgentClaimsDefault)
+        .describe(
+            'Take over a report that an agent or an internal task holds. A report that a person holds directly is never taken over and comes back as a conflict.'
+        ),
+})
+
 export const signalsReportsReadStateCreateBodyReportIdsMax = 100
 
 export const SignalsReportsReadStateCreateBody = /* @__PURE__ */ zod.object({
@@ -4093,6 +4117,18 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
         ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
+        ),
 })
 
 export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
@@ -4247,6 +4283,18 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+        ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
 })
 
@@ -4404,6 +4452,18 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
         .optional()
         .describe(
             "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+        ),
+    config_set: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.'
+        ),
+    config_remove: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.'
         ),
 })
 
