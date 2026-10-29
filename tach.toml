@@ -1197,6 +1197,81 @@ from = [
     "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|groups|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|subscriptions|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
+# signals is not isolated, so it gets its own blocks instead of a place in the shared one above.
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.signals",
+]
+
+# Legacy leaks — outside callers (posthog, tasks, review_hog, engineering_analytics, replay_vision,
+# slack_app and tests) still import these signals internals. Each entry goes when its caller moves
+# to products.signals.backend.facade. Delete the block when it is empty.
+[[interfaces]]
+expose = [
+    "backend\\.activity_summary\\.schedule(\\..*)?",
+    "backend\\.anomaly_scores\\.schedule(\\..*)?",
+    "backend\\.artefact_attribution(\\..*)?",
+    "backend\\.artefact_schemas(\\..*)?",
+    "backend\\.billing(\\..*)?",
+    "backend\\.contracts(\\..*)?",
+    "backend\\.emission\\.conversations_schedule(\\..*)?",
+    "backend\\.emission\\.temporal_settings(\\..*)?",
+    "backend\\.enums(\\..*)?",
+    "backend\\.free_trial(\\..*)?",
+    "backend\\.github_optional(\\..*)?",
+    "backend\\.implementation_pr(\\..*)?",
+    "backend\\.models(\\..*)?",
+    "backend\\.quota(\\..*)?",
+    "backend\\.ranking\\.schedule(\\..*)?",
+    "backend\\.report_access(\\..*)?",
+    "backend\\.report_generation\\.priority(\\..*)?",
+    "backend\\.report_generation\\.research(\\..*)?",
+    "backend\\.report_generation\\.resolve_reviewers(\\..*)?",
+    "backend\\.report_task_actions(\\..*)?",
+    "backend\\.scout_authorship(\\..*)?",
+    "backend\\.scout_harness\\.inactivity(\\..*)?",
+    "backend\\.scout_harness\\.lazy_seed(\\..*)?",
+    "backend\\.scout_harness\\.model_selection(\\..*)?",
+    "backend\\.scout_harness\\.run_gates(\\..*)?",
+    "backend\\.scout_harness\\.serializers(\\..*)?",
+    "backend\\.scout_harness\\.suggestions(\\..*)?",
+    "backend\\.scout_harness\\.tools\\.structured_output(\\..*)?",
+    "backend\\.scout_harness\\.trial_launch(\\..*)?",
+    "backend\\.scout_harness\\.views(\\..*)?",
+    "backend\\.serializers(\\..*)?",
+    "backend\\.slack_report_threads(\\..*)?",
+    "backend\\.spend(\\..*)?",
+    "backend\\.task_run_artefacts(\\..*)?",
+    "backend\\.tasks(\\..*)?",
+    "backend\\.temporal\\.(ACTIVITIES|InboxRankingScoringWorkflow|SELF_DRIVING_ACTIVITIES|SELF_DRIVING_WORKFLOWS|WORKFLOWS|score_inbox_reports_activity)",
+    "backend\\.temporal\\.agentic\\.schedule(\\..*)?",
+    "backend\\.temporal\\.agentic\\.scout_coordinator(\\..*)?",
+    "backend\\.temporal\\.agentic\\.scout_scheduler(\\..*)?",
+    "backend\\.temporal\\.agentic\\.scout_trial_evaluation(\\..*)?",
+    "backend\\.temporal\\.emit_eval_signal(\\..*)?",
+    "backend\\.temporal\\.llm(\\..*)?",
+    "backend\\.temporal\\.summary(\\..*)?",
+    "backend\\.tracker_issues(\\..*)?",
+    "backend\\.views(\\..*)?",
+    "dags\\.inbox_ranking\\.common(\\..*)?",
+    "dags\\.inbox_ranking\\.dataset\\.dag(\\..*)?",
+    "dags\\.inbox_ranking\\.mirror\\.dag(\\..*)?",
+    "dags\\.inbox_ranking\\.nn\\.dag(\\..*)?",
+    "dags\\.inbox_ranking\\.nn\\.experiments(\\..*)?",
+    "dags\\.inbox_ranking\\.nn\\.pairs(\\..*)?",
+    "dags\\.inbox_ranking\\.training\\.dag(\\..*)?",
+    "dags\\.inbox_ranking\\.training\\.promote(\\..*)?",
+    "dags\\.inbox_ranking\\.training\\.served(\\..*)?",
+]
+from = [
+    "products.signals",
+]
+
 # TODO: Experiments-specific temporary interface
 # Remove this block once all ViewSets are migrated to products/experiments/backend/presentation/views.py
 
