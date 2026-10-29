@@ -25,7 +25,6 @@ describe('supabaseAuthEmailsLogic', () => {
         initKeaTests()
     })
 
-    // The agent skill links people to the setup modal, and a reload after closing it must not reopen it.
     it.each([urls.workflows('channels'), urls.broadcasts('channels'), urls.transactional('channels')])(
         'opens the setup from a link to %s and drops the param on close',
         async (channelsUrl) => {

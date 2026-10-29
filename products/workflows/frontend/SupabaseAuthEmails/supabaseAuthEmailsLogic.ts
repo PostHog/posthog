@@ -387,7 +387,6 @@ export const supabaseAuthEmailsLogic = kea<supabaseAuthEmailsLogicType>([
                 actions.closeSetup()
             }
         }
-        // The Channels tab renders under all three messaging scenes.
         return {
             [urls.workflows('channels')]: syncSetupWithUrl,
             [urls.broadcasts('channels')]: syncSetupWithUrl,
