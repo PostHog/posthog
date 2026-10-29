@@ -539,6 +539,11 @@ export interface ExternalDataSchemaApi {
     /** Whether exact source-side column metadata is available for safe source-query projection. */
     readonly source_column_metadata_available: boolean
     /**
+     * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+     * @nullable
+     */
+    readonly history_table_name: string | null
+    /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
      */
@@ -733,6 +738,11 @@ export interface PatchedExternalDataSchemaApi {
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
     /** Whether exact source-side column metadata is available for safe source-query projection. */
     readonly source_column_metadata_available?: boolean
+    /**
+     * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+     * @nullable
+     */
+    readonly history_table_name?: string | null
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable

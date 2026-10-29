@@ -35,11 +35,15 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
     ChangeEventBatcher,
+    HistoryNaming,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     CDCErrorCategory,
     CDCMaskedKeyError,
+    CDCReservedColumnError,
     cdc_error_info,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
@@ -2383,21 +2387,59 @@ class TestBufferedIngressCapture:
             team_id=schema.team_id, schema_id=str(schema.id), restart_seq=0x100
         )
 
-    def test_a_source_column_named_like_seq_fails_the_buffered_run(self):
-        # The batcher skips its append on the collision, so the file's name, ordering, and retry
-        # cleanup would all derive from customer data — cleanup can then delete unconsumed files.
+    @parameterized.expand([("table_writes_the_buffer", False, True), ("table_awaiting_reset", True, False)])
+    def test_a_capture_column_collision_fails_only_a_table_that_writes_the_buffer(
+        self, _name: str, awaiting_reset: bool, refused: bool
+    ) -> None:
+        # A reset discards the table's queued changes, so its collision must not stop the other tables.
         source = _make_source()
-        schema = _make_schema("users", cdc_mode="streaming", source=source)
-        events = [_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42})]
+        act = _make_extract_activity(source)
+        act.schema_by_name = {"users": _make_schema("users", source=source)}
+        act._buffered_table_names = {"users"}
+        if awaiting_reset:
+            act._tables_awaiting_reset.add("users")
+        act.batcher = ChangeEventBatcher(position_to_seq=lambda position: 1)
+        act.batcher.add(_make_event(op="I", columns={"id": 1, "_PH_DELETED": True}))
+        tables = act.batcher.flush()
+
+        if refused:
+            with pytest.raises(CDCReservedColumnError, match="users"):
+                act._process_flush(tables)
+        else:
+            act._process_flush(tables)
+
+    @parameterized.expand(
+        [
+            ("position_column", CDC_SEQ_COLUMN, None, True),
+            ("position_column_the_load_renames", "_PH_CDC_SEQ", None, True),
+            ("validity_column_on_a_legacy_history_table", "validFrom", LEGACY_HISTORY_NAMING, True),
+            ("legacy_validity_column_on_a_new_history_table", "valid_from", HISTORY_NAMING, False),
+            ("validity_column_without_a_history_table", "valid_from", None, False),
+        ]
+    )
+    def test_a_source_column_named_like_a_written_column_fails_the_buffered_run(
+        self, _name: str, column: str, history: HistoryNaming | None, refused: bool
+    ) -> None:
+        # Written anyway, the file's name, ordering, and retry cleanup could derive from customer
+        # data, and cleanup can then delete unconsumed files.
+        source = _make_source()
+        cdc_table_mode = "consolidated" if history is None else "both"
+        schema = _make_schema("users", cdc_mode="streaming", cdc_table_mode=cdc_table_mode, source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, column: 42})]
 
         with (
+            patch(f"{_ACTIVITIES}.SourceHistoryNamings") as history_namings,
             _capture_harness(source, [schema], events) as capture,
-            pytest.raises(NonRetryableException, match=CDC_SEQ_COLUMN),
         ):
-            capture.extract()
+            history_namings.return_value.naming_unless_taken.return_value = history
+            if refused:
+                with pytest.raises(NonRetryableException, match="change data capture"):
+                    capture.extract()
+            else:
+                capture.extract()
 
-        capture.buffer.write_batch.assert_not_called()
-        capture.reader.confirm_position.assert_not_called()
+        assert capture.buffer.write_batch.called is not refused
+        assert capture.reader.confirm_position.called is not refused
 
     @parameterized.expand(
         [
