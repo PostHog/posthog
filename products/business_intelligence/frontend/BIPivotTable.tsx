@@ -12,8 +12,9 @@ import { getBIFieldPillLabel } from './biEditorTypes'
 import { biPivotCellKey, biPivotKey, BIPivotMember, buildBIPivotModel, visibleBIPivotMembers } from './biPivot'
 import { formatBIMeasure, getBIResultMeasures } from './biResultPresentation'
 
-// Virtualization still needs a full-width scroll area, which browsers cap even with only a few cells mounted.
+// Virtualization still needs a full-size scroll area, which browsers cap even with only a few cells mounted.
 const MAX_PIVOT_MEASURE_COLUMNS = 10000
+const MAX_PIVOT_ROWS = 100000
 
 interface BIPivotTableRow {
     key: string
@@ -52,12 +53,14 @@ export function BIPivotTable({
     const mixedMeasureShelves = !measuresOnRows && config.values.some((value) => value.shelf !== 'columns')
     const measuresPerColumn = measuresOnRows ? 1 : measures.length
     const rows = useMemo(() => visibleBIPivotMembers(model.rows, collapsedRows, true), [model.rows, collapsedRows])
-    const tableRows: BIPivotTableRow[] = rows.flatMap((member) =>
-        measuresOnRows
-            ? measures.map((measure) => ({ key: `${member.key}:${measure.column}`, member, measure }))
-            : [{ key: member.key, member }]
-    )
     const visibleColumns = visibleBIPivotMembers(model.columns, collapsedColumns, !!config.totals?.subtotals)
+    if (rows.length * (measuresOnRows ? measures.length : 1) > MAX_PIVOT_ROWS) {
+        return (
+            <LemonBanner type="info">
+                This pivot has more than 100,000 rows. Reduce the row dimensions or measures, or use Top N.
+            </LemonBanner>
+        )
+    }
     if (visibleColumns.length * measuresPerColumn > MAX_PIVOT_MEASURE_COLUMNS) {
         return (
             <LemonBanner type="info">
@@ -65,6 +68,11 @@ export function BIPivotTable({
             </LemonBanner>
         )
     }
+    const tableRows: BIPivotTableRow[] = rows.flatMap((member) =>
+        measuresOnRows
+            ? measures.map((measure) => ({ key: `${member.key}:${measure.column}`, member, measure }))
+            : [{ key: member.key, member }]
+    )
     const toggle = (member: BIPivotMember, side: 'rows' | 'columns'): void => {
         const setter = side === 'rows' ? setCollapsedRows : setCollapsedColumns
         setter((current) => {

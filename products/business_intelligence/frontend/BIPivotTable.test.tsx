@@ -210,33 +210,50 @@ describe('BIPivotTable', () => {
             expect(container.querySelectorAll('tbody td').length).toBeLessThan(250)
         }
     )
-    it('keeps the last column reachable at the width limit and rejects wider pivots', () => {
-        jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(180)
-        jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
-        const config: BIConfig = {
-            ...DEFAULT_BI_CONFIG,
-            chartType: ChartDisplayType.ActionsTable,
-            rows: [field('region')],
-            columns: [field('channel')],
-            values: [
-                { field: field('amount'), aggregation: 'sum', shelf: 'columns' },
-                { field: field('cost'), aggregation: 'sum', shelf: 'columns' },
-            ],
-        }
-        const results = Array.from({ length: 5001 }, (_, index) => ['East', `Channel ${index}`, index, index + 10000])
-        const props = { config, columns: ['bi_row_region', 'bi_column_channel', 'sum_amount', 'sum_cost_2'] }
-        const { container, rerender } = render(<BIPivotTable {...props} results={results.slice(0, 5000)} />)
-        const scroll = container.querySelector('.ScrollableShadows__inner')!
-        fireEvent.scroll(scroll, { target: { scrollLeft: 10001 * 192 - 800 } })
-        expect(screen.getByText('14999')).toBeVisible()
-        expect(container.querySelectorAll('tbody td').length).toBeLessThan(30)
-
-        rerender(<BIPivotTable {...props} results={results} />)
-        expect(
-            screen.getByText(
-                'This pivot has more than 10,000 measure columns. Reduce the column dimensions or use Top N.'
+    it.each(['rows', 'columns'] as const)(
+        'keeps the last cell reachable at the %s limit and rejects larger pivots',
+        (shelf) => {
+            jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(
+                function (this: HTMLElement): number {
+                    return this.tagName === 'TR' ? 36 : 180
+                }
             )
-        ).toBeVisible()
-        expect(container.querySelector('table')).not.toBeInTheDocument()
-    })
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+            const config: BIConfig = {
+                ...DEFAULT_BI_CONFIG,
+                chartType: ChartDisplayType.ActionsTable,
+                rows: [field('region')],
+                columns: [field('channel')],
+                values: [
+                    { field: field('amount'), aggregation: 'sum', shelf },
+                    { field: field('cost'), aggregation: 'sum', shelf },
+                ],
+            }
+            const memberLimit = shelf === 'rows' ? 50000 : 5000
+            const results = Array.from({ length: memberLimit + 1 }, (_, index) => [
+                shelf === 'rows' ? `Region ${index}` : 'East',
+                shelf === 'columns' ? `Channel ${index}` : 'Email',
+                index,
+                index + 10000,
+            ])
+            const props = { config, columns: ['bi_row_region', 'bi_column_channel', 'sum_amount', 'sum_cost_2'] }
+            const { container, rerender } = render(<BIPivotTable {...props} results={results.slice(0, memberLimit)} />)
+            const scroll = container.querySelector('.ScrollableShadows__inner')!
+            fireEvent.scroll(scroll, {
+                target: shelf === 'rows' ? { scrollTop: 100000 * 36 } : { scrollLeft: 10001 * 192 - 800 },
+            })
+            expect(screen.getByText(String(memberLimit + 9999))).toBeVisible()
+            expect(container.querySelectorAll('tbody td').length).toBeLessThan(100)
+
+            rerender(<BIPivotTable {...props} results={results} />)
+            expect(
+                screen.getByText(
+                    shelf === 'rows'
+                        ? 'This pivot has more than 100,000 rows. Reduce the row dimensions or measures, or use Top N.'
+                        : 'This pivot has more than 10,000 measure columns. Reduce the column dimensions or use Top N.'
+                )
+            ).toBeVisible()
+            expect(container.querySelector('table')).not.toBeInTheDocument()
+        }
+    )
 })
