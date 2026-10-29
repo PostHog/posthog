@@ -3,11 +3,9 @@ from urllib.parse import quote
 
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-from django.db.models import CharField, Exists, OuterRef, Q
-from django.db.models.functions import Cast
+from django.db.models import Exists, OuterRef, Q
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.organization_offboarding_types import OffboardingResource
@@ -19,18 +17,15 @@ from products.subscriptions.backend.facade import api as subscriptions
 @frozen
 class PublicResourceKind:
     kind: str
-    activity_scope: str
-    activity_item_field: str
+    identifier_field: str
     name_field: str
 
 
 PUBLIC_RESOURCE_KINDS = (
-    PublicResourceKind(kind="dashboard", activity_scope="Dashboard", activity_item_field="id", name_field="name"),
-    PublicResourceKind(kind="insight", activity_scope="Insight", activity_item_field="id", name_field="name"),
-    PublicResourceKind(kind="notebook", activity_scope="Notebook", activity_item_field="short_id", name_field="title"),
-    PublicResourceKind(
-        kind="recording", activity_scope="SessionRecording", activity_item_field="session_id", name_field="session_id"
-    ),
+    PublicResourceKind(kind="dashboard", identifier_field="id", name_field="name"),
+    PublicResourceKind(kind="insight", identifier_field="id", name_field="name"),
+    PublicResourceKind(kind="notebook", identifier_field="short_id", name_field="title"),
+    PublicResourceKind(kind="recording", identifier_field="session_id", name_field="session_id"),
 )
 
 
@@ -42,15 +37,9 @@ class OrganizationOffboarding:
 
     def _public_resources(self, resource_kind: PublicResourceKind) -> list[OffboardingResource]:
         kind = resource_kind.kind
-        sharing_history = ActivityLog.objects.filter(
-            team_id=OuterRef("team_id"),
-            scope=resource_kind.activity_scope,
-            activity="sharing enabled",
-        )
-        shared_ids = sharing_history.filter(user_id=self.user_id).values("item_id")
-        related_to_member = Q(shared_by__id=self.user_id) | Q(resource_log_id__in=shared_ids)
+        related_to_member = Q(shared_by_id=self.user_id)
         if kind != "recording":
-            related_to_member |= Q(**{f"{kind}__created_by_id": self.user_id})
+            related_to_member |= Q(shared_by__isnull=True, **{f"{kind}__created_by_id": self.user_id})
         configurations = (
             SharingConfiguration.objects.filter(
                 SharingConfiguration.tokens_active_q(),
@@ -58,7 +47,6 @@ class OrganizationOffboarding:
                 **{f"{kind}__isnull": False},
             )
             .exclude(**{f"{kind}__deleted": True})
-            .annotate(resource_log_id=Cast(f"{kind}__{resource_kind.activity_item_field}", output_field=CharField()))
             .filter(related_to_member)
             .annotate(
                 has_unprotected_link=Exists(
@@ -87,7 +75,7 @@ class OrganizationOffboarding:
             identifier = (
                 resource.short_id
                 if kind in ("insight", "notebook")
-                else getattr(resource, resource_kind.activity_item_field)
+                else getattr(resource, resource_kind.identifier_field)
             )
             resources.setdefault(
                 resource_id,
