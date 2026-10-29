@@ -4,6 +4,8 @@ from typing import Any, Optional, cast
 
 from requests import Request, Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -142,12 +144,22 @@ def _rest_client(api_key: str) -> RESTClient:
     )
 
 
-def _event_date_keys(events: list[Any]) -> list[tuple[str, str]]:
-    keys: list[tuple[str, str]] = []
+@frozen
+class _EventDateKey:
+    event_id: str
+    date_id: str
+
+    @property
+    def marker(self) -> str:
+        return f"{self.event_id}:{self.date_id}"
+
+
+def _event_date_keys(events: list[Any]) -> list[_EventDateKey]:
+    keys: list[_EventDateKey] = []
     for event in events:
         for date in event.get("dates") or []:
             if date.get("_id") and not date.get("deleted"):
-                keys.append((event["_id"], date["_id"]))
+                keys.append(_EventDateKey(event_id=event["_id"], date_id=date["_id"]))
     return keys
 
 
@@ -170,8 +182,8 @@ def _check_in_count_rows(
         data_selector_required=True,
     ):
         completed: list[str] = []
-        for event_id, date_id in _event_date_keys(events):
-            marker = f"{event_id}:{date_id}"
+        for key in _event_date_keys(events):
+            event_id, date_id, marker = key.event_id, key.date_id, key.marker
             if marker in done:
                 completed.append(marker)
                 continue
