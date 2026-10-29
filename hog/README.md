@@ -97,7 +97,7 @@ hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHO
 
 hog sends usage events to PostHog, so the team can see who uses which commands and where they fail.
 
-- `posthog cli command run`, once per command, the same event posthog-cli sends: the command, exit code, duration, the names of the options passed, the detected agent and CI provider, the OS, and counts from the result, such as rows returned or endpoints pushed.
+- `posthog cli command run`, once per command, the same event posthog-cli sends: the command, exit code, duration, the names of the options passed, the detected agent, the CI provider and runner (such as GitHub Actions on Depot or Blacksmith), the OS, and counts from the result, such as rows returned or endpoints pushed.
 - `$exception` when a command fails, with the error code, message, hint and HTTP status. A message can name a file, or quote part of a query or an API answer.
 - `error_tracking_cli_sourcemaps_upload_started`, `_finished` and `_endpoint_fallback`, as in posthog-cli.
 

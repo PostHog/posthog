@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 import { SMALL_MAPPING } from '../../test/parity/fixtures'
+import { detectCi } from './telemetry'
 
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
 const ON = { telemetryToken: 'phc_test' }
@@ -76,6 +77,34 @@ describe('telemetry', () => {
             expect(event!.properties).not.toHaveProperty('$process_person_profile')
         }
         expect(second.requests.filter((request) => request.url !== TELEMETRY)).toEqual([])
+    })
+
+    test.each([
+        [
+            'a GitHub-hosted job',
+            { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'github-hosted' },
+            'github-actions',
+            'github-hosted',
+        ],
+        [
+            'a Blacksmith runner',
+            { GITHUB_ACTIONS: 'true', RUNNER_ENVIRONMENT: 'self-hosted', BLACKSMITH_VM_ID: 'vm' },
+            'github-actions',
+            'blacksmith',
+        ],
+        ['a Depot runner', { GITHUB_ACTIONS: 'true', RUNNER_NAME: 'depot-abc123' }, 'github-actions', 'depot'],
+        [
+            'Depot CI, which looks like GitHub Actions too',
+            { DEPOT_JOB_URL: 'https://depot.dev/x', GITHUB_ACTIONS: 'true' },
+            'depot-ci',
+            null,
+        ],
+        ['Harness, which also sets Drone variables', { HARNESS_BUILD_ID: '1', DRONE: 'true' }, 'harness', null],
+        ['a Vercel build', { VERCEL: '1', CI: '1' }, 'vercel', null],
+        ['a Vercel function, which is not CI', { VERCEL: '1' }, null, null],
+        ['Cloudflare Workers Builds', { WORKERS_CI: '1' }, 'cloudflare-workers', null],
+    ])('detects %s', (_name, env, provider, runner) => {
+        expect(detectCi(env)).toEqual({ provider, runner })
     })
 
     test('the install ID stays the same across runs', async () => {
