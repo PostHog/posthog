@@ -1819,11 +1819,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=None,
-        responses={202: AlertTestDeliveryResponseSerializer},
-        description="Send a synthetic test notification to subscribed users and every active destination on this alert.",
-    )
-    @extend_schema(
-        request=None,
         responses={200: AlertSerializer},
         description=(
             "Make the requesting user the owner of this alert and enable it. Checks run with the owner's "
@@ -1838,14 +1833,21 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             assert_creator_can_run(user, alert.team, alert.insight)
         except (CreatorLeftOrganizationError, UserAccessControlError):
             raise ValidationError("Can't take ownership: you don't have access to this insight.") from None
-        AlertConfiguration.objects.filter(pk=alert.pk).update(created_by=user)
-        alert.created_by = user
-        # The enable runs the usual update path, so the insight query is validated as the new owner.
-        serializer = self.get_serializer(alert, data={"enabled": True}, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        # One transaction, so a refused enable leaves the owner as it was.
+        with transaction.atomic():
+            AlertConfiguration.objects.filter(pk=alert.pk).update(created_by=user)
+            alert.created_by = user
+            # The enable runs the usual update path, so the insight query is validated as the new owner.
+            serializer = self.get_serializer(alert, data={"enabled": True}, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
         return Response(self.get_serializer(serializer.instance).data)
 
+    @extend_schema(
+        request=None,
+        responses={202: AlertTestDeliveryResponseSerializer},
+        description="Send a synthetic test notification to subscribed users and every active destination on this alert.",
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         detail=True,
