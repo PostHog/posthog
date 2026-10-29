@@ -90,6 +90,26 @@ Max rows to return, ordered by `total_duration_nano` DESC. Defaults to 100; hard
 
 Row offset for pagination. Combine with `limit` and the `next_offset` from a previous response to page through results beyond the first page.
 
+## query.groupByEndpoint
+
+Set to `true` to get per-endpoint health for HTTP servers. Rows then group by `METHOD route` (for example `GET /users/{id}`) from the `http.route` attribute, in place of the span name.
+
+- Only HTTP server spans (span kind server with an HTTP method) are counted. Queue consumers, workflow activities and client spans are left out.
+- A span without `http.route` keeps its span name as the row key.
+- Use it when span names are raw paths (`/users/1`, `/users/2`) or a bare method (`GET`), which split or merge routes.
+
+## query.includeHealth
+
+Set to `true` to get `health_status` and `health_reason` on every row. Each row is compared with the same row in the `compareFilter` window, or in the previous period of the same length when `compareFilter` is off.
+
+- `regressed`: the error rate or p95 jumped against the baseline.
+- `degraded`: the error rate is high, with no clear jump.
+- `new`: the row has no spans in the baseline.
+- `recovered` and `improved`: the error rate or p95 went down.
+- `ok`: none of the above.
+
+It runs a second window query for the routes on the current page. Without `compareFilter`, the response `compare` stays null. With `compareFilter`, `compare` holds the baseline rows for those same routes.
+
 # Examples
 
 ## Top operations by total time in the last hour
@@ -145,6 +165,21 @@ Returns `results` for the last hour and `compare` for the hour before. Diff `tot
   }
 }
 ```
+
+## Endpoint health for one service
+
+```json
+{
+  "query": {
+    "serviceNames": ["api-gateway"],
+    "groupByEndpoint": true,
+    "includeHealth": true,
+    "dateRange": { "date_from": "-1d" }
+  }
+}
+```
+
+Each row is one route. Start with the rows whose `health_status` is `regressed` or `degraded`, and read `health_reason` for the cause.
 
 ## Aggregate within one service
 

@@ -49,6 +49,7 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
+from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
@@ -120,7 +121,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.organization_provisioning import OrganizationProvisioning
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import (
     ROLE_CHOICES,
@@ -263,6 +264,15 @@ def _reserve_person_properties_refresh_if_due(user: User) -> bool:
     return True
 
 
+@tracer.start_as_current_span("user_serializer.identify")
+def _refresh_person_properties(user: User) -> None:
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="update user properties",
+        properties={"$set": user.get_analytics_metadata()},
+    )
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -353,6 +363,14 @@ class UserSerializer(serializers.ModelSerializer):
             "choice underneath. Read-only."
         ),
     )
+    personal_api_keys_limit = serializers.SerializerMethodField(
+        help_text=(
+            "How many personal API keys the user may hold, from the `personal_api_keys` billing "
+            "entitlement of the user's organizations. The highest limit across their organizations "
+            "applies, and 10 when no organization grants a limit. Creating a key beyond it is "
+            "rejected with a validation error. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -411,6 +429,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_invites",
             "requires_credential_review",
             "notification_locks",
+            "personal_api_keys_limit",
         ]
 
         read_only_fields = [
@@ -542,6 +561,10 @@ class UserSerializer(serializers.ModelSerializer):
     @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_personal_api_keys_limit(self, instance: User) -> int:
+        return max_personal_api_keys_for_user(instance)
 
     @tracer.start_as_current_span("user_serializer.requires_credential_review")
     def get_requires_credential_review(self, instance: User) -> bool:
@@ -884,12 +907,7 @@ class UserSerializer(serializers.ModelSerializer):
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
         if _reserve_person_properties_refresh_if_due(instance):
-            with tracer.start_as_current_span("user_serializer.identify"):
-                posthoganalytics.capture(
-                    distinct_id=instance.distinct_id,
-                    event="update user properties",
-                    properties={"$set": instance.get_analytics_metadata()},
-                )
+            run_after_response(self.context.get("request"), lambda: _refresh_person_properties(instance))
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
