@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.pganalyze import (
     PgAnalyzeRetryableError,
+    QueryStatsWindow,
     _post_graphql,
     _query_stats_windows,
     _resolve_api_url,
@@ -206,53 +207,29 @@ class TestResolveApiUrl:
 _NOW = datetime(2026, 3, 4, 15, 30, tzinfo=UTC)
 
 
+def _day(day: int, hour: int = 0) -> datetime:
+    return datetime(2026, 3, day, hour, tzinfo=UTC)
+
+
 class TestQueryStatsWindows:
     @parameterized.expand(
         [
+            ("no_watermark_syncs_the_last_finished_day", None, _NOW, [(3, 4)]),
+            ("string_watermark_resumes_after_its_day", "2026-03-01T00:00:00+00:00", _NOW, [(2, 3), (3, 4)]),
+            ("watermark_on_last_finished_day_syncs_nothing", _day(3), _NOW, []),
+            ("day_inside_settle_delay_is_not_finished", None, _day(4).replace(minute=30), [(2, 3)]),
             (
-                "no_watermark_covers_yesterday_and_today",
-                None,
+                "old_watermark_is_capped_at_the_catchup_limit",
+                datetime(2025, 1, 1, tzinfo=UTC),
                 _NOW,
-                [
-                    (datetime(2026, 3, 3, tzinfo=UTC), datetime(2026, 3, 4, tzinfo=UTC)),
-                    (datetime(2026, 3, 4, tzinfo=UTC), _NOW),
-                ],
-            ),
-            (
-                "string_watermark_resumes_at_its_day",
-                "2026-03-02T00:00:00+00:00",
-                _NOW,
-                [
-                    (datetime(2026, 3, 2, tzinfo=UTC), datetime(2026, 3, 3, tzinfo=UTC)),
-                    (datetime(2026, 3, 3, tzinfo=UTC), datetime(2026, 3, 4, tzinfo=UTC)),
-                    (datetime(2026, 3, 4, tzinfo=UTC), _NOW),
-                ],
-            ),
-            (
-                "watermark_today_refetches_the_partial_day",
-                datetime(2026, 3, 4, tzinfo=UTC),
-                _NOW,
-                [(datetime(2026, 3, 4, tzinfo=UTC), _NOW)],
-            ),
-            (
-                "midnight_emits_no_empty_window",
-                datetime(2026, 3, 4, tzinfo=UTC),
-                datetime(2026, 3, 4, tzinfo=UTC),
-                [],
+                [(1, 2), (2, 3), (3, 4)],
             ),
         ]
     )
-    def test_windows(
-        self, _label: str, watermark: Any, now: datetime, expected: list[tuple[datetime, datetime]]
-    ) -> None:
-        assert _query_stats_windows(watermark, now) == expected
-
-    def test_old_watermark_is_capped_at_the_catchup_limit(self) -> None:
-        windows = _query_stats_windows(datetime(2025, 1, 1, tzinfo=UTC), _NOW)
-
-        assert windows[0][0] == datetime(2026, 2, 25, tzinfo=UTC)
-        assert windows[-1] == (datetime(2026, 3, 4, tzinfo=UTC), _NOW)
-        assert len(windows) == 8
+    def test_windows(self, _label: str, watermark: Any, now: datetime, expected_days: list[tuple[int, int]]) -> None:
+        assert _query_stats_windows(watermark, now) == [
+            QueryStatsWindow(start=_day(start), end=_day(end)) for start, end in expected_days
+        ]
 
 
 def _query_stats_script(request: RecordedRequest) -> ScriptedResponse:
@@ -285,8 +262,8 @@ def _query_stats_script(request: RecordedRequest) -> ScriptedResponse:
 class TestQueryStatsExtraction:
     @parameterized.expand(
         [
-            ("full_refresh", False, None, 2),
-            ("incremental_from_watermark", True, "2026-03-04T00:00:00+00:00", 1),
+            ("full_refresh", False, None, 1),
+            ("incremental_from_watermark", True, "2026-03-01T00:00:00+00:00", 2),
         ]
     )
     def test_fetches_each_discovered_database_per_window(
@@ -307,8 +284,8 @@ class TestQueryStatsExtraction:
         assert [v["databaseId"] for v in stats_variables] == ["11", "22"] * window_count
         assert stats_variables[-1] == {
             "databaseId": "22",
-            "startTs": int(datetime(2026, 3, 4, tzinfo=UTC).timestamp()),
-            "endTs": int(_NOW.timestamp()),
+            "startTs": int(_day(3).timestamp()),
+            "endTs": int(_day(4).timestamp()),
         }
         assert len(result.rows) == 2 * window_count
         assert result.rows[-1] == {
@@ -318,6 +295,6 @@ class TestQueryStatsExtraction:
             "databaseId": 22,
             "serverHumanId": "srv-b",
             "serverName": "replica",
-            "window_start": "2026-03-04T00:00:00+00:00",
-            "window_end": _NOW.isoformat(),
+            "window_start": "2026-03-03T00:00:00+00:00",
+            "window_end": "2026-03-04T00:00:00+00:00",
         }

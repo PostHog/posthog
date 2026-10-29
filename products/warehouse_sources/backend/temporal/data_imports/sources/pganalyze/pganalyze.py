@@ -6,6 +6,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
 from posthog.security.url_validation import is_url_allowed
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
@@ -22,8 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.
     PGANALYZE_ENDPOINTS,
     PGANALYZE_MAX_RETRY_ATTEMPTS,
     PGANALYZE_REQUEST_TIMEOUT_SECONDS,
-    QUERY_STATS_INITIAL_LOOKBACK_DAYS,
     QUERY_STATS_MAX_CATCHUP_DAYS,
+    QUERY_STATS_SETTLE_HOURS,
 )
 
 
@@ -143,18 +144,27 @@ def _iter_issues(
             }
 
 
-def _query_stats_windows(watermark: Any | None, now: datetime) -> list[tuple[datetime, datetime]]:
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    start = today - timedelta(days=QUERY_STATS_INITIAL_LOOKBACK_DAYS)
+@frozen
+class QueryStatsWindow:
+    start: datetime
+    end: datetime
+
+
+def _start_of_day(value: datetime) -> datetime:
+    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _query_stats_windows(watermark: Any | None, now: datetime) -> list[QueryStatsWindow]:
+    finished_until = _start_of_day(now - timedelta(hours=QUERY_STATS_SETTLE_HOURS))
+    start = finished_until - timedelta(days=1)
     parsed_watermark = parse_datetime_value(watermark)
     if parsed_watermark is not None:
-        start = parsed_watermark.replace(hour=0, minute=0, second=0, microsecond=0)
-    start = max(start, today - timedelta(days=QUERY_STATS_MAX_CATCHUP_DAYS))
+        start = _start_of_day(parsed_watermark) + timedelta(days=1)
+    start = max(start, finished_until - timedelta(days=QUERY_STATS_MAX_CATCHUP_DAYS))
 
-    windows: list[tuple[datetime, datetime]] = []
-    while start < now:
-        end = min(start + timedelta(days=1), now)
-        windows.append((start, end))
+    windows: list[QueryStatsWindow] = []
+    while start < finished_until:
+        windows.append(QueryStatsWindow(start=start, end=start + timedelta(days=1)))
         start += timedelta(days=1)
     return windows
 
@@ -185,7 +195,7 @@ def _iter_query_stats(
     windows = _query_stats_windows(watermark, datetime.now(UTC))
     logger.debug(f"pganalyze: fetching query stats for {len(databases)} databases over {len(windows)} windows")
 
-    for window_start, window_end in windows:
+    for window in windows:
         for database_id, server in databases.items():
             payload = _post_graphql(
                 session,
@@ -193,8 +203,8 @@ def _iter_query_stats(
                 QUERY_STATS_QUERY,
                 {
                     "databaseId": str(database_id),
-                    "startTs": int(window_start.timestamp()),
-                    "endTs": int(window_end.timestamp()),
+                    "startTs": int(window.start.timestamp()),
+                    "endTs": int(window.end.timestamp()),
                 },
             )
             for stat in payload.get("getQueryStats") or []:
@@ -203,8 +213,8 @@ def _iter_query_stats(
                     "databaseId": database_id,
                     "serverHumanId": server.get("humanId"),
                     "serverName": server.get("name"),
-                    "window_start": window_start.isoformat(),
-                    "window_end": window_end.isoformat(),
+                    "window_start": window.start.isoformat(),
+                    "window_end": window.end.isoformat(),
                 }
 
 
