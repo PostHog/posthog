@@ -459,6 +459,14 @@ USAGE_STATUS: dict[str, Any] = {
     ],
 }
 
+# Billing's project status: the same items without the limit.
+PROJECT_USAGE_STATUS: dict[str, Any] = {
+    **USAGE_STATUS,
+    "products": [
+        {key: value for key, value in product.items() if key != "usage_limit"} for product in USAGE_STATUS["products"]
+    ],
+}
+
 SPEND: dict[str, Any] = {
     "status": "ok",
     "customer_id": 42,
@@ -951,7 +959,9 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
             mock_get.assert_not_called()
             return
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        billing_path = "products/catalog/" if path == "products/summary/" else path
+        billing_path = {"products/summary/": "products/catalog/", "usage/status/": "project/usage/status/"}.get(
+            path, path
+        )
         self.assertTrue(
             mock_get.call_args.args[0].endswith(f"/api/v2/billing/{billing_path}"), mock_get.call_args.args[0]
         )
@@ -983,7 +993,7 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
     @parameterized.expand([("billing_period_read", 0), ("usage_read", 1)])
     @patch("ee.billing.billing_manager.http_session.get")
     def test_project_usage_timeout_tells_the_person_to_ask_for_less(self, _name, timed_out_call, mock_get):
-        answers: list[Any] = [_response(SUBSCRIPTION), _response(SERIES)]
+        answers: list[Any] = [_response(PROJECT_USAGE_STATUS), _response(SERIES)]
         answers[timed_out_call] = requests.Timeout()
         mock_get.side_effect = answers
         response = self.client.get(self._project_url("usage/"))
@@ -1005,7 +1015,7 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
                 }
             ],
         }
-        mock_get.side_effect = [_response(SUBSCRIPTION), _response(series)]
+        mock_get.side_effect = [_response(PROJECT_USAGE_STATUS), _response(series)]
         response = self.client.get(self._project_url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(
@@ -1013,3 +1023,36 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         )
         sent = mock_get.call_args.kwargs["params"]
         self.assertEqual((sent["start_date"], json.loads(sent["team_ids"])), ("2026-09-01", [self.team.id]))
+
+    @parameterized.expand(
+        [
+            ("session",),
+            ("organization_oauth_token",),
+            ("personal_key_for_this_project",),
+            ("project_secret_key_for_this_project",),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_reads_the_period_without_the_subscription(self, credential, mock_get):
+        # Billing refuses the subscription to a token that names projects, so the project usage reads
+        # its period from the project status, which every credential that covers the project may read.
+        mock_get.side_effect = [_response(PROJECT_USAGE_STATUS), _response(SERIES)]
+        response = self.client.get(self._project_url("usage/"), **self._credential(credential))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        called = [call.args[0].split("/api/v2/billing/")[1] for call in mock_get.call_args_list]
+        self.assertEqual(called, ["project/usage/status/", "usage/timeseries/"])
+        self.assertEqual(response.json()["billing_period"]["current_period_start"], "2026-09-01T00:00:00Z")
+
+    @parameterized.expand([("session",), ("organization_oauth_token",), ("personal_key_for_this_project",)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_status_has_no_limit_for_any_credential(self, credential, mock_get):
+        # The route sets the shape: an organization-wide credential on the project route also reads the
+        # status without the limit, and reads the limit on the organization route.
+        mock_get.return_value = _response(PROJECT_USAGE_STATUS)
+        response = self.client.get(self._project_url("usage/status/"), **self._credential(credential))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/project/usage/status/"))
+        for product in response.json()["products"]:
+            self.assertNotIn("usage_limit", product)
+            self.assertIn("approaching_limit", product)
+            self.assertIn("quota_limited_until", product)

@@ -18656,34 +18656,40 @@ export namespace Schemas {
       total_count?: number;
     }
 
+    /**
+     * A usage status item as the project routes serve it, without the limit.
+     */
     export interface UsageStatusItem {
       kind: CatalogKindEnum;
       key: string;
       /** @nullable */
       usage_key: string | null;
-      /** @nullable */
-      usage_limit: number | null;
       has_exceeded_limit: boolean;
       approaching_limit: boolean;
       /** @nullable */
       quota_limited_until: string | null;
       /** @nullable */
       quota_limiting_suspended_until: string | null;
+      /** @nullable */
+      usage_limit: number | null;
     }
 
+    /**
+     * A usage status item as the project routes serve it, without the limit.
+     */
     export interface ProductUsageStatus {
       kind: CatalogKindEnum;
       key: string;
       /** @nullable */
       usage_key: string | null;
-      /** @nullable */
-      usage_limit: number | null;
       has_exceeded_limit: boolean;
       approaching_limit: boolean;
       /** @nullable */
       quota_limited_until: string | null;
       /** @nullable */
       quota_limiting_suspended_until: string | null;
+      /** @nullable */
+      usage_limit: number | null;
       addons: UsageStatusItem[];
     }
 
@@ -92764,6 +92770,46 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
+    }
+
+    /**
+     * A usage status item as the project routes serve it, without the limit.
+     */
+    export interface ProjectUsageStatusItem {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      has_exceeded_limit: boolean;
+      approaching_limit: boolean;
+      /** @nullable */
+      quota_limited_until: string | null;
+      /** @nullable */
+      quota_limiting_suspended_until: string | null;
+    }
+
+    /**
+     * A usage status item as the project routes serve it, without the limit.
+     */
+    export interface ProjectProductUsageStatus {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      has_exceeded_limit: boolean;
+      approaching_limit: boolean;
+      /** @nullable */
+      quota_limited_until: string | null;
+      /** @nullable */
+      quota_limiting_suspended_until: string | null;
+      addons: ProjectUsageStatusItem[];
+    }
+
+    export interface ProjectBillingUsageStatus {
+      billing_period: BillingPeriod | null;
+      /** @nullable */
+      usage_reported_through: string | null;
+      products: ProjectProductUsageStatus[];
     }
 
     /**

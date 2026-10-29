@@ -229,13 +229,14 @@ tools:
             idempotent: true
         title: Get a project's usage limit status
         description: >
-            The usage limits of the active project's organization, per product and add-on. For each it returns the limit
-            in effect, whether usage is over or approaching it, and whether PostHog is limiting the resource now. Limits
-            belong to the organization, so the answer is the same for every project in it. No counts, so any member can
-            read it. Works with an API key or OAuth token limited to specific projects when the key covers this project.
-            Use it for "is PostHog dropping our events" or "am I near my events limit". For this project's usage so far
-            this period call billing-project-usage-summary-get. Beta: behind the organization-billing-api flag, and the
-            output shape may change while it is.
+            The usage limit status of the active project's organization, per product and add-on. For each it returns
+            whether usage is over or approaching the limit, and whether PostHog is limiting the resource now. It does not
+            return the limit itself, which is the organization's spend limit in units. Limits belong to the organization,
+            so the answer is the same for every project in it. No counts, so any member can read it. Works with an API key
+            or OAuth token limited to specific projects when the key covers this project. Use it for "is PostHog
+            dropping our events" or "am I near my events limit". For the limit, call billing-usage-status-get with an
+            organization-wide key. For this project's usage so far this period call billing-project-usage-summary-get.
+            Beta: behind the organization-billing-api flag, and the output shape may change while it is.
         feature_flag: organization-billing-api
         url_prefix: /organization/billing/usage
     billing-project-usage-summary-get:

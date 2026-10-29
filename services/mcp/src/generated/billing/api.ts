@@ -492,7 +492,7 @@ export const BillingProjectUsageRetrieveParams = () => zod.object({
 
 /**
  * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
- * @summary Get the project's organization's usage against limits, without the counts
+ * @summary Get whether the project's organization is over or near its limits, without the counts or limits
  */
 export const BillingProjectUsageStatusRetrieveParams = () => zod.object({
     project_id: zod
