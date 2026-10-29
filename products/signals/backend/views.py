@@ -143,6 +143,7 @@ from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
     InvalidStatusTransition,
+    SignalActorKind,
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
@@ -777,6 +778,15 @@ _CORRECTED_REPOSITORY_MAX_LENGTH = 140
 _CORRECTED_REPOSITORY_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 
+class SignalReportBulkClaimOutcome(models.TextChoices):
+    """Per-id result of a bulk claim. Mirrors the single-report claim responses:
+    `claimed` ~ 200, `conflict` ~ 409, `not_found` ~ 404."""
+
+    CLAIMED = "claimed", "claimed"
+    CONFLICT = "conflict", "conflict"
+    NOT_FOUND = "not_found", "not_found"
+
+
 class SignalReportBulkStateOutcome(models.TextChoices):
     """Per-id result of a bulk state transition. Mirrors the single-report responses:
     `transitioned` ~ 200, `skipped` ~ 409 (transition not allowed), `failed` ~ 400."""
@@ -943,6 +953,56 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     )
     skipped_count = serializers.IntegerField(help_text="Number of reports whose transition was not allowed.")
     failed_count = serializers.IntegerField(help_text="Number of reports that failed on invalid request data.")
+    not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
+
+
+class SignalReportBulkClaimRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        min_length=1,
+        max_length=SIGNAL_REPORT_BULK_STATE_MAX_IDS,
+        help_text=(
+            "Report ids to claim for the caller in one call (1–"
+            f"{SIGNAL_REPORT_BULK_STATE_MAX_IDS}). Duplicates are de-duplicated. Each id is claimed "
+            "independently, so a report that cannot be claimed does not block the rest."
+        ),
+    )
+    takeover_agent_claims = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Take over a report that an agent or an internal task holds. A report that a person holds "
+            "directly is never taken over and comes back as a conflict."
+        ),
+    )
+
+
+class SignalReportBulkClaimResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The report id this result refers to.")
+    # A CharField like the bulk-state outcome, so the response enum cannot collide with another
+    # product's `OutcomeEnum` in the shared OpenAPI schema. Values come from SignalReportBulkClaimOutcome.
+    outcome = serializers.CharField(
+        help_text=(
+            "One of: claimed, conflict, not_found. claimed: the caller holds the claim, including when it "
+            "already did. conflict: the claim was refused, because someone else holds the report or its "
+            "status does not allow a claim (a 409 on the single-report endpoint). not_found: no report "
+            "with this id is visible to you."
+        ),
+    )
+    detail = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Human-readable explanation for a conflict or not_found outcome.",
+    )
+
+
+class SignalReportBulkClaimResponseSerializer(serializers.Serializer):
+    results = SignalReportBulkClaimResultSerializer(
+        many=True,
+        help_text="One result per requested id, in request order (after de-duplication).",
+    )
+    claimed_count = serializers.IntegerField(help_text="Number of reports the caller now holds.")
+    conflict_count = serializers.IntegerField(help_text="Number of reports whose claim was refused.")
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
@@ -1753,9 +1813,9 @@ class SignalReportViewSet(
         if self.action in {"list", "section_counts"}:
             qs = self._apply_signal_report_ranking_filters(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        if self.action not in {"bulk_state", "section_counts"}:
-            # `bulk_state` answers with one outcome per id, never a serialized report, and the list
-            # ordering that reads this value does not apply to it either.
+        if self.action not in {"bulk_state", "bulk_claim", "section_counts"}:
+            # `bulk_state` and `bulk_claim` answer with one outcome per id, never a serialized report, and
+            # the list ordering that reads this value does not apply to them either.
             qs = self._annotate_is_suggested_reviewer(qs)
             qs = self._prefetch_signal_report_ranking_score(qs)
         if self.action not in self._MULTI_REPORT_ACTIONS:
@@ -1819,7 +1879,7 @@ class SignalReportViewSet(
     }
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "section_counts"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "bulk_claim", "section_counts"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -1838,6 +1898,7 @@ class SignalReportViewSet(
         {
             "state",
             "bulk_state",
+            "bulk_claim",
             "retrieve",
             "signals",
             "refund",
@@ -2353,8 +2414,18 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            queryset = queryset.annotate(**{annotation: self._latest_ranking_value(head, "scores")})
+            latest_score = self._latest_ranking_value(head, "scores")
+            if self._inbox_ranker is not None:
+                queryset = queryset.annotate(
+                    **{self._ranking_decile_annotation(annotation): score_decile(latest_score)}
+                )
+            else:
+                queryset = queryset.annotate(**{annotation: latest_score})
         return queryset
+
+    @staticmethod
+    def _ranking_decile_annotation(score_annotation: str) -> str:
+        return f"{score_annotation}_decile"
 
     @staticmethod
     def _latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
@@ -2622,7 +2693,7 @@ class SignalReportViewSet(
             name = clause.lstrip("-")
             if name in ranking_annotations:
                 # The recommended preset sorts by the score decile, so the order shows no more than `inbox_merge_key`.
-                expression = score_decile(name) if self._inbox_ranker is not None else F(name)
+                expression = F(self._ranking_decile_annotation(name) if self._inbox_ranker is not None else name)
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
                     expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)
@@ -4314,6 +4385,72 @@ class SignalReportViewSet(
                 "skipped_count": counts[SignalReportBulkStateOutcome.SKIPPED.value],
                 "failed_count": counts[SignalReportBulkStateOutcome.FAILED.value],
                 "not_found_count": counts[SignalReportBulkStateOutcome.NOT_FOUND.value],
+            }
+        )
+
+    @validated_request(
+        request_serializer=SignalReportBulkClaimRequestSerializer,
+        responses={200: OpenApiResponse(response=SignalReportBulkClaimResponseSerializer)},
+        summary="Claim many signal reports",
+        description=(
+            "Claim many reports for the current user, internal task, or external agent in one call. Each id is "
+            "claimed independently, and the call is 200 even when some claims are refused: inspect `results` "
+            "and the counts. Use the single-report claim endpoint to release a claim or to add pull requests."
+        ),
+        operation_id="signals_reports_bulk_claim",
+    )
+    @action(detail=False, methods=["post"], url_path="bulk_claim", required_scopes=["task:write"])
+    def bulk_claim(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        data = request.validated_data
+        ordered_ids = list(dict.fromkeys(str(raw_id) for raw_id in data["ids"]))
+        reports_by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ordered_ids)}
+        actor = self._request_attribution()
+        claims = get_active_claims(team_id=self.team.id, report_ids=list(reports_by_id))
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated_session(request)
+
+        results: list[dict] = []
+        counts: dict[str, int] = {outcome.value: 0 for outcome in SignalReportBulkClaimOutcome}
+        for report_id in ordered_ids:
+            report = reports_by_id.get(report_id)
+            detail: str | None = None
+            if report is None:
+                outcome = SignalReportBulkClaimOutcome.NOT_FOUND
+                detail = "No report with this id is visible to you."
+            else:
+                claim = claims.get(report_id)
+                # The expected claim id makes the server refuse the takeover when a person claims the
+                # report between the read above and this write.
+                takeover_claim_id = (
+                    str(claim.claim_id)
+                    if data["takeover_agent_claims"]
+                    and claim is not None
+                    and claim.actor_kind in (SignalActorKind.AGENT, SignalActorKind.TASK)
+                    and not actor_works_under_claim(claim, actor)
+                    else None
+                )
+                try:
+                    claim_report(
+                        report=report,
+                        actor=actor,
+                        user=user,
+                        was_impersonated=was_impersonated,
+                        takeover=takeover_claim_id is not None,
+                        takeover_claim_id=takeover_claim_id,
+                    )
+                    outcome = SignalReportBulkClaimOutcome.CLAIMED
+                except ReportClaimConflict as err:
+                    outcome = SignalReportBulkClaimOutcome.CONFLICT
+                    detail = str(err)
+            results.append({"id": report_id, "outcome": outcome.value, "detail": detail})
+            counts[outcome.value] += 1
+
+        return Response(
+            {
+                "results": results,
+                "claimed_count": counts[SignalReportBulkClaimOutcome.CLAIMED.value],
+                "conflict_count": counts[SignalReportBulkClaimOutcome.CONFLICT.value],
+                "not_found_count": counts[SignalReportBulkClaimOutcome.NOT_FOUND.value],
             }
         )
 

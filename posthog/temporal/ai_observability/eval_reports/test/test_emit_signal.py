@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, PropertyDefinition, Team, User
 from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     EmitEvalReportSignalInputs,
     EvalReportSignalSummary,
@@ -15,6 +15,9 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     summarize_report_for_signal,
 )
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.models.role import Role
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -25,6 +28,7 @@ async def aorganization():
         is_ai_data_processing_approved=True,
     )
     yield organization
+    await sync_to_async(User.objects.filter(organization_membership__organization=organization).delete)()
     await sync_to_async(organization.delete)()
 
 
@@ -168,7 +172,63 @@ class TestEmitEvalReportSignalActivity:
         mock_summarize.assert_not_called()
         mock_emit.assert_not_called()
 
-    async def test_emits_signal_when_gates_pass(self, ateam):
+    @pytest.mark.parametrize(
+        "rule,subject,should_emit",
+        [
+            ("none", "default", True),
+            ("event", "default", False),
+            ("event", "member", False),
+            ("event", "role", False),
+            ("evaluation", "default", False),
+            ("evaluation", "member", False),
+            ("evaluation", "role", False),
+            ("evaluation_project", "default", False),
+            ("other_evaluation", "default", True),
+            ("person", "default", True),
+            ("event_read", "default", True),
+        ],
+    )
+    async def test_emits_only_for_unrestricted_audiences(
+        self, ateam: Team, rule: str, subject: str, should_emit: bool
+    ) -> None:
+        def configure_access() -> None:
+            member = None
+            role = None
+            if subject == "member":
+                user = User.objects.create_and_join(
+                    ateam.organization, f"reader-{ateam.pk}@example.com", "test-password"
+                )
+                member = user.organization_memberships.get(organization=ateam.organization)
+            elif subject == "role":
+                role = Role.objects.create(organization=ateam.organization, name="Report readers")
+            if rule in ("event", "person", "event_read"):
+                definition = PropertyDefinition.objects.create(
+                    team=ateam,
+                    name="$ai_evaluation_reasoning",
+                    type=PropertyDefinition.Type.PERSON if rule == "person" else PropertyDefinition.Type.EVENT,
+                )
+                PropertyAccessControl.objects.create(
+                    team=ateam,
+                    property_definition=definition,
+                    access_level="read" if rule == "event_read" else "none",
+                    organization_member=member,
+                    role=role,
+                )
+            elif rule != "none":
+                AccessControl.objects.create(
+                    team=ateam,
+                    resource="evaluation",
+                    resource_id=None
+                    if rule == "evaluation_project"
+                    else "other-eval"
+                    if rule == "other_evaluation"
+                    else "eval-123",
+                    access_level="none",
+                    organization_member=member,
+                    role=role,
+                )
+
+        await sync_to_async(configure_access)()
         await sync_to_async(SignalSourceConfig.objects.create)(
             team=ateam,
             source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
@@ -186,7 +246,7 @@ class TestEmitEvalReportSignalActivity:
                 "posthog.temporal.ai_observability.eval_reports.emit_signal.summarize_report_for_signal",
                 new_callable=AsyncMock,
                 return_value=summary,
-            ),
+            ) as mock_summarize,
             patch(
                 "posthog.temporal.ai_observability.eval_reports.emit_signal.EvaluationReportRun.objects.values_list"
             ) as mock_values_list,
@@ -194,6 +254,12 @@ class TestEmitEvalReportSignalActivity:
         ):
             mock_values_list.return_value.get.return_value = _make_content()
             await emit_eval_report_signal_activity(inputs)
+
+        if not should_emit:
+            mock_summarize.assert_not_called()
+            mock_values_list.assert_not_called()
+            mock_emit.assert_not_called()
+            return
 
         mock_emit.assert_called_once()
         call_kwargs = mock_emit.call_args.kwargs
