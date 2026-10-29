@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import type { RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -497,7 +498,15 @@ export const maxContextLogic = kea<maxContextLogicType>([
             let dashboard = data.preloaded
 
             if (!dashboard || !dashboard.tiles) {
-                const { DashboardLoadAction, dashboardLogic } = await import('scenes/dashboard/dashboardLogic')
+                const dashboardModule = await import('scenes/dashboard/dashboardLogic').catch((error) => {
+                    posthog.captureException(error, { feature: 'max_context_dashboard' })
+                    lemonToast.error('Could not load the dashboard. Try again.')
+                    return null
+                })
+                if (!dashboardModule) {
+                    return
+                }
+                const { DashboardLoadAction, dashboardLogic } = dashboardModule
                 const dashboardLogicInstance = dashboardLogic.build({ id: data.id })
                 dashboardLogicInstance.mount()
 
