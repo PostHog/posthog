@@ -353,6 +353,7 @@ export interface llmEvaluationLogicValues {
     numericBoundsRequired: boolean
     originalEvaluation: EvaluationConfig | null
     outputConfigDrafts: Partial<Record<'boolean' | 'categorical' | 'numeric', EvaluationOutputConfig>>
+    reasoningLevel: ReasoningLevel | null
     runsBackfill: EvaluationBackfillApi | null
     runsBackfillId: string | null
     runsBackfillLoading: boolean
@@ -367,7 +368,6 @@ export interface llmEvaluationLogicValues {
         successRate: number | null
         total: number
     } | null
-    reasoningLevel: ReasoningLevel | null
     selectedModel: string
     selectedModelName: string | undefined
     selectedModelOption: ModelOption | null
@@ -539,9 +539,6 @@ export interface llmEvaluationLogicActions {
     setJudgeMethod: (judgeMethod: JudgeMethod) => {
         judgeMethod: JudgeMethod
     }
-    setReasoningLevel: (reasoningLevel: ReasoningLevel | null) => {
-        reasoningLevel: ReasoningLevel | null
-    }
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
@@ -549,6 +546,9 @@ export interface llmEvaluationLogicActions {
         outputConfig: EvaluationApiOutputConfig | undefined
         outputType: 'boolean' | 'categorical' | 'numeric'
         previousEvaluation: EvaluationConfig | null
+    }
+    setReasoningLevel: (reasoningLevel: ReasoningLevel | null) => {
+        reasoningLevel: ReasoningLevel | null
     }
     setRunsBackfillId: (backfillId: string | null) => {
         backfillId: string | null

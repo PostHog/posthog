@@ -5,8 +5,6 @@ from django.db import models
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
-from products.ai_observability.backend.llm.types import ReasoningLevel
-
 
 class EvaluationType(models.TextChoices):
     """How the evaluation is performed"""
@@ -32,7 +30,8 @@ class LLMJudgeConfig(BaseModel):
     judge_method: Literal["llm", "decision"] | None = Field(
         default=None, description="Judge method. Omit to keep the saved method; null restores automatic routing."
     )
-    reasoning_level: ReasoningLevel | None = Field(
+    # Matches llm.types.ReasoningLevel; importing the llm package here would load provider SDKs at startup.
+    reasoning_level: Literal["minimal", "low", "medium", "high"] | None = Field(
         default=None,
         description="How much the judge model reasons before it answers. Null uses the model's default.",
     )
