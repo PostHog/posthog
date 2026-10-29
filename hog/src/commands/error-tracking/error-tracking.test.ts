@@ -1,5 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+    chmodSync,
+    cpSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -241,9 +251,9 @@ describe('hog error-tracking upload', () => {
     })
 
     test.each([
-        ['matches an ignore glob', ['Shop.app.dSYM/Contents/Resources/DWARF/**'], false],
-        ['is a symlink to a file outside the selected folder', [], true],
-    ])('upload skips a dSYM member that %s', async (_name, ignore, linkOutside) => {
+        ['skips a dSYM member that matches an ignore glob', ['Shop.app.dSYM/Contents/Resources/DWARF/**'], false],
+        ['follows a dSYM member that is a symlink, as posthog-cli does', [], true],
+    ])('upload %s', async (_name, ignore, linkOutside) => {
         const folder = project({
             'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'apple', ignore }] } }),
         })
@@ -260,11 +270,18 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
 
-        expect(result.exitCode).toBe(1)
-        expect(result.error()).toMatchObject({
-            code: 'no_debug_symbols',
-            message: expect.stringContaining('apple/Shop.app.dSYM: '),
-        })
+        if (linkOutside) {
+            expect(result.exitCode).toBe(0)
+            expect(result.json().symbolSets).toEqual([
+                expect.objectContaining({ path: 'apple/Shop.app.dSYM', status: 'planned' }),
+            ])
+        } else {
+            expect(result.exitCode).toBe(1)
+            expect(result.error()).toMatchObject({
+                code: 'no_debug_symbols',
+                message: expect.stringContaining('apple/Shop.app.dSYM: '),
+            })
+        }
     })
 
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {

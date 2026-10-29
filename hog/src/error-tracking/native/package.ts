@@ -1,4 +1,4 @@
-import { closeSync, lstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
+import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { SymbolDataType, writeSymbolData } from '../container'
@@ -94,23 +94,17 @@ export interface DsymSlice {
 
 // What `dwarfdump --uuid` and `lipo -thin` give posthog-cli: every slice of every binary in the
 // bundle, with its uppercase UUID and its own bytes. A thin binary is its whole file.
-// Symlinks inside the bundle are refused, as discovery refuses them, so a bundle can't pull in a
-// file from outside the selected folder. `include` applies the source's ignore globs to members.
+// Symlinks inside the bundle are followed, as those tools follow them. `include` applies the
+// source's ignore globs to members.
 export function dsymSlices(bundle: string, include: (path: string) => boolean = () => true): DsymSlice[] {
     if (!statSync(bundle).isDirectory()) {
         throw new Error(`${bundle} is not a directory`)
     }
-    let folder = bundle
-    for (const part of ['Contents', 'Resources', 'DWARF']) {
-        folder = join(folder, part)
-        if (lstatSync(folder).isSymbolicLink()) {
-            throw new Error(`${folder} is a symlink`)
-        }
-    }
+    const folder = join(bundle, 'Contents', 'Resources', 'DWARF')
     const slices: DsymSlice[] = []
     for (const name of readdirSync(folder).sort()) {
         const path = join(folder, name)
-        if (!lstatSync(path).isFile() || !include(path)) {
+        if (!statSync(path).isFile() || !include(path)) {
             continue
         }
         const bytes = readFileSync(path)
