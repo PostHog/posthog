@@ -26,11 +26,14 @@ import type {
     DataCatalogMetricsRunCreateParams,
     DataCatalogRelationshipProposalApi,
     DataCatalogRelationshipProposalsListParams,
+    MetricUsageApi,
     PaginatedDataCatalogCertificationListApi,
     PaginatedDataCatalogMetricListApi,
     PaginatedDataCatalogRelationshipProposalListApi,
     PatchedDataCatalogMetricApi,
     RelationshipRejectApi,
+    UsageSnapshotApi,
+    UsageSnapshotSummaryApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -383,6 +386,24 @@ export const dataCatalogMetricsRunCreate = async (
     })
 }
 
+export const getDataCatalogMetricsUsageRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/usage/`
+}
+
+/**
+ * How the metric was used in the latest usage scan: direct runs and agent re-derivations.
+ */
+export const dataCatalogMetricsUsageRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<MetricUsageApi> => {
+    return apiMutator<MetricUsageApi>(getDataCatalogMetricsUsageRetrieveUrl(projectId, name), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_catalog/metrics/bulk/change_owner/`
 }
@@ -563,4 +584,56 @@ export const dataCatalogRelationshipProposalsRejectCreate = async (
             body: JSON.stringify(relationshipRejectApi),
         }
     )
+}
+
+export const getDataCatalogUsageListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/`
+}
+
+/**
+ * Up to a year of usage scans for the project, newest first, without payloads.
+ */
+export const dataCatalogUsageList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotSummaryApi[]> => {
+    return apiMutator<UsageSnapshotSummaryApi[]>(getDataCatalogUsageListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogUsageRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/${id}/`
+}
+
+/**
+ * One usage scan, with its payload.
+ */
+export const dataCatalogUsageRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<UsageSnapshotApi> => {
+    return apiMutator<UsageSnapshotApi>(getDataCatalogUsageRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogUsageLatestRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/latest/`
+}
+
+/**
+ * The newest finished usage scan, with its payload.
+ */
+export const dataCatalogUsageLatestRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotApi> => {
+    return apiMutator<UsageSnapshotApi>(getDataCatalogUsageLatestRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

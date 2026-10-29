@@ -7,6 +7,7 @@ Thin: validate via the serializer, call the facade, serialize the result. Domain
 from functools import reduce
 from operator import or_
 from typing import cast
+from uuid import UUID
 
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVectorField
 from django.db.models import Func, Q, QuerySet, Value
@@ -17,7 +18,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action as drf_action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.filters import SearchFilter
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -29,7 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.full_text_search import build_search_vector
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, HogQLQueryThrottle
 
 from ..facade import api
@@ -50,8 +51,11 @@ from .serializers import (
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
     MetricSerializer,
+    MetricUsageSerializer,
     RelationshipProposalSerializer,
     RelationshipRejectSerializer,
+    UsageSnapshotSerializer,
+    UsageSnapshotSummarySerializer,
 )
 
 # Kinds that execute a ClickHouse query through the trends/funnels pipeline (node kinds run as a
@@ -72,6 +76,16 @@ def _resolve_bulk_metrics(
         [by_name[name] for name in requested if name in by_name],
         [api.MetricBulkSkip(name=name, reason=api.BULK_SKIP_NOT_FOUND) for name in requested if name not in by_name],
     )
+
+
+def _require_usage_enabled(request: Request, team: Team) -> None:
+    # A 404 rather than a 403, so the endpoints stay invisible until the flag is on for the team.
+    if not api.is_usage_enabled(cast(User, request.user), team):
+        raise NotFound()
+
+
+_NO_USAGE_SCAN = "No usage scan has finished for this project yet."
+_USAGE_404 = OpenApiResponse(description="Usage is not enabled for this project, or no scan has finished.")
 
 
 class CatalogSearchFilter(SearchFilter):
@@ -344,6 +358,20 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         metric = api.refresh_metric_from_insight(self.get_object(), cast(User, request.user), request=request)
         return Response(self.get_serializer(metric).data)
 
+    @action(
+        detail=True,
+        methods=["GET"],
+        required_scopes=["data_catalog:read"],
+        responses={200: MetricUsageSerializer, 404: _USAGE_404},
+    )
+    def usage(self, request: Request, **kwargs) -> Response:
+        """How the metric was used in the latest usage scan: direct runs and agent re-derivations."""
+        _require_usage_enabled(request, self.team)
+        usage = api.metric_usage(self.team_id, self.get_object().id)
+        if usage is None:
+            raise NotFound(_NO_USAGE_SCAN)
+        return Response(MetricUsageSerializer(usage).data)
+
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
     # annotation applied earlier — including @validated_request's — from the generated OpenAPI.
     @extend_schema(
@@ -564,3 +592,40 @@ class RelationshipProposalViewSet(
             request=request,
         )
         return Response(self.get_serializer(proposal).data)
+
+
+class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Usage scans of the catalog, newest first. The list omits payloads; retrieve and latest include them."""
+
+    scope_object = "data_catalog"
+    # A plain ViewSet maps no actions to scopes by default, so API-key reads would 403 without these.
+    scope_object_read_actions = ["list", "retrieve", "latest"]
+
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        super().initial(request, *args, **kwargs)
+        _require_usage_enabled(request, self.team)
+
+    @extend_schema(responses={200: UsageSnapshotSummarySerializer(many=True), 404: _USAGE_404})
+    def list(self, request: Request, **kwargs) -> Response:
+        """Up to a year of usage scans for the project, newest first, without payloads."""
+        return Response(UsageSnapshotSummarySerializer(api.usage_snapshot_history(self.team_id), many=True).data)
+
+    @extend_schema(responses={200: UsageSnapshotSerializer, 404: _USAGE_404})
+    def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
+        """One usage scan, with its payload."""
+        try:
+            snapshot_id = UUID(pk)
+        except ValueError:
+            raise NotFound()
+        snapshot = api.get_usage_snapshot(self.team_id, snapshot_id)
+        if snapshot is None:
+            raise NotFound()
+        return Response(UsageSnapshotSerializer(snapshot).data)
+
+    @action(detail=False, methods=["GET"], responses={200: UsageSnapshotSerializer, 404: _USAGE_404})
+    def latest(self, request: Request, **kwargs) -> Response:
+        """The newest finished usage scan, with its payload."""
+        snapshot = api.latest_usage_snapshot(self.team_id)
+        if snapshot is None:
+            raise NotFound(_NO_USAGE_SCAN)
+        return Response(UsageSnapshotSerializer(snapshot).data)

@@ -48,3 +48,44 @@ class RelationshipStatus(StrEnum):
     PROPOSED = "proposed"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+
+
+# Gates every catalog usage surface. While it is off, the usage endpoints answer 404.
+USAGE_FLAG_KEY = "data-catalog-usage"
+
+# The `source` that scheduled agents (scouts) stamp on the run event and on `$ai_generation`.
+# A scout can run one metric many times a day, so usage counts keep scouts apart from every
+# headline number.
+SCOUT_SOURCE = "self_driving"
+
+
+class UsageSnapshotStatus(StrEnum):
+    """Lifecycle of one usage scan. A snapshot row is written once per scan and never reused."""
+
+    COMPUTING = "computing"
+    DONE = "done"
+    ERROR = "error"
+
+
+class JudgeRelation(StrEnum):
+    """What the judge decided about an agent query that resembles a catalog metric."""
+
+    SERVES = "serves"
+    SLICE = "slice"
+    DIFFERENT = "different"
+
+
+class FetchOutcome(StrEnum):
+    """Whether the agent consulted the catalog before it re-derived a metric in SQL."""
+
+    ADAPTED = "adapted"
+    MISSED = "missed"
+    SILENT = "silent"
+
+
+class ShapeOutcome(StrEnum):
+    """How a recurring query shape relates to the catalog."""
+
+    COVERED = "covered"
+    SLICE = "slice"
+    UNCOVERED = "uncovered"

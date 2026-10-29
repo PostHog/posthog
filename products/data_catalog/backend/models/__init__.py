@@ -1,6 +1,7 @@
 from .certification import TableCertification
 from .metric import METRIC_NAME_MAX_LENGTH, METRIC_NAME_REGEX, Metric
 from .relationship_proposal import RelationshipProposal
+from .usage_snapshot import UsageSnapshot
 
 __all__ = [
     "METRIC_NAME_MAX_LENGTH",
@@ -8,4 +9,5 @@ __all__ = [
     "Metric",
     "RelationshipProposal",
     "TableCertification",
+    "UsageSnapshot",
 ]

@@ -12015,6 +12015,30 @@ export namespace Schemas {
       identifier: string;
     }
 
+    export interface AdjustedRun {
+      /** ID of the catalog metric the agent query re-derived. */
+      metric_id: string;
+      /** adapted: the agent read the metric first, then changed it. missed: the agent listed the catalog but did not pick this metric. silent: the agent did not consult the catalog. */
+      fetch_outcome: string;
+      /** serves: the query computes the metric. slice: it computes the metric with an extra filter. */
+      relation: string;
+      /** What the agent said it was trying to answer. */
+      intent: string;
+      /** The SQL the agent ran. */
+      sql: string;
+      /** Why the judge matched the query to the metric. */
+      reasoning: string;
+      /** When the agent ran the query. */
+      occurred_at: string;
+      /**
+         * Agent session of the query, when known.
+         * @nullable
+         */
+      session_id: string | null;
+      /** True when a scout (scheduled agent) ran the query. */
+      is_scout: boolean;
+    }
+
     /**
      * * `yes` - Yes
      * * `no` - No
@@ -55989,6 +56013,15 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    export interface FetchOutcomeCounts {
+      /** Agent queries that read the metric first, then changed it. */
+      adapted: number;
+      /** Agent queries that listed the catalog but re-derived the metric. */
+      missed: number;
+      /** Agent queries that re-derived the metric without the catalog. */
+      silent: number;
+    }
+
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
@@ -72519,6 +72552,26 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, slack, posthog_ai, or posthog_code. Scout runs are not included.
+     */
+    export type MetricRunCountsDirectRuns = {[key: string]: number};
+
+    export interface MetricRunCounts {
+      /** ID of the catalog metric. */
+      metric_id: string;
+      /** Direct runs of the metric in the window, keyed by the surface that ran it: web, api, mcp, slack, posthog_ai, or posthog_code. Scout runs are not included. */
+      direct_runs: MetricRunCountsDirectRuns;
+      /** Distinct people who ran the metric directly, without scouts. */
+      direct_people: number;
+      /** Direct runs by scouts (scheduled agents), kept apart because one scout can run a metric many times a day. */
+      scout_runs: number;
+      /** Calculations of the metric's source insight on a dashboard. Cached views are not counted. */
+      source_insight_dashboard_runs: number;
+      /** Calculations of the metric's source insight outside a dashboard. Cached views are not counted. */
+      source_insight_insight_runs: number;
+    }
+
+    /**
      * * `funnel` - funnel
      * * `mean_count` - mean_count
      * * `mean_sum_or_avg` - mean_sum_or_avg
@@ -72535,6 +72588,30 @@ export namespace Schemas {
       Ratio: 'ratio',
       Retention: 'retention',
     } as const;
+
+    export interface MetricUsage {
+      /** ID of the catalog metric. */
+      metric_id: string;
+      /** The usage scan these numbers come from. */
+      snapshot_id: string;
+      /** Start of the scanned window. */
+      window_start: string;
+      /** End of the scanned window. */
+      window_end: string;
+      /**
+         * When the scan finished.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** Run counts. Null when the metric had no runs. */
+      runs: MetricRunCounts | null;
+      /** Agent re-derivations of the metric, without scouts. */
+      adjusted: FetchOutcomeCounts;
+      /** Re-derivations of the metric by scouts. */
+      scout_adjusted: FetchOutcomeCounts;
+      /** The agent queries behind both counts. is_scout tells them apart. */
+      adjusted_runs: AdjustedRun[];
+    }
 
     /**
      * * `custom` - custom
@@ -121267,6 +121344,30 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    export interface TopicCoverage {
+      /** Sessions that ran a catalog metric directly. */
+      canonical: number;
+      /** Sessions that read a catalog metric, then changed it. */
+      adapted: number;
+      /** Sessions that re-derived a catalog metric without consulting it. */
+      silent: number;
+      /** Sessions that ran SQL that matches no catalog metric. */
+      raw_sql_only: number;
+      /** Sessions that ran no query. */
+      no_sql: number;
+    }
+
+    export interface TopicCluster {
+      /** Short name of the topic, written by a model from sample intents. */
+      title: string;
+      /** Agent sessions in the topic. Scout sessions are not clustered. */
+      session_count: number;
+      /** How the topic's sessions got their numbers. */
+      coverage: TopicCoverage;
+      /** A few intents from the topic's sessions. */
+      sample_intents: string[];
+    }
+
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
     export interface TracePerson {
@@ -121611,6 +121712,45 @@ export namespace Schemas {
       passkeys_enabled_for_2fa: boolean;
     }
 
+    export interface UncoveredGroup {
+      /** Stable ID of the measure the queries compute. */
+      fingerprint_digest: string;
+      /** Readable description of the measure. */
+      measure: string;
+      /** covered: a catalog metric computes it. slice: a catalog metric computes it without the extra filters. uncovered: no catalog metric computes it. */
+      outcome: string;
+      /**
+         * The matching catalog metric, for covered and slice.
+         * @nullable
+         */
+      matched_metric_id: string | null;
+      /**
+         * Status of the matching metric at scan time: proposed or approved.
+         * @nullable
+         */
+      matched_metric_status: string | null;
+      /** Distinct people who ran the measure, without scouts. */
+      distinct_people: number;
+      /** Days in the window with at least one run, without scouts. */
+      active_days: number;
+      /** Query runs of the measure, without scouts. */
+      runs: number;
+      /** Query runs of the measure by scouts (scheduled agents). */
+      scout_runs: number;
+      /** One query that computes the measure. */
+      sample_sql: string;
+      /**
+         * Proposed metric name, when one was drafted.
+         * @nullable
+         */
+      draft_name: string | null;
+      /**
+         * Proposed metric description, when one was drafted.
+         * @nullable
+         */
+      draft_description: string | null;
+    }
+
     export interface UnquarantineQuery {
       /**
          * Snapshot identifier to unquarantine
@@ -121841,6 +121981,75 @@ export namespace Schemas {
          * @nullable
          */
       error?: UpsertWizardSessionRequestError;
+    }
+
+    export interface UsageSnapshotPayload {
+      /**
+         * Run counts per metric. Null until the scan counts runs.
+         * @nullable
+         */
+      metric_runs: MetricRunCounts[] | null;
+      /**
+         * Agent queries that re-derived a metric. Null until judged.
+         * @nullable
+         */
+      adjusted_runs: AdjustedRun[] | null;
+      /**
+         * Agent session topics. Null until clustered.
+         * @nullable
+         */
+      topics: TopicCluster[] | null;
+      /**
+         * Recurring query shapes and their catalog outcome. Null until grouped.
+         * @nullable
+         */
+      uncovered: UncoveredGroup[] | null;
+    }
+
+    export interface UsageSnapshot {
+      /** ID of the usage scan. */
+      id: string;
+      /** computing while the scan runs, then done or error. */
+      status: string;
+      /** Why the scan failed, when status is error. */
+      error_message: string;
+      /** Start of the scanned window. */
+      window_start: string;
+      /** End of the scanned window. */
+      window_end: string;
+      /** Model that judged adjusted runs in this scan. */
+      judge_model: string;
+      /**
+         * When the scan finished.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** When the scan started. */
+      created_at: string;
+      /** The scan result, one key per section. */
+      payload: UsageSnapshotPayload;
+    }
+
+    export interface UsageSnapshotSummary {
+      /** ID of the usage scan. */
+      id: string;
+      /** computing while the scan runs, then done or error. */
+      status: string;
+      /** Why the scan failed, when status is error. */
+      error_message: string;
+      /** Start of the scanned window. */
+      window_start: string;
+      /** End of the scanned window. */
+      window_end: string;
+      /** Model that judged adjusted runs in this scan. */
+      judge_model: string;
+      /**
+         * When the scan finished.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** When the scan started. */
+      created_at: string;
     }
 
     /**
