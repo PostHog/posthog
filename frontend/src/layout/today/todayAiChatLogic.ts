@@ -297,7 +297,7 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
         },
         // An AI tool button always starts a new chat. If that replaces an open chat, a hint shows where it went.
         startNewChatForTool: () => {
-            const replacedChat = values.activeItemId !== null
+            const replacedChat = values.activeItemId !== null || (values.onTaskRunner && values.activeCreation !== null)
             // pinned: analytics event name
             posthog.capture('today ai tool chat started', { replaced_chat: replacedChat })
             // A report or scout panel attaches its own entity's context, so it must not stay on the new chat.

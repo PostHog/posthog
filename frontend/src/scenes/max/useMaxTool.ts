@@ -138,7 +138,7 @@ export function useMaxTool({
         if (toolPageContextOwner !== hookIdRef.current) {
             return
         }
-        if (openChatStreamKey !== null) {
+        if (!active || openChatStreamKey !== null) {
             toolPageContextOwner = null
             deregisterContext(TOOL_PAGE_CONTEXT_PROVIDER_ID)
             return
@@ -148,7 +148,7 @@ export function useMaxTool({
             toolPageContextItems(identifier, context, TOOL_PAGE_CONTEXT_PROVIDER_ID)
         )
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- context is tracked via contextKey (serialized)
-    }, [identifier, contextKey, pathname, openChatStreamKey, registerContext, deregisterContext])
+    }, [active, identifier, contextKey, pathname, openChatStreamKey, registerContext, deregisterContext])
 
     useEffect(() => {
         const hookId = hookIdRef.current

@@ -95,9 +95,10 @@ describe('useMaxTool', () => {
     })
 
     it.each([
-        { nav: 'Today', todayRailNav: true, hintQueued: true },
-        { nav: 'classic', todayRailNav: false, hintQueued: false },
-    ])('replaces an open $nav panel task chat with a new chat', ({ todayRailNav, hintQueued }) => {
+        { nav: 'Today', chat: 'task', todayRailNav: true, hintQueued: true, taskId: 'task-1' },
+        { nav: 'Today', chat: 'draft', todayRailNav: true, hintQueued: true, taskId: undefined },
+        { nav: 'classic', chat: 'task', todayRailNav: false, hintQueued: false, taskId: 'task-1' },
+    ])('replaces an open $nav panel $chat chat with a new chat', ({ todayRailNav, hintQueued, taskId }) => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
             [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
@@ -105,7 +106,7 @@ describe('useMaxTool', () => {
         const panelChat = todayPanelChatSessionLogic()
         panelChat.mount()
         const runner = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
-        runner.actions.setActiveCreation({ streamKey: 'run-1', taskId: 'task-1', runId: 'run-1' })
+        runner.actions.setActiveCreation({ streamKey: 'run-1', taskId, runId: taskId && 'run-1' })
 
         let openMax: UseMaxToolReturn['openMax'] = null
         render(<TestMaxTool context={{ query: 'select 1' }} onRender={(result) => (openMax = result.openMax)} />)
@@ -155,6 +156,15 @@ describe('useMaxTool', () => {
         expect(attachedContextLogic.values.contextItems).toEqual([])
 
         act(() => openers.sql?.())
+        rerender(
+            <TestMaxTool
+                context={{ query: 'select 2' }}
+                active={false}
+                onRender={(result) => (openers.sql = result.openMax)}
+            />
+        )
+        expect(attachedContextLogic.values.contextItems).toEqual([])
+
         unmount()
         expect(attachedContextLogic.values.contextItems).toEqual([])
         unmountContextStore()
