@@ -254,14 +254,16 @@ export function GithubIntegration({
                                 {canLinkExisting ? 'Connect a different organization or repository' : connectText}
                             </LemonButton>
                         </div>
-                        <p className="m-0 max-w-[520px] text-center text-[13px] text-tertiary">
-                            {connectDescription ?? (
-                                <>
-                                    PostHog uses GitHub to create reports and pull requests based on your code. After
-                                    connecting GitHub, you can run Wizard in the background to complete setup.
-                                </>
-                            )}
-                        </p>
+                        {connectDescription !== '' && (
+                            <p className="m-0 max-w-[520px] text-center text-[13px] text-tertiary">
+                                {connectDescription ?? (
+                                    <>
+                                        PostHog uses GitHub to create reports and pull requests based on your code.
+                                        After connecting GitHub, you can run Wizard in the background to complete setup.
+                                    </>
+                                )}
+                            </p>
+                        )}
                     </div>
                 ) : (
                     <div className={cn('flex flex-wrap gap-2', centered && 'justify-center')}>

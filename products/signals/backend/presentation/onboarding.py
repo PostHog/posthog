@@ -40,6 +40,11 @@ class InboxOnboardingStep(models.TextChoices):
     GITHUB = "github", "GitHub"
 
 
+class InboxOnboardingSetupMode(models.TextChoices):
+    QUICK = "quick", "Quick"
+    GUIDED = "guided", "Guided"
+
+
 class InboxOnboardingVariant(models.TextChoices):
     CONTROL = "control", "Control"
     TEST_UI = "test-ui", "Focused steps"
@@ -74,6 +79,11 @@ class InboxOnboardingDraftSerializer(serializers.Serializer):
         help_text="Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.",
     )
     step = serializers.ChoiceField(choices=InboxOnboardingStep.choices, help_text="Step to resume after returning.")
+    setup_mode = serializers.ChoiceField(
+        choices=InboxOnboardingSetupMode.choices,
+        required=False,
+        help_text="How setup was chosen: quick activation from the welcome screen, or the guided steps.",
+    )
     sources: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
         child=InboxOnboardingSourceSerializer(), max_length=50, help_text="Staged signal source choices."
     )
