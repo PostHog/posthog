@@ -80,6 +80,8 @@ META_PERMISSION_ERROR_CODE = 10
 # Meta error code 9005, "Video content was not found": a media page asks a video post that Meta can
 # no longer find for one of `MEDIA_REFUSABLE_FIELDS`.
 META_VIDEO_NOT_FOUND_ERROR_CODE = 9005
+# A single post refuses one of `MEDIA_REFUSABLE_FIELDS` with either 9005 or 100, "Invalid parameter".
+META_FIELD_REFUSED_ERROR_CODES = frozenset({META_VIDEO_NOT_FOUND_ERROR_CODE, 100})
 
 
 class InstagramAPIError(Exception):
@@ -399,20 +401,47 @@ def _media_page(client: InstagramClient, url: str, logger: FilteringBoundLogger)
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict) or not row.get("id"):
             continue
-        if not client.has_request_budget():
+        extra = _media_refusable_fields(client, str(row["id"]), logger)
+        if extra is None:
             # Without a cursor the checkpoint stays on this page, so a resumed attempt reads it again.
             body.pop("paging", None)
             break
-        media_id = str(row["id"])
-        try:
-            extra = client.get(client.build_url(media_id, {"fields": MEDIA_REFUSABLE_FIELDS}))
-        except InstagramBadRequestError as error:
-            if error.code != META_VIDEO_NOT_FOUND_ERROR_CODE:
-                raise
-            logger.warning(f"Instagram: skipping refusable fields for media {media_id}: {error}")
-            continue
-        row.update({name: value for name, value in extra.items() if name != "id"})
+        row.update(extra)
     return body
+
+
+def _media_refusable_fields(
+    client: InstagramClient, media_id: str, logger: FilteringBoundLogger
+) -> Optional[dict[str, Any]]:
+    """Read `MEDIA_REFUSABLE_FIELDS` for one post, or return None when the sync has no request budget left.
+
+    If the post refuses the fields together, each field is read on its own, so only a field Meta
+    cannot serve for this post stays empty.
+    """
+    if not client.has_request_budget():
+        return None
+    try:
+        extra = client.get(client.build_url(media_id, {"fields": MEDIA_REFUSABLE_FIELDS}))
+        return {name: value for name, value in extra.items() if name != "id"}
+    except InstagramBadRequestError as error:
+        if error.code not in META_FIELD_REFUSED_ERROR_CODES:
+            raise
+        logger.warning(f"Instagram: reading refusable fields one at a time for media {media_id}: {error}")
+
+    fields: dict[str, Any] = {}
+    for name in MEDIA_REFUSABLE_FIELDS.split(","):
+        if not client.has_request_budget():
+            return None
+        try:
+            extra = client.get(client.build_url(media_id, {"fields": name}))
+        except InstagramBadRequestError as error:
+            if error.code not in META_FIELD_REFUSED_ERROR_CODES:
+                raise
+            logger.warning(f"Instagram: skipping field {name} for media {media_id}: {error}")
+            continue
+        if name in extra:
+            fields[name] = extra[name]
+    return fields
 
 
 def _media_rows(
