@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ScannerHandoffFromFilters } from '../scannerHandoffFromFilters'
@@ -20,6 +20,24 @@ const quota = {
     credits_reserved: 0,
     period_start: '2026-10-01T00:00:00Z',
     period_end: '2026-11-01T00:00:00Z',
+}
+
+const withFiltersQuery: RecordingsQuery = {
+    kind: NodeKind.RecordingsQuery,
+    properties: [
+        {
+            type: PropertyFilterType.Recording,
+            key: 'visited_page',
+            value: ['/checkout'],
+            operator: PropertyOperator.Regex,
+        },
+        {
+            type: PropertyFilterType.Session,
+            key: '$entry_current_url',
+            value: ['https://example.com/pricing'],
+            operator: PropertyOperator.Exact,
+        },
+    ],
 }
 
 const meta: Meta<typeof ReplayFiltersScannerPopover> = {
@@ -43,23 +61,8 @@ export const WithFilters: Story = {
     args: {
         handoff: {
             searchParams: {},
-            query: {
-                kind: NodeKind.RecordingsQuery,
-                properties: [
-                    {
-                        type: PropertyFilterType.Recording,
-                        key: 'visited_page',
-                        value: ['/checkout'],
-                        operator: PropertyOperator.Regex,
-                    },
-                    {
-                        type: PropertyFilterType.Session,
-                        key: '$entry_current_url',
-                        value: ['https://example.com/pricing'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
+            query: withFiltersQuery,
+            chosenQuery: withFiltersQuery,
             experiment: null,
             pinnedSessionCount: 0,
             droppedCommentSearch: false,
@@ -73,6 +76,7 @@ export const AllNewRecordings: Story = {
         handoff: {
             searchParams: {},
             query: { kind: NodeKind.RecordingsQuery },
+            chosenQuery: { kind: NodeKind.RecordingsQuery },
             experiment: null,
             pinnedSessionCount: 3,
             droppedCommentSearch: false,

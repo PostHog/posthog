@@ -30,13 +30,8 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
     const [pendingSpend, setPendingSpend] = useState<GoalDraftSpend | null>(null)
 
     const editDisabledReason = getReplayVisionEditDisabledReason()
-    // The draft API takes the experiment but not the variant, so a variant filter would widen to every variant.
-    const variantDisabledReason = handoff.experiment?.variantKey
-        ? 'PostHog AI cannot keep an experiment variant filter yet. Set up the scanner manually.'
-        : null
     const draftDisabledReason =
         editDisabledReason ??
-        variantDisabledReason ??
         (!goal.trim()
             ? 'Say what the scanner should watch for or answer'
             : !spendChoice.spend ||

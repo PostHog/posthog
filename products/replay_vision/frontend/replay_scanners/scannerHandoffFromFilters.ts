@@ -16,6 +16,9 @@ export interface ScannerHandoffFromFilters {
     searchParams: Record<string, string>
     /** The query the scanner keeps, without session IDs or experiment exposure. */
     query: RecordingsQuery
+    /** The filter as the person chose it, with its experiment exposure, for the AI draft, which turns
+     * the exposure into the scanner's experiment and variants itself. */
+    chosenQuery: RecordingsQuery
     /** Experiment exposure from the filters, which a scanner keeps as targeting rather than inside `query`. */
     experiment: ExperimentScannerParams | null
     /** Pinned recordings in the filters. A scanner drops them, so the person is told. */
@@ -68,6 +71,7 @@ export function scannerHandoffFromFilters(filters: RecordingUniversalFilters): S
             ...(experiment ? experimentScannerParams(experiment) : {}),
         },
         query,
+        chosenQuery: exposure ? { ...query, experiment_exposure: exposure } : query,
         experiment,
         pinnedSessionCount: filters.session_ids?.length ?? 0,
         droppedCommentSearch: !!commentText,

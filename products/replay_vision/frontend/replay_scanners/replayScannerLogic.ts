@@ -542,7 +542,6 @@ export interface replayScannerLogicValues {
     experimentContextLinked: boolean
     goalBudgetInput: number | null
     goalDraft: DraftScannerResponseApi | null
-    goalDraftExperimentId: number | null
     goalDraftInput: string
     goalDraftLoading: boolean
     goalExperiment: ExperimentBasicApi | null
@@ -813,11 +812,7 @@ export interface replayScannerLogicActions {
     setGoalExperiment: (experiment: ExperimentBasicApi | null) => {
         experiment: ExperimentBasicApi | null
     }
-    setGoalDraftQuery: (
-        query: RecordingsQuery | null,
-        experimentId?: number | null
-    ) => {
-        experimentId: number | null
+    setGoalDraftQuery: (query: RecordingsQuery | null) => {
         query: RecordingsQuery | null
     }
     setGoalSpendMode: (mode: GoalSpendMode) => {
@@ -1070,10 +1065,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setGoalExperiment: (experiment: ExperimentBasicApi | null) => ({ experiment }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
         setGoalSpendMode: (mode: GoalSpendMode) => ({ mode }),
-        setGoalDraftQuery: (query: RecordingsQuery | null, experimentId: number | null = null) => ({
-            query,
-            experimentId,
-        }),
+        setGoalDraftQuery: (query: RecordingsQuery | null) => ({ query }),
         setEntryPoint: (entryPoint: string | null) => ({ entryPoint }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
@@ -1319,7 +1311,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         ...('freeOnly' in spend
                             ? { free_only: true }
                             : { monthly_credit_budget: spend.monthlyCreditBudget }),
-                        experiment_id: experimentId ?? values.goalDraftExperimentId ?? undefined,
+                        experiment_id: experimentId,
                         ...(values.goalDraftQuery ? { query: values.goalDraftQuery } : {}),
                     })
                 },
@@ -1384,17 +1376,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as RecordingsQuery | null,
             {
                 setGoalDraftQuery: (_, { query }) => query,
-                startFromScratch: () => null,
-                discardScannerDraft: () => null,
-                scannerSaved: () => null,
-            },
-        ],
-        // The experiment those recordings were scoped to. A RecordingsQuery cannot carry exposure, so
-        // without this a retry would widen past the experiment's participants.
-        goalDraftExperimentId: [
-            null as number | null,
-            {
-                setGoalDraftQuery: (_, { experimentId }) => experimentId,
                 startFromScratch: () => null,
                 discardScannerDraft: () => null,
                 scannerSaved: () => null,
@@ -2221,7 +2202,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (armedGoal && !hasFiltersPrefill && consented && !values.goalDraftLoading) {
                         actions.setGoalDraftInput(armedGoal.goal)
                         if (armedGoal.query) {
-                            actions.setGoalDraftQuery(armedGoal.query, armedGoal.experimentId ?? null)
+                            actions.setGoalDraftQuery(armedGoal.query)
                         }
                         if (armedGoal.spend) {
                             // Mirrored into the goal page's controls, so a failed draft offers the same choice again.
@@ -2242,7 +2223,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             actions.draftScannerFromGoal({
                                 goal: armedGoal.goal,
                                 spend,
-                                experimentId: armedGoal.experimentId,
                             })
                         }
                     }

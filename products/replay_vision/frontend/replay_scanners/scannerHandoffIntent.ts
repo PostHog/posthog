@@ -63,7 +63,6 @@ export interface ScannerGoalDraftIntent {
     goal: string
     query?: RecordingsQuery
     spend?: GoalDraftSpend
-    experimentId?: number
     /** Entry point that armed the draft, recorded on the creation-started event. */
     source?: string
 }
@@ -101,7 +100,6 @@ export function consumeScannerGoalDraftIntent(): ScannerGoalDraftIntent | null {
             goal,
             query: parsed.query?.kind === NodeKind.RecordingsQuery ? parsed.query : undefined,
             spend: isGoalDraftSpend(parsed.spend) ? parsed.spend : undefined,
-            experimentId: typeof parsed.experimentId === 'number' ? parsed.experimentId : undefined,
             source: typeof parsed.source === 'string' ? parsed.source : undefined,
         }
     } catch {

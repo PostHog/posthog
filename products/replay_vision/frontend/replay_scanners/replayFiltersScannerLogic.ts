@@ -167,9 +167,8 @@ export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
             recordCrossSellIntent()
             const armed = markScannerGoalDraftIntent({
                 goal,
-                query: handoff.query,
+                query: handoff.chosenQuery,
                 spend,
-                experimentId: handoff.experiment?.experimentId,
                 source: REPLAY_FILTERS_ENTRY_POINT,
             })
             if (!armed) {

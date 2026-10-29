@@ -71,6 +71,17 @@ describe('scannerHandoffFromFilters', () => {
         expect(JSON.parse(searchParams.filters)).not.toHaveProperty('experiment_exposure')
     })
 
+    // The AI draft turns exposure into the scanner's experiment and variants itself, so dropping it on that
+    // path would draft a scanner that watches everyone.
+    it('keeps experiment exposure in the query the AI draft gets', () => {
+        const handoff = scannerHandoffFromFilters(
+            filters({ values: [PAGEVIEW], experiment_exposure: { experiment_id: 42, variant: 'test' } })
+        )
+
+        expect(handoff.chosenQuery.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
+        expect(handoff.query).not.toHaveProperty('experiment_exposure')
+    })
+
     it('omits the variant param when the filters cover every variant', () => {
         const { searchParams } = scannerHandoffFromFilters(
             filters({ values: [PAGEVIEW], experiment_exposure: { experiment_id: 42 } })

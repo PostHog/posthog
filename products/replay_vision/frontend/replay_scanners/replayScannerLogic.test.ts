@@ -563,16 +563,20 @@ describe('replayScannerLogic', () => {
             expect(draftSpy).toHaveBeenCalledTimes(1)
         })
 
-        // The replay filters popover arms the person's own filters. Losing them on the way, or on a retry
-        // from the goal page after a failed draft, would save a scanner watching recordings they never chose.
+        // The replay filters popover arms the person's own filters, experiment scope included. Losing them on
+        // the way, or on a retry from the goal page after a failed draft, would save a scanner watching
+        // recordings they never chose.
         it('a draft intent from the replay filters drafts against its query and spend, and a retry keeps the query', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture')
-            const query: RecordingsQuery = { kind: NodeKind.RecordingsQuery, filter_test_accounts: true }
+            const query: RecordingsQuery = {
+                kind: NodeKind.RecordingsQuery,
+                filter_test_accounts: true,
+                experiment_exposure: { experiment_id: 11, variant: 'test' },
+            }
             markScannerGoalDraftIntent({
                 goal: 'find rage clicks',
                 query,
                 spend: { monthlyCreditBudget: 900 },
-                experimentId: 11,
                 source: 'replay_filters',
             })
             router.actions.push(urls.replayVisionScannerGoal('new'))
@@ -585,8 +589,8 @@ describe('replayScannerLogic', () => {
                 (draftSpy.mock.calls as unknown as [{ request: Request }][]).map(([{ request }]) => request.json())
             )
             expect(bodies).toEqual([
-                expect.objectContaining({ query, monthly_credit_budget: 900, experiment_id: 11 }),
-                expect.objectContaining({ query, experiment_id: 11 }),
+                expect.objectContaining({ query, monthly_credit_budget: 900 }),
+                expect.objectContaining({ query }),
             ])
             expect(captureSpy).toHaveBeenCalledWith(
                 'replay_vision_scanner_creation_started',
