@@ -22,6 +22,9 @@ MAX_PAGES = 10
 TOTAL_TIMEOUT_SECONDS = 45
 # A page of 100 projects is well under this. A self-hosted URL can point anywhere, so cap what one response may hold.
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+# Far more filters than a project needs. Without a limit, a response under the size cap can hold millions
+# of one-character patterns, and each one becomes a preview item.
+MAX_FILTER_PATTERNS = 1000
 
 
 class SentryApiError(Exception):
@@ -239,6 +242,16 @@ def _lines(value: object) -> tuple[str, ...]:
     return tuple(dict.fromkeys(line.strip() for line in candidates if line.strip()))
 
 
+def _filter_patterns(value: object, setting: str) -> tuple[str, ...]:
+    patterns = _lines(value)
+    if len(patterns) > MAX_FILTER_PATTERNS:
+        raise SentryApiError(
+            f"This Sentry project has {len(patterns):,} {setting}, and PostHog can import up to "
+            f"{MAX_FILTER_PATTERNS:,}. Remove the ones you don't need in Sentry, then choose the project again."
+        )
+    return patterns
+
+
 def parse_project_config(
     *, details: dict[str, Any], filters: list[Any], keys: list[dict[str, Any]]
 ) -> SentryProjectConfig:
@@ -274,8 +287,8 @@ def parse_project_config(
             )
 
     return SentryProjectConfig(
-        error_message_globs=_lines(options.get("filters:error_messages")),
-        release_globs=_lines(options.get("filters:releases")),
+        error_message_globs=_filter_patterns(options.get("filters:error_messages"), "error message filters"),
+        release_globs=_filter_patterns(options.get("filters:releases"), "release filters"),
         blocked_ips=_lines(options.get("filters:blacklisted_ips")),
         browser_extensions=active_filters.get("browser-extensions") is True,
         localhost=active_filters.get("localhost") is True,

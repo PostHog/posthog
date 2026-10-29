@@ -6,8 +6,14 @@ from parameterized import parameterized
 
 from products.error_tracking.backend.facade.contracts import SentryMigrationFit, SentryMigrationRateLimit
 from products.error_tracking.backend.logic.rules import compile_filter_bytecode
-from products.error_tracking.backend.logic.sentry_migration.client import SentryProjectConfig, SentryRateLimit
-from products.error_tracking.backend.logic.sentry_migration.plan import SentryMigrationPlanner
+from products.error_tracking.backend.logic.sentry_migration.client import (
+    MAX_FILTER_PATTERNS,
+    SentryApiError,
+    SentryProjectConfig,
+    SentryRateLimit,
+    parse_project_config,
+)
+from products.error_tracking.backend.logic.sentry_migration.plan import MAX_PATTERN_LENGTH, SentryMigrationPlanner
 
 from common.hogvm.python.execute import execute_bytecode
 
@@ -115,6 +121,15 @@ class TestSentryMigrationRuleMatching(BaseTest):
                 ],
             ),
             (
+                "unclosed_delimiters_after_closed_ones_stay_literal",
+                {"error_message_globs": ("{Network,Fetch} code [45]* {retry [] [later",)},
+                [
+                    ({"$exception_types": ["Error"], "$exception_values": ["Fetch code 404 {retry [] [later"]}, True),
+                    ({"$exception_types": ["Error"], "$exception_values": ["Fetch code 304 {retry [] [later"]}, False),
+                    ({"$exception_types": ["Error"], "$exception_values": ["Fetch code 404 retry later"]}, False),
+                ],
+            ),
+            (
                 "regex_metacharacters_stay_literal",
                 {"error_message_globs": ("Price (USD) is $5.00",)},
                 [
@@ -187,6 +202,23 @@ class TestSentryMigrationPlanConversion(SimpleTestCase):
         )
         assert item.rate_limit == expected_rate_limit
         assert item.fit == expected_fit
+
+    @parameterized.expand([("error_message", "error_message_globs"), ("release", "release_globs")])
+    def test_pattern_too_long_to_import_is_listed_without_a_rule(self, _name: str, config_key: str) -> None:
+        glob = "*" + "{[" * MAX_PATTERN_LENGTH
+
+        [item] = _planner().build(_config(**{config_key: (glob,)}))
+
+        assert item.fit == SentryMigrationFit.UNSUPPORTED
+        assert item.suppression_rule_filters is None
+        assert len(item.sentry_value) < len(glob)
+
+    @parameterized.expand([("error_messages", "filters:error_messages"), ("releases", "filters:releases")])
+    def test_more_filters_than_posthog_imports_fail_the_preview(self, _name: str, option: str) -> None:
+        patterns = "\n".join(f"pattern {number}" for number in range(MAX_FILTER_PATTERNS + 1))
+
+        with self.assertRaisesRegex(SentryApiError, "PostHog can import up to"):
+            parse_project_config(details={"options": {option: patterns}}, filters=[], keys=[])
 
     @parameterized.expand(
         [
