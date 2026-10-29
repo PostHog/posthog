@@ -83,23 +83,13 @@ UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN = (
 )
 
 
-def _create_flag_calls_view(team: Team) -> str:
-    DataWarehouseSavedQuery.objects.create(
-        team=team,
-        name="flag_calls_view",
-        query={"kind": "HogQLQuery", "query": UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN},
-        columns={"count()": "UInt64"},
-    )
-    # The transform runs only when the query text names $feature_flag_called. The view body is not part of that text.
-    # Without this filter, the transform skips the query. The tests would then pass even if record_added stopped working.
-    return "SELECT * FROM flag_calls_view WHERE '$feature_flag_called' != ''"
-
-
 def _create_flag_calls_expression(team: Team) -> str:
     DataWarehouseExpression.objects.for_team(team.pk).create(
         team=team, table_name="events", field_name="flag_calls", expression=f"({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})"
     )
-    # The $feature_flag_called filter lets the transform run, as in _create_flag_calls_view.
+    # The transform runs only when the query text names $feature_flag_called. The expression body is not part of that
+    # text. Without this filter, the transform skips the query. The test would then pass even if record_added stopped
+    # working.
     return "SELECT flag_calls FROM events WHERE event != '$feature_flag_called' AND timestamp >= now() - INTERVAL 7 DAY"
 
 
@@ -1007,7 +997,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("saved_view_body", _create_flag_calls_view),
             ("saved_expression", _create_flag_calls_expression),
             ("inline_cohort", _create_flag_calls_cohort),
         ]

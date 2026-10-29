@@ -192,7 +192,7 @@ def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext
 def _resolve_with_swaps(
     node: _T_AST,
     context: HogQLContext,
-    resolve: Callable[[_T_AST], _T_AST],
+    resolve: _Resolve,
     database: "Database",
     only_in_flag_evaluations: bool,
 ) -> _T_AST:
