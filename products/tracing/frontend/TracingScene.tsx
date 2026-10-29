@@ -322,9 +322,10 @@ function TracingSceneContents(): JSX.Element {
                                 showImpact={impactStripEnabled}
                                 groupedByEndpoint={displayMode === 'endpoints'}
                                 // No row click on endpoints yet: an endpoint row can merge span
-                                // names, and the operation page opens one span name.
+                                // names, and the operation page opens one span name. Rows stay
+                                // unclickable while loading, because they can still be the other tab's.
                                 onRowClick={
-                                    displayMode === 'operations'
+                                    displayMode === 'operations' && !aggregationLoading
                                         ? (row) =>
                                               router.actions.push(
                                                   urls.tracingOperation(row.service_name, row.name, filters.dateRange)
