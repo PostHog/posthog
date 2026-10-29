@@ -42,6 +42,7 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     should_skip_for_payload,
 )
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
+from posthog.temporal.ai_observability.judge_images import JudgeImages, build_image_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
@@ -371,7 +372,7 @@ user's conversation, in order — according to this criteria:
 {config.instructions}"""
 
 
-def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
+def format_session_for_judge(traces: list[LLMTrace], images: JudgeImages | None = None) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
     Preserve generation outputs across the full session before truncating them, including
@@ -399,6 +400,9 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
             "include_line_numbers": True,
             "max_length": None if preserve_generation_output else per_trace_budget,
         }
+        if images is not None:
+            # One registry for the whole session, so an image repeated across traces is attached once.
+            options["media_marker"] = images.marker
         sections: list[str] = []
         rendered_length = 0
         for index, trace in enumerate(traces, start=1):
@@ -499,7 +503,12 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found", output_type=output_type)
 
-    transcript = format_session_for_judge(outcome.traces)
+    traces = outcome.traces
+    transcript = format_session_for_judge(traces)
+    image_prompt = build_image_prompt(evaluation, transcript, lambda images: format_session_for_judge(traces, images))
+    if transcript is None and image_prompt is not None:
+        # Inline base64 can push the plain transcript over the limit when the marked one still fits.
+        transcript = image_prompt.text
     if transcript is None:
         return build_session_skip_result(allows_na, "session_too_long_to_judge", output_type=output_type)
 
@@ -511,6 +520,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         user_prompt=transcript,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
+        image_prompt=image_prompt,
     )
 
 

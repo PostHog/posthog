@@ -2,7 +2,6 @@ import json
 import math
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from functools import lru_cache
 from typing import Annotated, Any, Literal
 
 import structlog
@@ -25,7 +24,6 @@ from posthog.llm.system_one import (
     ScoreAnswer,
     ScoreQuestion,
 )
-from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
@@ -43,7 +41,7 @@ from posthog.temporal.ai_observability.evaluation_types import (
     build_generation_not_found_result,
     build_skipped_evaluation_result,
 )
-from posthog.temporal.ai_observability.judge_images import ImagePrompt, JudgeImages
+from posthog.temporal.ai_observability.judge_images import ImagePrompt, JudgeImages, build_image_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -102,7 +100,6 @@ from products.ai_observability.backend.text_repr.formatters import (
 logger = structlog.get_logger(__name__)
 
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
-JUDGE_IMAGES_FLAG = "llm-analytics-judge-images"
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -575,14 +572,12 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     tools_data = format_tool_definitions(extract_event_tools(properties))
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    # The plain prompt is the text-only fallback, for decision models and for a provider that rejects images.
     user_prompt = _build_user_prompt(io.input_raw, io.output_raw, tools_data, images=None)
-    image_prompt = None
-    if _judge_sees_images(evaluation):
-        images = JudgeImages(evaluation["team_id"])
-        marked = _build_user_prompt(io.input_raw, io.output_raw, tools_data, images=images)
-        if marked is not None and marked != user_prompt:
-            image_prompt = ImagePrompt(text=marked, images=images)
+    image_prompt = build_image_prompt(
+        evaluation,
+        user_prompt,
+        lambda images: _build_user_prompt(io.input_raw, io.output_raw, tools_data, images=images),
+    )
     if user_prompt is None and image_prompt is not None:
         # Inline base64 can push the plain text over the limit when the marked text still fits.
         user_prompt = image_prompt.text
@@ -616,35 +611,6 @@ def _build_user_prompt(input_raw: Any, output_raw: Any, tools_data: str, *, imag
     # Keep the full answer being graded outside the sampled context.
     context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
     return sanitize_surrogates(f"Input: {context}{output_section}")
-
-
-@lru_cache(maxsize=4096)
-def _project_uuid(team_id: int) -> str | None:
-    project_uuid = Team.objects.filter(pk=team_id).values_list("uuid", flat=True).first()
-    return str(project_uuid) if project_uuid else None
-
-
-def _judge_sees_images(evaluation: dict[str, Any]) -> bool:
-    if evaluation["evaluation_config"].get("include_media") is False:
-        return False
-    # Local evaluation keeps the check off the network. An inconclusive result means off.
-    try:
-        # Team ids repeat across regions and self-hosted instances, so the flag targets the project uuid.
-        project_uuid = _project_uuid(evaluation["team_id"])
-        if project_uuid is None:
-            return False
-        return bool(
-            posthoganalytics.feature_enabled(
-                JUDGE_IMAGES_FLAG,
-                project_uuid,
-                groups={"project": project_uuid},
-                group_properties={"project": {"id": str(evaluation["team_id"]), "uuid": project_uuid}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
 
 
 def _decision_numeric_score(minimum: float, maximum: float, index: float) -> float:

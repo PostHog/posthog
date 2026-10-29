@@ -66,7 +66,6 @@ export function EvaluationModelPicker(): JSX.Element {
                 </LemonField.Pure>
                 {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_JUDGE_IMAGES] &&
                     evaluation?.evaluation_type === 'llm_judge' &&
-                    evaluation.target === 'generation' &&
                     !usesDecisionModel && (
                         <LemonField.Pure label="Attachments">
                             <LemonSwitch
@@ -77,8 +76,7 @@ export function EvaluationModelPicker(): JSX.Element {
                                 data-attr="llma-evaluation-include-attachments"
                             />
                             <p className="text-muted text-sm">
-                                The judge sees the images in each evaluated generation. Other file types are not
-                                supported yet.
+                                The judge sees the images in what it evaluates. Other file types are not supported yet.
                             </p>
                         </LemonField.Pure>
                     )}

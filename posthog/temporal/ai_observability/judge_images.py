@@ -3,17 +3,23 @@
 import base64
 import binascii
 from collections import Counter
+from collections.abc import Callable
+from functools import lru_cache
 from typing import Any, Literal
 
 import structlog
+import posthoganalytics
 
 from posthog.dataclasses import frozen
+from posthog.models.team import Team
 
 from products.ai_observability.backend.facade.api import BlobPointer
 from products.ai_observability.backend.llm.images import IMAGE_MIME_TYPES, ImagePart, image_transport
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
 
 logger = structlog.get_logger(__name__)
+
+JUDGE_IMAGES_FLAG = "llm-analytics-judge-images"
 
 # Each image costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image size limit.
 MAX_IMAGES = 20
@@ -140,3 +146,46 @@ class JudgeImages:
             return _Attachment(outcome="unavailable")
         part = ImagePart(mime_type=image.mime_type, base64_data=base64.b64encode(data).decode())
         return _Attachment(outcome="inline", part=part, inline_bytes=stored_size)
+
+
+@lru_cache(maxsize=4096)
+def _project_uuid(team_id: int) -> str | None:
+    project_uuid = Team.objects.filter(pk=team_id).values_list("uuid", flat=True).first()
+    return str(project_uuid) if project_uuid else None
+
+
+def judge_sees_images(evaluation: dict[str, Any]) -> bool:
+    if evaluation["evaluation_config"].get("include_media") is False:
+        return False
+    # Local evaluation keeps the check off the network. An inconclusive result means off.
+    try:
+        # Team ids repeat across regions and self-hosted instances, so the flag targets the project uuid.
+        project_uuid = _project_uuid(evaluation["team_id"])
+        if project_uuid is None:
+            return False
+        return bool(
+            posthoganalytics.feature_enabled(
+                JUDGE_IMAGES_FLAG,
+                project_uuid,
+                groups={"project": project_uuid},
+                group_properties={"project": {"id": str(evaluation["team_id"]), "uuid": project_uuid}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
+def build_image_prompt(
+    evaluation: dict[str, Any], plain_prompt: str | None, render: Callable[[JudgeImages], str | None]
+) -> ImagePrompt | None:
+    """The marked prompt and its images, or None when this judge run gets the plain prompt only.
+
+    `render` builds the same transcript as the plain prompt, with images as `[image N]` markers.
+    """
+    if not judge_sees_images(evaluation):
+        return None
+    images = JudgeImages(evaluation["team_id"])
+    marked = render(images)
+    return ImagePrompt(text=marked, images=images) if marked is not None and marked != plain_prompt else None

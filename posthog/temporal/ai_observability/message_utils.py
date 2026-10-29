@@ -4,7 +4,7 @@ import json
 from typing import TYPE_CHECKING, Any, Union
 
 from products.ai_observability.backend.text_repr.formatters.media_blocks import parse_media_block
-from products.ai_observability.backend.text_repr.formatters.otel_parts import flatten_parts_message
+from products.ai_observability.backend.text_repr.formatters.otel_parts import MEDIA_PART_KEY, flatten_parts_message
 
 if TYPE_CHECKING:
     from posthog.temporal.ai_observability.judge_images import JudgeImages
@@ -89,7 +89,9 @@ def _render_message(msg: dict, images: "JudgeImages | None") -> str | None:
     """
     role = msg.get("role", "")
     content = msg.get("content", "")
-    text = _extract_content_text(content, images)
+    part = msg.get(MEDIA_PART_KEY)
+    media = parse_media_block(part) if images is not None and isinstance(part, dict) else None
+    text = images.marker(media) if images is not None and media is not None else _extract_content_text(content, images)
     tool_calls_text = _format_tool_calls(msg.get("tool_calls"))
 
     rendered = " ".join(part for part in (text, tool_calls_text) if part)
@@ -146,7 +148,12 @@ def _extract_content_text(content: Union[str, list, dict, None], images: "JudgeI
                 if "text" in block:
                     text_parts.append(str(block["text"]))
                 elif "content" in block:
-                    text_parts.append(str(block["content"]))
+                    # Tool results can hold image blocks, which only a judge with images unpacks.
+                    nested = block["content"]
+                    if images is not None and isinstance(nested, list):
+                        text_parts.append(_extract_content_text(nested, images))
+                    else:
+                        text_parts.append(str(nested))
                 elif images is not None and (media := parse_media_block(block)) is not None:
                     text_parts.append(images.marker(media))
                 else:
