@@ -83,6 +83,7 @@ export function readProductLaunch(
     taskId: sources.payload.task_id,
     runId: sources.payload.run_id,
     originProduct: readInteractionOrigin(sources.env),
+    clientProvenance: sources.task?.client_provenance ?? undefined,
     launchOptions: structuredClone(sources.taskRun?.state ?? {}),
     source: readTaskSource(sources),
   };
@@ -105,17 +106,44 @@ function readRepositories(task: Task | null): string[] {
   return task?.repository ? [task.repository] : [];
 }
 
-// Web backlink to the inbox report that spawned this task, so the
-// auto-generated PR can point back at it. Built from the same pieces as the
-// report's `_posthogUrl`: <apiUrl>/project/<projectId>/inbox/<reportId>.
+// Origins where a person started the task from a PostHog client, so a PR can link back to the
+// thread. Automated origins get no link: their system prompt then stays the same across sibling
+// tasks, which keeps the shared prompt cache.
+const THREAD_ORIGINS = new Set(["user_created", "posthog_ai"]);
+
+// Web backlink to the inbox report or the thread that spawned this task, so the PR can point back
+// at it. GitHub drops custom URL schemes from links, so Desktop threads go through the web bridge
+// at /code/..., which opens the desktop app.
 function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
-  const signalReportId = sources.task?.signal_report;
-  if (!signalReportId) {
+  const { task } = sources;
+  if (!task) {
     return undefined;
   }
   const { apiUrl, projectId } = sources.config;
-  return {
-    label: "inbox report",
-    url: `${getProjectWebUrl(apiUrl, projectId)}/inbox/${signalReportId}`,
-  };
+  const projectWebUrl = getProjectWebUrl(apiUrl, projectId);
+  if (task.signal_report) {
+    return {
+      label: "inbox report",
+      url: `${projectWebUrl}/inbox/${task.signal_report}`,
+    };
+  }
+  if (!THREAD_ORIGINS.has(task.origin_product)) {
+    return undefined;
+  }
+
+  const taskId = encodeURIComponent(sources.payload.task_id);
+  if (
+    task.client_provenance === "posthog_web" ||
+    task.client_provenance === "posthog_mobile"
+  ) {
+    return {
+      label: "PostHog AI chat",
+      url: `${projectWebUrl}/ai?task=${taskId}`,
+    };
+  }
+  const appUrl = apiUrl.replace(/\/+$/, "");
+  const path = task.channel
+    ? `code/channel/${encodeURIComponent(task.channel)}/tasks/${taskId}`
+    : `code/task/${taskId}`;
+  return { label: "PostHog Desktop task", url: `${appUrl}/${path}` };
 }
