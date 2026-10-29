@@ -97,6 +97,7 @@ PRODUCTS_APPS = [
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
+    "products.mcp_events.backend.apps.McpEventsConfig",
     "products.mcp_registry.backend.apps.McpRegistryConfig",
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
