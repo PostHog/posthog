@@ -7,6 +7,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, SignalReport, SignalReportStatus } from '../../types'
 import { ReportContextMenu } from './ReportContextMenu'
@@ -49,9 +50,11 @@ function menuRowText(): (string | null)[] {
 
 describe('ReportContextMenu', () => {
     let stateRequests: { reportId: string; body: Record<string, unknown> }[]
+    let claimRequests: { reportId: string; body: Record<string, unknown> }[]
 
     beforeEach(() => {
         stateRequests = []
+        claimRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/': { count: 0, next: null, previous: null, results: [] },
@@ -63,6 +66,13 @@ describe('ReportContextMenu', () => {
                         body: (await request.json()) as Record<string, unknown>,
                     })
                     return [200, {}]
+                },
+                '/api/projects/:team_id/signals/reports/:report_id/claim/': async ({ request, params }) => {
+                    claimRequests.push({
+                        reportId: params.report_id as string,
+                        body: (await request.json()) as Record<string, unknown>,
+                    })
+                    return [200, { id: params.report_id, assignee: myClaim, updated_at: '2026-06-11T11:00:00Z' }]
                 },
             },
         })
@@ -83,17 +93,27 @@ describe('ReportContextMenu', () => {
         {
             name: 'a ready actionable report offers every action',
             report: makeReport(),
-            expected: ['Select', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
+            expected: ['Select', 'Claim', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'a report with a PR does not offer creating another',
             report: makeReport({ implementation_pr_url: 'https://github.com/posthog/posthog/pull/1' }),
-            expected: ['Select', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
+            expected: ['Select', 'Claim', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'an in-progress report cannot be resolved yet',
             report: makeReport({ status: SignalReportStatus.IN_PROGRESS, actionability: null }),
-            expected: ['Select', 'Dismiss', 'Reviewers', 'Remove yourself'],
+            expected: ['Select', 'Claim', 'Dismiss', 'Reviewers', 'Remove yourself'],
+        },
+        {
+            name: 'a report the user claimed offers unclaim',
+            report: makeReport({ assignee: myClaim }),
+            expected: ['Select', 'Unclaim', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
+        },
+        {
+            name: 'a monitoring report nobody claimed cannot be claimed',
+            report: makeReport({ status: SignalReportStatus.MONITORING }),
+            expected: ['Select', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
             name: 'a dismissed report only offers restore',
@@ -116,6 +136,31 @@ describe('ReportContextMenu', () => {
         openMenu(makeReport({ is_suggested_reviewer: isReviewer }))
 
         expect(menuRowText().includes('Remove yourself')).toBe(offered)
+    })
+
+    // The menu closes on click, so the claim must go through the list logic, which outlives it.
+    it.each([
+        { name: 'claims an unclaimed report', report: makeReport(), item: 'Claim', body: { takeover: false } },
+        {
+            name: 'releases the user claim',
+            report: makeReport({ assignee: myClaim }),
+            item: 'Unclaim',
+            body: { release: true },
+        },
+    ])('$name', async ({ report, item, body }) => {
+        openMenu(report)
+
+        fireEvent.click(screen.getByText(item))
+
+        await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body }]))
+    })
+
+    it('does not let the user claim a report a teammate is working on', () => {
+        openMenu(makeReport({ assignee: teammateClaim }))
+
+        fireEvent.click(screen.getByText('Claim'))
+
+        expect(claimRequests).toEqual([])
     })
 
     // A relative or wrong-tab URL would copy a link that 404s or opens the wrong list when pasted.

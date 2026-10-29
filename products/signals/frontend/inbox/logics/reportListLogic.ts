@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -14,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { UserType } from '~/types'
 
 import {
+    signalsReportsClaim,
     signalsReportsRefreshMetricsCreate,
     signalsReportsReviewersMeCreate,
     signalsReportsReviewersMeDestroy,
@@ -38,6 +40,7 @@ import {
 } from '../types'
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
+import { reportClaimRequest } from '../utils/reportClaim'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -176,6 +179,7 @@ export interface reportListLogicValues {
     sourceProductFilter: string[] // inboxFiltersLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    claimSavingReportIds: string[]
     count: number | null
     countLoading: boolean
     hasMore: boolean
@@ -349,6 +353,18 @@ export interface reportListLogicActions {
         assignee: SignalReportAssigneeApi | null | undefined
         reportId: string
     }
+    setReportClaimed: (
+        report: SignalReport,
+        claimed: boolean,
+        surface: InboxReportActionSurface
+    ) => {
+        claimed: boolean
+        report: SignalReport
+        surface: InboxReportActionSurface
+    }
+    setReportClaimedFinished: (reportId: string) => {
+        reportId: string
+    }
     setSuggestedToMe: (
         reportIds: string[],
         isSuggested: boolean
@@ -482,6 +498,12 @@ export const reportListLogic = kea<reportListLogicType>([
             reason,
         }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
+        setReportClaimed: (report: SignalReport, claimed: boolean, surface: InboxReportActionSurface) => ({
+            report,
+            claimed,
+            surface,
+        }),
+        setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
         setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
         removeReport: (reportId: string) => ({ reportId }),
@@ -573,6 +595,13 @@ export const reportListLogic = kea<reportListLogicType>([
             {
                 unassignMe: (state, { reportId }) => (state.includes(reportId) ? state : [...state, reportId]),
                 unassignMeFinished: (state, { reportId }) => state.filter((id) => id !== reportId),
+            },
+        ],
+        claimSavingReportIds: [
+            [] as string[],
+            {
+                setReportClaimed: (state, { report }) => (state.includes(report.id) ? state : [...state, report.id]),
+                setReportClaimedFinished: (state, { reportId }) => state.filter((id) => id !== reportId),
             },
         ],
         // Kept apart from `reportsResponse` so a refresh that replaces the rows does not blank the
@@ -1032,6 +1061,37 @@ export const reportListLogic = kea<reportListLogicType>([
             lemonToast.success('Unassigned you from the report')
             // The list that started the request can unmount while it runs, for example when triage closes.
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
+        },
+        setReportClaimed: async ({ report, claimed, surface }) => {
+            const reportId = report.id
+            captureInboxReportAction({ report, actionType: claimed ? 'claim' : 'unclaim', surface })
+            let assignee: SignalReport['assignee']
+            try {
+                const updated = await signalsReportsClaim(
+                    String(values.currentTeamId),
+                    reportId,
+                    reportClaimRequest(report, claimed)
+                )
+                assignee = updated.assignee
+            } catch (error) {
+                if (error instanceof ApiError && error.status === 409) {
+                    lemonToast.error('Someone else is already working on this report.')
+                    // Reload so the row shows who holds the claim now.
+                    actions.refresh()
+                } else {
+                    lemonToast.error("Couldn't update who's working on this report. Try again.")
+                }
+                return
+            } finally {
+                actions.setReportClaimedFinished(reportId)
+            }
+            // Every mounted list updates the row, and the Claimed by you list gains or drops it.
+            const bulkActions = inboxBulkActionsLogic.findMounted()
+            if (bulkActions) {
+                bulkActions.actions.reportClaimChanged(reportId, assignee)
+            } else {
+                actions.setReportAssignee(reportId, assignee)
+            }
         },
     })),
 
