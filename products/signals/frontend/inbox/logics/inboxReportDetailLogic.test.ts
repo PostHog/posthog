@@ -1116,7 +1116,7 @@ describe('inboxReportDetailLogic', () => {
             expect(artefactRequests).toBe(beforeKickoff + 1)
         })
 
-        it.each([SignalReportStatus.RESOLVED, SignalReportStatus.SUPPRESSED])(
+        it.each([SignalReportStatus.RESOLVED, SignalReportStatus.CLOSED, SignalReportStatus.SUPPRESSED])(
             'refreshes Monitoring timing on lifecycle changes before stopping polling for %s',
             async (status) => {
                 await expectLogic(logic).toFinishAllListeners()
@@ -1154,22 +1154,24 @@ describe('inboxReportDetailLogic', () => {
                                 results: [
                                     {
                                         ...check,
-                                        monitoring_timing:
-                                            reportStatus === SignalReportStatus.RESOLVED
-                                                ? undefined
-                                                : {
-                                                      ...check.monitoring_timing,
-                                                      state:
-                                                          reportStatus === SignalReportStatus.SUPPRESSED
-                                                              ? 'archived'
-                                                              : requests > 1
-                                                                ? 'window_ended'
-                                                                : 'scheduled',
-                                                      next_measurement_at:
-                                                          requests > 1
-                                                              ? null
-                                                              : check.monitoring_timing?.next_measurement_at,
-                                                  },
+                                        monitoring_timing: [
+                                            SignalReportStatus.RESOLVED,
+                                            SignalReportStatus.CLOSED,
+                                        ].includes(reportStatus)
+                                            ? undefined
+                                            : {
+                                                  ...check.monitoring_timing,
+                                                  state:
+                                                      reportStatus === SignalReportStatus.SUPPRESSED
+                                                          ? 'archived'
+                                                          : requests > 1
+                                                            ? 'window_ended'
+                                                            : 'scheduled',
+                                                  next_measurement_at:
+                                                      requests > 1
+                                                          ? null
+                                                          : check.monitoring_timing?.next_measurement_at,
+                                              },
                                     },
                                 ],
                             }

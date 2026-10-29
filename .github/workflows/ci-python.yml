@@ -253,9 +253,9 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
-        # Master runs mypy cold after a dependency change, which needs more than 8 GB. A pull
+        # Master and the merge queue run mypy cold after a dependency change, which needs more than 8 GB. A pull
         # request that changes the cache key can also run nearly cold, so it gets the big runner too.
-        runs-on: ${{ github.event_name == 'pull_request' && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:

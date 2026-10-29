@@ -661,7 +661,7 @@ export type pagePerformanceLogicType = MakeLogicType<
 export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<pagePerformanceLogicType>([
     props({} as WebAnalyticsLogicProps),
     key((props) => props.context ?? 'web-analytics'),
-    path((key) => ['scenes', key === 'page-visibility' ? 'pageVisibility' : 'webAnalytics', 'pagePerformanceLogic']),
+    path(['scenes', 'webAnalytics', 'pagePerformanceLogic']),
     connect((props: WebAnalyticsLogicProps) => ({
         actions: [dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }), ['reloadAll']],
         values: [

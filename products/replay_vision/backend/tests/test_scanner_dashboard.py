@@ -39,12 +39,10 @@ _OUTPUT_BY_TYPE: dict[ScannerType, dict[str, Any]] = {
     ScannerType.SCORER: {"scanner_output_score": 2.0, "scanner_output_reasoning": "Slow progress."},
     ScannerType.SUMMARIZER: {
         "scanner_output_title": "Set up a dashboard",
-        "scanner_output_notability": 0.4,
         "scanner_output_chapter_count": 3,
     },
     ScannerType.EXPERIMENT: {
         "scanner_output_title": "Tried the new pricing page",
-        "scanner_output_notability": 0.6,
         "scanner_output_chapter_count": 2,
         "experiment_variant": "test",
     },

@@ -14,6 +14,7 @@ from products.messaging.backend.presentation.views.supabase_auth_emails import (
     SupabaseAuthEmailsViewSet,
     SupabaseSendEmailHookView,
 )
+from products.messaging.backend.presentation.views.transactional_email_status import MessagingEmailsViewSet
 
 webhook_urlpatterns: list[URLPattern] = [
     re_path(
@@ -48,3 +49,4 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_messaging_supabase_auth_emails",
         ["team_id"],
     )
+    routers.projects.register(r"messaging/emails", MessagingEmailsViewSet, "project_messaging_emails", ["team_id"])

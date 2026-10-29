@@ -15,7 +15,6 @@ import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { scannerTypeIcon } from '../../components/ScannerTypeBadge'
 import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type {
-    JevWatchReasonEnumApi,
     ReplayObservationApi,
     WatchFeedCategoryEnumApi,
     WatchFeedItemApi,
@@ -34,114 +33,15 @@ import { WatchFeedGroupList, WatchFeedGroupToggle } from './WatchFeedGroup'
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
 export const FILLER_REASON_KINDS = new Set(['unviewed_recent', 'recent'])
 
-const roundScore = (value: number): number => Math.round(value * 100) / 100
-
-const PROBLEM_TYPE_LABELS: Record<string, string> = {
-    bug: 'bug',
-    crash: 'crash',
-    design_flaw: 'design flaw',
-    ux_friction: 'UX friction',
-}
-
-const problemTypeLabel = (problemType: string): string =>
-    PROBLEM_TYPE_LABELS[problemType] ?? problemType.replace(/_/g, ' ')
-
-// A card lists the findings on one line, so it names the first few and counts the rest.
-const MAX_SHOWN_HEADLINES = 3
-
-const joinWithAnd = (parts: string[]): string =>
-    parts.length > 1 ? `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}` : parts[0]
-
 const WATCH_CATEGORY_COPY: Record<WatchFeedCategoryEnumApi, string> = {
     failure: 'Something failed in this session.',
     struggle: 'The user struggled in this session.',
     revenue: 'This session touches billing or a plan limit.',
 }
 
-/** What the reason kind says about the session. Never the scan's notability sentence: the row's title
- * already leads with it. */
+/** What the reason kind says about the session. */
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     switch (reason.kind) {
-        case 'signal_emitted': {
-            const total = reason.signals_count ?? 0
-            const signals = reason.signals ?? []
-            const problemTypes =
-                signals.length > 0 ? signals.map((signal) => signal.problem_type) : (reason.problem_types ?? [])
-            if (problemTypes.length === 0) {
-                return total > 1
-                    ? `The scanner raised ${total} signals from this session.`
-                    : 'The scanner raised a signal from this session.'
-            }
-            // Count each problem type, keeping the order the scan first raised them.
-            const order: string[] = []
-            const countByType = new Map<string, number>()
-            for (const problemType of problemTypes) {
-                if (!countByType.has(problemType)) {
-                    order.push(problemType)
-                }
-                countByType.set(problemType, (countByType.get(problemType) ?? 0) + 1)
-            }
-            // Sessions scanned before headlines shipped carry the types alone, so those cards still count.
-            if (signals.length === 0) {
-                if (order.length === 1) {
-                    const label = problemTypeLabel(order[0])
-                    return total > 1
-                        ? `The scanner raised ${total} ${label} signals from this session.`
-                        : `The scanner raised a ${label} signal from this session.`
-                }
-                const breakdown = order
-                    .map((problemType) => {
-                        const n = countByType.get(problemType) ?? 0
-                        return `${n} ${problemTypeLabel(problemType)} signal${n === 1 ? '' : 's'}`
-                    })
-                    .join(', ')
-                return `The scanner raised ${total} signals from this session: ${breakdown}.`
-            }
-            const shown = signals.slice(0, MAX_SHOWN_HEADLINES)
-            // Against the count, not the named list: the backend drops a finding whose headline came back
-            // blank, so the card can hold fewer names than the session raised signals.
-            const hidden = Math.max(total, signals.length) - shown.length
-            if (order.length === 1) {
-                const label = problemTypeLabel(order[0])
-                const named = shown.map((signal) => signal.headline)
-                const listed = joinWithAnd(hidden > 0 ? [...named, `${hidden} more`] : named)
-                return total > 1
-                    ? `The scanner raised ${total} ${label} signals from this session: ${listed}.`
-                    : `The scanner raised a ${label} signal from this session: ${listed}.`
-            }
-            const groups = order.map((problemType) => {
-                const n = countByType.get(problemType) ?? 0
-                const named = shown
-                    .filter((signal) => signal.problem_type === problemType)
-                    .map((signal) => signal.headline)
-                const label = `${n} ${problemTypeLabel(problemType)}`
-                return named.length > 0 ? `${label} (${named.join(', ')})` : label
-            })
-            const listed = joinWithAnd(hidden > 0 ? [...groups, `${hidden} more`] : groups)
-            return `The scanner raised ${total} signals from this session: ${listed}.`
-        }
-        case 'unusual_verdict':
-            return reason.verdict
-                ? `The scanner answered ${reason.verdict}, which is rare for it in this window.`
-                : 'The scanner gave a rare answer for this window.'
-        case 'verdict_yes':
-            return 'The scanner answered yes for this session.'
-        case 'outlier_score':
-            return reason.score != null && reason.window_mean != null
-                ? `Scored ${roundScore(reason.score)}, far from this scanner's recent average of ${roundScore(reason.window_mean)}.`
-                : "Scored far from this scanner's recent average."
-        case 'rare_tag':
-            return reason.tag
-                ? `Tagged "${reason.tag}", which is uncommon for this scanner lately.`
-                : 'Tagged something uncommon for this scanner lately.'
-        case 'novel_summary':
-            return "Reads unlike this scanner's other sessions in this window."
-        case 'notable':
-            return 'The scanner judged this session worth watching.'
-        case 'friction':
-            return 'The session shows signs of friction, like errors, retries, or dead ends.'
-        case 'jev_watchable':
-            return 'The decision model judged this session worth watching.'
         case 'embedding_pick': {
             const category = reason.watch_category
                 ? WATCH_CATEGORY_COPY[reason.watch_category]
@@ -265,15 +165,8 @@ function WatchCardPerson({
     )
 }
 
-/**
- * The one sentence a row leads with when the scan wrote no short title. The scan's notability
- * sentence names the finding, so it outranks prose derived from the result; the derived headline
- * covers scans from before notability shipped, and the scanner's name covers scans with no prose at all.
- */
-export function watchFeedRowSentence(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string {
-    if (reason.notability_reason) {
-        return reason.notability_reason
-    }
+/** The one sentence a row leads with when the scan wrote no short title, or the scanner's name for scans with no prose at all. */
+export function watchFeedRowSentence(observation: ReplayObservationApi): string {
     const headline = watchCardHeadline(observation)
     return headline?.title ?? scannerLabel(observation)
 }
@@ -340,33 +233,11 @@ function WatchFeedScannerLink({
     )
 }
 
-/** The sentence that says why a row was picked, for each reason Jev can pick from its fixed list. */
-const JEV_WATCH_REASON_COPY: Record<JevWatchReasonEnumApi, string> = {
-    visible_error: 'The user saw an error message or a failed action in this session.',
-    silent_failure: "Something the user did didn't take effect, and nothing told them.",
-    unresponsive: "The user clicked on something that didn't respond.",
-    slow_or_stuck: 'The page was slow to load or got stuck while the user waited.',
-    blocked: "The user hit a dead end they couldn't get past.",
-    cant_find: "The user searched for something and couldn't find it.",
-    confused: 'The user seemed unsure how something worked and went back and forth.',
-    workaround: 'The user gave up on the usual path and found another way to finish.',
-    abandoned: 'The user started a task and left without finishing it.',
-    churn_signal: 'The user showed signs of churn or downgrading in this session.',
-    success: 'The user reached their goal smoothly, a good example of the product working.',
-}
-
-/** Why a row was picked: Jev's pick when it gave one, otherwise what the reason kind says, so both
- * ranker arms explain each row. */
-export function watchFeedRowWhy(reason: WatchFeedReasonApi): string {
-    // A value this build does not know (the backend list grew first) falls back to the kind's copy.
-    return (reason.watch_reason && JEV_WATCH_REASON_COPY[reason.watch_reason]) || watchReasonCopy(reason)
-}
-
 /**
  * The title of a row. A summarizer's authored title is already short, so it leads. Other scans
  * lead with watchFeedRowSentence.
  */
-export function watchFeedRowTitle(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string {
+export function watchFeedRowTitle(observation: ReplayObservationApi): string {
     const result = readResult(observation)
     const scannerType =
         (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
@@ -374,14 +245,13 @@ export function watchFeedRowTitle(observation: ReplayObservationApi, reason: Wat
     if (scannerType === 'summarizer' && typeof result?.title === 'string' && result.title) {
         return result.title
     }
-    return watchFeedRowSentence(observation, reason)
+    return watchFeedRowSentence(observation)
 }
 
 /**
  * One feed row, laid out as a post: who and where on top, then the title and the reason it was
- * picked, then the key-moment poster and a button that starts the player there. Every ranker arm
- * renders it, so the experiment compares rankings, not layouts. The whole card opens the
- * observation page.
+ * picked, then the key-moment poster and a button that starts the player there. The whole card
+ * opens the observation page.
  */
 export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element {
     const { observation, reason } = item
@@ -397,7 +267,7 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const person = observation.recording_subject_email || observation.distinct_id
     const keyMomentMs = observationKeyMomentMs(observation)
     const observationUrl = watchFeedObservationUrl(observation)
-    const title = watchFeedRowTitle(observation, reason)
+    const title = watchFeedRowTitle(observation)
     const filler = FILLER_REASON_KINDS.has(reason.kind)
     const similarCount = reason.kind === 'embedding_pick' ? (reason.similar_count ?? 0) : 0
     const groupProps = {
@@ -457,7 +327,7 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                     </Tooltip>
                     <span className="line-clamp-3">
                         <span className="sr-only">Why this recording: </span>
-                        {watchFeedRowWhy(reason)}
+                        {watchReasonCopy(reason)}
                     </span>
                 </p>
             </div>

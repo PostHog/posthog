@@ -37,6 +37,7 @@ CALLER = CredentialsCaller.WAREHOUSE_SOURCES
 
 FLAG = "posthog.credentials_service.client.posthoganalytics.feature_enabled"
 POST = "posthog.credentials_service.client.internal_requests.post"
+SLEEP = "posthog.credentials_service.client.time.sleep"
 
 
 class FakeResponse:
@@ -54,6 +55,23 @@ def body(secrets: dict[str, Any] | None = None, missing: list[str] | None = None
     return {"secrets": secrets or {}, "missing": missing or []}
 
 
+def http_error(status: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError(f"{status} Error", response=response)
+
+
+class ErrorResponse:
+    def __init__(self, raised: Exception) -> None:
+        self._raised = raised
+
+    def raise_for_status(self) -> None:
+        raise self._raised
+
+    def json(self) -> dict[str, Any]:
+        return {}
+
+
 def steady(value: str) -> dict[str, Any]:
     return {"state": "steady", "value": value, "version_id": "v1", "fetched_at": "now"}
 
@@ -65,6 +83,9 @@ class TestCredentialsServiceClient(SimpleTestCase):
         flag = patch(FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
+        sleep = patch(SLEEP)
+        sleep.start()
+        self.addCleanup(sleep.stop)
 
     def test_returns_the_value_the_service_resolved(self) -> None:
         with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))):
@@ -136,31 +157,53 @@ class TestCredentialsServiceClient(SimpleTestCase):
     # raised — and callers act on that difference. The 404 is the case that bites: a misrouted
     # CREDENTIALS_SERVICE_URL is our deploy error, but a caller seeing a raw 404 reads it as the
     # user's endpoint being gone and can stop their work over it.
+    #
+    # The attempt count is the retry contract. A dropped connection or a gateway status is sent
+    # again, and anything else fails on the first answer: a 4xx will not change on a repeat, and a
+    # repeated read timeout only multiplies the wait in front of the same failure.
     @parameterized.expand(
         [
-            ("404 misrouted url", requests.HTTPError("404 Client Error", response=requests.Response())),
-            ("401 unaccepted signing key", requests.HTTPError("401 Unauthorized", response=requests.Response())),
-            ("connection refused", requests.ConnectionError("connection refused")),
-            ("read timeout", requests.Timeout("timed out")),
+            ("404 misrouted url", http_error(404), 1),
+            ("401 unaccepted signing key", http_error(401), 1),
+            ("read timeout", requests.Timeout("timed out"), 1),
+            ("connection refused", requests.ConnectionError("connection refused"), 3),
+            ("503 from a pod without secrets", http_error(503), 3),
         ]
     )
-    def test_transport_failure_wears_this_clients_type_for(self, _name: str, raised: Exception) -> None:
-        class ErrorResponse:
-            def raise_for_status(self) -> None:
-                raise raised
-
-            def json(self) -> dict[str, Any]:
-                return {}
-
+    def test_transport_failure_wears_this_clients_type_for(self, _name: str, raised: Exception, attempts: int) -> None:
         # Raised from the call itself for a connection failure, from raise_for_status for a status.
         side_effect = raised if isinstance(raised, requests.ConnectionError | requests.Timeout) else None
-        patched = patch(POST, side_effect=side_effect) if side_effect else patch(POST, return_value=ErrorResponse())
-        with patched:
+        patched = (
+            patch(POST, side_effect=side_effect) if side_effect else patch(POST, return_value=ErrorResponse(raised))
+        )
+        with patched as post:
             with pytest.raises(CredentialsServiceUnreachableError) as exc_info:
                 self.secrets.get(KEY, CALLER)
         # The cause is kept so error tracking and logs still show what actually went wrong.
         assert exc_info.value.__cause__ is raised
         assert not isinstance(exc_info.value, requests.RequestException)
+        assert post.call_count == attempts
+
+    # The keep-alive race: the server closes an idle pooled connection just as a request goes out
+    # on it. The read never reached the service, so the next attempt on a new connection succeeds.
+    @parameterized.expand(
+        [
+            (
+                "a closed keep-alive connection",
+                requests.ConnectionError("('Connection aborted.', RemoteDisconnected('Remote end closed connection'))"),
+                "connection_error",
+            ),
+            ("a 503", ErrorResponse(http_error(503)), "503"),
+            ("a 502", ErrorResponse(http_error(502)), "502"),
+        ]
+    )
+    def test_answers_after_a_retry_following(self, _name: str, first: Any, reason: str) -> None:
+        labels = {"reason": reason}
+        before = REGISTRY.get_sample_value("posthog_credentials_service_retry_total", labels) or 0
+        with patch(POST, side_effect=[first, FakeResponse(body({KEY: steady("sec")}))]) as post:
+            assert self.secrets.get(KEY, CALLER) == "sec"
+        assert post.call_count == 2
+        assert REGISTRY.get_sample_value("posthog_credentials_service_retry_total", labels) == before + 1
 
     # A body that isn't JSON is the same class of failure as no answer at all: something is
     # between us and the service, or the service is broken. It must not surface as a missing key.
