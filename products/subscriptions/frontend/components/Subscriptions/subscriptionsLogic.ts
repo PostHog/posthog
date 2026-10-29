@@ -172,7 +172,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadAllSubscriptions: () => {
             actions.loadSubscriptions()
             actions.loadInsightSubscriptions()
