@@ -41,6 +41,7 @@ export interface TrendsFilter {
 
 export interface TrendsQuery {
     kind: 'TrendsQuery'
+    interval?: string
     trendsFilter?: TrendsFilter
     series?: Array<{
         event?: string

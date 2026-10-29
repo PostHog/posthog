@@ -53,7 +53,13 @@ from products.tasks.backend.dev_stack_image_models import (
     DevStackImageTarget as DevStackImageTarget,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, resolve_task_origin
+from products.tasks.backend.facade.profiles import (
+    TaskProfile,
+    TaskRunOptions,
+    TaskSource,
+    check_task_source,
+    resolve_task_origin,
+)
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
     is_task_run_stream_thin_tail,
@@ -71,6 +77,7 @@ from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record
 from products.tasks.backend.storage import append_jsonl_object
+from products.tasks.backend.task_sources import apply_task_source, source_from_columns
 
 logger = structlog.get_logger(__name__)
 
@@ -1212,6 +1219,23 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
 
     @staticmethod
+    def _github_resolution_allowed(origin_product: str, *, has_repository: bool) -> bool:
+        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
+        # credential. Provisioning injects any attached integration; these runs read member-authored
+        # text, so an attached token turns planted text into repository access.
+        return origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
+            has_repository
+            or origin_product
+            not in (
+                Task.OriginProduct.SIGNALS_CHAT,
+                Task.OriginProduct.SIGNAL_REPORT,
+                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                Task.OriginProduct.AUTORESEARCH,
+                Task.OriginProduct.METRICS_IMPORT,
+            )
+        )
+
+    @staticmethod
     def _build_task(
         *,
         team: Team,
@@ -1294,20 +1318,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
-        # credential. Provisioning injects any attached integration; these runs read member-authored
-        # text, so an attached token turns planted text into repository access.
-        github_resolution_allowed = origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
-            bool(repository)
-            or origin_product
-            not in (
-                Task.OriginProduct.SIGNALS_CHAT,
-                Task.OriginProduct.SIGNAL_REPORT,
-                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-                Task.OriginProduct.AUTORESEARCH,
-                Task.OriginProduct.METRICS_IMPORT,
-            )
-        )
+        github_resolution_allowed = Task._github_resolution_allowed(origin_product, has_repository=bool(repository))
         github_integration = None
         if github_resolution_allowed:
             github_integration = next(
@@ -1567,6 +1578,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         options: TaskRunOptions | None = None,
+        source: TaskSource | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -1575,6 +1587,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
         origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+        columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=None)
+        if profile is not None:
+            check_task_source(
+                profile=profile,
+                source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
+            )
         runtime = Task.Runtime.ACP.value
         if options is not None:
             settings = apply_run_options(
@@ -1604,7 +1622,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             branch=branch,
-            signal_report_id=signal_report_id,
+            signal_report_id=columns.signal_report_id,
+            hog_flow_id=columns.hog_flow_id,
             sandbox_environment_id=sandbox_environment_id,
             internal=origin.internal,
             output_schema=output_schema,
@@ -1681,6 +1700,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_tool_allowlist: list[str] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
         options: TaskRunOptions | None = None,
+        source: TaskSource | None = None,
     ) -> "Task":
         startup_requested_at = django_timezone.now()
         from products.tasks.backend.logic.services.workflow_dispatch import (
@@ -1701,6 +1721,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
         origin_product = cast("Task.OriginProduct", origin.origin_product)
         internal = origin.internal
+        columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
+        signal_report_id = columns.signal_report_id
+        hog_flow_id = columns.hog_flow_id
+        if profile is not None:
+            check_task_source(
+                profile=profile, source=source_from_columns(signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
+            )
         if options is not None:
             settings = apply_run_options(
                 options,

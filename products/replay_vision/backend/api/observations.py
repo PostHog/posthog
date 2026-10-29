@@ -776,8 +776,17 @@ class ReplayObservationFilter(django_filters.FilterSet):
     watch_group = django_filters.UUIDFilter(
         method="_filter_watch_group",
         help_text=(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. "
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. "
             "Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
+    )
+    watch_category = MultiChoiceFilter(
+        field_name="watch_rank__category",
+        valid_choices=frozenset(ISSUE_CATEGORIES),
+        error_key="watch_category",
+        help_text=(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: "
+            "failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
         ),
     )
     date_from = django_filters.CharFilter(

@@ -772,56 +772,12 @@
                                             "description": "One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**."
                                         },
                                         "query": {
-                                            "description": "The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the explanation.",
+                                            "description": "The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.",
                                             "type": "object",
                                             "propertyNames": {
                                                 "type": "string"
                                             },
                                             "additionalProperties": {}
-                                        },
-                                        "chart": {
-                                            "description": "Numbers to draw beside this finding when its query is not a TrendsQuery, such as SQL. Copy them from the result you got.",
-                                            "type": "object",
-                                            "properties": {
-                                                "type": {
-                                                    "type": "string",
-                                                    "enum": ["line", "bar"],
-                                                    "description": "`line` for values over time, `bar` for a value per label."
-                                                },
-                                                "labels": {
-                                                    "minItems": 1,
-                                                    "maxItems": 200,
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "string"
-                                                    },
-                                                    "description": "The x-axis labels in order, such as hours or referrers, written as the person should read them."
-                                                },
-                                                "series": {
-                                                    "minItems": 1,
-                                                    "maxItems": 6,
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "name": {
-                                                                "type": "string",
-                                                                "minLength": 1,
-                                                                "maxLength": 80
-                                                            },
-                                                            "values": {
-                                                                "type": "array",
-                                                                "items": {
-                                                                    "type": "number"
-                                                                },
-                                                                "description": "One value per label, in the same order."
-                                                            }
-                                                        },
-                                                        "required": ["name", "values"]
-                                                    }
-                                                }
-                                            },
-                                            "required": ["type", "labels", "series"]
                                         },
                                         "url": {
                                             "description": "A link to the source when it is not a query, for example a commit, a pull request or a deploy.",
