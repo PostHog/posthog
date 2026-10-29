@@ -165,10 +165,7 @@ export class InternalLogsProducer {
         }
     }
 
-    /**
-     * Takes the oldest batch plus the queued batches for the same team, up to one request. A backlog after an outage
-     * then leaves in a few large requests, because one request per batch cannot catch up while new batches arrive.
-     */
+    // A backlog must leave in a few large requests, because one request per batch cannot catch up while batches arrive.
     private takeRequest(): BufferedRequest[] {
         const first = this.pending.shift()!
         const batches = [first]
