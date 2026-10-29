@@ -2255,6 +2255,21 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(written.state.currentAction.eventMatched).toBeUndefined()
         })
 
+        it('wakes a wait whose condition selects an event and reads the person', async () => {
+            // The synthetic person event never matches the selector, so only the worker can decide.
+            parkOn({
+                ...READS_PERSON_FILTERS,
+                events: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }],
+            })
+
+            await matcher.runWake([personWake()], 'person')
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeDefined()
+            const written = parseJSON(update!.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.recheckWake).toBe(true)
+        })
+
         it('still decides a person-only condition itself', async () => {
             // The matcher holds the person, so it evaluates and tags a real match.
             parkOn(READS_PERSON_FILTERS)
@@ -2271,6 +2286,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         it.each([
             ['the event', READS_EVENT_FILTERS],
             ['a workflow variable', READS_VARIABLE_FILTERS],
+            ['an action', { bytecode: READS_EVENT_FILTERS.bytecode, actions: [{ id: 7, type: 'actions', order: 0 }] }],
         ])('does not wake a wait whose condition reads only %s on a person change', async (_, filters) => {
             // Nothing in the condition can change with the person, so a wake would only re-park.
             parkOn(filters)

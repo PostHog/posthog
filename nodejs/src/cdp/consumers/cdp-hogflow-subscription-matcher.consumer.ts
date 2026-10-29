@@ -190,13 +190,15 @@ const PERSON_INDEPENDENT_FILTER_TYPES = new Set([
 // the wait until its ceiling. Wake the job and let the worker, which holds the run's own globals, decide.
 // A condition with no term a person change can move is left alone: the worker would only re-park it.
 function conditionNeedsRunGlobals(action: Extract<HogFlowAction, { type: 'wait_until_condition' }>): boolean {
-    const properties = action.config.condition?.filters?.properties
-    if (!Array.isArray(properties) || properties.length === 0) {
-        // An event-shaped condition needs an event, which the events stream delivers.
-        return false
-    }
+    const filters = action.config.condition?.filters
+    const properties = Array.isArray(filters?.properties) ? filters.properties : []
+    // An event or action selector reads the run's event, like an event property does.
+    const selectsEvent = [filters?.events, filters?.actions].some((list) => Array.isArray(list) && list.length > 0)
     const types: (string | undefined)[] = properties.map((p: { type?: string }) => p?.type)
-    return types.some((t) => t !== 'person') && types.some((t) => !PERSON_INDEPENDENT_FILTER_TYPES.has(t ?? ''))
+    return (
+        (selectsEvent || types.some((t) => t !== 'person')) &&
+        types.some((t) => !PERSON_INDEPENDENT_FILTER_TYPES.has(t ?? ''))
+    )
 }
 
 type MatchedJob = {
