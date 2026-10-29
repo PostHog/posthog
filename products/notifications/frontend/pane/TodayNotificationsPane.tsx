@@ -8,6 +8,7 @@ import { Button, Skeleton, Text } from '@posthog/quill'
 import { NotificationsInbox } from './NotificationsInbox'
 import { NotificationsPaneEmpty, NotificationsPaneEmptyKind } from './NotificationsPaneEmpty'
 import { NotificationsPaneOpenSource, notificationsPaneLogic } from './notificationsPaneLogic'
+import { NotificationsProjectSwitchDialog } from './NotificationsProjectSwitchDialog'
 
 const SKELETON_ROWS = 6
 
@@ -76,6 +77,7 @@ export function TodayNotificationsPane({ source }: { source: NotificationsPaneOp
             ) : (
                 <NotificationsInbox />
             )}
+            <NotificationsProjectSwitchDialog />
         </div>
     )
 }

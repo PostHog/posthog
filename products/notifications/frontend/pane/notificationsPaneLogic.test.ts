@@ -2,12 +2,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { InAppNotification } from '~/types'
 
 import { NotificationEventApi } from '../generated/api.schemas'
+import { notificationsLiveLogic } from './notificationsLiveLogic'
 import { notificationsPaneLogic } from './notificationsPaneLogic'
 
 const SUMMARY = { count: 1, direct_count: 1, has_critical: false }
@@ -34,10 +33,6 @@ function makeNotification(overrides: Partial<NotificationEventApi> = {}): Notifi
         created_at: '2026-10-27T12:00:00Z',
         ...overrides,
     }
-}
-
-function asLiveEvent(notification: NotificationEventApi): InAppNotification {
-    return { ...notification, metadata: null }
 }
 
 describe('notificationsPaneLogic', () => {
@@ -125,15 +120,15 @@ describe('notificationsPaneLogic', () => {
     })
 
     it('inserts a live arrival while the list is idle, unless the filters exclude it', async () => {
-        const live = sidePanelNotificationsLogic.actions.notificationReceived
+        const live = notificationsLiveLogic.actions.notificationReceived
 
-        live(asLiveEvent(makeNotification({ id: 'mention' })))
+        live(makeNotification({ id: 'mention' }))
         expect(logic.values.items.map((item) => item.id)).toEqual(['mention'])
 
         await expectLogic(logic, () => {
             logic.actions.setFilters({ read: 'all', category: 'approvals', project: 'all' })
         }).toDispatchActions(['setItems'])
-        live(asLiveEvent(makeNotification({ id: 'another-mention' })))
+        live(makeNotification({ id: 'another-mention' }))
 
         expect(logic.values.items).toEqual([])
     })
@@ -142,7 +137,7 @@ describe('notificationsPaneLogic', () => {
         logic.actions.setItems([makeNotification({ id: 'existing' })], null)
         logic.actions.setListIdle(false)
 
-        sidePanelNotificationsLogic.actions.notificationReceived(asLiveEvent(makeNotification({ id: 'new' })))
+        notificationsLiveLogic.actions.notificationReceived(makeNotification({ id: 'new' }))
 
         expect(logic.values.items.map((item) => item.id)).toEqual(['existing'])
         expect(logic.values.newCount).toBe(1)
