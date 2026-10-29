@@ -237,15 +237,7 @@ export async function reportMetricQueryHandler({ request }: { request: Request }
         {
             result: [
                 {
-                    action: {
-                        id: series?.event,
-                        type: 'events',
-                        order: 0,
-                        name: series?.name,
-                        custom_name: result.label,
-                        math: series?.math,
-                        properties: {},
-                    },
+                    order: 0,
                     label: result.label,
                     count: result.data.at(-1) ?? 0,
                     data: resultData,
