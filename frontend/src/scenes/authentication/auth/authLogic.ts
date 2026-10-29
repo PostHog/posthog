@@ -25,6 +25,10 @@ export function canSignUpWithEmail(precheck: PrecheckResponseType, preflight: Pr
     return !!preflight?.can_create_org && !precheck.sso_enforcement
 }
 
+export function hasSingleSignOn(precheck: PrecheckResponseType): boolean {
+    return !!precheck.sso_enforcement || precheck.saml_available || !!precheck.oidc_available
+}
+
 export function accountPathFor(precheck: PrecheckResponseType, preflight: PreflightStatus | null): AuthAccountPath {
     // Demo signup logs an existing demo user straight in, and demo users have no password to type.
     if (preflight?.demo) {
@@ -44,6 +48,7 @@ export function accountPathFor(precheck: PrecheckResponseType, preflight: Prefli
 export interface authLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     codeVerificationRequired: boolean // loginLogic
+    isPasswordLoginUnavailable: boolean // loginLogic
     login: LoginForm // loginLogic
     precheckResponse: PrecheckResponseType // loginLogic
     preflight: PreflightStatus | null // preflightLogic
@@ -59,6 +64,7 @@ export interface authLogicValues {
     emailValidationError: string | null
     entry: AuthEntry
     isEmailSubmitting: boolean
+    isLoginPasswordHidden: boolean
     step: AuthPageStep
 }
 
@@ -95,6 +101,9 @@ export interface authLogicActions {
     ) => {
         name: import('node_modules/kea-forms/lib').FieldName
         value: any
+    } // loginLogic
+    resetLogin: (values?: LoginForm) => {
+        values?: LoginForm
     } // loginLogic
     precheckSignupEmail: (email: string) => {
         email: string
@@ -149,6 +158,11 @@ export interface authLogicMeta {
         canSignUpWithEmail: (precheckResponse: PrecheckResponseType, preflight: PreflightStatus | null) => boolean
         isEmailSubmitting: (awaitingPrecheckFor: string | null, isSignupEmailChecking: boolean) => boolean
         emailError: (emailValidationError: string | null, signupEmailError: string | null) => string | null
+        isLoginPasswordHidden: (
+            precheckResponse: PrecheckResponseType,
+            isPasswordLoginUnavailable: boolean,
+            accountExists: boolean | null
+        ) => boolean
     }
 }
 
@@ -168,13 +182,13 @@ export const authLogic = kea<authLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             loginLogic,
-            ['login', 'codeVerificationRequired', 'precheckResponse'],
+            ['login', 'codeVerificationRequired', 'precheckResponse', 'isPasswordLoginUnavailable'],
             signupLogic,
             ['panel', 'pendingInvite', 'isSignupEmailChecking', 'signupEmailError'],
         ],
         actions: [
             loginLogic,
-            ['precheck', 'precheckSuccess', 'setLoginValue', 'clearGeneralError', 'exitCodeVerification'],
+            ['precheck', 'precheckSuccess', 'setLoginValue', 'resetLogin', 'clearGeneralError', 'exitCodeVerification'],
             signupLogic,
             ['precheckSignupEmail', 'setSignupEmailError', 'setPendingInvite', 'setPanel', 'resetSignupCredentials'],
         ],
@@ -269,6 +283,16 @@ export const authLogic = kea<authLogicType>([
             (emailValidationError: string | null, signupEmailError: string | null): string | null =>
                 emailValidationError ?? signupEmailError,
         ],
+        // A new person reaches the login step on a SAML or OIDC domain, where the IdP creates the account,
+        // or where nobody may sign up with email, such as a self-hosted instance with signups off
+        isLoginPasswordHidden: [
+            (s) => [s.precheckResponse, s.isPasswordLoginUnavailable, s.accountExists],
+            (
+                precheckResponse: PrecheckResponseType,
+                isPasswordLoginUnavailable: boolean,
+                accountExists: boolean | null
+            ): boolean => !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable || accountExists === false,
+        ],
     }),
     listeners(({ actions, values }) => ({
         continueWithEmail: () => {
@@ -321,7 +345,9 @@ export const authLogic = kea<authLogicType>([
         },
         backToEmail: () => {
             actions.exitCodeVerification()
-            actions.setLoginValue('password', '')
+            // A reset also clears the "show errors" state that a rejected password left behind, so the
+            // next password field does not open with a red error
+            actions.resetLogin({ email: values.login.email, password: '' })
             actions.clearGeneralError()
             actions.setPendingInvite(null)
             actions.setPanel(0)
@@ -336,7 +362,8 @@ export const authLogic = kea<authLogicType>([
             if (values.awaitingPrecheckFor !== null && values.awaitingPrecheckFor !== values.login.email) {
                 actions.setAwaitingPrecheckFor(null)
             }
-            if (values.accountPath !== null && values.step === 'email') {
+            // The password field opens under the email field, so editing the email closes it
+            if (values.accountPath !== null && ['email', 'login', 'signup_credentials'].includes(values.step)) {
                 actions.backToEmail()
             }
             if (values.emailError) {
