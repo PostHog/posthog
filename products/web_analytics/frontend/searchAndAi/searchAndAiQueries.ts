@@ -6,16 +6,22 @@ import type { DateFilterState } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { performQuery } from '~/queries/query'
 import {
+    BreakdownFilter,
     CompareFilter,
+    DataTableNode,
     EventsNode,
     GroupNode,
     HogQLQuery,
+    InsightVizNode,
     NodeKind,
     RefreshType,
+    TrendsQuery,
+    WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilters,
+    WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
 import { escapeDottedHogQLIdentifier, escapeHogQLString } from '~/queries/utils'
-import { BaseMathType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { AiAssistantRow } from './AiAssistantList'
 
@@ -254,6 +260,119 @@ const aiAssistantBranch = ([terms, name]: [string[], string]): string => {
 }
 
 const AI_ASSISTANT_EXPR = `multiIf(${AI_ASSISTANT_NAMES.map(aiAssistantBranch).join(', ')}, coalesce(nullIf(nullIf(${AI_ASSISTANT_SOURCE}, ''), '$direct'), 'Unattributed'))`
+
+export const AI_ASSISTANT_BREAKDOWN: BreakdownFilter = { breakdown: AI_ASSISTANT_EXPR, breakdown_type: 'hogql' }
+
+export interface SearchAndAiTileFilters {
+    dateFilter: DateFilterState
+    filterTestAccounts: boolean
+    properties: WebAnalyticsPropertyFilters
+}
+
+export const buildTrendTile = (
+    { dateFilter, filterTestAccounts, properties }: SearchAndAiTileFilters,
+    trend: Pick<TrendsQuery, 'series' | 'trendsFilter' | 'breakdownFilter'>
+): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+        interval: dateFilter.interval,
+        ...trend,
+        properties,
+        filterTestAccounts,
+        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+    },
+    hidePersonsModal: true,
+    embedded: true,
+})
+
+export const buildAiReferralTrendQuery = (
+    filters: SearchAndAiTileFilters,
+    breakdownFilter: BreakdownFilter | undefined
+): InsightVizNode =>
+    buildTrendTile(
+        { ...filters, properties: [AI_CHANNEL_FILTER, ...filters.properties] },
+        {
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview', math: BaseMathType.UniqueSessions },
+            ],
+            trendsFilter: { display: ChartDisplayType.ActionsLineGraph, showLegend: true },
+            breakdownFilter,
+        }
+    )
+
+export const buildAiCrawlerTrendQuery = (filters: SearchAndAiTileFilters, seriesName: string): InsightVizNode =>
+    buildTrendTile(
+        { ...filters, properties: [...AI_CRAWLER_FILTERS, ...filters.properties] },
+        { series: [aiCrawlerRequestSeries(seriesName)], trendsFilter: { display: ChartDisplayType.ActionsLineGraph } }
+    )
+
+const GOOGLE_SEARCH_FILTERS: WebAnalyticsPropertyFilters = [
+    {
+        key: '$channel_type',
+        value: ['Organic Search'],
+        operator: PropertyOperator.Exact,
+        type: PropertyFilterType.Session,
+    },
+    {
+        key: '$entry_referring_domain',
+        value: 'google',
+        operator: PropertyOperator.IContains,
+        type: PropertyFilterType.Session,
+    },
+]
+
+export const buildGoogleSearchTrendQuery = (filters: SearchAndAiTileFilters): InsightVizNode =>
+    buildTrendTile(
+        { ...filters, properties: [...GOOGLE_SEARCH_FILTERS, ...filters.properties] },
+        {
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    custom_name: 'Visitors from Google search',
+                    math: BaseMathType.UniqueUsers,
+                },
+            ],
+            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+        }
+    )
+
+export const buildAiReferralTableQuery = (
+    {
+        dateFilter,
+        filterTestAccounts,
+        properties,
+        compareFilter,
+        conversionGoal,
+    }: SearchAndAiTileFilters & { compareFilter: CompareFilter; conversionGoal: WebAnalyticsConversionGoal | null },
+    breakdownBy: WebStatsBreakdown
+): DataTableNode => ({
+    full: true,
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.WebStatsTableQuery,
+        properties: [AI_CHANNEL_FILTER, ...properties],
+        breakdownBy,
+        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+        compareFilter,
+        conversionGoal,
+        limit: 10,
+        filterTestAccounts,
+        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+    },
+    embedded: false,
+    showActions: true,
+    columns: [
+        'breakdown_value',
+        'visitors',
+        'views',
+        ...(conversionGoal ? ['total_conversions', 'conversion_rate'] : []),
+        'cross_sell',
+    ],
+})
 
 const aiSessionsPredicate = (window: PagePerformanceWindow): string => {
     const lowerBound = window.currentFrom
