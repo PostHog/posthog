@@ -18,6 +18,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.onboarding import (
@@ -33,7 +34,16 @@ from products.signals.backend.facade.onboarding import (
 )
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutSuggestionItemSerializer
-from products.signals.backend.report_access import credential_may_start_tasks
+
+
+def credential_may_start_tasks(request: Request) -> bool:
+    """Whether the request's credential may start a task run, as `task:write` allows.
+
+    For a write whose scope depends on the request body. Session auth has no scopes, so team
+    membership and access control gate it instead.
+    """
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["task:write"])
 
 
 class InboxOnboardingStep(models.TextChoices):
