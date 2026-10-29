@@ -22,11 +22,19 @@ export const scene: SceneExport = {
 }
 
 export function SourceConnectScene(): JSX.Element {
-    const { kind, sourceConfig, storedCredential, availableSourcesLoading, isCredentialsFormSubmitting } =
-        useValues(sourceConnectSceneLogic)
+    const {
+        kind,
+        sourceConfig,
+        storedCredential,
+        availableSourcesLoading,
+        isCredentialsFormSubmitting,
+        migrationParams,
+        migrationPrefillLoading,
+    } = useValues(sourceConnectSceneLogic)
     const { setCredentialsFormValue } = useActions(sourceConnectSceneLogic)
 
-    if (availableSourcesLoading) {
+    // Wait for the migration prefill, so it never lands on top of what the user typed.
+    if (availableSourcesLoading || migrationPrefillLoading) {
         return <LemonSkeleton />
     }
 
@@ -108,7 +116,12 @@ export function SourceConnectScene(): JSX.Element {
                             showAccessMethodSelector={false}
                             showCdcConfig={false}
                             setSourceConnectionDetailsValue={setCredentialsFormValue}
-                            oauthRedirectUrl={urls.dataWarehouseSourceConnect(sourceConfig.name)}
+                            oauthRedirectUrl={
+                                urls.dataWarehouseSourceConnect(sourceConfig.name) +
+                                (migrationParams
+                                    ? `&migration_id=${encodeURIComponent(migrationParams.migrationId)}&migration_item_id=${encodeURIComponent(migrationParams.itemId)}`
+                                    : '')
+                            }
                         />
                         <LemonButton
                             type="primary"

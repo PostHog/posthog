@@ -592,3 +592,103 @@ tools:
                 - '*.unreleasedSource'
                 - '*.fields'
             selectable: true
+    warehouse-migration-connect-link:
+        operation: warehouse_migrations_connect_link_retrieve
+        enabled: true
+        title: Get a link to start a Fivetran migration
+        description: >
+            Start moving a user's Fivetran connectors into PostHog. Returns a link where the user enters a read-only
+            Fivetran API key in PostHog; never ask for the key in the chat. Once the user confirms, find the new
+            migration with 'warehouse-migrations-list' and wait for 'warehouse-migration-get' to report status 'ready'.
+        feature_flag: warehouse-migration-import
+    warehouse-migration-get:
+        operation: warehouse_migrations_retrieve
+        enabled: true
+        title: Get a Fivetran migration
+        description: >
+            Get one Fivetran migration. While status is 'pending' or 'crawling', PostHog is still reading the Fivetran
+            account; poll again every 15 to 30 seconds. 'ready' means the items are planned. 'failed' means the read
+            failed: tell the user what 'latest_error' says.
+        feature_flag: warehouse-migration-import
+    warehouse-migration-item-apply:
+        operation: external_data_sources_apply_migration_item_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a PostHog source from a Fivetran connection
+        description: >
+            Create the planned PostHog source for one Fivetran migration item, with the planned tables, prefix,
+            destination and sync schedule. 'credential_id' comes from 'data-warehouse-stored-credentials-list' after the
+            user filled the connect link for this item. Pass the table mapping the user confirmed in 'table_overrides':
+            each entry maps a 'vendor_table' to a 'posthog_table', for an inferred pair or an unmatched table, and a
+            null 'posthog_table' leaves the table out. Read the returned caveats to the user: they include any planned
+            table PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.
+        exclude_params:
+            - created_via
+        inject_body:
+            created_via: mcp
+        feature_flag: warehouse-migration-import
+    warehouse-migration-item-skip:
+        operation: warehouse_migrations_items_skip_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Skip a connection in a Fivetran migration
+        description: Mark a Fivetran connection the user does not want to move. It stays out of later refreshes.
+        feature_flag: warehouse-migration-import
+    warehouse-migration-items-list:
+        operation: warehouse_migrations_items_list
+        enabled: true
+        title: List the connections in a Fivetran migration
+        description: >
+            One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the
+            user, and the planned PostHog source type in 'proposal'. 'proposal.schemas' lists the planned tables with
+            their 'vendor_table'. 'proposal.inferred_tables' lists table pairs a naming rule made, which the user must
+            confirm. 'proposal.unmatched_tables' lists Fivetran tables with no PostHog table; propose one from
+            'proposal.unused_posthog_tables' or leave it out. To move an item, get 'data-warehouse-source-connect-link'
+            with the proposal's source_type and the item's id as 'migration_item_id', then call
+            'warehouse-migration-item-apply' with the stored credential.
+        feature_flag: warehouse-migration-import
+        response:
+            exclude:
+                - '*.proposal.schemas.*.disabled_columns'
+                - '*.proposal.schemas.*.row_filters'
+                - '*.proposal.schemas.*.alternative_names'
+                - '*.proposal.prefill'
+    warehouse-migration-items-skip:
+        operation: warehouse_migrations_items_bulk_skip_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Skip many connections in a Fivetran migration
+        description: >
+            Skip many Fivetran connections in one call. Pass 'keep_item_ids' to skip every connection except those, for
+            example when the user wants to migrate only one, or 'item_ids' to skip exactly those. Connections that are
+            being created or are already PostHog sources stay as they are and come back in 'not_skipped_item_ids'.
+        feature_flag: warehouse-migration-import
+    warehouse-migration-refresh:
+        operation: warehouse_migrations_refresh_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Read a Fivetran account again
+        description: >
+            Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep
+            their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.
+        feature_flag: warehouse-migration-import
+    warehouse-migrations-list:
+        operation: warehouse_migrations_list
+        enabled: true
+        title: List Fivetran migrations
+        description: >
+            List this project's Fivetran migrations, newest first, with their status and how many connections move as
+            they are, move with caveats, or are not supported.
+        feature_flag: warehouse-migration-import

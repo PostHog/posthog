@@ -97,6 +97,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     DataWarehouseSourceConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
+    DataWarehouseMigrationConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/MigrationConnectScene/MigrationConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
     WarehouseDestinations: () =>
         import('../../products/data_warehouse/frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),

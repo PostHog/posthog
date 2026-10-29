@@ -16375,6 +16375,134 @@
             "readOnlyHint": false
         }
     },
+    "warehouse-migration-connect-link": {
+        "description": "Start moving a user's Fivetran connectors into PostHog. Returns a link where the user enters a read-only Fivetran API key in PostHog; never ask for the key in the chat. Once the user confirms, find the new migration with 'warehouse-migrations-list' and wait for 'warehouse-migration-get' to report status 'ready'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get a link to start a Fivetran migration",
+        "title": "Get a link to start a Fivetran migration",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/warehouse_migrations/connect_link/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-get": {
+        "description": "Get one Fivetran migration. While status is 'pending' or 'crawling', PostHog is still reading the Fivetran account; poll again every 15 to 30 seconds. 'ready' means the items are planned. 'failed' means the read failed: tell the user what 'latest_error' says.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get a Fivetran migration",
+        "title": "Get a Fivetran migration",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/warehouse_migrations/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-item-apply": {
+        "description": "Create the planned PostHog source for one Fivetran migration item, with the planned tables, prefix, destination and sync schedule. 'credential_id' comes from 'data-warehouse-stored-credentials-list' after the user filled the connect link for this item. Pass the table mapping the user confirmed in 'table_overrides': each entry maps a 'vendor_table' to a 'posthog_table', for an inferred pair or an unmatched table, and a null 'posthog_table' leaves the table out. Read the returned caveats to the user: they include any planned table PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Create a PostHog source from a Fivetran connection",
+        "title": "Create a PostHog source from a Fivetran connection",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/apply_migration_item/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-item-skip": {
+        "description": "Mark a Fivetran connection the user does not want to move. It stays out of later refreshes.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Skip a connection in a Fivetran migration",
+        "title": "Skip a connection in a Fivetran migration",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/items/{item_id}/skip/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-items-list": {
+        "description": "One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the user, and the planned PostHog source type in 'proposal'. 'proposal.schemas' lists the planned tables with their 'vendor_table'. 'proposal.inferred_tables' lists table pairs a naming rule made, which the user must confirm. 'proposal.unmatched_tables' lists Fivetran tables with no PostHog table; propose one from 'proposal.unused_posthog_tables' or leave it out. To move an item, get 'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as 'migration_item_id', then call 'warehouse-migration-item-apply' with the stored credential.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "List the connections in a Fivetran migration",
+        "title": "List the connections in a Fivetran migration",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/warehouse_migrations/{id}/items/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-items-skip": {
+        "description": "Skip many Fivetran connections in one call. Pass 'keep_item_ids' to skip every connection except those, for example when the user wants to migrate only one, or 'item_ids' to skip exactly those. Connections that are being created or are already PostHog sources stay as they are and come back in 'not_skipped_item_ids'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Skip many connections in a Fivetran migration",
+        "title": "Skip many connections in a Fivetran migration",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/items/skip/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-refresh": {
+        "description": "Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Read a Fivetran account again",
+        "title": "Read a Fivetran account again",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/refresh/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migrations-list": {
+        "description": "List this project's Fivetran migrations, newest first, with their status and how many connections move as they are, move with caveats, or are not supported.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "List Fivetran migrations",
+        "title": "List Fivetran migrations",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/warehouse_migrations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
     "warehouse-suggestions-accept-execute": {
         "description": "Step 2 of 2 for accept warehouse suggestion. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Accepting a deprecate suggestion on a materialized view also stops its refreshes and deletes its stored table, so the view is computed when read; pass keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization` says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply. Requires human typed confirmation.",
         "category": "Warehouse suggestions",

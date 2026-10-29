@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 38 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2294,6 +2294,53 @@ export const ExternalDataSourcesWebhookInfoRetrieveParams = () => zod.object({
 })
 
 /**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const ExternalDataSourcesApplyMigrationItemCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const externalDataSourcesApplyMigrationItemCreateBodyPrefixMax = 100
+
+export const ExternalDataSourcesApplyMigrationItemCreateBody = () => zod.object({
+    item_id: zod.string().describe('The migration item to create a PostHog source for.'),
+    credential_id: zod
+        .string()
+        .describe("Stored credential from the source connect page, for the item's PostHog source type."),
+    prefix: zod
+        .string()
+        .max(externalDataSourcesApplyMigrationItemCreateBodyPrefixMax)
+        .optional()
+        .describe('Table name prefix to use instead of the planned one, for example when the planned one is taken.'),
+    destination_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Destinations to write the new source to. Omit to write to the PostHog warehouse.'),
+    table_overrides: zod
+        .array(
+            zod.object({
+                vendor_table: zod
+                    .string()
+                    .describe(
+                        "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`."
+                    ),
+                posthog_table: zod
+                    .string()
+                    .nullable()
+                    .describe('The PostHog table to sync it as. Null leaves the table out.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out.'
+        ),
+})
+
+/**
  * Validate CDC prerequisites against a live Postgres connection.
  *
  * Used by the source wizard to surface ✅/❌ checks before source creation,
@@ -3862,4 +3909,128 @@ export const ExternalDataSourcesWizardRetrieveQueryParams = () => zod.object({
         .describe(
             "Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types."
         ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseMigrationsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsRetrievePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const WarehouseMigrationsRetrieveParams = () => zod.object({
+    id: zod.string().regex(warehouseMigrationsRetrievePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsListPathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const WarehouseMigrationsItemsListParams = () => zod.object({
+    id: zod.string().regex(warehouseMigrationsItemsListPathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsSkipCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const WarehouseMigrationsItemsSkipCreateParams = () => zod.object({
+    id: zod.string().regex(warehouseMigrationsItemsSkipCreatePathIdRegExp),
+    item_id: zod.string().describe('Item ID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+export const warehouseMigrationsItemsBulkSkipCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const WarehouseMigrationsItemsBulkSkipCreateParams = () => zod.object({
+    id: zod.string().regex(warehouseMigrationsItemsBulkSkipCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseMigrationsItemsBulkSkipCreateBody = () => zod.object({
+    item_ids: zod
+        .array(zod.string())
+        .min(1)
+        .optional()
+        .describe('Items to skip. Pass this or `keep_item_ids`, not both.'),
+    keep_item_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsRefreshCreatePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const WarehouseMigrationsRefreshCreateParams = () => zod.object({
+    id: zod.string().regex(warehouseMigrationsRefreshCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsConnectLinkRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseMigrationsConnectLinkRetrieveQueryParams = () => zod.object({
+    provider: zod.enum(['fivetran']).describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
 })
