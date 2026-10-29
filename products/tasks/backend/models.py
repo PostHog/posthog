@@ -1218,6 +1218,23 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
 
     @staticmethod
+    def _github_resolution_allowed(origin_product: str, *, has_repository: bool) -> bool:
+        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
+        # credential. Provisioning injects any attached integration; these runs read member-authored
+        # text, so an attached token turns planted text into repository access.
+        return origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
+            has_repository
+            or origin_product
+            not in (
+                Task.OriginProduct.SIGNALS_CHAT,
+                Task.OriginProduct.SIGNAL_REPORT,
+                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                Task.OriginProduct.AUTORESEARCH,
+                Task.OriginProduct.METRICS_IMPORT,
+            )
+        )
+
+    @staticmethod
     def _build_task(
         *,
         team: Team,
@@ -1300,20 +1317,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
-        # credential. Provisioning injects any attached integration; these runs read member-authored
-        # text, so an attached token turns planted text into repository access.
-        github_resolution_allowed = origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
-            bool(repository)
-            or origin_product
-            not in (
-                Task.OriginProduct.SIGNALS_CHAT,
-                Task.OriginProduct.SIGNAL_REPORT,
-                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-                Task.OriginProduct.AUTORESEARCH,
-                Task.OriginProduct.METRICS_IMPORT,
-            )
-        )
+        github_resolution_allowed = Task._github_resolution_allowed(origin_product, has_repository=bool(repository))
         github_integration = None
         if github_resolution_allowed:
             github_integration = (
