@@ -57,20 +57,6 @@ class TestJudgeImagesContent:
         assert {"type": "text", "text": "Image 1:"} in content
         assert {"type": "text", "text": "Image 2: not attached, over the judge's image limit."} in content
 
-    def test_skips_the_download_when_the_declared_size_does_not_fit(self):
-        images = JudgeImages(team_id=7)
-        big = [
-            MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{digit * 64}?mime=image%2Fpng&size=10000000")
-            for digit in "ab"
-        ]
-        prompt = " ".join(images.marker(media) for media in big)
-
-        with patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"x" * 10_000_000) as read:
-            content = images.content(prompt, "together_ai", "any")
-
-        assert read.call_count == 1
-        assert {"type": "text", "text": "Image 2: not attached, too large."} in content
-
     def test_attaches_the_newest_images_when_over_the_limit(self):
         images = JudgeImages(team_id=7)
         prompt = " ".join(images.marker(_inline(f"{i:02}")) for i in range(MAX_IMAGES + 1))
@@ -99,6 +85,7 @@ class TestJudgeImagesContent:
 
         with (
             patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed") as presign,
+            patch(f"{OBJECT_STORAGE}.head_object_strict", return_value={"ContentLength": 2}),
             patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"hi") as read,
         ):
             content = images.content(prompt, provider, model)
@@ -115,7 +102,8 @@ class TestJudgeImagesContent:
     @pytest.mark.parametrize(
         ("provider", "model", "media"),
         [
-            pytest.param("openai", "gpt-5.5", _pointer("a"), id="blob_missing"),
+            pytest.param("openai", "gpt-5.5", _pointer("a"), id="blob_missing_for_a_link"),
+            pytest.param("together_ai", "any", _pointer("a"), id="blob_missing_for_inline"),
             pytest.param(
                 "gemini", "gemini-3-flash", _pointer("a", mime="image%2Fgif"), id="format_rejected_by_provider"
             ),
@@ -125,7 +113,10 @@ class TestJudgeImagesContent:
         images = JudgeImages(team_id=7)
         prompt = f"user: {images.marker(media)}"
 
-        with patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value=None):
+        with (
+            patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value=None),
+            patch(f"{OBJECT_STORAGE}.head_object_strict", return_value=None),
+        ):
             content = images.content(prompt, provider, model)
 
         assert content[1] == {"type": "text", "text": "Image 1: could not be attached."}
@@ -134,8 +125,8 @@ class TestJudgeImagesContent:
         ("provider", "media", "second_attached"),
         [
             pytest.param("openai", _pointer, True, id="links_have_no_byte_cap"),
-            # The pointers claim 63 KB, so this also checks the budget counts the bytes actually read.
-            pytest.param("together_ai", _pointer, False, id="bytes_read_for_inline_providers"),
+            # The pointers claim 63 KB, so this also checks that the budget uses the stored size.
+            pytest.param("together_ai", _pointer, False, id="stored_size_for_inline_providers"),
             pytest.param(
                 "openai",
                 lambda digit: _inline(digit, length=13_400_000),
@@ -150,12 +141,15 @@ class TestJudgeImagesContent:
 
         with (
             patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed"),
-            patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"x" * 10_000_000),
+            patch(f"{OBJECT_STORAGE}.head_object_strict", return_value={"ContentLength": 10_000_000}),
+            patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"x" * 10_000_000) as read,
         ):
             content = images.content(prompt, provider, "any")
 
         too_large = {"type": "text", "text": "Image 2: not attached, too large."}
         assert (too_large in content) is not second_attached
+        # An image over the budget is never downloaded.
+        assert read.call_count == (1 if provider == "together_ai" else 0)
 
     def test_skips_images_whose_marker_was_sampled_out_of_the_prompt(self):
         images = JudgeImages(team_id=7)
