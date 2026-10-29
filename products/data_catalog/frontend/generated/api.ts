@@ -603,24 +603,6 @@ export const dataCatalogUsageList = async (
     })
 }
 
-export const getDataCatalogUsageRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_catalog/usage/${id}/`
-}
-
-/**
- * One usage scan, with its payload.
- */
-export const dataCatalogUsageRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<UsageSnapshotApi> => {
-    return apiMutator<UsageSnapshotApi>(getDataCatalogUsageRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getDataCatalogUsageLatestRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_catalog/usage/latest/`
 }

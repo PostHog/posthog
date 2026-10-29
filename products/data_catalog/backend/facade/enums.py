@@ -7,6 +7,8 @@ loaders, MCP tooling) share. Internal-only constants stay in the implementation.
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 # The definition kind for an agent-calculated, markdown-step metric (as opposed to an executable
 # query definition). Not a posthog.schema query kind — the query runner never executes it; an agent
 # follows the steps. JSX object references inside the markdown are a future expansion.
@@ -59,33 +61,25 @@ USAGE_FLAG_KEY = "data-catalog-usage"
 SCOUT_SOURCE = "self_driving"
 
 
-class UsageSnapshotStatus(StrEnum):
+class UsageSnapshotStatus(LabeledStrEnum):
     """Lifecycle of one usage scan. A snapshot row is written once per scan and never reused."""
 
-    COMPUTING = "computing"
-    DONE = "done"
-    ERROR = "error"
+    COMPUTING = "computing", "Computing"
+    DONE = "done", "Done"
+    ERROR = "error", "Error"
 
 
-class JudgeRelation(StrEnum):
+class JudgeRelation(LabeledStrEnum):
     """What the judge decided about an agent query that resembles a catalog metric."""
 
-    SERVES = "serves"
-    SLICE = "slice"
-    DIFFERENT = "different"
+    SERVES = "serves", "Serves"
+    SLICE = "slice", "Slice"
+    DIFFERENT = "different", "Different"
 
 
-class FetchOutcome(StrEnum):
-    """Whether the agent consulted the catalog before it re-derived a metric in SQL."""
-
-    ADAPTED = "adapted"
-    MISSED = "missed"
-    SILENT = "silent"
-
-
-class ShapeOutcome(StrEnum):
+class ShapeOutcome(LabeledStrEnum):
     """How a recurring query shape relates to the catalog."""
 
-    COVERED = "covered"
-    SLICE = "slice"
-    UNCOVERED = "uncovered"
+    COVERED = "covered", "Covered"
+    SLICE = "slice", "Slice"
+    UNCOVERED = "uncovered", "Uncovered"

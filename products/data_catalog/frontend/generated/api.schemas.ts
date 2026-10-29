@@ -596,28 +596,32 @@ export interface MetricRunCountsApi {
     direct_people: number
     /** Direct runs by scouts (scheduled agents), kept apart because one scout can run a metric many times a day. */
     scout_runs: number
-    /** Calculations of the metric's source insight on a dashboard. Cached views are not counted. */
-    source_insight_dashboard_runs: number
-    /** Calculations of the metric's source insight outside a dashboard. Cached views are not counted. */
-    source_insight_insight_runs: number
 }
 
-export interface FetchOutcomeCountsApi {
-    /** Agent queries that read the metric first, then changed it. */
-    adapted: number
-    /** Agent queries that listed the catalog but re-derived the metric. */
-    missed: number
-    /** Agent queries that re-derived the metric without the catalog. */
-    silent: number
-}
+/**
+ * * `serves` - Serves
+ * * `slice` - Slice
+ * * `different` - Different
+ */
+export type JudgeRelationEnumApi = (typeof JudgeRelationEnumApi)[keyof typeof JudgeRelationEnumApi]
+
+export const JudgeRelationEnumApi = {
+    Serves: 'serves',
+    Slice: 'slice',
+    Different: 'different',
+} as const
 
 export interface AdjustedRunApi {
     /** ID of the catalog metric the agent query re-derived. */
     metric_id: string
-    /** adapted: the agent read the metric first, then changed it. missed: the agent listed the catalog but did not pick this metric. silent: the agent did not consult the catalog. */
-    fetch_outcome: string
-    /** serves: the query computes the metric. slice: it computes the metric with an extra filter. */
-    relation: string
+    /** True when the agent read this metric in the catalog before it wrote the query. */
+    read_metric_first: boolean
+    /** serves: the query computes the metric. slice: it computes the metric with an extra filter. Never different: the scan drops the queries the judge marks different.
+     *
+     * * `serves` - Serves
+     * * `slice` - Slice
+     * * `different` - Different */
+    relation: JudgeRelationEnumApi
     /** What the agent said it was trying to answer. */
     intent: string
     /** The SQL the agent ran. */
@@ -651,11 +655,7 @@ export interface MetricUsageApi {
     computed_at: string | null
     /** Run counts. Null when the metric had no runs. */
     runs: MetricRunCountsApi | null
-    /** Agent re-derivations of the metric, without scouts. */
-    adjusted: FetchOutcomeCountsApi
-    /** Re-derivations of the metric by scouts. */
-    scout_adjusted: FetchOutcomeCountsApi
-    /** The agent queries behind both counts. is_scout tells them apart. */
+    /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
     adjusted_runs: AdjustedRunApi[]
 }
 
@@ -802,11 +802,28 @@ export interface RelationshipRejectApi {
     rejection_reason?: string
 }
 
+/**
+ * * `computing` - Computing
+ * * `done` - Done
+ * * `error` - Error
+ */
+export type UsageSnapshotStatusEnumApi = (typeof UsageSnapshotStatusEnumApi)[keyof typeof UsageSnapshotStatusEnumApi]
+
+export const UsageSnapshotStatusEnumApi = {
+    Computing: 'computing',
+    Done: 'done',
+    Error: 'error',
+} as const
+
 export interface UsageSnapshotSummaryApi {
     /** ID of the usage scan. */
     id: string
-    /** computing while the scan runs, then done or error. */
-    status: string
+    /** computing while the scan runs, then done or error.
+     *
+     * * `computing` - Computing
+     * * `done` - Done
+     * * `error` - Error */
+    status: UsageSnapshotStatusEnumApi
     /** Why the scan failed, when status is error. */
     error_message: string
     /** Start of the scanned window. */
@@ -848,31 +865,39 @@ export interface TopicClusterApi {
     sample_intents: string[]
 }
 
+/**
+ * * `covered` - Covered
+ * * `slice` - Slice
+ * * `uncovered` - Uncovered
+ */
+export type ShapeOutcomeEnumApi = (typeof ShapeOutcomeEnumApi)[keyof typeof ShapeOutcomeEnumApi]
+
+export const ShapeOutcomeEnumApi = {
+    Covered: 'covered',
+    Slice: 'slice',
+    Uncovered: 'uncovered',
+} as const
+
 export interface UncoveredGroupApi {
     /** Stable ID of the measure the queries compute. */
     fingerprint_digest: string
     /** Readable description of the measure. */
     measure: string
-    /** covered: a catalog metric computes it. slice: a catalog metric computes it without the extra filters. uncovered: no catalog metric computes it. */
-    outcome: string
+    /** covered: a catalog metric computes it. slice: a catalog metric computes it without the extra filters. uncovered: no catalog metric computes it.
+     *
+     * * `covered` - Covered
+     * * `slice` - Slice
+     * * `uncovered` - Uncovered */
+    outcome: ShapeOutcomeEnumApi
     /**
      * The matching catalog metric, for covered and slice.
      * @nullable
      */
     matched_metric_id: string | null
-    /**
-     * Status of the matching metric at scan time: proposed or approved.
-     * @nullable
-     */
-    matched_metric_status: string | null
     /** Distinct people who ran the measure, without scouts. */
     distinct_people: number
-    /** Days in the window with at least one run, without scouts. */
-    active_days: number
     /** Query runs of the measure, without scouts. */
     runs: number
-    /** Query runs of the measure by scouts (scheduled agents). */
-    scout_runs: number
     /** One query that computes the measure. */
     sample_sql: string
     /**
@@ -913,8 +938,12 @@ export interface UsageSnapshotPayloadApi {
 export interface UsageSnapshotApi {
     /** ID of the usage scan. */
     id: string
-    /** computing while the scan runs, then done or error. */
-    status: string
+    /** computing while the scan runs, then done or error.
+     *
+     * * `computing` - Computing
+     * * `done` - Done
+     * * `error` - Error */
+    status: UsageSnapshotStatusEnumApi
     /** Why the scan failed, when status is error. */
     error_message: string
     /** Start of the scanned window. */

@@ -7,7 +7,6 @@ Thin: validate via the serializer, call the facade, serialize the result. Domain
 from functools import reduce
 from operator import or_
 from typing import Any, cast
-from uuid import UUID
 
 from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db.models import Q, QuerySet
@@ -407,7 +406,8 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def usage(self, request: Request, **kwargs) -> Response:
         """How the metric was used in the latest usage scan: direct runs and agent re-derivations."""
         _require_usage_enabled(request, self.team)
-        usage = api.metric_usage(self.team_id, self.get_object().id)
+        reader = api.usage_reader(self.team, cast(User, request.user), self.user_access_control)
+        usage = api.metric_usage(self.team_id, self.get_object().id, reader)
         if usage is None:
             raise NotFound(_NO_USAGE_SCAN)
         return Response(MetricUsageSerializer(usage).data)
@@ -636,11 +636,11 @@ class RelationshipProposalViewSet(
 
 
 class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """Usage scans of the catalog, newest first. The list omits payloads; retrieve and latest include them."""
+    """Usage scans of the catalog, newest first. The list omits payloads; latest includes them."""
 
     scope_object = "data_catalog"
     # A plain ViewSet maps no actions to scopes by default, so API-key reads would 403 without these.
-    scope_object_read_actions = ["list", "retrieve", "latest"]
+    scope_object_read_actions = ["list", "latest"]
 
     def initial(self, request: Request, *args, **kwargs) -> None:
         super().initial(request, *args, **kwargs)
@@ -651,22 +651,11 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Up to a year of usage scans for the project, newest first, without payloads."""
         return Response(UsageSnapshotSummarySerializer(api.usage_snapshot_history(self.team_id), many=True).data)
 
-    @extend_schema(responses={200: UsageSnapshotSerializer, 404: _USAGE_404})
-    def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
-        """One usage scan, with its payload."""
-        try:
-            snapshot_id = UUID(pk)
-        except ValueError:
-            raise NotFound()
-        snapshot = api.get_usage_snapshot(self.team_id, snapshot_id)
-        if snapshot is None:
-            raise NotFound()
-        return Response(UsageSnapshotSerializer(snapshot).data)
-
     @action(detail=False, methods=["GET"], responses={200: UsageSnapshotSerializer, 404: _USAGE_404})
     def latest(self, request: Request, **kwargs) -> Response:
         """The newest finished usage scan, with its payload."""
-        snapshot = api.latest_usage_snapshot(self.team_id)
+        reader = api.usage_reader(self.team, cast(User, request.user), self.user_access_control)
+        snapshot = api.latest_usage_snapshot(self.team_id, reader)
         if snapshot is None:
             raise NotFound(_NO_USAGE_SCAN)
         return Response(UsageSnapshotSerializer(snapshot).data)

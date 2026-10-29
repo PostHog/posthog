@@ -318,6 +318,7 @@ rules:
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
+                              |UsageSnapshot
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
                               |MCPCustomHarness
@@ -845,6 +846,7 @@ rules:
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
+                        |UsageSnapshot
                         |MCPAuditEvent
                         |MCPCustomHarness
                         |MCPGatewayServer

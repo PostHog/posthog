@@ -17,7 +17,7 @@ class UsageSnapshot(TeamScopedRootMixin, UUIDModel):
 
     status = models.CharField(
         max_length=16,
-        choices=[(s.value, s.value) for s in UsageSnapshotStatus],
+        choices=UsageSnapshotStatus.choices,
         default=UsageSnapshotStatus.COMPUTING.value,
         help_text="computing while the scan runs, then done or error.",
     )
@@ -33,6 +33,14 @@ class UsageSnapshot(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         indexes = [models.Index(fields=["team", "status", "-computed_at"], name="dc_usage_snapshot_latest")]
+        constraints = [
+            # Two recompute requests at once would otherwise both start a scan.
+            models.UniqueConstraint(
+                fields=["team"],
+                condition=models.Q(status=UsageSnapshotStatus.COMPUTING.value),
+                name="dc_usage_snapshot_one_computing",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.team_id} {self.window_start:%Y-%m-%d}..{self.window_end:%Y-%m-%d} {self.status}"

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import FetchOutcome, JudgeRelation, MetricStatus, ShapeOutcome, UsageSnapshotStatus
+from .enums import JudgeRelation, ShapeOutcome, UsageSnapshotStatus
 
 
 @dataclass(frozen=True)
@@ -53,16 +53,14 @@ class MetricRunCounts:
     direct_runs: dict[str, int]
     direct_people: int
     scout_runs: int
-    source_insight_dashboard_runs: int
-    source_insight_insight_runs: int
 
 
 @dataclass(frozen=True)
 class AdjustedRun:
-    """One agent query the judge matched to a catalog metric, with how the agent got there."""
+    """One agent query the judge matched to a catalog metric, and whether the agent read that metric first."""
 
     metric_id: UUID
-    fetch_outcome: FetchOutcome
+    read_metric_first: bool
     relation: JudgeRelation
     intent: str
     sql: str
@@ -70,13 +68,6 @@ class AdjustedRun:
     occurred_at: datetime
     session_id: str | None
     is_scout: bool
-
-
-@dataclass(frozen=True)
-class FetchOutcomeCounts:
-    adapted: int
-    missed: int
-    silent: int
 
 
 @dataclass(frozen=True)
@@ -102,19 +93,15 @@ class TopicCluster:
 class UncoveredGroup:
     """A recurring query shape, grouped by measure fingerprint, with its catalog outcome.
 
-    People, days, and runs count people and agents other than scouts; scout runs are in
-    ``scout_runs``. A shape that only scouts run ranks below every other shape.
+    People and runs leave out scouts (scheduled agents).
     """
 
     fingerprint_digest: str
     measure: str
     outcome: ShapeOutcome
     matched_metric_id: UUID | None
-    matched_metric_status: MetricStatus | None
     distinct_people: int
-    active_days: int
     runs: int
-    scout_runs: int
     sample_sql: str
     draft_name: str | None
     draft_description: str | None
@@ -144,15 +131,7 @@ class UsageSnapshotSummary:
 
 
 @dataclass(frozen=True)
-class UsageSnapshotDetail:
-    id: UUID
-    status: UsageSnapshotStatus
-    error_message: str
-    window_start: datetime
-    window_end: datetime
-    judge_model: str
-    computed_at: datetime | None
-    created_at: datetime
+class UsageSnapshotDetail(UsageSnapshotSummary):
     payload: UsageSnapshotPayload
 
 
@@ -166,6 +145,4 @@ class MetricUsage:
     window_end: datetime
     computed_at: datetime | None
     runs: MetricRunCounts | None
-    adjusted: FetchOutcomeCounts
-    scout_adjusted: FetchOutcomeCounts
     adjusted_runs: list[AdjustedRun]

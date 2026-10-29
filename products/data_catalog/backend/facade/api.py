@@ -46,10 +46,10 @@ from ..logic.metrics import (
 from ..logic.pending_review import PendingGroup, PendingKind, TeamPendingReview, build_team_pending_review
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.usage_snapshots import (
-    get_usage_snapshot,
     is_usage_enabled,
     latest_usage_snapshot,
     metric_usage,
+    usage_reader,
     usage_snapshot_history,
 )
 from ..logic.validation import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, validate_metric_definition
@@ -105,7 +105,6 @@ __all__ = [
     "deprecate",
     "get_hogql_metric_definition",
     "get_metric_summary",
-    "get_usage_snapshot",
     "is_usage_enabled",
     "latest_usage_snapshot",
     "live_metric_ids",
@@ -124,6 +123,7 @@ __all__ = [
     "soft_delete_metric",
     "update_metric",
     "upsert_metric",
+    "usage_reader",
     "usage_snapshot_history",
     "validate_metric_definition",
 ]

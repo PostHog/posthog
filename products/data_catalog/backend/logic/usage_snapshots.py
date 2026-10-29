@@ -1,28 +1,37 @@
 """Reads of the usage snapshots that the weekly scan writes."""
 
-from collections import Counter
-from collections.abc import Iterable
+import dataclasses
+from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
+from django.utils import timezone
+
 import posthoganalytics
 from pydantic import TypeAdapter
+from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.database.schema.information_schema import references_denied_table
+
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..facade.contracts import (
-    AdjustedRun,
-    FetchOutcomeCounts,
-    MetricUsage,
-    UsageSnapshotDetail,
-    UsageSnapshotPayload,
-    UsageSnapshotSummary,
-)
-from ..facade.enums import USAGE_FLAG_KEY, FetchOutcome, UsageSnapshotStatus
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+from ..facade.contracts import MetricUsage, UsageSnapshotDetail, UsageSnapshotPayload, UsageSnapshotSummary
+from ..facade.enums import USAGE_FLAG_KEY, UsageSnapshotStatus
 from ..models import UsageSnapshot
+from .metrics import _denied_tables, metrics_visible_to_user
+from .validation import table_names_as_written
 
 # A weekly scan writes one row a week, so this is a year of history.
 USAGE_HISTORY_LIMIT = 52
+
+SCAN_EXECUTION_TIMEOUT = timedelta(hours=12)
+# A row still computing after the scan's execution timeout belongs to a scan that died.
+STALE_COMPUTING = SCAN_EXECUTION_TIMEOUT + timedelta(hours=1)
+SCAN_STOPPED_MESSAGE = "The scan stopped before it finished."
 
 _PAYLOAD_ADAPTER = TypeAdapter(UsageSnapshotPayload)
 
@@ -35,8 +44,13 @@ def payload_from_json(data: dict[str, Any]) -> UsageSnapshotPayload:
     return _PAYLOAD_ADAPTER.validate_python(data)
 
 
+def usage_scans_supported() -> bool:
+    """The scan reads MCP telemetry from PostHog's own project on US Cloud, so other deployments cannot scan."""
+    return settings.CLOUD_DEPLOYMENT == "US" or settings.DEBUG or settings.TEST
+
+
 def is_usage_enabled(user: User, team: Team) -> bool:
-    return bool(
+    return usage_scans_supported() and bool(
         posthoganalytics.feature_enabled(
             USAGE_FLAG_KEY,
             str(user.distinct_id),
@@ -51,24 +65,89 @@ def usage_snapshot_history(team_id: int) -> list[UsageSnapshotSummary]:
     return [_summary(row) for row in rows]
 
 
-def get_usage_snapshot(team_id: int, snapshot_id: UUID) -> UsageSnapshotDetail | None:
-    row = UsageSnapshot.objects.for_team(team_id).filter(id=snapshot_id).first()
-    return _detail(row) if row else None
+@frozen
+class UsageReader:
+    """What one caller may see of a snapshot."""
+
+    visible_metric_ids: frozenset[UUID]
+    denied_tables: frozenset[str]
 
 
-def latest_usage_snapshot(team_id: int) -> UsageSnapshotDetail | None:
-    row = _latest_done(team_id)
-    return _detail(row) if row else None
+def usage_reader(team: Team, user: User, user_access_control: UserAccessControl) -> UsageReader:
+    denied_tables = _denied_tables(team, user, user_access_control)
+    return UsageReader(
+        visible_metric_ids=frozenset(
+            metrics_visible_to_user(team, user, user_access_control, denied_tables=denied_tables).values_list(
+                "id", flat=True
+            )
+        ),
+        denied_tables=frozenset(denied_tables),
+    )
 
 
-def metric_usage(team_id: int, metric_id: UUID) -> MetricUsage | None:
-    """The metric's slice of the latest finished scan, or None when no scan has finished."""
+def sql_reads_denied_table(sql: str, denied_tables: frozenset[str]) -> bool:
+    """Whether the SQL names a table the reader cannot read. SQL that does not parse counts as denied."""
+    if not denied_tables:
+        return False
+    try:
+        tables = table_names_as_written({"query": sql})
+    except ValidationError:
+        return True
+    return references_denied_table(tables, set(denied_tables))
+
+
+def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> UsageSnapshotPayload:
+    """The payload without rows that would show a hidden metric or SQL over a denied table.
+
+    The scan runs as the system, so it stores what every member of the team computed. Each read
+    filters that down to what the reader may see.
+    """
+    return dataclasses.replace(
+        payload,
+        metric_runs=None
+        if payload.metric_runs is None
+        else [counts for counts in payload.metric_runs if counts.metric_id in reader.visible_metric_ids],
+        adjusted_runs=None
+        if payload.adjusted_runs is None
+        else [
+            run
+            for run in payload.adjusted_runs
+            if run.metric_id in reader.visible_metric_ids and not sql_reads_denied_table(run.sql, reader.denied_tables)
+        ],
+    )
+
+
+def latest_usage_snapshot(team_id: int, reader: UsageReader) -> UsageSnapshotDetail | None:
     row = _latest_done(team_id)
     if row is None:
         return None
-    payload = payload_from_json(row.payload)
-    runs = next((counts for counts in payload.metric_runs or [] if counts.metric_id == metric_id), None)
-    adjusted = [run for run in payload.adjusted_runs or [] if run.metric_id == metric_id]
+    detail = _detail(row)
+    return dataclasses.replace(detail, payload=visible_payload(detail.payload, reader))
+
+
+def metric_usage(team_id: int, metric_id: UUID, reader: UsageReader) -> MetricUsage | None:
+    """The metric's slice of the latest finished scan, or None when no scan has finished.
+
+    A finished scan that counted no run of the metric gives a MetricUsage whose ``runs`` is None.
+    """
+    row = _latest_done(team_id)
+    if row is None:
+        return None
+    stored = payload_from_json(row.payload)
+    # Select the metric's rows first, so the visibility check parses only this metric's SQL.
+    payload = visible_payload(
+        dataclasses.replace(
+            stored,
+            metric_runs=None
+            if stored.metric_runs is None
+            else [counts for counts in stored.metric_runs if counts.metric_id == metric_id],
+            adjusted_runs=None
+            if stored.adjusted_runs is None
+            else [run for run in stored.adjusted_runs if run.metric_id == metric_id],
+        ),
+        reader,
+    )
+    runs = next(iter(payload.metric_runs or []), None)
     return MetricUsage(
         metric_id=metric_id,
         snapshot_id=row.id,
@@ -76,18 +155,7 @@ def metric_usage(team_id: int, metric_id: UUID) -> MetricUsage | None:
         window_end=row.window_end,
         computed_at=row.computed_at,
         runs=runs,
-        adjusted=_count_outcomes(run for run in adjusted if not run.is_scout),
-        scout_adjusted=_count_outcomes(run for run in adjusted if run.is_scout),
-        adjusted_runs=adjusted,
-    )
-
-
-def _count_outcomes(runs: Iterable[AdjustedRun]) -> FetchOutcomeCounts:
-    outcomes = Counter(run.fetch_outcome for run in runs)
-    return FetchOutcomeCounts(
-        adapted=outcomes[FetchOutcome.ADAPTED],
-        missed=outcomes[FetchOutcome.MISSED],
-        silent=outcomes[FetchOutcome.SILENT],
+        adjusted_runs=list(payload.adjusted_runs or []),
     )
 
 
@@ -100,11 +168,23 @@ def _latest_done(team_id: int) -> UsageSnapshot | None:
     )
 
 
+def is_stale(row: UsageSnapshot) -> bool:
+    return row.status == UsageSnapshotStatus.COMPUTING.value and row.created_at <= timezone.now() - STALE_COMPUTING
+
+
+def _status_of(row: UsageSnapshot) -> tuple[UsageSnapshotStatus, str]:
+    # A dead scan never closes its row, so the read reports it as failed instead of computing forever.
+    if is_stale(row):
+        return UsageSnapshotStatus.ERROR, SCAN_STOPPED_MESSAGE
+    return UsageSnapshotStatus(row.status), row.error_message
+
+
 def _summary(row: UsageSnapshot) -> UsageSnapshotSummary:
+    status, error_message = _status_of(row)
     return UsageSnapshotSummary(
         id=row.id,
-        status=UsageSnapshotStatus(row.status),
-        error_message=row.error_message,
+        status=status,
+        error_message=error_message,
         window_start=row.window_start,
         window_end=row.window_end,
         judge_model=row.judge_model,
@@ -114,14 +194,4 @@ def _summary(row: UsageSnapshot) -> UsageSnapshotSummary:
 
 
 def _detail(row: UsageSnapshot) -> UsageSnapshotDetail:
-    return UsageSnapshotDetail(
-        id=row.id,
-        status=UsageSnapshotStatus(row.status),
-        error_message=row.error_message,
-        window_start=row.window_start,
-        window_end=row.window_end,
-        judge_model=row.judge_model,
-        computed_at=row.computed_at,
-        created_at=row.created_at,
-        payload=payload_from_json(row.payload),
-    )
+    return UsageSnapshotDetail(**dataclasses.asdict(_summary(row)), payload=payload_from_json(row.payload))
