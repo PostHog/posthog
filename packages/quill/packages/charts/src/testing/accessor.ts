@@ -58,6 +58,12 @@ interface SlopeValueLabelSummary {
     side: 'start' | 'end'
 }
 
+interface PieSliceLabelSummary {
+    text: string
+    /** One entry per rendered line (label and/or value). */
+    lines: string[]
+}
+
 interface LegendItemSummary {
     label: string
     /** The row's secondary text (a slope chart's change, a proportion bar's `share · value`), or null
@@ -90,25 +96,31 @@ export interface ChartAccessor<Meta = unknown> {
     valueLabels(): ValueLabelSummary[]
     /** All anomaly point markers currently rendered (TimeSeriesLineChart only). */
     anomalyPoints(): AnomalyPointSummary[]
-    /** All slope-chart value labels currently rendered (start + end columns). */
-    slopeValueLabels(): SlopeValueLabelSummary[]
-    /** Series name labels currently rendered by a slope chart (post-collision-avoidance). */
-    slopeSeriesLabels(): string[]
+    slope: {
+        /** Value labels currently rendered (start + end columns). */
+        valueLabels(): SlopeValueLabelSummary[]
+        /** Series name labels currently rendered (post-collision-avoidance). */
+        seriesLabels(): string[]
+    }
+    sankey: {
+        /** Node labels in layout order. */
+        nodeLabels(): string[]
+        /** Column headers, left to right. */
+        columnLabels(): string[]
+    }
+    pie: {
+        /** On-slice labels, in slice order. */
+        sliceLabels(): PieSliceLabelSummary[]
+    }
+    /** The legend container in this chart's render scope, or null when the legend is hidden. */
+    legend(): HTMLElement | null
     /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
      *  chart's change, a proportion bar's `share · value`), or null when none. Empty when the
      *  legend is hidden. */
     legendItems(): LegendItemSummary[]
-    /** @deprecated Use `legendItems()`, which reads any chart's legend. */
-    slopeLegendItems(): LegendItemSummary[]
     /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
      *  instead of isolating it. Throws when no legend row has the label. */
     clickLegendItem(label: string, options?: { additive?: boolean }): void
-    /** Node labels rendered by a Sankey chart, in layout order. */
-    sankeyNodeLabels(): string[]
-    /** Column headers rendered by a Sankey chart, left to right. */
-    sankeyColumnLabels(): string[]
-    /** Annotation badges currently rendered. */
-    annotationBadges(): HTMLElement[]
     /** Fire one `mouseMove` over the label at `index`, without waiting for a tooltip. */
     hoverAtIndex(index: number): void
     /** Hover the label at `index` until the tooltip shows its content, then read it as a `DefaultTooltip`.
@@ -259,20 +271,32 @@ export function getChart<Meta = unknown>(
                 element: el,
                 color: el.style.backgroundColor,
             })),
-        slopeValueLabels: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-value-label"]')).map(
-                (el) => ({
-                    text: el.textContent ?? '',
-                    color: el.style.color,
-                    side: el.dataset.slopeSide === 'end' ? 'end' : 'start',
-                })
-            ),
-        slopeSeriesLabels: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-series-label"]')).map(
-                (el) => el.textContent ?? ''
-            ),
+        slope: {
+            valueLabels: () =>
+                Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-value-label"]')).map(
+                    (el) => ({
+                        text: el.textContent ?? '',
+                        color: el.style.color,
+                        side: el.dataset.slopeSide === 'end' ? 'end' : 'start',
+                    })
+                ),
+            seriesLabels: () => textsOf(wrapper, 'hog-chart-slope-series-label'),
+        },
+        sankey: {
+            nodeLabels: () => textsOf(wrapper, 'hog-chart-sankey-node-label'),
+            columnLabels: () => textsOf(wrapper, 'hog-chart-sankey-column-label'),
+        },
+        pie: {
+            sliceLabels: () =>
+                Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-slice-label"]')).map(
+                    (el) => ({
+                        text: el.textContent ?? '',
+                        lines: Array.from(el.querySelectorAll('div')).map((line) => line.textContent ?? ''),
+                    })
+                ),
+        },
+        legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),
-        slopeLegendItems: () => readLegendItems(scope),
         clickLegendItem(label: string, { additive = false }: { additive?: boolean } = {}): void {
             const labelEl = Array.from(
                 scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')
@@ -285,15 +309,6 @@ export function getChart<Meta = unknown>(
                 fireEvent.click(row, { metaKey: additive })
             })
         },
-        sankeyNodeLabels: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-node-label"]')).map(
-                (el) => el.textContent ?? ''
-            ),
-        sankeyColumnLabels: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-column-label"]')).map(
-                (el) => el.textContent ?? ''
-            ),
-        annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             hoverAtIndex(wrapper, index, labelCount())
         },
@@ -332,6 +347,10 @@ export function getChart<Meta = unknown>(
             }
         },
     }
+}
+
+function textsOf(root: ParentNode, dataAttr: string): string[] {
+    return Array.from(root.querySelectorAll<HTMLElement>(`[data-attr="${dataAttr}"]`)).map((el) => el.textContent ?? '')
 }
 
 // The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it lives in the

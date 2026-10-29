@@ -20,7 +20,7 @@ describe('Inbox activation panel visibility', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
-        state = { variant: 'test-github', completed_at: new Date(ACTIVATED_AT).toISOString(), draft: null }
+        state = { completed_at: new Date(ACTIVATED_AT).toISOString(), draft: null }
         reportCount = 0
         reportRequests = []
         unmount = undefined
@@ -49,27 +49,24 @@ describe('Inbox activation panel visibility', () => {
         await expectLogic(logic, () => logic.actions.checkVisibility()).toFinishAllListeners()
     }
 
-    describe.each(['test-github', 'test-ui'] as const)('%s', (variant) => {
-        it.each<[string, number, number, boolean]>([
-            ['before seven days with reports', SEVEN_DAYS - 1, 1, true],
-            ['at seven days with reports', SEVEN_DAYS, 1, false],
-            ['after seven days without reports', SEVEN_DAYS + 60_000, 0, true],
-        ])('%s', async (_name, age, count, visible) => {
-            state = { ...state, variant }
-            reportCount = count
-            await checkVisibility(age)
-            expect(logic.values.showActivationPanel).toBe(visible)
-            if (age < SEVEN_DAYS) {
-                expect(reportRequests).toHaveLength(0)
-            } else {
-                expect(reportRequests.length).toBeGreaterThan(0)
-                expect(Object.fromEntries(reportRequests[0])).toEqual({
-                    count_only: 'true',
-                    scope: 'entire_project',
-                    status: 'ready,resolved,pending_input,suppressed',
-                })
-            }
-        })
+    it.each<[string, number, number, boolean]>([
+        ['before seven days with reports', SEVEN_DAYS - 1, 1, true],
+        ['at seven days with reports', SEVEN_DAYS, 1, false],
+        ['after seven days without reports', SEVEN_DAYS + 60_000, 0, true],
+    ])('%s', async (_name, age, count, visible) => {
+        reportCount = count
+        await checkVisibility(age)
+        expect(logic.values.showActivationPanel).toBe(visible)
+        if (age < SEVEN_DAYS) {
+            expect(reportRequests).toHaveLength(0)
+        } else {
+            expect(reportRequests.length).toBeGreaterThan(0)
+            expect(Object.fromEntries(reportRequests[0])).toEqual({
+                count_only: 'true',
+                scope: 'entire_project',
+                status: 'ready,resolved,pending_input,suppressed',
+            })
+        }
     })
 
     it('hides when the first report arrives after seven days and stops requesting counts', async () => {
@@ -81,12 +78,5 @@ describe('Inbox activation panel visibility', () => {
         const requestsAfterHiding = reportRequests.length
         await checkVisibility(SEVEN_DAYS + 120_000)
         expect(reportRequests).toHaveLength(requestsAfterHiding)
-    })
-
-    it.each(['control', null] as const)('does not show the panel or check reports for %s', async (variant) => {
-        state = { ...state, variant }
-        await checkVisibility(SEVEN_DAYS)
-        expect(logic.values.showActivationPanel).toBe(false)
-        expect(reportRequests).toHaveLength(0)
     })
 })

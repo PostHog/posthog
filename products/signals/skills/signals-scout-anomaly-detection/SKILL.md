@@ -29,7 +29,14 @@ You cannot scan a whole project in one run. Your leverage comes from a **durable
 
 ## Quick close-out: is anything worth checking?
 
-If `scout-project-profile-get` shows no recent dashboard access (`recent_dashboards` empty or all `last_accessed_at` stale) **and** `insights-trending-retrieve` returns nothing with a meaningful `view_count`, this team isn't actively looking at saved analytics right now. Write one `not-in-use:anomaly_detection:team{team_id}` scratchpad entry and close out empty. Re-running with the same key idempotently refreshes the timestamp.
+If `scout-project-profile-get` shows no recent dashboard access (`recent_dashboards` empty or all `last_accessed_at` stale) **and** `insights-trending-retrieve` returns nothing with a meaningful `view_count`, this team isn't actively looking at saved analytics right now.
+That proves low saved-analytics use. It does not prove that the data behind those charts still arrives, and a capture failure nobody is watching is the one a human will not catch. So check two things before you close out:
+
+1. **Due watchlist items.** Read the watchlist first (see Get oriented). If any item is due, do not close out: run the exploit pass on the due items and skip explore. Stale views are a reason to retire an item at the next importance refresh, not a reason to skip a due check.
+2. **Source liveness.** Run the bounded probe in [`references/source-liveness.md`](references/source-liveness.md). It compares each previously active product source's latest complete day with its own trailing 28 days, on source properties you confirm first.
+
+Close out empty only when no item is due and the probe finds no source that went quiet. Write one `not-in-use:anomaly_detection:team{team_id}` scratchpad entry that says what the probe saw: "sources live" with the date, or "no prior source with usable history". A project with no usable history is not broken, so it keeps the quiet exit. Re-running with the same key idempotently refreshes the timestamp.
+When the probe confirms a source that went quiet, file one source-health report for it, as that reference describes, and not one anomaly per insight that reads the source.
 
 ## How a run works
 
@@ -100,7 +107,7 @@ One paragraph: which watchlist items you checked, what you added, which anomalie
 
 - **Seasonal swings** — the regular daily/weekly rhythm (weekday vs weekend, business-hours vs overnight). Only real once the move clears the **seasonality-matched** baseline.
 - **The current partial bucket** — the in-progress hour/day is incomplete; never score it.
-- **Data-pipeline gaps, not real drops** — a metric that flat-lines to zero across _every_ insight at the same timestamp is almost always missing/late data or a deploy gap, not a product anomaly. Note it (it may be worth its own report) but don't report it as a metric anomaly per insight.
+- **Data-pipeline gaps, not real drops** — a metric that flat-lines to zero across _every_ insight at the same timestamp is almost always missing/late data or a deploy gap, not a product anomaly. Don't report it as a metric anomaly per insight. Run the source probe in [`references/source-liveness.md`](references/source-liveness.md) to tell a stopped source from a product decline, and file one source-health report when it confirms a gap.
 - **Low-count noise** — series whose baseline counts are tiny; a few events of movement is not signal. Enforce the minimum relative-change and minimum-absolute-count floors.
 - **Dev / test / internal-only segments** — bursts whose `properties.$environment` or service is `dev`/`local`/`test`, or single-user/single-session quirks.
 - **Expected one-offs the team already knows about** — launches, migrations, backfills, known experiments. If a `noise:` / `addressed:` entry names it, skip.
@@ -135,7 +142,7 @@ Harness-level: `scout-project-profile-get`, `scout-scratchpad-search`, `scout-ru
 
 ## When to stop
 
-- Nothing worth checking (quick close-out) → close out empty.
+- Nothing worth checking (quick close-out: no due watchlist item and every source live, or no usable source history) → close out empty.
 - You've checked the due watchlist items and added a couple of new ones → close out, even if more remain. Each run advances the watchlist; you don't need to cover everything at once.
 - A candidate matches a `noise:` / `addressed:` / `dedupe:` entry → skip.
 
