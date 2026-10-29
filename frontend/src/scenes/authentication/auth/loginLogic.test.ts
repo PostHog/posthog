@@ -542,12 +542,15 @@ describe('loginLogic', () => {
         const originalContext = window.POSTHOG_APP_CONTEXT
         const originalLocation = window.location
         let hrefSpy: jest.Mock
+        let replaceSpy: jest.Mock
 
         beforeEach(() => {
             initKeaTests()
             // getCurrentTeamIdOrNone() reads the current project from the app context.
             window.POSTHOG_APP_CONTEXT = { current_team: { id: 5 } } as any
+            window.sessionStorage.clear()
             hrefSpy = jest.fn()
+            replaceSpy = jest.fn()
             Object.defineProperty(window, 'location', {
                 value: {
                     origin: 'http://localhost',
@@ -557,6 +560,7 @@ describe('loginLogic', () => {
                     set href(url: string) {
                         hrefSpy(url)
                     },
+                    replace: replaceSpy,
                 },
                 configurable: true,
             })
@@ -579,6 +583,56 @@ describe('loginLogic', () => {
             handleLoginRedirect()
             expect(hrefSpy).not.toHaveBeenCalled()
         })
+
+        it('does a full navigation from a page rendered for a signed-out visitor', () => {
+            // That page holds only the signed-out part of the stable chunk import map, so a client-side
+            // route to an app scene fails to import its chunk.
+            window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
+            handleLoginRedirect()
+            // A replace (not an href assignment) so the stale signed-out document leaves history.
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/dashboard/1')
+        })
+
+        it('stays client-side when the full navigation came straight back signed out', () => {
+            // A server that keeps rendering the session signed out sends the new document back to /login.
+            window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
+            handleLoginRedirect()
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
+            handleLoginRedirect()
+
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
+            expect(posthog.capture).toHaveBeenCalledWith('signed-out page redirect repeated')
+        })
+
+        it('stays client-side when sessionStorage is blocked, so it cannot reload forever', () => {
+            window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
+            const getItem = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+                throw new Error('blocked')
+            })
+            try {
+                router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
+                handleLoginRedirect()
+            } finally {
+                getItem.mockRestore()
+            }
+
+            expect(replaceSpy).not.toHaveBeenCalled()
+            expect(posthog.capture).toHaveBeenCalledWith('signed-out page redirect skipped', {
+                reason: 'storage_unavailable',
+            })
+        })
+
+        it.each(['/.//evil.example/path', '/a/..//evil.example/path', '/../\\evil.example/path'])(
+            'keeps the signed-out full load on our origin for next=%s',
+            (next) => {
+                window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
+                router.actions.push(`/login?next=${encodeURIComponent(next)}`)
+                handleLoginRedirect()
+                expect(replaceSpy).toHaveBeenCalledWith('/')
+            }
+        )
 
         it('does a full navigation for a project token the middleware resolves server-side', () => {
             // A `phc_` key or a legacy allowlisted api_token can't be compared to the numeric team id,

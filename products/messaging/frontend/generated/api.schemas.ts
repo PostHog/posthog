@@ -8,6 +8,48 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailDeliveryStatusEnumApi = (typeof EmailDeliveryStatusEnumApi)[keyof typeof EmailDeliveryStatusEnumApi]
+
+export const EmailDeliveryStatusEnumApi = {
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
+export interface EmailStatusApi {
+    /** The `message_id` that the send returned. */
+    id: string
+    /** What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** When the send was queued. */
+    created_at: string
+    /** When the email reached its current status. */
+    status_at: string
+    /**
+     * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+}
+
+/**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
@@ -234,6 +276,233 @@ export interface RemoveOptOutRequestApi {
 export interface WebhookUrlApi {
     /** URL to register in Customer.io so it posts subscription changes to PostHog. */
     url: string
+}
+
+/**
+ * * `customerio` - Customer.io
+ */
+export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
+
+export const ImportProviderKeyEnumApi = {
+    Customerio: 'customerio',
+} as const
+
+/**
+ * * `queued` - Waiting to start
+ * * `running` - Importing
+ * * `completed` - Imported
+ * * `failed` - Failed
+ */
+export type ProviderImportStatusEnumApi = (typeof ProviderImportStatusEnumApi)[keyof typeof ProviderImportStatusEnumApi]
+
+export const ProviderImportStatusEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `pending` - Not started
+ * * `running` - Importing
+ * * `completed` - Imported
+ * * `failed` - Failed
+ */
+export type ImportStepStatusEnumApi = (typeof ImportStepStatusEnumApi)[keyof typeof ImportStepStatusEnumApi]
+
+export const ImportStepStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ImportStepProgressApi {
+    /** Step key, for example `suppressions`. */
+    key: string
+    /** Display name of the step. */
+    label: string
+    /** `pending` until the step starts, `running` while it imports or waits to retry, then `completed` or `failed`.
+     *
+     * * `pending` - Not started
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed */
+    status: ImportStepStatusEnumApi
+    /** How many records the step read from the provider so far. */
+    processed: number
+    /** How many records the step added or updated in PostHog so far. Records that already existed and need no change may not count. */
+    imported: number
+    /** Problems with single records that did not fail the step. */
+    warnings: string[]
+    /**
+     * The error from the step's most recent failed attempt. A running step retries after an error; a failed step stopped.
+     * @nullable
+     */
+    last_error: string | null
+}
+
+export interface ProviderImportRunApi {
+    /** Import run ID. */
+    id: string
+    /** The provider the run imports from.
+     *
+     * * `customerio` - Customer.io */
+    provider: ImportProviderKeyEnumApi
+    /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
+     *
+     * * `queued` - Waiting to start
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed */
+    status: ProviderImportStatusEnumApi
+    /** Progress of each selected step, in run order. */
+    steps: ImportStepProgressApi[]
+    /** When the run was requested. */
+    created_at: string
+    /**
+     * When the first step started.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * When the last step ended.
+     * @nullable
+     */
+    finished_at: string | null
+}
+
+export interface StartProviderImportApi {
+    /** The provider to import from.
+     *
+     * * `customerio` - Customer.io */
+    provider: ImportProviderKeyEnumApi
+    /**
+     * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
+     * @minItems 1
+     * @items.maxLength 64
+     */
+    steps: string[]
+    /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+    api_key?: string
+}
+
+export interface ImportStepOptionApi {
+    /** Step key to send in `steps` when starting an import, for example `suppressions`. */
+    key: string
+    /** Display name of the step. */
+    label: string
+    /** What the step imports and where it lands in PostHog. */
+    description: string
+}
+
+export interface ImportProviderOptionApi {
+    /** Provider key to send when starting an import.
+     *
+     * * `customerio` - Customer.io */
+    key: ImportProviderKeyEnumApi
+    /** Display name of the provider. */
+    label: string
+    /** What the provider can import, in the order the steps run. */
+    steps: ImportStepOptionApi[]
+}
+
+/**
+ * Supabase email action type (such as `signup` or `recovery`) to the transactional message template that sends it. An auth email with no template fails in Supabase.
+ */
+export type SupabaseAuthEmailSettingsApiTemplates = { [key: string]: string }
+
+/**
+ * * `signup` - Confirm sign up
+ * * `invite` - Invite user
+ * * `magiclink` - Magic link
+ * * `email` - Email sign-in code
+ * * `recovery` - Reset password
+ * * `email_change` - Change email address
+ * * `reauthentication` - Reauthentication
+ * * `password_changed_notification` - Password changed
+ * * `email_changed_notification` - Email address changed
+ * * `phone_changed_notification` - Phone number changed
+ * * `identity_linked_notification` - Sign-in method linked
+ * * `identity_unlinked_notification` - Sign-in method removed
+ * * `mfa_factor_enrolled_notification` - MFA method added
+ * * `mfa_factor_unenrolled_notification` - MFA method removed
+ */
+export type SupabaseEmailActionTypeEnumApi =
+    (typeof SupabaseEmailActionTypeEnumApi)[keyof typeof SupabaseEmailActionTypeEnumApi]
+
+export const SupabaseEmailActionTypeEnumApi = {
+    Signup: 'signup',
+    Invite: 'invite',
+    Magiclink: 'magiclink',
+    Email: 'email',
+    Recovery: 'recovery',
+    EmailChange: 'email_change',
+    Reauthentication: 'reauthentication',
+    PasswordChangedNotification: 'password_changed_notification',
+    EmailChangedNotification: 'email_changed_notification',
+    PhoneChangedNotification: 'phone_changed_notification',
+    IdentityLinkedNotification: 'identity_linked_notification',
+    IdentityUnlinkedNotification: 'identity_unlinked_notification',
+    MfaFactorEnrolledNotification: 'mfa_factor_enrolled_notification',
+    MfaFactorUnenrolledNotification: 'mfa_factor_unenrolled_notification',
+} as const
+
+export interface SupabaseEmailTypeApi {
+    /** The `email_action_type` Supabase sends for this email.
+     *
+     * * `signup` - Confirm sign up
+     * * `invite` - Invite user
+     * * `magiclink` - Magic link
+     * * `email` - Email sign-in code
+     * * `recovery` - Reset password
+     * * `email_change` - Change email address
+     * * `reauthentication` - Reauthentication
+     * * `password_changed_notification` - Password changed
+     * * `email_changed_notification` - Email address changed
+     * * `phone_changed_notification` - Phone number changed
+     * * `identity_linked_notification` - Sign-in method linked
+     * * `identity_unlinked_notification` - Sign-in method removed
+     * * `mfa_factor_enrolled_notification` - MFA method added
+     * * `mfa_factor_unenrolled_notification` - MFA method removed */
+    value: SupabaseEmailActionTypeEnumApi
+    /** What the email is for, in words a person reads. */
+    label: string
+    /** Whether creating starter templates makes a template for this email. */
+    has_starter_template: boolean
+}
+
+export interface SupabaseAuthEmailSettingsApi {
+    /** The Supabase project URL, such as https://abcdefgh.supabase.co. Confirmation links point at its /auth/v1/verify endpoint. */
+    supabase_url: string
+    /** Whether a Send Email Hook secret is stored. The secret itself is never returned. */
+    has_hook_secret: boolean
+    /** Supabase email action type (such as `signup` or `recovery`) to the transactional message template that sends it. An auth email with no template fails in Supabase. */
+    templates: SupabaseAuthEmailSettingsApiTemplates
+    /** The URL to paste into Supabase as the HTTPS endpoint of the Send Email Hook. */
+    hook_url: string
+    /** Every email Supabase can send through the hook, core auth emails first. */
+    email_types: SupabaseEmailTypeApi[]
+}
+
+/**
+ * Supabase email action type to the id of the email template that sends it. Each template must be transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no template is skipped. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification.
+ */
+export type PatchedSupabaseAuthEmailSettingsUpdateApiTemplates = { [key: string]: string }
+
+export interface PatchedSupabaseAuthEmailSettingsUpdateApi {
+    /**
+     * The Supabase project URL, such as https://abcdefgh.supabase.co, from the project's API settings in the Supabase dashboard. It must use https.
+     * @maxLength 200
+     */
+    supabase_url?: string
+    /**
+     * The Send Email Hook secret, starting with v1,whsec_. Supabase generates it under Authentication, Hooks, Send Email hook. Leave it out to keep the stored secret.
+     * @maxLength 500
+     */
+    hook_secret?: string
+    /** Supabase email action type to the id of the email template that sends it. Each template must be transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no template is skipped. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification. */
+    templates?: PatchedSupabaseAuthEmailSettingsUpdateApiTemplates
 }
 
 export interface AddSuppressionRequestApi {

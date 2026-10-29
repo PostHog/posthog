@@ -273,6 +273,15 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         assert flag.filters == {"groups": [{"properties": [], "rollout_percentage": 25}]}
         assert flag.version == 4
 
+    def test_rollback_reason_fields_do_not_block_a_v2_update(self) -> None:
+        flag = self.flag(active=True)
+        response = self.patch_flag(
+            flag, {"version": 3, "active": False, "ask_rollback_reason": True, "rollback_reason": "errors"}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert not flag.active
+
     def test_v2_create_stays_reserved_while_creation_is_closed(self) -> None:
         response = self.post_flag({"key": "new-v2", "filters": config()})
         assert response.status_code == status.HTTP_400_BAD_REQUEST

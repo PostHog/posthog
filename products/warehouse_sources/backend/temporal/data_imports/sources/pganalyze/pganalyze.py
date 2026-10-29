@@ -1,17 +1,21 @@
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
 from posthog.security.url_validation import is_url_allowed
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.queries import (
+    ISSUE_DATABASE_IDS_QUERY,
     ISSUES_QUERY,
+    QUERY_STATS_QUERY,
     SERVERS_QUERY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.settings import (
@@ -19,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pganalyze.
     PGANALYZE_ENDPOINTS,
     PGANALYZE_MAX_RETRY_ATTEMPTS,
     PGANALYZE_REQUEST_TIMEOUT_SECONDS,
+    QUERY_STATS_MAX_CATCHUP_DAYS,
+    QUERY_STATS_SETTLE_HOURS,
 )
 
 
@@ -138,6 +144,80 @@ def _iter_issues(
             }
 
 
+@frozen
+class QueryStatsWindow:
+    start: datetime
+    end: datetime
+
+
+def _start_of_day(value: datetime) -> datetime:
+    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _query_stats_windows(watermark: Any | None, now: datetime) -> list[QueryStatsWindow]:
+    finished_until = _start_of_day(now - timedelta(hours=QUERY_STATS_SETTLE_HOURS))
+    start = finished_until - timedelta(days=1)
+    parsed_watermark = parse_datetime_value(watermark)
+    if parsed_watermark is not None:
+        start = _start_of_day(parsed_watermark) + timedelta(days=1)
+    start = max(start, finished_until - timedelta(days=QUERY_STATS_MAX_CATCHUP_DAYS))
+
+    windows: list[QueryStatsWindow] = []
+    while start < finished_until:
+        windows.append(QueryStatsWindow(start=start, end=start + timedelta(days=1)))
+        start += timedelta(days=1)
+    return windows
+
+
+def _discover_databases(session: Any, api_url: str, servers: list[dict[str, Any]]) -> dict[Any, dict[str, Any]]:
+    databases: dict[Any, dict[str, Any]] = {}
+    for server in servers:
+        server_human_id = server.get("humanId")
+        if not server_human_id:
+            continue
+
+        payload = _post_graphql(session, api_url, ISSUE_DATABASE_IDS_QUERY, {"serverId": server_human_id})
+        for issue in payload.get("getIssues") or []:
+            database_id = issue.get("databaseId")
+            if database_id is not None:
+                databases.setdefault(database_id, server)
+    return databases
+
+
+def _iter_query_stats(
+    session: Any,
+    api_url: str,
+    servers: list[dict[str, Any]],
+    watermark: Any | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    databases = _discover_databases(session, api_url, servers)
+    windows = _query_stats_windows(watermark, datetime.now(UTC))
+    logger.debug(f"pganalyze: fetching query stats for {len(databases)} databases over {len(windows)} windows")
+
+    for window in windows:
+        for database_id, server in databases.items():
+            payload = _post_graphql(
+                session,
+                api_url,
+                QUERY_STATS_QUERY,
+                {
+                    "databaseId": str(database_id),
+                    "startTs": int(window.start.timestamp()),
+                    "endTs": int(window.end.timestamp()),
+                },
+            )
+            for stat in payload.get("getQueryStats") or []:
+                yield {
+                    **stat,
+                    "databaseId": database_id,
+                    "serverHumanId": server.get("humanId"),
+                    "serverName": server.get("name"),
+                    "window_start": window.start.isoformat(),
+                    "window_end": window.end.isoformat(),
+                }
+
+
 def pganalyze_source(
     api_key: str,
     api_url: str | None,
@@ -165,13 +245,20 @@ def pganalyze_source(
                 yield from _iter_issues(session, resolved_api_url, servers, logger)
                 return
 
+            if endpoint_name == "query_stats":
+                servers = _fetch_servers(session, resolved_api_url, organization_slug)
+                yield from _iter_query_stats(
+                    session, resolved_api_url, servers, db_incremental_field_last_value, logger
+                )
+                return
+
             raise ValueError(f"Unhandled pganalyze endpoint: {endpoint_name}")
         finally:
             session.close()
 
     return SourceResponse(
         items=get_rows,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=endpoint_config.primary_keys,
         name=endpoint_name,
         partition_count=endpoint_config.partition_count,
         partition_size=endpoint_config.partition_size,

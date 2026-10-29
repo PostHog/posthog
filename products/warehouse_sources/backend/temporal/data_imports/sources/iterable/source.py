@@ -87,6 +87,13 @@ class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `iterable.py` already retries 429s via the tracked session's RATE_LIMITED_RETRY (honoring
+        # Retry-After, with the export/metrics-specific backoff) and paces export requests between
+        # windows. If that budget still exhausts, Temporal retries the whole activity, so the
+        # failure is self-recovering rather than a bug to page on.
+        return {"429 Client Error"}
+
     def get_schemas(
         self,
         config: IterableSourceConfig,

@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::error::{Error, Result};
-use crate::failover::{is_member_level, MemberFailover};
+use crate::failover::{error_kind, is_member_level, MemberFailover};
 
 #[derive(Debug, Clone)]
 pub struct StoreConfig {
@@ -155,8 +155,17 @@ impl EtcdStore {
 
     fn observe<T>(
         &self,
+        op: &'static str,
         result: std::result::Result<T, etcd_client::Error>,
     ) -> std::result::Result<T, etcd_client::Error> {
+        if let Err(err) = &result {
+            metrics::counter!(
+                "assignment_coordination_etcd_errors_total",
+                "op" => op,
+                "kind" => error_kind(err),
+            )
+            .increment(1);
+        }
         self.observe_member_outcome(result.as_ref().map(|_| ()));
         result
     }
@@ -173,7 +182,7 @@ impl EtcdStore {
 
     pub async fn get_raw(&self, key: &str) -> Result<Option<Vec<u8>>> {
         let _t = OpTimer::new("get_raw");
-        let resp = self.observe(self.client.clone().get(key, None).await)?;
+        let resp = self.observe("get_raw", self.client.clone().get(key, None).await)?;
         record_payload_bytes("get_raw", kvs_bytes(resp.kvs()));
         Ok(resp.kvs().first().map(|kv| kv.value().to_vec()))
     }
@@ -182,7 +191,7 @@ impl EtcdStore {
         let _t = OpTimer::new("put_raw");
         let value = value.into();
         record_payload_bytes("put_raw", key.len() + value.len());
-        self.observe(self.client.clone().put(key, value, None).await)?;
+        self.observe("put_raw", self.client.clone().put(key, value, None).await)?;
         Ok(())
     }
 
@@ -190,7 +199,7 @@ impl EtcdStore {
 
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let _t = OpTimer::new("get");
-        let resp = self.observe(self.client.clone().get(key, None).await)?;
+        let resp = self.observe("get", self.client.clone().get(key, None).await)?;
         record_payload_bytes("get", kvs_bytes(resp.kvs()));
         match resp.kvs().first() {
             Some(kv) => Ok(Some(serde_json::from_slice(kv.value())?)),
@@ -200,7 +209,7 @@ impl EtcdStore {
 
     pub async fn get_versioned<T: DeserializeOwned>(&self, key: &str) -> Result<Option<(T, i64)>> {
         let _t = OpTimer::new("get_versioned");
-        let resp = self.observe(self.client.clone().get(key, None).await)?;
+        let resp = self.observe("get_versioned", self.client.clone().get(key, None).await)?;
         record_payload_bytes("get_versioned", kvs_bytes(resp.kvs()));
         match resp.kvs().first() {
             Some(kv) => {
@@ -222,7 +231,10 @@ impl EtcdStore {
         key: &str,
     ) -> Result<Option<(T, i64)>> {
         let _t = OpTimer::new("get_with_mod_revision");
-        let resp = self.observe(self.client.clone().get(key, None).await)?;
+        let resp = self.observe(
+            "get_with_mod_revision",
+            self.client.clone().get(key, None).await,
+        )?;
         record_payload_bytes("get_with_mod_revision", kvs_bytes(resp.kvs()));
         match resp.kvs().first() {
             Some(kv) => {
@@ -243,7 +255,10 @@ impl EtcdStore {
         key: &str,
     ) -> Result<(Option<T>, i64)> {
         let _t = OpTimer::new("get_with_revision");
-        let resp = self.observe(self.client.clone().get(key, None).await)?;
+        let resp = self.observe(
+            "get_with_revision",
+            self.client.clone().get(key, None).await,
+        )?;
         record_payload_bytes("get_with_revision", kvs_bytes(resp.kvs()));
         let revision = resp.header().map(|h| h.revision()).unwrap_or(0);
         match resp.kvs().first() {
@@ -263,7 +278,10 @@ impl EtcdStore {
     pub async fn list_keys(&self, prefix: &str) -> Result<Vec<String>> {
         let _t = OpTimer::new("list_keys");
         let options = GetOptions::new().with_prefix().with_keys_only();
-        let resp = self.observe(self.client.clone().get(prefix, Some(options)).await)?;
+        let resp = self.observe(
+            "list_keys",
+            self.client.clone().get(prefix, Some(options)).await,
+        )?;
         record_payload_bytes("list_keys", kvs_bytes(resp.kvs()));
         Ok(resp
             .kvs()
@@ -277,7 +295,10 @@ impl EtcdStore {
     pub async fn list_keys_with_mod_revisions(&self, prefix: &str) -> Result<Vec<(String, i64)>> {
         let _t = OpTimer::new("list_keys_with_mod_revisions");
         let options = GetOptions::new().with_prefix().with_keys_only();
-        let resp = self.observe(self.client.clone().get(prefix, Some(options)).await)?;
+        let resp = self.observe(
+            "list_keys_with_mod_revisions",
+            self.client.clone().get(prefix, Some(options)).await,
+        )?;
         record_payload_bytes("list_keys_with_mod_revisions", kvs_bytes(resp.kvs()));
         Ok(resp
             .kvs()
@@ -301,7 +322,10 @@ impl EtcdStore {
     ) -> Result<(Vec<T>, i64)> {
         let _t = OpTimer::new("list_with_revision");
         let options = GetOptions::new().with_prefix();
-        let resp = self.observe(self.client.clone().get(prefix, Some(options)).await)?;
+        let resp = self.observe(
+            "list_with_revision",
+            self.client.clone().get(prefix, Some(options)).await,
+        )?;
         record_payload_bytes("list_with_revision", kvs_bytes(resp.kvs()));
         let revision = resp.header().map(|h| h.revision()).unwrap_or(0);
         let items = resp
@@ -321,7 +345,10 @@ impl EtcdStore {
     ) -> Result<Vec<(T, i64)>> {
         let _t = OpTimer::new("list_with_mod_revisions");
         let options = GetOptions::new().with_prefix();
-        let resp = self.observe(self.client.clone().get(prefix, Some(options)).await)?;
+        let resp = self.observe(
+            "list_with_mod_revisions",
+            self.client.clone().get(prefix, Some(options)).await,
+        )?;
         record_payload_bytes("list_with_mod_revisions", kvs_bytes(resp.kvs()));
         resp.kvs()
             .iter()
@@ -352,27 +379,33 @@ impl EtcdStore {
         let value = serde_json::to_string(value)?;
         record_payload_bytes("put", key.len() + value.len());
         let options = lease_id.map(|id| PutOptions::new().with_lease(id));
-        self.observe(self.client.clone().put(key, value, options).await)?;
+        self.observe("put", self.client.clone().put(key, value, options).await)?;
         Ok(())
     }
 
     pub async fn delete(&self, key: &str) -> Result<()> {
         let _t = OpTimer::new("delete");
-        self.observe(self.client.clone().delete(key, None).await)?;
+        self.observe("delete", self.client.clone().delete(key, None).await)?;
         Ok(())
     }
 
     pub async fn delete_prefix(&self, prefix: &str) -> Result<()> {
         let _t = OpTimer::new("delete_prefix");
         let options = DeleteOptions::new().with_prefix();
-        self.observe(self.client.clone().delete(prefix, Some(options)).await)?;
+        self.observe(
+            "delete_prefix",
+            self.client.clone().delete(prefix, Some(options)).await,
+        )?;
         Ok(())
     }
 
     pub async fn watch(&self, prefix: &str) -> Result<WatchStream> {
         let _t = OpTimer::new("watch");
         let options = WatchOptions::new().with_prefix();
-        let stream = self.observe(self.client.clone().watch(prefix, Some(options)).await)?;
+        let stream = self.observe(
+            "watch",
+            self.client.clone().watch(prefix, Some(options)).await,
+        )?;
         Ok(stream)
     }
 
@@ -388,7 +421,10 @@ impl EtcdStore {
         let options = WatchOptions::new()
             .with_prefix()
             .with_start_revision(start_revision);
-        let stream = self.observe(self.client.clone().watch(prefix, Some(options)).await)?;
+        let stream = self.observe(
+            "watch_from",
+            self.client.clone().watch(prefix, Some(options)).await,
+        )?;
         Ok(stream)
     }
 
@@ -398,7 +434,10 @@ impl EtcdStore {
     pub async fn watch_key_from(&self, key: &str, start_revision: i64) -> Result<WatchStream> {
         let _t = OpTimer::new("watch_key_from");
         let options = WatchOptions::new().with_start_revision(start_revision);
-        let stream = self.observe(self.client.clone().watch(key, Some(options)).await)?;
+        let stream = self.observe(
+            "watch_key_from",
+            self.client.clone().watch(key, Some(options)).await,
+        )?;
         Ok(stream)
     }
 
@@ -413,7 +452,7 @@ impl EtcdStore {
     /// request side directly instead.
     pub async fn txn(&self, txn: Txn) -> Result<TxnResponse> {
         let _t = OpTimer::new("txn");
-        Ok(self.observe(self.client.clone().txn(txn).await)?)
+        Ok(self.observe("txn", self.client.clone().txn(txn).await)?)
     }
 
     /// Atomically create `key` bound to `lease_id`, only if it does not
@@ -429,7 +468,7 @@ impl EtcdStore {
                 value,
                 Some(PutOptions::new().with_lease(lease_id)),
             )]);
-        let resp = self.observe(self.client.clone().txn(txn).await)?;
+        let resp = self.observe("put_if_absent", self.client.clone().txn(txn).await)?;
         Ok(resp.succeeded())
     }
 
@@ -437,7 +476,10 @@ impl EtcdStore {
 
     pub async fn grant_lease(&self, ttl: i64) -> Result<i64> {
         let _t = OpTimer::new("grant_lease");
-        let resp = self.observe(self.client.clone().lease_grant(ttl, None).await)?;
+        let resp = self.observe(
+            "grant_lease",
+            self.client.clone().lease_grant(ttl, None).await,
+        )?;
         Ok(resp.id())
     }
 
@@ -446,14 +488,19 @@ impl EtcdStore {
         lease_id: i64,
     ) -> Result<(etcd_client::LeaseKeeper, etcd_client::LeaseKeepAliveStream)> {
         let _t = OpTimer::new("keep_alive");
-        let (keeper, stream) =
-            self.observe(self.client.clone().lease_keep_alive(lease_id).await)?;
+        let (keeper, stream) = self.observe(
+            "keep_alive",
+            self.client.clone().lease_keep_alive(lease_id).await,
+        )?;
         Ok((keeper, stream))
     }
 
     pub async fn revoke_lease(&self, lease_id: i64) -> Result<()> {
         let _t = OpTimer::new("revoke_lease");
-        self.observe(self.client.clone().lease_revoke(lease_id).await)?;
+        self.observe(
+            "revoke_lease",
+            self.client.clone().lease_revoke(lease_id).await,
+        )?;
         Ok(())
     }
 
