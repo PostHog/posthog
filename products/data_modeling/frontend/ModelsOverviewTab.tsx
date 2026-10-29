@@ -20,7 +20,7 @@ export function ModelsOverviewTab(): JSX.Element {
     if (showFirstView) {
         return (
             <div data-quill>
-                <ModelsOverviewEmptyState checksStatus={checksStatus} />
+                <ModelsOverviewEmptyState variant="first-view" checksStatus={checksStatus} />
             </div>
         )
     }

@@ -28,7 +28,7 @@ import { checkDisplayName, failingForLabel } from 'products/data_quality/fronten
 import { subjectDetailUrl } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import { nodeEndpointModel, nodeEndpointUrl } from './endpointModelName'
-import { healthyMessage } from './healthyMessage'
+import { ModelsOverviewEmptyState } from './ModelsOverviewEmptyState'
 import { modelsOverviewLogic, OverviewIssue } from './modelsOverviewLogic'
 import { downstreamSummary, IssueTone, issueDetail, issueStatus } from './overviewIssueCopy'
 import { useHoldTallestHeight } from './useHoldTallestHeight'
@@ -305,20 +305,11 @@ export function ModelsOverviewIssues(): JSX.Element {
                 />
             )}
             {nothingToReport && (
-                <Text size="xs" variant="muted" render={<p className="m-0" data-attr="models-overview-healthy" />}>
-                    <span>{healthyMessage(checksStatus, checksTruncated)}</span>
-                    {checksStatus === 'none' && (
-                        <Button
-                            variant="link"
-                            size="inline"
-                            className="ml-1"
-                            render={<LinkPrimitive to={urls.models('data-quality')} />}
-                            data-attr="models-overview-checks"
-                        >
-                            Set up checks
-                        </Button>
-                    )}
-                </Text>
+                <ModelsOverviewEmptyState
+                    variant="healthy"
+                    checksStatus={checksStatus}
+                    checksTruncated={checksTruncated}
+                />
             )}
         </>
     )

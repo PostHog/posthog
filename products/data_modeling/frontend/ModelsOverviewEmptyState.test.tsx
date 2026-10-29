@@ -32,7 +32,7 @@ describe('ModelsOverviewEmptyState', () => {
     })
 
     it('invites the first view and sends each action to the surface it names', () => {
-        render(<ModelsOverviewEmptyState checksStatus="all-passed" />)
+        render(<ModelsOverviewEmptyState variant="first-view" checksStatus="all-passed" />)
 
         expect(screen.getByText('Create your first view')).toBeTruthy()
         expect(screen.getByTestId('models-overview-create-view').getAttribute('href')).toContain('source=view')
@@ -44,7 +44,7 @@ describe('ModelsOverviewEmptyState', () => {
         ['all-passed' as const, 'View checks'],
         ['some-not-passed' as const, 'View checks'],
     ])('offers %s checks as %s', (checksStatus: OverviewChecksStatus, label: string) => {
-        render(<ModelsOverviewEmptyState checksStatus={checksStatus} />)
+        render(<ModelsOverviewEmptyState variant="first-view" checksStatus={checksStatus} />)
 
         expect(screen.queryByTestId('models-overview-checks')?.textContent).toEqual(label)
     })
@@ -55,7 +55,7 @@ describe('ModelsOverviewEmptyState', () => {
     ])('renders create view for a %s as disabled=%s', (level: AccessControlLevel, disabled: boolean) => {
         setWarehouseAccess(level)
 
-        render(<ModelsOverviewEmptyState checksStatus="none" />)
+        render(<ModelsOverviewEmptyState variant="first-view" checksStatus="none" />)
 
         expect(screen.getByTestId('models-overview-create-view').getAttribute('aria-disabled') === 'true').toBe(
             disabled
