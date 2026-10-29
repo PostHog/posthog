@@ -21,6 +21,20 @@ use crate::metrics;
 use crate::readiness::ReadinessHandler;
 use crate::signals;
 
+/// What the manager does when the pre-stop file appears.
+/// (see tests `prestop_file_starts_shutdown_by_default`, `prestop_drain_serves_until_max`)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrestopAction {
+    /// Start graceful shutdown, the same as SIGTERM.
+    #[default]
+    Shutdown,
+    /// Fail readiness and keep serving, so K8s removes the pod from the Service
+    /// endpoints while components still answer. Shutdown starts on SIGTERM or any
+    /// other trigger, and at the latest `max` after the drain starts, so a lost
+    /// SIGTERM cannot keep the pod in the drain until SIGKILL.
+    Drain { max: Duration },
+}
+
 /// Builder for [`Manager`]. Start with [`Manager::builder("name")`](Manager::builder),
 /// chain `.with_*()` calls, then call [`.build()`](ManagerBuilder::build).
 #[derive(Debug)]
@@ -29,6 +43,7 @@ pub struct ManagerBuilder {
     global_shutdown_timeout: Duration,
     trap_signals: bool,
     enable_prestop_check: bool,
+    prestop_action: PrestopAction,
     prestop_path: PathBuf,
     health_poll_interval: Duration,
     external_shutdown_token: Option<CancellationToken>,
@@ -52,6 +67,14 @@ impl ManagerBuilder {
     /// Poll for pre-stop shutdown file (K8s pre-stop hook pattern). Default: true.
     pub fn with_prestop_check(mut self, enabled: bool) -> Self {
         self.enable_prestop_check = enabled;
+        self
+    }
+
+    /// What to do when the pre-stop file appears. Default: [`PrestopAction::Shutdown`].
+    /// Use [`PrestopAction::Drain`] for a server whose clients keep connections to
+    /// the pod after K8s removes it from the Service endpoints.
+    pub fn with_prestop_action(mut self, action: PrestopAction) -> Self {
+        self.prestop_action = action;
         self
     }
 
@@ -79,14 +102,21 @@ impl ManagerBuilder {
 
     /// Consume the builder and produce a [`Manager`].
     pub fn build(self) -> Manager {
+        assert!(
+            self.enable_prestop_check || self.prestop_action == PrestopAction::Shutdown,
+            "with_prestop_action has no effect while with_prestop_check is false"
+        );
+        let shutdown_token = self.external_shutdown_token.unwrap_or_default();
         Manager {
             name: self.name,
             global_shutdown_timeout: self.global_shutdown_timeout,
             trap_signals: self.trap_signals,
             enable_prestop_check: self.enable_prestop_check,
+            prestop_action: self.prestop_action,
             prestop_path: self.prestop_path,
             health_poll_interval: self.health_poll_interval,
-            shutdown_token: self.external_shutdown_token.unwrap_or_default(),
+            drain_token: shutdown_token.child_token(),
+            shutdown_token,
             observability_shutdown_token: CancellationToken::new(),
             phase_tokens: HashMap::new(),
             event_tx_slot: Arc::new(OnceLock::new()),
@@ -239,8 +269,12 @@ pub struct Manager {
     global_shutdown_timeout: Duration,
     trap_signals: bool,
     enable_prestop_check: bool,
+    prestop_action: PrestopAction,
     prestop_path: PathBuf,
     health_poll_interval: Duration,
+    /// Child of `shutdown_token`, so readiness, which reads only this token, fails
+    /// both when the app drains and when it shuts down.
+    drain_token: CancellationToken,
     shutdown_token: CancellationToken,
     observability_shutdown_token: CancellationToken,
     /// Tokens for shutdown phases above 0, cancelled in ascending phase
@@ -266,6 +300,7 @@ impl Manager {
             global_shutdown_timeout: Duration::from_secs(60),
             trap_signals: true,
             enable_prestop_check: true,
+            prestop_action: PrestopAction::default(),
             prestop_path: PathBuf::from(DEFAULT_PRESTOP_PATH),
             health_poll_interval: Duration::from_secs(5),
             external_shutdown_token: None,
@@ -403,11 +438,11 @@ impl Manager {
         Handle { inner }
     }
 
-    /// Readiness probe handler (`/_readiness`). Returns 200 while running, 503 after shutdown
-    /// begins. K8s uses this to stop routing traffic to the pod.
+    /// Readiness probe handler (`/_readiness`). Returns 200 while running, 503 once the app
+    /// drains or shuts down. K8s uses this to stop routing traffic to the pod.
     /// (see test `readiness_200_until_shutdown_then_503`)
     pub fn readiness_handler(&self) -> ReadinessHandler {
-        ReadinessHandler::new(self.shutdown_token.clone())
+        ReadinessHandler::new(self.drain_token.clone())
     }
 
     /// Liveness probe handler (`/_liveness`). **Intentionally always returns 200** — the
@@ -504,19 +539,45 @@ impl Manager {
 
         if enable_prestop {
             let token = shutdown_token.clone();
+            let drain_token = self.drain_token.clone();
+            let prestop_action = self.prestop_action;
             let prestop_path = self.prestop_path.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(1));
                 loop {
-                    interval.tick().await;
+                    tokio::select! {
+                        _ = interval.tick() => {}
+                        _ = token.cancelled() => return,
+                    }
                     if prestop_path.exists() {
+                        break;
+                    }
+                }
+                match prestop_action {
+                    PrestopAction::Shutdown => {
                         info!(
                             trigger_reason = "prestop",
                             path = %prestop_path.display(),
                             "Lifecycle: shutdown initiated, prestop file detected"
                         );
                         token.cancel();
-                        break;
+                    }
+                    PrestopAction::Drain { max } => {
+                        info!(
+                            path = %prestop_path.display(),
+                            "Lifecycle: drain started, prestop file detected"
+                        );
+                        drain_token.cancel();
+                        tokio::select! {
+                            _ = tokio::time::sleep(max) => {
+                                info!(
+                                    trigger_reason = "prestop",
+                                    "Lifecycle: shutdown initiated, drain limit reached"
+                                );
+                                token.cancel();
+                            }
+                            _ = token.cancelled() => {}
+                        }
                     }
                 }
             });

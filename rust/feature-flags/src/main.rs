@@ -145,8 +145,14 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
         }
     };
 
+    // Drain on the preStop file until SIGTERM, or for at most 20 s if SIGTERM does not
+    // arrive. The pod's termination grace period must cover the drain limit plus the
+    // global shutdown timeout.
     let mut manager = lifecycle::Manager::builder("feature-flags")
         .with_global_shutdown_timeout(Duration::from_secs(45))
+        .with_prestop_action(lifecycle::PrestopAction::Drain {
+            max: Duration::from_secs(20),
+        })
         .build();
 
     let handles = register_components(&mut manager);
