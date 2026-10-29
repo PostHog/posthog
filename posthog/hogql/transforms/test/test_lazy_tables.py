@@ -20,7 +20,7 @@ from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, PropertyDefinition, Team
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -105,16 +105,43 @@ class TestLazyJoins(BaseTest):
     snapshot: Any
     maxDiff = None
 
-    def test_wrapped_events_join_executes_exported_property_reads(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "values",
+                "related.$session_id, related.properties.label, related.properties.amount, "
+                "related.properties.enabled, toString(related.properties.scheduled_at)",
+                ("00000000-0000-4000-8000-000000000002", "ready", 7.0, True, "2024-01-02 03:04:05.000000"),
+            ),
+            (
+                "aggregates",
+                "sum(related.properties.amount), countIf(related.properties.enabled), "
+                "toString(max(related.properties.scheduled_at))",
+                (7.0, 1, "2024-01-02 03:04:05.000000"),
+            ),
+            ("string_parser", "toFloatOrZero(related.properties.amount)", (7.0,)),
+        ]
+    )
+    def test_wrapped_events_join_executes_exported_property_reads(
+        self, _name: str, select: str, expected: tuple[object, ...]
+    ) -> None:
+        for name, property_type in [("amount", "Numeric"), ("enabled", "Boolean"), ("scheduled_at", "DateTime")]:
+            PropertyDefinition.objects.create(team=self.team, name=name, property_type=property_type)
         _create_event(
             team=self.team,
             event="joined-event",
             distinct_id="joined-user",
             person_id=UUID("00000000-0000-4000-8000-000000000001"),
-            properties={"$session_id": "00000000-0000-4000-8000-000000000002", "label": "ready"},
+            properties={
+                "$session_id": "00000000-0000-4000-8000-000000000002",
+                "label": "ready",
+                "amount": "7",
+                "enabled": "true",
+                "scheduled_at": "2024-01-02T03:04:05Z",
+            },
         )
         result = execute_hogql_query(
-            "SELECT related.$session_id, related.properties.label FROM events AS source "
+            f"SELECT {select} FROM events AS source "
             "JOIN events AS related ON source.person_id = related.person_id "
             "WHERE source.event = 'joined-event' AND related.event = 'joined-event'",
             team=self.team,
@@ -122,7 +149,7 @@ class TestLazyJoins(BaseTest):
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
-        assert [tuple(row) for row in result.results] == [("00000000-0000-4000-8000-000000000002", "ready")]
+        assert [tuple(row) for row in result.results] == [expected]
 
     def _schema_snapshot(self, printed: str):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True

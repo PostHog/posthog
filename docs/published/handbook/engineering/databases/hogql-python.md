@@ -184,6 +184,7 @@ Boolean conversion reads the native path directly because object and array text 
 Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
 When a join wraps an events table in a subquery, outer references read the exported columns instead of applying physical-table property rewrites again.
+Property conversions follow an exported field back to its source, preserving event and person property definitions across the subquery.
 Raw SQL property readers preserve backslashes before forward slashes whether ClickHouse's `output_format_json_escape_forward_slashes` setting is enabled or disabled.
 Native queries disable forward-slash escaping so object and array text retains `/`.
 

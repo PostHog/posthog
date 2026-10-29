@@ -685,16 +685,29 @@ class PropertySwapper(CloningVisitor):
                 return self._field_type_to_property_call(node, prop_type)
 
         type = node.type
-        if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
+        if not isinstance(type, ast.PropertyType):
+            return node
+        field_type = type.field_type
+        # Wrapping a table changes where SQL reads a field, but not the property definitions used to convert it.
+        while (
+            type.joined_subquery is None
+            and isinstance(field_type.table_type, ast.SelectQueryAliasType)
+            and isinstance(field_type.table_type.select_query_type, ast.SelectQueryType)
+        ):
+            source_type = field_type.table_type.select_query_type.columns[field_type.name]
+            while isinstance(source_type, ast.FieldAliasType):
+                source_type = source_type.type
+            if not isinstance(source_type, ast.FieldType):
+                break
+            field_type = source_type
+
+        if field_type.name == "properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
-            if (
-                isinstance(type.field_type.table_type, ast.VirtualTableType)
-                and type.field_type.table_type.field == "poe"
-            ):
+            if isinstance(field_type.table_type, ast.VirtualTableType) and field_type.table_type.field == "poe":
                 if property_name in self.person_properties:
                     return self._convert_string_property_to_type(node, "person", property_name)
-            elif isinstance(type.field_type.table_type, ast.BaseTableType):
-                table_type = type.field_type.table_type
+            elif isinstance(field_type.table_type, ast.BaseTableType):
+                table_type = field_type.table_type
                 resolved_table = table_type.resolve_database_table(self.context)
                 if isinstance(resolved_table, (PersonsTable, RawPersonsTable)):
                     if property_name in self.person_properties:
@@ -722,10 +735,10 @@ class PropertySwapper(CloningVisitor):
                 elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
                     if property_name in self.event_properties:
                         return self._convert_string_property_to_type(node, "event", property_name)
-        if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
+        if field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
-            if isinstance(type.field_type.table_type, ast.BaseTableType):
-                resolved_table = type.field_type.table_type.resolve_database_table(self.context)
+            if isinstance(field_type.table_type, ast.BaseTableType):
+                resolved_table = field_type.table_type.resolve_database_table(self.context)
                 if isinstance(resolved_table, EVENTS_TABLE_TYPES):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
