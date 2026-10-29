@@ -311,14 +311,28 @@ export function buildTimeTickLabels(from: number, to: number, interval: TimeInte
     const step =
         Math.max(1, Math.ceil((to - from) / APPROX_INTERVAL_MS[interval] / (MAX_TIME_TICKS - 1))) *
         (interval === 'quarter' ? 3 : 1)
+    const calendarUnit = unit !== 'second' && unit !== 'minute' && unit !== 'hour'
+    // Calendar units step on the wall clock and re-resolve the timezone offset, so a tick stays at
+    // midnight across a daylight saving change. Clock units step by elapsed time.
+    const add = (tick: Dayjs, count: number): Dayjs =>
+        calendarUnit
+            ? parseDateInTimezone(
+                  dayjs.utc(tick.format('YYYY-MM-DDTHH:mm:ss')).add(count, unit).format('YYYY-MM-DD HH:mm:ss'),
+                  timezone
+              )
+            : dayjs(tick.valueOf() + count * APPROX_INTERVAL_MS[interval]).tz(timezone)
+
     let tick = dayjs(from).tz(timezone).startOf(unit)
+    if (interval === 'quarter') {
+        tick = add(tick, -(tick.month() % 3))
+    }
     if (tick.valueOf() < from) {
-        tick = tick.add(step, unit)
+        tick = add(tick, step)
     }
     const labels: string[] = []
     while (tick.valueOf() <= to) {
         labels.push(tick.toISOString())
-        tick = tick.add(step, unit)
+        tick = add(tick, step)
     }
     return labels
 }

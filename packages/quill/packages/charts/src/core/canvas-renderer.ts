@@ -80,7 +80,9 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
     const rawY0 = yScale(data[last - 1])
     const x1 = xScale(labels[last])
     const rawY1 = yScale(data[last])
-    if (x0 == null || x1 == null || !isFinite(rawY0) || !isFinite(rawY1)) {
+    // The final segment must exist and be connected, or there is nothing to split.
+    const connects = drawCtx.connects ?? connectsNeighbors
+    if (x0 == null || x1 == null || !isFinite(rawY0) || !isFinite(rawY1) || !connects(last - 1, last)) {
         return false
     }
     const y0 = yFloor != null ? Math.min(rawY0, yFloor) : rawY0
@@ -250,8 +252,17 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
         return
     }
     const connects = drawCtx.connects ?? connectsNeighbors
+    const drawable = (i: number): boolean => xScale(labels[i]) != null && isFinite(yScale(data[i]))
+    // A stroke range that starts on a missing value picks up the line from the last drawn point,
+    // when `connects` bridges the gap, so a partial dash boundary in a gap doesn't drop the segment.
+    let from = start
+    if (drawCtx.connects) {
+        while (from > 0 && !drawable(from)) {
+            from--
+        }
+    }
     let last = -1
-    for (let i = start; i <= end; i++) {
+    for (let i = from; i <= end; i++) {
         const x = xScale(labels[i])
         const rawY = yScale(data[i])
         if (x == null || !isFinite(rawY)) {
