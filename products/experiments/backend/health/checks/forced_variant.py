@@ -152,6 +152,7 @@ def _some_conditions_pinned(pins: _Pins, ctx: HealthContext, is_draft: bool) -> 
         pinned_keys=pinned_keys,
         diagnostic_ref="A7",
         grade_evidence={**(grade.evidence() if grade is not None else {}), **set_after_launch.evidence},
+        reason=grade.finding_reason if grade is not None else None,
     )
 
 
@@ -321,10 +322,12 @@ def _finding(
     pinned_keys: Sequence[str],
     diagnostic_ref: str,
     grade_evidence: Mapping[str, str | int | float | None] | None = None,
+    reason: str | None = None,
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.FORCED_VARIANT_RELEASE_CONDITION,
         subcode=subcode,
+        reason=reason,
         severity=severity,
         title=title,
         detail=detail,

@@ -433,6 +433,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             ExperimentExposureHealthFinding(
                 code=ExperimentExposureHealthFindingCode(finding.code.value),
                 subcode=finding.subcode,
+                reason=finding.reason,
                 severity=ExperimentExposureHealthFindingSeverity(finding.severity.value),
                 title=finding.title,
                 detail=finding.detail,

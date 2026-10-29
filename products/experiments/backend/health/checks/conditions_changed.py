@@ -325,6 +325,7 @@ def _finding(
         sentences=sentences,
         kind_evidence={**_kind_evidence(effect), **(grade.evidence() if grade is not None else {})},
         diagnostic_ref=diagnostic_ref,
+        reason=grade.finding_reason if grade is not None else None,
     )
 
 
