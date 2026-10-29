@@ -184,9 +184,9 @@ def claim_migration_item(
     if leftover is None:
         return claimed
     if not leftover.has_tables:
-        error = _empty_leftover_error(leftover)
-        _set_failed(team_id, item.id, error)
-        raise contracts.WarehouseMigrationEmptySourceError(error)
+        message = _empty_leftover_error(leftover)
+        _set_failed(team_id, item.id, message)
+        raise contracts.WarehouseMigrationEmptySourceError(message)
     caveats = [*item.caveats, _LEFTOVER_CAVEAT]
     finish_migration_item(team_id, item.id, source_id=leftover.id, caveats=caveats)
     return dataclasses.replace(claimed, caveats=caveats, recovered_source_id=leftover.id)
