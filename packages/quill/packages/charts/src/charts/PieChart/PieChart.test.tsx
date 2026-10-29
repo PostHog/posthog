@@ -127,6 +127,19 @@ describe('PieChart', () => {
             expect(tooltip.seriesData[0].series.label).toBe('Firefox')
         })
 
+        it('does not repaint the static canvas on hover', async () => {
+            const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} />)
+            let paints = 0
+            const observer = new MutationObserver((records) => (paints += records.length))
+            observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
+            const layout = layoutFor(SERIES)
+            fireEvent.mouseMove(chart.element, pointInSlice(layout, 0))
+            fireEvent.mouseMove(chart.element, pointInSlice(layout, 1))
+            await chart.waitForTooltip()
+            expect(paints + observer.takeRecords().length).toBe(0)
+            observer.disconnect()
+        })
+
         it('shows no tooltip when hovering the donut hole', async () => {
             const { chart } = renderChart(<PieChart series={SERIES} theme={THEME} config={{ innerRadiusRatio: 0.5 }} />)
             const layout = layoutFor(SERIES, 0.5)

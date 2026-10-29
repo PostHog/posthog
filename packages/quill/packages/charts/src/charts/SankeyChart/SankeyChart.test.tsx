@@ -137,6 +137,21 @@ describe('SankeyChart', () => {
         expect(onNodeClick).not.toHaveBeenCalled()
     })
 
+    it('does not repaint the static canvas on hover', async () => {
+        const { chart } = renderChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />)
+        let paints = 0
+        const observer = new MutationObserver((records) => (paints += records.length))
+        observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
+        await waitFor(() => {
+            fireEvent.mouseMove(chart.element, nodeCenter('a'))
+            expect(getChartTooltip()?.textContent).toContain('Tool A')
+        })
+        fireEvent.mouseMove(chart.element, nodeCenter('done'))
+        expect(getChartTooltip()?.textContent).toContain('Completed')
+        expect(paints + observer.takeRecords().length).toBe(0)
+        observer.disconnect()
+    })
+
     it('shows the tooltip on a first tap, fires onNodeClick on the second, and clears on an empty tap', async () => {
         const onNodeClick = jest.fn()
         const onHoverChange = jest.fn()
