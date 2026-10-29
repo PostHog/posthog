@@ -347,7 +347,11 @@ class _ClickHouseSlot:
             yield
         finally:
             if slot is not None:
-                _QUERY_LIMIT.release(slot)
+                try:
+                    _QUERY_LIMIT.release(slot)
+                except Exception:
+                    # Best effort, so a Redis failure never replaces the query's result. The lease frees the slot.
+                    logger.exception("Could not release a ClickHouse slot", holder=self.holder)
 
 
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
