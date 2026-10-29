@@ -373,8 +373,7 @@ def _endpoint_scope_expr() -> ast.Expr:
 
 
 def _endpoint_name_expr() -> ast.Expr:
-    # Some instrumentations name a span after the raw path or the bare method, so the route is the
-    # stable key. A span without a route keeps its own name.
+    # Instrumentations may name a span after the raw path or the bare method, so the route is the stable key.
     return parse_expr(
         "if({route} IS NOT NULL, concat({method}, ' ', {route}), name)",
         placeholders={
