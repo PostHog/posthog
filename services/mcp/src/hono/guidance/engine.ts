@@ -133,14 +133,11 @@ export class GuidanceEngine {
         if (rules.length === 0) {
             return undefined
         }
-        // A handle the SDK minted on this call is not a session the client will keep, so a
-        // client that sends none counts under the caller fallback instead of a fresh key per call.
-        const sessionKey = state.carriedContextHandle === false ? undefined : resolveSessionKey(state.requestContext)
-        const ttl = sessionKey ? SESSION_TTL_SECONDS : CALLER_TTL_SECONDS
-        // The braces are a cluster hash tag, so the script can touch a rule's three keys together.
-        const scope = `mcp:guidance:{${hashKey(`${state.distinctId}|${sessionKey ?? ''}`)}}`
-
         try {
+            const sessionKey = await this.resolveCountingKey(state)
+            const ttl = sessionKey ? SESSION_TTL_SECONDS : CALLER_TTL_SECONDS
+            // The braces are a cluster hash tag, so the script can touch a rule's three keys together.
+            const scope = `mcp:guidance:{${hashKey(`${state.distinctId}|${sessionKey ?? ''}`)}}`
             let winner: GuidanceNotice | undefined
             for (const rule of rules) {
                 const result = await this.touchRule(rule, scope, ttl, call, winner === undefined)
@@ -164,6 +161,23 @@ export class GuidanceEngine {
             console.warn('[Guidance] evaluation failed:', error instanceof Error ? error.message : String(error))
             return undefined
         }
+    }
+
+    // A call that carries no handle counts under the caller, because the SDK mints a handle on
+    // every such call and a client that never echoes one would otherwise never reach a threshold.
+    // The minted handle is aliased to the caller, so a client that does echo it keeps the counters
+    // and suppression the conversation started with instead of restarting under the handle.
+    private async resolveCountingKey(state: ResolvedState): Promise<string | undefined> {
+        const handle = resolveSessionKey(state.requestContext)
+        if (!handle) {
+            return undefined
+        }
+        const aliasKey = `mcp:guidance:alias:{${hashKey(`${state.distinctId}|${handle}`)}}`
+        if (state.carriedContextHandle === false) {
+            await this.redis.set(aliasKey, '1', 'EX', SESSION_TTL_SECONDS)
+            return undefined
+        }
+        return (await this.redis.get(aliasKey)) === '1' ? undefined : handle
     }
 
     private async touchRule(

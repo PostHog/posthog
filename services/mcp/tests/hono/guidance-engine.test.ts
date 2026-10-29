@@ -116,15 +116,31 @@ describe('GuidanceEngine', () => {
         await expect(run(engine, second, [replayQuery, replayQuery])).resolves.toEqual([undefined, 'test-rule:shown'])
     })
 
-    it('counts a minted handle under the caller when the client sent none', async () => {
-        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
-        const minted = (id: string): ResolvedState =>
+    describe('a client that sends no handle', () => {
+        const withHandle = (id: string, carriedContextHandle: boolean): ResolvedState =>
             makeState({
-                carriedContextHandle: false,
+                carriedContextHandle,
                 requestContext: { ...makeState().requestContext, mcpConversationId: id },
             })
-        await run(engine, minted('minted-1'), [replayQuery])
-        await expect(run(engine, minted('minted-2'), [replayQuery])).resolves.toEqual(['test-rule:shown'])
+
+        it('counts minted handles under the caller', async () => {
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
+            await run(engine, withHandle('minted-1', false), [replayQuery])
+            await expect(run(engine, withHandle('minted-2', false), [replayQuery])).resolves.toEqual([
+                'test-rule:shown',
+            ])
+        })
+
+        it.each([
+            ['the match count', replayQuery, ['test-rule:shown', undefined]],
+            ['suppression', visionCall, [undefined, 'test-rule:suppressed']],
+        ])('keeps %s when the client later echoes the minted handle', async (_label, firstCall, expected) => {
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
+            await run(engine, withHandle('minted-1', false), [firstCall])
+            await expect(run(engine, withHandle('minted-1', true), [replayQuery, replayQuery])).resolves.toEqual(
+                expected
+            )
+        })
     })
 
     it('reports a suppressed outcome on a later call when another rule wins the threshold call', async () => {
