@@ -1351,17 +1351,31 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         # The reset contributes its post-reset value.
         self.assertEqual([row["value"] for row in rows], [25.0])
 
-    def test_delta_temporality_sums_samples_directly(self):
-        self._seed_counter(
-            [
-                (self.anchor + dt.timedelta(seconds=0), 3.0),
-                (self.anchor + dt.timedelta(seconds=15), 4.0),
-                (self.anchor + dt.timedelta(seconds=30), 5.0),
-            ],
-            aggregation_temporality="delta",
-        )
-        rows = self._run("increase")
-        self.assertEqual([row["value"] for row in rows], [12.0])
+    @parameterized.expand(
+        [
+            ("delivered_once", [[(0, 3.0), (15, 4.0), (30, 5.0)]], False, 12.0),
+            ("delivered_once_with_dedupe", [[(0, 3.0), (15, 4.0), (30, 5.0)]], True, 12.0),
+            # An at-least-once replay sends the first points again in a new block, so
+            # ClickHouse insert deduplication does not drop them.
+            ("replayed_with_dedupe", [[(0, 3.0), (15, 4.0)], [(0, 3.0), (15, 4.0), (30, 5.0)]], True, 12.0),
+            # Dedupe drops only exact copies, not a different point at the same time.
+            ("same_time_different_value_with_dedupe", [[(0, 3.0)], [(0, 4.0)]], True, 7.0),
+        ]
+    )
+    def test_delta_temporality_sums_samples_directly(
+        self, _name: str, batches: list[list[tuple[int, float]]], dedupe: bool, expected: float
+    ):
+        for batch in batches:
+            self._seed_counter(
+                [(self.anchor + dt.timedelta(seconds=offset), value) for offset, value in batch],
+                aggregation_temporality="delta",
+            )
+        with patch(
+            "products.metrics.backend.metric_query_runner.posthog_feature_flag_enabled", return_value=dedupe
+        ) as flag:
+            rows = self._run("increase")
+        self.assertEqual([row["value"] for row in rows], [expected])
+        self.assertEqual(flag.call_args.args[0], "metrics-query-dedupe-points")
 
     def test_deltas_are_computed_per_underlying_series(self):
         # Diff each pod separately.

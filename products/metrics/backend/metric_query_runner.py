@@ -10,6 +10,7 @@ import math
 import bisect
 import datetime as dt
 from collections.abc import Iterator, Sequence
+from functools import cached_property
 from typing import Any, Literal, NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -22,10 +23,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryTooManyRowsError
 from products.metrics.backend.facade.enums import FilterOp, MetricType
-from products.metrics.backend.metrics4_samples import metric_name_expr, samples_points_query
+from products.metrics.backend.metrics4_samples import dedupe_points_limit_by, metric_name_expr, samples_points_query
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -468,6 +470,10 @@ def time_range_expr(date_from: dt.datetime, date_to: dt.datetime) -> ast.Expr:
     )
 
 
+# Drops points that a replayed Kafka batch wrote twice. Off until its query cost is measured.
+METRICS_QUERY_DEDUPE_POINTS_FLAG = "metrics-query-dedupe-points"
+
+
 def _utc_hour(value: dt.datetime) -> dt.datetime:
     return value.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
 
@@ -483,6 +489,7 @@ def points_query(
     row_filters: Sequence[ast.Expr] = (),
     point_filters: Sequence[ast.Expr] = (),
     samples_row_filters: Sequence[ast.Expr] = (),
+    dedupe_points: bool = False,
 ) -> ast.SelectQuery:
     """Return one row per metric point in `[date_from, date_to)`.
 
@@ -490,6 +497,7 @@ def points_query(
     or after the metrics4 cut-over. Otherwise read the `metrics` view.
     `row_filters` can use only columns that are constant in a series-hour.
     `samples_row_filters` apply only to `metric_samples`, for example array lookups.
+    `dedupe_points` drops exact copies of a point, as written by a replayed Kafka batch.
     """
     if from_samples:
         return samples_points_query(
@@ -500,6 +508,7 @@ def points_query(
             timezone=timezone,
             row_filters=[*row_filters, *samples_row_filters],
             point_filters=point_filters,
+            dedupe_points=dedupe_points,
         )
     query = parse_select(
         "SELECT 1 FROM posthog.metrics WHERE {name_filter} AND {time_range}",
@@ -509,6 +518,9 @@ def points_query(
     query.select = [ast.Field(chain=[column]) for column in columns]
     if row_filters or point_filters:
         query.where = ast.And(exprs=[query.where, *row_filters, *point_filters])
+    if dedupe_points:
+        point_fields = [column for column in columns if column not in ("series_fingerprint", "observed_timestamp")]
+        query.limit_by = dedupe_points_limit_by([*point_fields, "observed_timestamp"])
     return query
 
 
@@ -861,6 +873,17 @@ class MetricQueryRunner:
             timezone=self.team.timezone,
             row_filters=(self._series_scope_expr(), self._type_filter_expr()),
             point_filters=point_filters,
+            dedupe_points=self._dedupe_points,
+        )
+
+    @cached_property
+    def _dedupe_points(self) -> bool:
+        return posthog_feature_flag_enabled(
+            METRICS_QUERY_DEDUPE_POINTS_FLAG,
+            str(self.team.uuid),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            only_evaluate_locally=True,
         )
 
     def _combine_series(self, per_series: ast.SelectQuery) -> ast.SelectQuery:
