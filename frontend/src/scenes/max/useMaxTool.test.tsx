@@ -18,16 +18,18 @@ import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { UseMaxToolReturn, useMaxTool } from './useMaxTool'
 
 function TestMaxTool({
+    identifier = 'read_data',
     context,
     active = true,
     onRender,
 }: {
+    identifier?: 'read_data' | 'create_experiment'
     context: Record<string, unknown>
     active?: boolean
     onRender?: (result: UseMaxToolReturn) => void
 }): null {
     const result = useMaxTool({
-        identifier: 'read_data',
+        identifier,
         context,
         active,
         suggestions: ['Show me signups'],
@@ -115,5 +117,37 @@ describe('useMaxTool', () => {
         ])
         expect(sidePanelStateLogic.values.selectedTab).toEqual(SidePanelTab.Max)
         panelChat.unmount()
+    })
+
+    it('attaches only the last clicked tool context and keeps it current', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+        const unmountContextStore = attachedContextLogic.mount()
+        const openers: Record<string, UseMaxToolReturn['openMax']> = {}
+        const tools = (sqlQuery: string): JSX.Element => (
+            <>
+                <TestMaxTool context={{ query: sqlQuery }} onRender={(result) => (openers.sql = result.openMax)} />
+                <TestMaxTool
+                    identifier="create_experiment"
+                    context={{ experiment: 'checkout' }}
+                    onRender={(result) => (openers.experiment = result.openMax)}
+                />
+            </>
+        )
+        const toolContextValues = (): (string | undefined)[] =>
+            attachedContextLogic.values.contextItems
+                .filter((item) => item.type === 'tool_context')
+                .map((item) => item.value)
+
+        const { rerender, unmount } = render(tools('select 1'))
+        act(() => openers.experiment?.())
+        act(() => openers.sql?.())
+        expect(toolContextValues()).toEqual([JSON.stringify({ query: 'select 1' })])
+
+        rerender(tools('select 2'))
+        expect(toolContextValues()).toEqual([JSON.stringify({ query: 'select 2' })])
+
+        unmount()
+        expect(attachedContextLogic.values.contextItems).toEqual([])
+        unmountContextStore()
     })
 })

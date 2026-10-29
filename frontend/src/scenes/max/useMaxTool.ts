@@ -45,6 +45,8 @@ export interface UseMaxToolReturn {
 }
 
 const MAX_TOOL_CONTEXT_LENGTH = 4096
+const TOOL_PAGE_CONTEXT_PROVIDER_ID = 'max-tool-page'
+let toolPageContextOwner: string | null = null
 
 function toolPageContextItems(
     identifier: string,
@@ -84,7 +86,7 @@ export function useMaxTool({
     const definition = getToolDefinition(identifier)
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
     const activeIdentifierRef = useRef<string | null>(null)
-    const contextProviderIdRef = useRef<string>(`max-tool-${uuid()}`)
+    const hookIdRef = useRef<string>(uuid())
     const contextKey = useMemo(() => JSON.stringify(context), [context])
 
     useEffect(() => {
@@ -128,13 +130,26 @@ export function useMaxTool({
     ])
 
     useEffect(() => {
-        const contextProviderId = contextProviderIdRef.current
+        if (toolPageContextOwner === hookIdRef.current) {
+            registerContext(
+                TOOL_PAGE_CONTEXT_PROVIDER_ID,
+                toolPageContextItems(identifier, context, TOOL_PAGE_CONTEXT_PROVIDER_ID)
+            )
+        }
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- context is tracked via contextKey (serialized)
+    }, [identifier, contextKey, registerContext])
+
+    useEffect(() => {
+        const hookId = hookIdRef.current
         return (): void => {
             if (activeIdentifierRef.current) {
                 deregisterTool(activeIdentifierRef.current)
                 activeIdentifierRef.current = null
             }
-            deregisterContext(contextProviderId)
+            if (toolPageContextOwner === hookId) {
+                toolPageContextOwner = null
+                deregisterContext(TOOL_PAGE_CONTEXT_PROVIDER_ID)
+            }
         }
     }, [deregisterTool, deregisterContext])
 
@@ -161,10 +176,10 @@ export function useMaxTool({
                       startNewConversation()
                   }
                   if (maxGlobalLogic.values.effectivePhaiView === 'new') {
-                      const providerId = contextProviderIdRef.current
-                      const items = toolPageContextItems(identifier, context, providerId)
-                      undismissContext(attachedContextItemKey(items[0]), providerId)
-                      registerContext(providerId, items)
+                      toolPageContextOwner = hookIdRef.current
+                      const items = toolPageContextItems(identifier, context, TOOL_PAGE_CONTEXT_PROVIDER_ID)
+                      undismissContext(attachedContextItemKey(items[0]), TOOL_PAGE_CONTEXT_PROVIDER_ID)
+                      registerContext(TOOL_PAGE_CONTEXT_PROVIDER_ID, items)
                   }
                   // Show the suggestions from this specific tool
                   if (definition && suggestions && suggestions.length > 0) {
