@@ -132,6 +132,13 @@ def _decode_invalid_utf8(value: Any) -> Any:
     return value
 
 
+def _decode_string_columns(row: Any, string_columns: list[int]) -> Any:
+    decoded = list(row)
+    for column in string_columns:
+        decoded[column] = _decode_invalid_utf8(decoded[column])
+    return type(row)(decoded)
+
+
 def _decode_invalid_utf8_strings(rows: list[Any], types: list[tuple[str, str]]) -> list[Any]:
     """Replace the `bytes` values that the ClickHouse driver returns for a String that is not valid UTF-8.
 
@@ -143,7 +150,7 @@ def _decode_invalid_utf8_strings(rows: list[Any], types: list[tuple[str, str]]) 
     return [
         row
         if all(row[column] is None or type(row[column]) is str for column in string_columns)
-        else _decode_invalid_utf8(row)
+        else _decode_string_columns(row, string_columns)
         for row in rows
     ]
 
