@@ -49,6 +49,7 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
@@ -68,6 +69,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -5371,6 +5373,58 @@ class TestExperimentService(APIBaseTest):
         assert cohort.is_static is False
         experiment.refresh_from_db()
         assert experiment.exposure_cohort_id == cohort.id
+
+    @parameterized.expand(
+        [
+            # (name, flag enabled for team, start_date offset from cutoff in days, custom exposure event, expected events)
+            ("before_cutoff", True, -7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            ("after_cutoff", True, 7, None, ["$experiment_exposure"]),
+            ("after_cutoff_flag_disabled", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            (
+                "custom_flag_called_after_cutoff",
+                True,
+                7,
+                "$feature_flag_called",
+                ["$feature_flag_called", "$experiment_exposure"],
+            ),
+        ]
+    )
+    def test_create_exposure_cohort_uses_resolved_exposure_event(
+        self,
+        name: str,
+        flag_enabled: bool,
+        start_offset_days: int,
+        custom_exposure_event: str | None,
+        expected_events: list[str],
+    ) -> None:
+        flag_key = f"cohort-resolved-{name}"
+        flag_filter = {"key": "$feature_flag", "value": [flag_key], "operator": "exact", "type": "event"}
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Resolved {name}",
+            feature_flag_key=flag_key,
+            start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+            parameters=(
+                {
+                    "custom_exposure_filter": {
+                        "events": [{"id": custom_exposure_event, "order": 0, "properties": [flag_filter]}]
+                    }
+                }
+                if custom_exposure_event
+                else None
+            ),
+        )
+
+        with patch_exposure_event_flag(enabled=flag_enabled):
+            cohort = service.create_exposure_cohort(experiment)
+
+        assert cohort.filters is not None
+        criteria = cohort.filters["properties"]["values"][0]["values"]
+        assert [criterion["key"] for criterion in criteria] == expected_events
+        for criterion in criteria:
+            assert criterion["event_type"] == "events"
+            assert criterion["event_filters"] == [flag_filter]
 
     def test_create_exposure_cohort_without_start_date_raises(self):
         self._create_flag(key="cohort-no-start")

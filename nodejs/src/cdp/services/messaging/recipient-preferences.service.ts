@@ -48,7 +48,12 @@ export class RecipientPreferencesService {
         action: HogFlowAction
     ): Promise<boolean> {
         const messageAction = this.asMessageAction(action)
-        if (!this.frequencyCap || !messageAction || messageAction.config.message_category_type === 'transactional') {
+        if (
+            !this.frequencyCap ||
+            !messageAction ||
+            messageAction.config.message_category_type === 'transactional' ||
+            (messageAction.type === 'function_email' && messageAction.config.skip_frequency_cap === true)
+        ) {
             return false
         }
         try {
@@ -110,10 +115,9 @@ export class RecipientPreferencesService {
             return null
         }
 
-        // Suppression is mostly a deliverability signal, not a messaging preference: an address that can't
-        // receive mail can't receive it regardless of category. So we check it even for transactional
-        // messages, and before the transactional opt-out bypass below. Only spam complaints let
-        // transactional messages through.
+        // Suppression is mostly a deliverability signal, not a messaging preference. We check it even for
+        // transactional messages, and before the transactional opt-out bypass below. For those, only a hard
+        // bounce blocks the send, because then the address can't receive mail.
         if (await this.isRecipientSuppressed(invocation, action)) {
             return 'suppressed'
         }

@@ -82,7 +82,8 @@ It stays in `seeding`, holding the cohort's run slot, until an operator cancels 
 ### Claiming and fencing
 
 A worker claims the next chunk with one statement using `FOR UPDATE SKIP LOCKED`.
-It picks the oldest day first across all seeding runs, and admits:
+It picks behavioral chunks before person chunks, then the newest day first across every run.
+It admits:
 
 - pending chunks and failed chunks past their backoff, both under the attempt cap,
 - `scanning` chunks whose lease expired, under the attempt cap,
@@ -154,7 +155,14 @@ At the end of the chunk, each count becomes one **day tile**:
 Tiles are keyed `"{team_id}:{person_id}"`, so each lands on the partition of the worker that owns the person.
 A shared rate limiter paces production, and a cap bounds the tiles in flight.
 
-The chunk then moves to `produced`, which means every tile was handed to the producer, waits for every acknowledgment, and moves to `confirmed`.
+On a condition where every leaf of the run keeps only the newest matching day, as a `performed_event` leaf does, an older tile changes nothing.
+Each run keeps an in-memory index of the newest day it has scanned for each person on such a condition.
+A chunk records its days right after its scan, and skips a tile when the index holds a strictly newer day.
+Losing the index on a restart only sends more tiles.
+`SEEDER_NEWEST_DAY_INDEX_MAX_ENTRIES` caps the entries of all indexes together, and past the cap a new pair sends every day.
+`seeder_tiles_skipped_total` counts the skipped tiles, and `seeder_newest_day_index_entries` shows how full the cap is.
+
+The chunk then moves to `produced`, which means every tile it sends was handed to the producer, waits for every acknowledgment, and moves to `confirmed`.
 
 ### Chunk states and retries
 
@@ -330,7 +338,7 @@ p-1 hashes to partition 26.
    The pinned condition resolves to a 7-day sliding window.
    The seeder plans 7 chunks, for 2026-03-03 through 2026-03-09, one band each, and stamps the planning proof.
 3. **Claim.**
-   Workers claim chunks oldest day first.
+   Workers claim chunks newest day first.
    At 15:00:20 one of them claims the 2026-03-05 chunk.
    `S_chunk` is 15:00:20 and the claim epoch is 1.
 4. **Scan.**
@@ -443,7 +451,8 @@ Set them only to go below the profile.
 ## Things that surprise people
 
 - `B` is the moment the seeder first saw the run, not when the run was created, except for disaster-recovery runs, whose `B` Django pins.
-- Claims take the oldest day first across every run, so a small new cohort's recent days wait behind a large team run's older days.
+- Behavioral claims take the newest day first across every run, so the older days of a long-window run wait behind the newer days of every other run.
+  If none of its chunks moves for `--stalled-for-hours`, `manage_cohort_backfill_runs inventory` lists it as a `seeding-stalled` cancel candidate, even though it is only queued.
 - A chunk in `produced` has enqueued its tiles but may not have all acknowledgments yet.
 - The seeder writes the claim epoch into every tile, but the processor ignores it.
   Fencing is purely a Postgres concern, and duplicates are absorbed by max-merge.

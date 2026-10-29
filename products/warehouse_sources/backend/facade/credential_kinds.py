@@ -2,7 +2,7 @@
 
 The `Integration` kind that holds the typed-in credentials of each warehouse source type, keyed by
 source type value. A kind is stored data, so a change to an existing value needs a data migration.
-See `sources/common/credential_kind.py` for the derivation.
+The file is append-only: a removed source keeps its entry. See `sources/common/credential_kind.py`.
 """
 
 from collections.abc import Mapping
@@ -838,6 +838,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Mycase": "mycase",
     "N8n": "n8n",
     "NagerDate": "nager-date",
+    "Nango": "nango",
     "Nasa": "nasa",
     "NationBuilder": "nation-builder",
     "Navan": "navan",

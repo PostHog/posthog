@@ -23,6 +23,7 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from posthog.integrations import IntegrationNotFound
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -73,6 +74,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
     get_nonsensitive_and_sensitive_field_names,
     get_oauth_integration_kinds,
     has_preserved_credentials,
+    merge_ssh_tunnel,
     restore_declared_field_names,
     strip_sensitive_from_dict,
 )
@@ -8759,11 +8761,20 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
 
+    @parameterized.expand(
+        [
+            ("canonical_auth", "auth", {"type": "password"}),
+            # Migration 0807 wrote the auth under `auth_type`, keyed by `selection`, with blank unused secrets.
+            ("legacy_auth_type", "auth_type", {"selection": "password", "passphrase": "", "private_key": ""}),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_update_source_with_ssh_tunnel_host_change_and_auth_succeeds(self, mock_validate_credentials):
+    def test_update_source_with_ssh_tunnel_host_change_and_auth_succeeds(
+        self, _name: str, stored_auth_key: str, stored_auth: dict, mock_validate_credentials
+    ):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -8784,8 +8795,8 @@ class TestExternalDataSource(APIBaseTest):
                     "enabled": "True",
                     "host": "ssh.example.com",
                     "port": "22",
-                    "auth": {
-                        "type": "password",
+                    stored_auth_key: {
+                        **stored_auth,
                         "username": "sshuser",
                         "password": "old_ssh_password",
                     },
@@ -8817,7 +8828,10 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["ssh_tunnel"]["host"] == "new-ssh.example.com"
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "new_ssh_password"
+        assert "auth_type" not in source.job_inputs["ssh_tunnel"]
         mock_validate_credentials.assert_called_once()
+        probed_tunnel = mock_validate_credentials.call_args.args[0].ssh_tunnel
+        assert (probed_tunnel.host, probed_tunnel.auth.password) == ("new-ssh.example.com", "new_ssh_password")
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
@@ -8857,12 +8871,11 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={
                 "job_inputs": {
-                    # Changing any SSH tunnel field forces re-entry of the database password.
-                    "password": "db_password",
+                    "database": "renamed_db",
                     "ssh_tunnel": {
                         "enabled": True,
                         "host": "ssh.example.com",
-                        "port": 2222,
+                        "port": 22,
                     },
                 },
             },
@@ -11311,7 +11324,7 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
             format="json",
         )
         assert response.status_code == 200, response.content
-        assert mock_validate.call_args.kwargs["publication_name"] == "customer_pub"
+        assert mock_validate.call_args.kwargs["setup"]["cdc_publication_name"] == "customer_pub"
         assert mock_validate.call_args.kwargs["management_mode"] == "self_managed"
 
     @parameterized.expand(
@@ -11745,7 +11758,7 @@ class TestEnableCDC(APIBaseTest):
 
         assert response.status_code == 200, response.content
         # Prereq check forwarded the publication name we received.
-        assert mock_check.call_args.kwargs["publication_name"] == "customer_pub"
+        assert mock_check.call_args.kwargs["setup"]["cdc_publication_name"] == "customer_pub"
 
         source.refresh_from_db()
         ji = source.job_inputs or {}
@@ -12381,7 +12394,7 @@ class TestRepairCDC(APIBaseTest):
         assert "CDC is not enabled" in response.json()["message"]
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream"
     )
     def test_repair_cdc_rejects_when_no_active_cdc_schemas(self, mock_recreate) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
@@ -12402,7 +12415,7 @@ class TestRepairCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     def test_repair_cdc_resets_schemas_and_resumes_schedules(
@@ -12494,7 +12507,7 @@ class TestRepairCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         side_effect=psycopg.OperationalError("connection refused"),
     )
     def test_repair_cdc_failure_keeps_broken_state(
@@ -12525,7 +12538,7 @@ class TestRepairCDC(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         side_effect=psycopg.errors.InsufficientPrivilege("must be owner of table orders"),
     )
     def test_repair_cdc_table_ownership_failure_is_not_captured(self, _mock_recreate, mock_capture) -> None:
@@ -12548,7 +12561,7 @@ class TestRepairCDC(APIBaseTest):
         mock_capture.assert_not_called()
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream"
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
@@ -12577,7 +12590,7 @@ class TestRepairCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     @patch(
@@ -12611,7 +12624,7 @@ class TestRepairCDC(APIBaseTest):
         side_effect=[RuntimeError("temporal down"), None],
     )
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     @patch(
@@ -12651,7 +12664,7 @@ class TestRepairCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     def test_repair_cdc_cancels_running_cdc_jobs(
@@ -12940,7 +12953,13 @@ class TestCDCStatus(APIBaseTest):
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
-        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+        return_value={
+            "slot_name": "posthog_slot",
+            "publication_name": "posthog_pub",
+            "slot_exists": True,
+            "publication_exists": True,
+            "lag_bytes": 2048,
+        },
     )
     def test_returns_live_status_when_enabled(self, mock_get_status, _mock_paused) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
@@ -14682,13 +14701,13 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         assert "reconnect the integration" in str(response.json()).lower()
 
     def test_gsc_missing_integration_returns_400(self):
-        # google_search_console_session raises Integration.DoesNotExist for a missing/foreign id — it
+        # google_search_console_session raises IntegrationNotFound for a missing/foreign id — it
         # must surface as an actionable 400, not a 500. (Mocked rather than hitting the real session,
         # whose lazy credential load calls close_old_connections and would drop the test connection.)
         integration = self._gsc_integration()
         with patch(
             f"{self._GSC_MODULE}.google_search_console_session",
-            side_effect=Integration.DoesNotExist(),
+            side_effect=IntegrationNotFound(),
         ):
             response = self.client.get(self._url("GoogleSearchConsole", integration.id))
 
@@ -15086,6 +15105,55 @@ class TestHasPreservedCredentials(SimpleTestCase):
         )
 
         assert preserved is True
+
+
+class TestMergeSshTunnel(SimpleTestCase):
+    STORED_LEGACY = {
+        "enabled": "True",
+        "host": "ssh.example.com",
+        "port": "22",
+        "auth_type": {"selection": "password", "username": "sshuser", "password": "stored_ssh_password"},
+    }
+
+    def test_retarget_with_new_auth_drops_the_legacy_auth(self) -> None:
+        merged = merge_ssh_tunnel(
+            self.STORED_LEGACY,
+            {"host": "new-ssh.example.com", "auth": {"selection": "password", "username": "u", "password": "new"}},
+        )
+
+        assert merged == {
+            "enabled": "True",
+            "host": "new-ssh.example.com",
+            "port": "22",
+            "auth": {"selection": "password", "username": "u", "password": "new"},
+        }
+
+    def test_same_endpoint_keeps_the_stored_secret_under_auth(self) -> None:
+        merged = merge_ssh_tunnel(
+            self.STORED_LEGACY, {"host": "ssh.example.com", "port": 22, "auth": {"selection": "password"}}
+        )
+
+        assert merged["auth"] == {"selection": "password", "password": "stored_ssh_password"}
+        assert "auth_type" not in merged
+
+    @parameterized.expand(
+        [
+            ("host_without_auth", {"host": "new-ssh.example.com"}),
+            ("host_with_auth_but_no_secret", {"host": "new-ssh.example.com", "auth": {"username": "sshuser"}}),
+            ("port_without_secret", {"port": 2222, "auth": {"selection": "password", "username": "sshuser"}}),
+            (
+                "conflicting_auth_and_auth_type",
+                {
+                    "auth": {"selection": "password", "password": "new"},
+                    "auth_type": {"selection": "password", "password": "other"},
+                },
+            ),
+            ("auth_not_an_object", {"auth": "password"}),
+        ]
+    )
+    def test_rejects_update(self, _name: str, incoming: dict) -> None:
+        with self.assertRaises(ValidationError):
+            merge_ssh_tunnel(self.STORED_LEGACY, incoming)
 
 
 class TestGithubMultiRepoPatch(APIBaseTest):

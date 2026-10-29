@@ -830,6 +830,7 @@ MySQL,host port database user password using_ssl verify_server_certificate ca_ce
 Mycase,,,,,,mycase
 N8n,host api_key,,,,,n8n
 NagerDate,,,,country_codes,,nager-date
+Nango,,,,,,nango
 Nasa,,,,,,nasa
 NationBuilder,,,,,,nation-builder
 Navan,,,,,,navan
@@ -1277,7 +1278,7 @@ Tremendous,environment api_key,,,,,tremendous
 TriggerDev,api_key base_url,,,,,trigger-dev
 Trino,host port catalog auth_type use_ssl verify_ssl,,,schema,,trino
 TripleWhale,api_key shop,,,start_date,,triple-whale
-TrunkIo,api_token org_url_slug repo_host,,,repo_owner repo_name merge_queue_target_branch,,trunk-io
+TrunkIo,api_token org_url_slug repo_host,,,repo_owner repo_name merge_queue_target_branch trunk_repository_id,,trunk-io
 TrustPilot,api_key api_secret business_unit,,,,,trust-pilot
 Trustradius,api_key,,,,,trustradius
 Turso,organization_slug api_token,,,,,turso

@@ -2,8 +2,12 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import type {
     TraceApi,
+    TraceClusterApi,
     TraceEvaluationResultApi,
     TraceEvaluationResultsApi,
+    TraceFeedbackApi,
+    TraceFeedbackScoreApi,
+    TraceFeedbackTextApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceNodeIOKeysApi,
@@ -141,6 +145,48 @@ export function makeEvaluationResult(overrides: Partial<TraceEvaluationResultApi
         isBackfill: false,
         ...overrides,
     }
+}
+
+export function makeTraceCluster(overrides: Partial<TraceClusterApi> = {}): TraceClusterApi {
+    return {
+        runId: '1_trace_20260902_030000',
+        runAt: '2026-09-02T03:40:00Z',
+        jobId: '0192f2a4-5c1e-7000-8000-0000000c1a01',
+        jobName: 'Support conversations',
+        clusterId: 3,
+        title: 'Billing questions',
+        description: 'Users ask why an invoice changed.',
+        isOutlier: false,
+        ...overrides,
+    }
+}
+
+export function makeFeedbackScore(overrides: Partial<TraceFeedbackScoreApi> = {}): TraceFeedbackScoreApi {
+    return {
+        id: 'score-1',
+        name: 'helpfulness',
+        value: '0',
+        nodeId: 'gen-1',
+        timestamp: '2026-09-01T10:16:00Z',
+        ...overrides,
+    }
+}
+
+export function makeFeedbackText(overrides: Partial<TraceFeedbackTextApi> = {}): TraceFeedbackTextApi {
+    return {
+        kind: 'text',
+        id: 'text-1',
+        text: 'Too long, but correct.',
+        nodeId: 'trace-1',
+        timestamp: '2026-09-01T10:17:00Z',
+        ...overrides,
+    }
+}
+
+export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFeedbackApi {
+    const scores = overrides.scores ?? [makeFeedbackScore()]
+    const responses = overrides.responses ?? [makeFeedbackText()]
+    return { scores, responses, summary: { total: scores.length + responses.length }, ...overrides }
 }
 
 export function makeEvaluationResults(overrides: Partial<TraceEvaluationResultsApi> = {}): TraceEvaluationResultsApi {

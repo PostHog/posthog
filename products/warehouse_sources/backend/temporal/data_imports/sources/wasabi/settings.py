@@ -17,15 +17,29 @@ UTILIZATION_WINDOW_DAYS = 30
 # (the merge on primary keys dedupes the overlap).
 UTILIZATION_LOOKBACK_SECONDS = 3 * 24 * 60 * 60
 
+# AiR jobs are listed only once finished, and Wasabi doesn't say whether from/to filter on the
+# start or the finish time, so re-read a trailing window to pick up jobs that ran across days.
+AIR_JOBS_LOOKBACK_SECONDS = 3 * 24 * 60 * 60
+
+# Wasabi documents no maximum page size for AiR jobs.
+AIR_JOBS_PAGE_SIZE = 100
+
 START_TIME_INCREMENTAL: IncrementalField = incremental_field("StartTime", IncrementalFieldType.DateTime)
+FINISHED_AT_INCREMENTAL: IncrementalField = incremental_field("FinishedAt", IncrementalFieldType.DateTime)
 
 ACCOUNTS = "accounts"
 UTILIZATIONS = "utilizations"
 BUCKET_UTILIZATIONS = "bucket_utilizations"
 SUB_ACCOUNT_INVOICES = "sub_account_invoices"
+SUB_ACCOUNT_INVOICE_ITEMS = "sub_account_invoice_items"
+SUB_ACCOUNT_INVOICE_REGIONAL_ITEMS = "sub_account_invoice_regional_items"
+AIR_JOBS = "air_jobs"
+
+# Sub-invoice line items carry only SubInvoiceNum, so the account and billing period come from the parent sub-invoice.
+SUB_INVOICE_PARENT_FIELDS = ["AcctNum", "InvoiceNum", "CreateTime", "PeriodStart", "PeriodEnd"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class WasabiEndpointConfig:
     name: str
     path: str
@@ -34,8 +48,13 @@ class WasabiEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Endpoints that accept from/to date filters are walked in ascending date windows.
     date_windowed: bool = False
-    # Fan-out endpoints iterate this parent endpoint and resolve {acct_num} per parent row.
+    # Fan-out endpoints iterate this parent endpoint and resolve each path param per parent row.
     parent: str | None = None
+    resolve_fields: dict[str, str] = field(default_factory=lambda: {"acct_num": "AcctNum"})
+    include_from_parent: list[str] = field(default_factory=list)
+    data_selector: str = "$"
+    # Endpoints paged by a 0-based pageNumber query param.
+    page_size: int | None = None
 
 
 WASABI_ENDPOINTS: dict[str, WasabiEndpointConfig] = {
@@ -71,6 +90,37 @@ WASABI_ENDPOINTS: dict[str, WasabiEndpointConfig] = {
         primary_keys=["AcctNum", "SubInvoiceNum"],
         partition_key="CreateTime",
         parent=ACCOUNTS,
+    ),
+    SUB_ACCOUNT_INVOICE_ITEMS: WasabiEndpointConfig(
+        name=SUB_ACCOUNT_INVOICE_ITEMS,
+        path="/v1/accounts/{acct_num}/invoices/{sub_invoice_num}",
+        primary_keys=["AcctNum", "SubInvoiceNum", "SubInvoiceItemNum"],
+        partition_key="CreateTime",
+        parent=SUB_ACCOUNT_INVOICES,
+        resolve_fields={"acct_num": "AcctNum", "sub_invoice_num": "SubInvoiceNum"},
+        include_from_parent=SUB_INVOICE_PARENT_FIELDS,
+        data_selector="SubInvoiceItems",
+    ),
+    SUB_ACCOUNT_INVOICE_REGIONAL_ITEMS: WasabiEndpointConfig(
+        name=SUB_ACCOUNT_INVOICE_REGIONAL_ITEMS,
+        path="/v1/accounts/{acct_num}/invoices/{sub_invoice_num}/regional",
+        primary_keys=["AcctNum", "SubInvoiceNum", "SubInvoiceItemNum"],
+        partition_key="CreateTime",
+        parent=SUB_ACCOUNT_INVOICES,
+        resolve_fields={"acct_num": "AcctNum", "sub_invoice_num": "SubInvoiceNum"},
+        include_from_parent=SUB_INVOICE_PARENT_FIELDS,
+        data_selector="SubInvoiceItems",
+    ),
+    AIR_JOBS: WasabiEndpointConfig(
+        name=AIR_JOBS,
+        path="/v1/accounts/{acct_num}/air-jobs",
+        primary_keys=["AcctNum", "JobId"],
+        partition_key="CreatedAt",
+        incremental_fields=[FINISHED_AT_INCREMENTAL],
+        parent=ACCOUNTS,
+        # Wasabi documents the body as an array of {Pagination, Records} pages; also accept a bare object.
+        data_selector="$..Records[*]",
+        page_size=AIR_JOBS_PAGE_SIZE,
     ),
 }
 
