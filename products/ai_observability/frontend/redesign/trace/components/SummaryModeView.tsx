@@ -78,14 +78,16 @@ export function SummaryModeView({
                         {state.message}
                     </LemonBanner>
                     {requestErrorBanner}
-                    <SummarizeButton
-                        label="Retry"
-                        type="secondary"
-                        onClick={onRequest}
-                        loading={requesting}
-                        consentGiven={consentGiven}
-                        dataAttr="trace-view-summary-retry"
-                    />
+                    {state.retryable && (
+                        <SummarizeButton
+                            label="Retry"
+                            type="secondary"
+                            onClick={onRequest}
+                            loading={requesting}
+                            consentGiven={consentGiven}
+                            dataAttr="trace-view-summary-retry"
+                        />
+                    )}
                 </div>
             )
         case 'ready':

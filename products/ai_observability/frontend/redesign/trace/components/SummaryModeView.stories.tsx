@@ -37,7 +37,13 @@ export const RegenerateThrottled: Story = {
     args: { state: { status: 'ready', summary: FIXTURE_SUMMARY }, requestError: 'throttled' },
 }
 export const Failed: Story = {
-    args: { state: { status: 'failed', message: 'The model provider returned an error. Try again in a few minutes.' } },
+    args: {
+        state: {
+            status: 'failed',
+            message: 'The model provider returned an error. Try again in a few minutes.',
+            retryable: true,
+        },
+    },
 }
 export const LoadError: Story = { args: { state: { status: 'error' } } }
 export const Loading: Story = {

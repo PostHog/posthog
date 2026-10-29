@@ -27,6 +27,11 @@ const FAILED: TraceSummaryApi = {
     content: null,
     failure: { reason: 'too_large', message: 'This trace is too large to summarize.' },
 }
+const PROVIDER_FAILED: TraceSummaryApi = {
+    status: 'failed',
+    content: null,
+    failure: { reason: 'provider_error', message: 'The model provider returned an error.' },
+}
 
 type Answer = [number, TraceSummaryApi | { detail: string }]
 
@@ -210,9 +215,14 @@ describe('traceSummaryLogic', () => {
     it.each<[string, Answer, SummaryModeState]>([
         ['a failed read shows the error state', [500, { detail: 'boom' }], { status: 'error' }],
         [
-            'a failed job shows its message',
+            'a job that failed for good shows its message without a retry',
             [200, FAILED],
-            { status: 'failed', message: 'This trace is too large to summarize.' },
+            { status: 'failed', message: 'This trace is too large to summarize.', retryable: false },
+        ],
+        [
+            'a job that failed for now offers a retry',
+            [200, PROVIDER_FAILED],
+            { status: 'failed', message: 'The model provider returned an error.', retryable: true },
         ],
     ])('%s', async (_name, answer, expected) => {
         silenceKeaLoadersErrors()

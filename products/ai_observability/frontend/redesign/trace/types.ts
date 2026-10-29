@@ -129,11 +129,12 @@ export type SummaryItemKind = 'bullet' | 'note'
 /** Why a summary request failed. `throttled` means the user reached their summary limit. */
 export type SummaryRequestError = 'throttled' | 'failed'
 
-/** `none` means no summary this user may see exists yet, and `error` that reading it failed. */
+/** `none` means no summary this user may see exists yet, and `error` that reading it failed. A `failed` summary that
+ * is not `retryable` fails the same way on every new request. */
 export type SummaryModeState =
     | { status: 'loading' }
     | { status: 'none' }
     | { status: 'pending' }
     | { status: 'ready'; summary: TraceSummaryContentApi }
-    | { status: 'failed'; message: string }
+    | { status: 'failed'; message: string; retryable: boolean }
     | { status: 'error' }
