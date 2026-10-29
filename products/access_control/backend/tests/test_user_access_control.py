@@ -2233,7 +2233,9 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
             id=str(table.id),
             team_id=self.team.id,
             created_by_id=None,
-            fallback_parent=FallbackParent(id=str(self.source.id) if sourced else None),
+            fallback_parent=FallbackParent(
+                resource="external_data_source", id=str(self.source.id) if sourced else None
+            ),
         )
 
         assert self.user_access_control.access_level_for_ref(ref) == expected
@@ -2554,7 +2556,18 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
     @parameterized.expand(
         [
             ("fallback_resource_without_parent", "warehouse_table", None, "external_data_source"),
-            ("parent_on_resource_without_fallback", "dashboard", FallbackParent(id="1"), "no fallback parent"),
+            (
+                "parent_on_resource_without_fallback",
+                "dashboard",
+                FallbackParent(resource="dashboard", id="1"),
+                "no fallback parent",
+            ),
+            (
+                "parent_of_another_type",
+                "warehouse_table",
+                FallbackParent(resource="warehouse_objects", id="1"),
+                "falls back to `external_data_source`",
+            ),
         ]
     )
     def test_ref_with_wrong_fallback_parent_raises(self, _name, resource, fallback_parent, match):

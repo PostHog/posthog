@@ -1830,6 +1830,9 @@ class UserAccessControl:
             )
         if not parent and ref.fallback_parent is not None:
             raise ValueError(f"`{ref.resource}` has no fallback parent, so `fallback_parent` must stay unset.")
+        # A stated type keeps a changed map from reading the parent id as another type's id.
+        if parent and ref.fallback_parent is not None and ref.fallback_parent.resource != parent:
+            raise ValueError(f"`{ref.resource}` falls back to `{parent}`, not `{ref.fallback_parent.resource}`.")
         # The rule lookups are scoped to self._team, so a reference checked without a team, or against
         # another team, would resolve against the wrong rules.
         if self._team is None:

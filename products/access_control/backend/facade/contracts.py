@@ -69,8 +69,9 @@ class PropertyAccessControlState:
 
 @frozen
 class FallbackParent:
-    """The parent object that a reference falls back to. `id=None` means the object has no parent."""
+    """The parent a reference falls back to. `resource` must match `RESOURCE_FALLBACK_MAP`; `id=None` means no parent."""
 
+    resource: APIScopeObject
     id: str | None
 
 
