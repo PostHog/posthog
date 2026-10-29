@@ -25,6 +25,7 @@ from .acp_log import parse_log
 SKILL_TOOL_NAME = "Skill"
 EXEC_TOOL_NAME = "exec"
 EXECUTE_SQL_TOOL_NAME = "execute-sql"
+MCP_TOOL_PREFIX = "mcp__"
 
 
 def describe_tool_use(name: str | None, tool_input: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -81,6 +82,24 @@ class ToolCall(BaseModel):
     Python/Bash post-processing); ``"optimized"`` or ``None`` is the default
     token-efficient view. ``None`` for non-``exec`` calls and for unwrapped
     discovery commands. See ``services/mcp/src/tools/exec.ts`` for the schema."""
+
+    sequence: int | None = None
+    """Zero-based order of the call across the run. Unlike ``position``, parallel calls in one
+    assistant message get distinct values. ``None`` when the log has no ``tool_call`` line for it."""
+
+    started_at: str = ""
+    """ISO timestamp of the ``tool_call`` line."""
+
+    ended_at: str = ""
+    """ISO timestamp of the terminal ``tool_call_update`` line. Empty when the call never finished."""
+
+    @property
+    def server(self) -> str | None:
+        """MCP server name from an ``mcp__<server>__<tool>`` raw name, ``None`` for built-in tools."""
+        if not self.raw_name.startswith(MCP_TOOL_PREFIX):
+            return None
+        server, separator, _ = self.raw_name[len(MCP_TOOL_PREFIX) :].partition("__")
+        return server if separator else None
 
 
 def is_schema_discovery_call(call: ToolCall) -> bool:
@@ -266,6 +285,7 @@ class LogParser:
                         raw_name=raw_name,
                         is_exec_unwrapped=True,
                         requested_output_format=requested_output_format,
+                        **self._timing_fields(call_id),
                     )
         output, is_error = self._lookup_result(call_id)
         return ToolCall(
@@ -277,7 +297,14 @@ class LogParser:
             position=position,
             raw_name=raw_name,
             is_exec_unwrapped=False,
+            **self._timing_fields(call_id),
         )
+
+    def _timing_fields(self, call_id: str) -> dict[str, Any]:
+        timing = self._parsed.tool_timings.get(call_id) if call_id else None
+        if timing is None:
+            return {}
+        return {"sequence": timing.sequence, "started_at": timing.started_at, "ended_at": timing.ended_at}
 
     def _lookup_result(self, call_id: str) -> tuple[str, bool]:
         if not call_id:
