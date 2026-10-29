@@ -33,8 +33,8 @@ _API: Final = "https://api.github.com/graphql"
 _MAX_ATTEMPTS: Final = 5
 
 PUBLIC_WARNING: Final = (
-    "⚠  PUBLIC + PERMANENT upload to PostHog/pr-assets.\n"
-    "   SHA-pinned URLs keep serving even after the file is deleted, so an upload cannot be taken back.\n"
+    "⚠  PUBLIC + PERMANENT upload, to a public PR description or to PostHog/pr-assets.\n"
+    "   Anyone can fetch the URL without logging in, and an upload cannot be taken back.\n"
     "   Never upload customer data, secrets, tokens, or internal-only information."
 )
 

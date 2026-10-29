@@ -68,7 +68,7 @@ This is the recommended option for most developers.
 Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
 Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
 
-PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
+PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) attach to the PR description through `gh pr edit --attach` when the branch has an open PR and your gh supports `--attach`. Otherwise they upload to the public PostHog/pr-assets repo, and prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
 #### macOS
 
