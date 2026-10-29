@@ -181,6 +181,8 @@ _UNVERSIONED_STATIC_MIDDLEWARE = (
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    # Outside every middleware that can swap the response, so the deferred work rides on the one sent.
+    "posthog.after_response.AfterResponseMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -323,7 +325,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
-    "ee.api.authentication.social_auth_allowed",
+    "posthog.api.sso.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
     # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
     "posthog.api.authentication.social_identity_matches_session",

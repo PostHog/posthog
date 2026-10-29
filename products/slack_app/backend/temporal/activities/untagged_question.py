@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured
 from posthog.llm.system_one_client import build_system_one_client
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
 
@@ -21,6 +21,10 @@ from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared
 from products.slack_app.backend.services.slack_settings import resolve_untagged_question_mode
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    require_workspace_integration,
+)
 from products.slack_app.backend.temporal.activities.classifiers import CLASSIFIER_PROPERTY, _thread_trace_id
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
@@ -140,12 +144,8 @@ def classify_untagged_question(
     return UntaggedQuestionVerdict(asks_for_information=asks.probability, answerable_by_posthog=answerable.probability)
 
 
-def _load_integration(inputs: PostHogCodeSlackMentionWorkflowInputs) -> Integration:
-    return Integration.objects.select_related("team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+def _load_integration(inputs: PostHogCodeSlackMentionWorkflowInputs) -> WorkspaceIntegration:
+    return require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
 
 
 @activity.defn

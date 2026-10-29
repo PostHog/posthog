@@ -141,6 +141,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsAPIError
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 
+_PH_HISTORY_NAMING_FLAG = (
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
+)
+
 
 def _configure_source_mock_versioning(mock_get_source) -> None:
     """Tests that patch `SourceRegistry.get_source` with a bare MagicMock must give the versioning
@@ -3563,6 +3567,7 @@ class TestExternalDataSource(APIBaseTest):
                     "row_filter_columns": None,
                     "available_columns": [],
                     "source_column_metadata_available": False,
+                    "history_table_name": None,
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
@@ -5163,6 +5168,7 @@ class TestExternalDataSource(APIBaseTest):
         assert enabled.sync_type == ExternalDataSchema.SyncType.CDC
         assert enabled.sync_type_config["cdc_mode"] == "snapshot"
         assert enabled.sync_type_config["cdc_table_mode"] == (events_table_mode or "consolidated")
+        assert enabled.sync_type_config.get("history_naming") == ("legacy" if expected_history_modes else None)
         history_events = [
             c.kwargs["properties"]
             for c in mock_capture.call_args_list
@@ -5186,7 +5192,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated", None),
+            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated", None, None),
             (
                 "reserved_column",
                 [("id", "uuid", False), ("_ph_cdc_seq", "bigint", True)],
@@ -5194,22 +5200,43 @@ class TestExternalDataSource(APIBaseTest):
                 "_ph_cdc_seq",
                 "consolidated",
                 None,
+                None,
+            ),
+            (
+                "capture_column_the_load_renames",
+                [("id", "uuid", False), ("_PH_DELETED", "boolean", True)],
+                {"tracking_link": ["id"]},
+                "tracking_link (_ph_deleted)",
+                "consolidated",
+                None,
+                None,
             ),
             (
                 "validity_column_with_a_history_table",
-                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                [("id", "uuid", False), ("_ph_valid_to", "timestamp", True)],
                 {"tracking_link": ["id"]},
-                "valid_to",
+                "_ph_valid_to",
                 "cdc_only",
+                None,
                 None,
             ),
             (
                 "validity_column_in_enabled_columns_that_hold_a_non_string",
-                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                [("id", "uuid", False), ("_ph_valid_to", "timestamp", True)],
                 {"tracking_link": ["id"]},
-                "valid_to",
+                "_ph_valid_to",
                 "cdc_only",
-                ["id", "valid_to", {}],
+                ["id", "_ph_valid_to", {}],
+                None,
+            ),
+            (
+                "history_table_named_like_another_synced_table",
+                [("id", "uuid", False)],
+                {"tracking_link": ["id"]},
+                "same name",
+                "both",
+                None,
+                "tracking_link_history",
             ),
         ]
     )
@@ -5226,6 +5253,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    @patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_create_postgres_cdc_rejects_a_table_it_cannot_capture(
         self,
         _name,
@@ -5234,6 +5262,7 @@ class TestExternalDataSource(APIBaseTest):
         expected_in_message,
         cdc_table_mode,
         enabled_columns,
+        sibling_table,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
@@ -5270,7 +5299,23 @@ class TestExternalDataSource(APIBaseTest):
                 foreign_keys=[],
                 source_schema="public",
                 source_table_name="tracking_link",
-            )
+            ),
+            *(
+                [
+                    SourceSchema(
+                        name=sibling_table,
+                        supports_incremental=False,
+                        supports_append=False,
+                        supports_cdc=False,
+                        columns=[("id", "uuid", False)],
+                        foreign_keys=[],
+                        source_schema="public",
+                        source_table_name=sibling_table,
+                    )
+                ]
+                if sibling_table
+                else []
+            ),
         ]
 
         mock_cdc_pg_connection.return_value.__enter__.return_value = object()
@@ -5298,6 +5343,11 @@ class TestExternalDataSource(APIBaseTest):
                             "cdc_table_mode": cdc_table_mode,
                             **({"enabled_columns": enabled_columns} if enabled_columns is not None else {}),
                         },
+                        *(
+                            [{"name": sibling_table, "should_sync": True, "sync_type": "full_refresh"}]
+                            if sibling_table
+                            else []
+                        ),
                     ],
                 },
             },
@@ -12239,23 +12289,38 @@ class TestDisableCDC(APIBaseTest):
         purged = {call.args[1] for call in mock_purge.call_args_list}
         assert purged == {str(cdc_schema.id)}  # CDC schemas only
 
+    @parameterized.expand(
+        [
+            # Registered before the history marker existed, so only its name says what it is.
+            ("legacy_table_without_the_marker", "orders_cdc", {}),
+            ("new_table", "orders_history", {"history_table": True, "history_naming": "ph_validity"}),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
-    def test_disable_cdc_soft_deletes_companion_cdc_tables(self, _cleanup) -> None:
+    def test_disable_cdc_soft_deletes_companion_cdc_tables(
+        self, _name: str, storage_name: str, options: dict, _cleanup
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk, name="orders", source=source, sync_type=ExternalDataSchema.SyncType.CDC
+        )
 
         cdc_companion = DataWarehouseTable.objects.create(
             team_id=self.team.pk,
-            name="pg_orders_cdc",
+            name=build_table_name(source, storage_name),
             external_data_source_id=source.pk,
             format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-            url_pattern="s3://bucket/orders_cdc",
+            url_pattern=f"s3://bucket/{storage_name}",
+            options=options,
         )
         main_table = DataWarehouseTable.objects.create(
             team_id=self.team.pk,
-            name="pg_orders",
+            name=build_table_name(source, "orders"),
             external_data_source_id=source.pk,
             format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             url_pattern="s3://bucket/orders",

@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { myClaim } from './__mocks__/inboxMocks'
 import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
@@ -404,6 +405,17 @@ describe('inboxSceneLogic routing', () => {
     // A rank read at open time is null on a cold load, and joins to no impression row. The event is
     // then captured after the wait, so it also has to carry the moment the report opened: a scroll
     // or an action taken during the wait would otherwise read earlier than the open.
+    // The detail pane reads the selected report. A claim from its list row must reach it, or the open report
+    // keeps offering a claim the user already holds.
+    it('shows a claim made from a list row on the open report', () => {
+        mountLogic()
+        logic.actions.loadSelectedReportSuccess({ id: 'r1', title: 'Crash on login', assignee: null } as SignalReport)
+
+        inboxBulkActionsLogic.actions.reportClaimChanged('r1', myClaim)
+
+        expect(logic.values.selectedReport?.assignee).toEqual(myClaim)
+    })
+
     it('holds `Inbox report opened` until the list answers, then reports the rank and the open time', async () => {
         const report = { id: 'r1', title: 'Crash on login' } as SignalReport
         useMocks({
