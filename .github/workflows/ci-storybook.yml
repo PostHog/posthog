@@ -449,7 +449,10 @@ jobs:
 
     vr-setup:
         name: Create Visual Review run
-        runs-on: ubuntu-24.04
+        # Depot, not GitHub-hosted: the job's own work is seconds, but a GitHub-hosted
+        # runner queues ~90s for it on a PR run, and every VR job below waits on this one.
+        # Depot starts it in about a second.
+        runs-on: depot-ubuntu-24.04
         # The VR CLI build dominates this job whenever the cache misses, and it then
         # downloads the whole dependency tree. vr-complete allows the same budget for the
         # same build.
@@ -1056,7 +1059,9 @@ jobs:
                 check-baseline-removals,
             ]
         name: Visual regression tests pass
-        runs-on: ubuntu-24.04
+        # Depot: the required gate runs last in the workflow, where a GitHub-hosted runner
+        # queues for ~100s after the shard fan-out. Its own work is one bash step.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
@@ -1115,7 +1120,11 @@ jobs:
 
     vr-complete:
         name: Complete Visual Review run
-        runs-on: ubuntu-24.04
+        # Depot for the same reason as vr-setup: it runs after the 28-shard fan-out, when
+        # GitHub-hosted runners queue for a minute or more. Kept on the same runner class
+        # as vr-setup because both read the same actions/cache key for the VR CLI build,
+        # and Depot Cache and the GitHub Actions cache are separate backends.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         needs: [changes, visual-regression, vr-setup]
         # Intentional always(), not !cancelled(): this job finalizes external state,
@@ -1224,7 +1233,9 @@ jobs:
     calculate-running-time:
         name: Calculate running time
         needs: [visual-regression, visual_regression_tests, changes]
-        runs-on: ubuntu-24.04
+        # Depot: chained behind the gate above, so a GitHub-hosted queue here adds another
+        # ~80s to the end of the run.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
@@ -1308,7 +1319,9 @@ jobs:
     # uncertainty also falls back to the full matrix.
     select-stories:
         name: Story selection
-        runs-on: ubuntu-24.04
+        # Depot: every VR job waits on this selector, and a GitHub-hosted runner queues
+        # ~70s for it on a PR run. Its work is an artifact download plus a shallow diff.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes, build-storybook]
         if: |

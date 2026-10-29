@@ -1111,7 +1111,9 @@ jobs:
                 frontend_tests,
                 changes,
             ]
-        runs-on: ubuntu-24.04
+        # Depot: chained behind the gate above, so a GitHub-hosted queue here adds another
+        # ~65s to the end of the run.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
@@ -1168,7 +1170,9 @@ jobs:
     capture-jest-selection:
         name: Capture jest selection
         needs: [select-jest-tests, jest]
-        runs-on: ubuntu-24.04
+        # Depot: runs alongside the gate at the end of the run, where GitHub-hosted runners
+        # queue for ~110s. Telemetry only, one API call.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # Either the selector reached a decision, or jest ran without it (the full-run
         # baseline). Neither holds on a frontend-untouched PR, and there is nothing to
@@ -1211,7 +1215,9 @@ jobs:
     frontend_tests:
         needs: [changes, jest, jest-replay-shared, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
-        runs-on: ubuntu-24.04
+        # Depot: the required gate is the last thing the run waits on, and a GitHub-hosted
+        # runner queues ~125s for it behind the jest fan-out. Its own work is one bash step.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

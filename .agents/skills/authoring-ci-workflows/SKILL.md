@@ -409,6 +409,14 @@ The only sanctioned exception is a job whose purpose is validating the migration
 ## Runners
 
 `depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+
+A job's own length is not what it costs the run; its wait for a runner is.
+Measured over 12 PR runs: GitHub-hosted jobs that started after the first minute waited a median 70-125s for a runner, while `depot-*` jobs in the same runs waited 0-2s.
+Gate and fan-in jobs are seconds of work, so that queue is nearly all of what a run waits on at its end, and gates chain: a gate's queue delays the telemetry job behind it, whose queue then starts.
+
+So "light job" is not the same as "fine on GitHub-hosted".
+A light job at the **end** of a fan-out, or one every later job depends on, belongs on `depot-ubuntu-24.04`; one that starts at `+0s` (a `changes` filter) does not care.
+`ci-storybook.yml` (`select-stories`, `vr-setup`, `vr-complete`, and both gates), `ci-frontend.yml` (the gate and the telemetry jobs behind it), `ci-e2e-playwright.yml` (the gate and its telemetry job) and `ci-security.yaml` (the gate) all work this way.
 **Name the OS version, never `ubuntu-latest`.**
 GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
