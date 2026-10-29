@@ -3880,7 +3880,9 @@ describe('featureFlagLogic', () => {
                 const resent = update.mock.calls[1][1] as Record<string, unknown>
                 expect(resent).not.toHaveProperty('ask_rollback_reason')
                 expect(resent).toEqual(expect.objectContaining({ ...sentBy[source], ...resentFields }))
-                expect(capturesOf('feature flag rollback reason skipped')).toHaveLength(choice === 'skipped' ? 1 : 0)
+                expect(capturesOf('feature flag rollback reason skipped')).toEqual(
+                    choice === 'skipped' ? [['feature flag rollback reason skipped', { source }]] : []
+                )
                 expect(capturesOf('feature flag rollback reason canceled')).toEqual([])
 
                 // The answer belongs to that edit only, so the next save asks again.

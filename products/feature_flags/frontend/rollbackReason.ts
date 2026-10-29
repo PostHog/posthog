@@ -8,11 +8,6 @@ export type RollbackReasonRequestFields = Pick<
     'ask_rollback_reason' | 'rollback_reason' | 'rollback_reason_note'
 >
 
-/** The server refuses a lowering edit with this 409 when the request asks for a reason and sends none. */
-export function isRollbackReasonRequiredError(error: any): boolean {
-    return error?.status === 409 && error?.code === 'rollback_reason_required'
-}
-
 /**
  * The PATCH body fields for an edit. A resend after the question carries the answer, or nothing when the person
  * skipped it, so the server always saves the resend.

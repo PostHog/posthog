@@ -40,7 +40,9 @@ export function openRollbackReasonDialog({ onAnswer, onCancel }: OpenRollbackRea
         content: (
             <div className="flex flex-col gap-3">
                 <LemonField name="reason" label="Reason">
-                    {({ value, onChange }) => <LemonRadio value={value} onChange={onChange} options={REASON_OPTIONS} />}
+                    {({ value, onChange }) => (
+                        <LemonRadio aria-label="Reason" value={value} onChange={onChange} options={REASON_OPTIONS} />
+                    )}
                 </LemonField>
                 <LemonField name="note" label="Note" showOptional>
                     <LemonTextArea

@@ -25,7 +25,7 @@ import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse, isAbortError } from 'lib/api'
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError, isRollbackReasonRequiredError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -120,7 +120,6 @@ import type {
 import {
     RollbackReasonAnswer,
     RollbackReasonRequestFields,
-    isRollbackReasonRequiredError,
     rollbackReasonRequestFields,
 } from 'products/feature_flags/frontend/rollbackReason'
 import { openRollbackReasonDialog } from 'products/feature_flags/frontend/rollbackReasonDialog'
@@ -4906,7 +4905,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             })
         },
-        // The payload a non-form save retries with. Read in saveFeatureFlagFailure.
+        // The payload a non-form save retries with. Read in saveFeatureFlagFailure and askRollbackReason.
         saveFeatureFlag: (updatedFlag) => {
             cache.lastSaveAttempt = updatedFlag
         },
@@ -5366,6 +5365,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         askRollbackReason: ({ source }) => {
             // pinned: analytics event names. The server captures `feature flag rollback reason given`.
             posthog.capture('feature flag rollback reason asked', { source })
+            // Read now: a save dispatched while the question is open overwrites lastSaveAttempt.
+            const refusedSave = cache.lastSaveAttempt
             openRollbackReasonDialog({
                 onAnswer: (answer) => {
                     if (answer === 'skipped') {
@@ -5375,7 +5376,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (source === 'toggle') {
                         actions.updateFeatureFlagActive(false)
                     } else {
-                        actions.saveFeatureFlag(cache.lastSaveAttempt)
+                        actions.saveFeatureFlag(refusedSave)
                     }
                 },
                 onCancel: () => posthog.capture('feature flag rollback reason canceled', { source }),
