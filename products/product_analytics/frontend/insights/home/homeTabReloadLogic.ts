@@ -68,6 +68,10 @@ export const homeTabReloadLogic = kea<homeTabReloadLogicType>([
         nextAllowedReload: [
             (s) => [s.collectionNodeStatus],
             (collectionNodeStatus: DataNodeStatusMap): Dayjs | null => {
+                // A failed tile has no retry of its own, so Reload must stay available to recover it.
+                if (Object.values(collectionNodeStatus).some((status) => status?.hasError)) {
+                    return null
+                }
                 const refreshes = Object.values(collectionNodeStatus)
                     .map((status) => status?.lastRefresh)
                     .filter((lastRefresh): lastRefresh is string => !!lastRefresh)

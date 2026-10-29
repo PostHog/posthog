@@ -71,9 +71,15 @@ describe('HomeTab', () => {
     })
 
     it.each([
-        ['offers a way back when the selected dashboard has no charts', [], 'This dashboard has no charts yet'],
-        ['shows the selected dashboard when it has charts', [{ id: 1, deleted: false }], 'Home dashboard 42'],
-    ])('%s', (_scenario, tiles, expectedContent) => {
+        ['offers a way back when the selected dashboard has no charts', [], false, 'This dashboard has no charts yet'],
+        ['shows the selected dashboard when it has charts', [{ id: 1, deleted: false }], false, 'Home dashboard 42'],
+        [
+            'keeps the dashboard error and retry when a reload of an empty dashboard fails',
+            [],
+            true,
+            'Home dashboard 42',
+        ],
+    ])('%s', (_scenario, tiles, reloadFails, expectedContent) => {
         initKeaTests()
         teamLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({
@@ -87,6 +93,9 @@ describe('HomeTab', () => {
                 id: 42,
                 tiles,
             } as unknown as DashboardType)
+            if (reloadFails) {
+                dashboardLogic(homeTabDashboardProps(42)).actions.loadDashboardFailure('Network error')
+            }
         })
 
         expect(screen.getByText(expectedContent)).toBeInTheDocument()

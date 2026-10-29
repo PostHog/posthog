@@ -8,9 +8,13 @@ describe('homeTabReloadLogic', () => {
     let logic: ReturnType<typeof homeTabReloadLogic.build>
     let collection: ReturnType<typeof dataNodeCollectionLogic.build>
 
-    const loadTile = (id: string, minutesAgo: number): void => {
+    const loadTile = (id: string, minutesAgo: number | 'failed'): void => {
         collection.actions.mountDataNode(id, { id, loadData: jest.fn(), cancelQuery: jest.fn() })
         collection.actions.collectionNodeLoadData(id)
+        if (minutesAgo === 'failed') {
+            collection.actions.collectionNodeLoadDataFailure(id)
+            return
+        }
         collection.actions.collectionNodeLoadDataSuccess(id, {
             lastRefresh: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
         })
@@ -32,10 +36,11 @@ describe('homeTabReloadLogic', () => {
         jest.useRealTimers()
     })
 
-    test.each([
+    test.each<[string, (number | 'failed')[], boolean]>([
         ['every result is recent', [1, 2], true],
         ['every result is older than the interval', [6, 7], false],
         ['the oldest result is older than the interval', [1, 6], false],
+        ['a tile failed and the other results are recent', [1, 'failed'], false],
     ])('blocks a reload when %s', (_case, minutesAgo, blocked) => {
         minutesAgo.forEach((minutes, index) => loadTile(`tile-${index}`, minutes))
 

@@ -2,8 +2,12 @@ import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { DASHBOARD_CANNOT_EDIT_MESSAGE, insightIsAddedToDashboard } from 'scenes/dashboard/DashboardHeader'
+import { DashboardLoadAction } from 'scenes/dashboard/dashboardLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { homeDashboardChoiceLogic } from './homeDashboardChoiceLogic'
 import { homeTabDashboardLogic, homeTabDashboardProps } from './homeTabDashboardLogic'
@@ -27,10 +31,24 @@ export function HomeTabDashboard({
     page?: HomeTabPage
 }): JSX.Element {
     const display = page ? 'page' : 'embedded'
-    const { dashboardMissing, dashboardEmpty } = useValues(homeTabDashboardLogic({ dashboardId, display }))
+    const logic = homeTabDashboardLogic({ dashboardId, display })
+    const { dashboardMissing, dashboardEmpty, canEditDashboard } = useValues(logic)
+    const { loadDashboard } = useActions(logic)
     const { currentTeamLoading } = useValues(teamLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { continueHomeDashboardWithAI, restorePostHogHome } = useActions(homeDashboardChoiceLogic)
+
+    // The empty state replaces DashboardHeader, which otherwise reloads the dashboard when AI adds charts to it.
+    useMcpToolApplyBack({
+        tools: ['insight-create', 'insight-update'],
+        targetKey: `dashboard:${dashboardId}`,
+        active: dashboardEmpty && canEditDashboard,
+        onApply: (_event, { innerInput }) => {
+            if (insightIsAddedToDashboard(innerInput, dashboardId)) {
+                loadDashboard({ action: DashboardLoadAction.Update })
+            }
+        },
+    })
 
     if (dashboardMissing) {
         return (
@@ -50,8 +68,11 @@ export function HomeTabDashboard({
                         onResetToDefault={restorePostHogHome}
                         resetting={currentTeamLoading}
                         aiDisabledReason={
-                            !dataProcessingAccepted &&
-                            (dataProcessingApprovalDisabledReason ?? 'Approve AI data processing to use PostHog AI')
+                            !canEditDashboard
+                                ? DASHBOARD_CANNOT_EDIT_MESSAGE
+                                : !dataProcessingAccepted &&
+                                  (dataProcessingApprovalDisabledReason ??
+                                      'Approve AI data processing to use PostHog AI')
                         }
                     />
                 </div>
