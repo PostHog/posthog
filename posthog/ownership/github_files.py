@@ -137,6 +137,11 @@ def _is_blob(entry: dict[str, Any] | None) -> bool:
     return entry is not None and entry.get("__typename") == "Blob"
 
 
+def is_absent(text: str) -> bool:
+    """True for the value that ``read_files`` returns for a path the commit does not hold."""
+    return text == _ABSENT
+
+
 def _refreshed_installation_token(integration: GitHubIntegrationBase) -> str:
     """A newly minted installation token.
 

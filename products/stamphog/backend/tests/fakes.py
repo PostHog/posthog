@@ -385,10 +385,11 @@ class GitHubRecorder:
         for name, expression in variables.items():
             if name in ("owner", "name"):
                 continue
-            path = str(expression).split(":", 1)[1]
+            commit, path = str(expression).split(":", 1)
             content = self.repo_files.get((repo, path), self.policy_files.get(path))
             if (repo, path) in self.repo_symlinks:
                 content = self.repo_symlinks[(repo, path)]
+            content = self.files_at_ref.get((path, commit), content)
             if content is None:
                 field[f"f{name[1:]}"] = None
             else:

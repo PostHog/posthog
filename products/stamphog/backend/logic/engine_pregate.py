@@ -35,7 +35,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.ownership.github_files import GitHubFilesFetcher
+from posthog.ownership.github_files import GitHubFilesFetcher, is_absent
 
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 
@@ -57,6 +57,8 @@ _OWNERS_SUBDIR = Path("tools") / "owners" / "owners_yaml"
 # Mirrors _FOLDER_POLICY_FILENAME in the engine's policy.py, which the backend cannot import.
 FOLDER_POLICY_FILENAME = "AGENT_APPROVALS.md"
 _FOLDER_POLICY_BUDGET_SECONDS = 10
+# post_verdict reads the manifests before it posts, so the reads share one budget well inside its timeout.
+_MANIFEST_BUDGET_SECONDS = 20
 # Well past the ancestor directories of any real PR, and small enough to stay one or two probes.
 _MAX_FOLDER_POLICY_CANDIDATES = 300
 # The files ride in run.output. A real folder file is a few hundred bytes of frontmatter and prose.
@@ -178,6 +180,39 @@ def fetch_folder_policy_files(
     except Exception:
         logger.warning("stamphog_folder_policy_fetch_failed", repo=repo, exc_info=True)
         return None
+
+
+def fetch_manifest_contents(
+    client: StamphogGitHubClient, repo: str, base_sha: str, head_sha: str, paths: tuple[str, ...]
+) -> dict[str, dict[str, str]] | None:
+    """Each manifest's text at the merge base and at the head, or None when they are unknown.
+
+    It reads git blobs over GraphQL, one batch per commit, so a symlink reads as its link text, the
+    same text `git show` gives the sandbox's scan. The contents API would follow the link instead.
+    A path absent at one commit reads as empty, as in that scan. Never raises.
+    """
+    deadline = time.monotonic() + _MANIFEST_BUDGET_SECONDS
+    try:
+        fetcher = GitHubFilesFetcher.from_token(
+            client.installation_token(),
+            installation_id=client.installation_id,
+            refresh=client.refresh_installation_token,
+            priority=Priority.NORMAL,
+        )
+        base_texts = fetcher.read_files(repo, base_sha, paths, deadline)
+        head_texts = fetcher.read_files(repo, head_sha, paths, deadline)
+    except Exception:
+        logger.warning("stamphog_manifest_fetch_failed", repo=repo, exc_info=True)
+        return None
+
+    def text(value: str) -> str:
+        return "" if is_absent(value) else value
+
+    return {
+        path: {"base": text(base_texts[path]), "head": text(head_texts[path])}
+        for path in paths
+        if path in base_texts and path in head_texts
+    }
 
 
 def engine_source_files() -> dict[str, str]:

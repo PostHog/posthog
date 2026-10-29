@@ -825,6 +825,19 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
             "gate_failed",
             id="manifest-script-edit",
         ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("go.mod")], folder_policies_known=True),
+                "manifest_contents": {
+                    "go.mod": {
+                        "base": "module example.com/app\n\n// placeholder",
+                        "head": "module example.com/app\n\nreplace example.com/lib => example.org/lib v1.0.0",
+                    }
+                },
+            },
+            "gate_failed",
+            id="go-mod-replace-after-an-unterminated-line",
+        ),
     ],
 )
 def test_attest_confirms_only_what_the_full_review_would_approve(

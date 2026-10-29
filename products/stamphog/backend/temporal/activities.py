@@ -80,6 +80,7 @@ from products.stamphog.backend.logic.engine_pregate import (
     PregateOutcome,
     engine_source_files,
     fetch_folder_policy_files,
+    fetch_manifest_contents,
     owners_package_files,
     pregate_skip_reason,
     run_engine_attest,
@@ -136,7 +137,7 @@ _ENGINE_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_ENGINE_DIR).relative_to(ST
 _OWNERS_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_OWNERS_DIR).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
 _OWNERS_PACKAGE_RELATIVE_DIR = f"{_OWNERS_RELATIVE_DIR}/owners_yaml"
 _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
-# Each manifest costs two contents reads inside post_verdict. A PR past this escalates instead.
+# The worker reads each manifest's full text inside post_verdict. A PR past this escalates instead.
 _MAX_ATTESTED_MANIFESTS = 10
 
 
@@ -1036,27 +1037,6 @@ def _touched_paths(files: list[dict]) -> set[str]:
     return {path for file in files for path in (file.get("filename"), file.get("previous_filename")) if path}
 
 
-def _manifest_contents(
-    client: StamphogGitHubClient, repo: str, base_sha: str, head_sha: str, paths: tuple[str, ...]
-) -> dict[str, dict[str, str]]:
-    """Each manifest's text at the merge base and at the head, for the engine's scripts scan.
-
-    A file absent at one end reads as empty, as in the checkout scan. A path that is not a readable
-    file at either end is left out, and the engine then refuses to attest.
-    """
-    contents: dict[str, dict[str, str]] = {}
-    for path in paths:
-        texts: dict[str, str] = {}
-        for side, sha in (("base", base_sha), ("head", head_sha)):
-            entry = client.get_file_at_ref(repo, path, sha)
-            if entry is not None and entry.kind != "file":
-                break
-            texts[side] = entry.text if entry is not None else ""
-        else:
-            contents[path] = texts
-    return contents
-
-
 def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestation:
     """The worker's own gate run for an approval that the sandbox reported.
 
@@ -1084,10 +1064,12 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         context["files"] = pinned_files
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
-            context["manifest_contents"] = _manifest_contents(
+            manifest_contents = fetch_manifest_contents(
                 client, repo, merge_base_sha, run.head_sha, attestation.manifests
             )
-            attestation = run_engine_attest(context, policy_files)
+            if manifest_contents is not None:
+                context["manifest_contents"] = manifest_contents
+                attestation = run_engine_attest(context, policy_files)
         return attestation
     except Exception:
         activity.logger.exception(f"Run {run.id}: gate attestation failed")

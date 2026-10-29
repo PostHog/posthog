@@ -215,8 +215,15 @@ def manifest_script_changes_from_contents(
         if not isinstance(base_text, str) or not isinstance(head_text, str):
             risky.append(path)
             continue
+        # Every line gets its own newline. difflib joins a last line that has none onto the next diff
+        # line, and the line scan would then miss a key at the start of that line.
         diff = "".join(
-            difflib.unified_diff(base_text.splitlines(True), head_text.splitlines(True), f"a/{path}", f"b/{path}")
+            difflib.unified_diff(
+                [f"{line}\n" for line in base_text.splitlines()],
+                [f"{line}\n" for line in head_text.splitlines()],
+                f"a/{path}",
+                f"b/{path}",
+            )
         )
         if manifest_change_is_risky(path, base_text, head_text, diff):
             risky.append(path)

