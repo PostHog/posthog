@@ -130,6 +130,7 @@ describe('InternalLogsProducer', () => {
         { name: 'no endpoint', overrides: { LOGS_INTERNAL_PRODUCER_URL: '' }, entries: [entry()] },
         { name: 'no signing key', overrides: { LOGS_INTERNAL_INGESTION_SIGNING_KEYS: ' ' }, entries: [entry()] },
         { name: 'an empty allowlist', overrides: { LOGS_INTERNAL_PRODUCER_TEAMS: '' }, entries: [entry()] },
+        { name: 'an invalid timestamp, without throwing', entries: [entry({ timestamp: DateTime.invalid('bad') })] },
     ])('sends nothing for $name', async ({ overrides = {}, source, entries }) => {
         await send(new InternalLogsProducer(config(overrides), teamManager), entries, source)
 
@@ -180,6 +181,11 @@ describe('InternalLogsProducer', () => {
             name: 'a network error',
             first: () => fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED')),
             expectedCalls: 2,
+        },
+        {
+            name: 'a team lookup error',
+            first: () => teamManager.getTeam.mockRejectedValueOnce(new Error('connection reset')),
+            expectedCalls: 1,
         },
         {
             name: 'a 400',
@@ -249,9 +255,10 @@ describe('InternalLogsProducer', () => {
         expect(drained).toBe(true)
     })
 
-    it('drain returns at its timeout and counts every unsent batch as abandoned', async () => {
+    it('drain returns at its timeout, counts every unsent record once as abandoned, and sends nothing after', async () => {
         register.resetMetrics()
-        fetchMock.mockReturnValueOnce(heldResponse().response)
+        const held = heldResponse()
+        fetchMock.mockReturnValueOnce(held.response)
         const producer = new InternalLogsProducer(
             config({ LOGS_INTERNAL_PRODUCER_TEAMS: '2,3', LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 1 }),
             teamManager
@@ -263,8 +270,15 @@ describe('InternalLogsProducer', () => {
         await jest.advanceTimersByTimeAsync(1_000)
 
         await expect(drain).resolves.toBeUndefined()
-        const metric = await register.getSingleMetric('logs_internal_producer_batches_total')!.get()
-        expect(metric.values.find((v) => v.labels.outcome === 'abandoned')?.value).toBe(2)
+        producer.enqueue('hog_flow', [entry()])
+        await producer.drain(1_000)
+        held.release()
+        await jest.advanceTimersByTimeAsync(10_000)
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const metric = await register.getSingleMetric('logs_internal_producer_records_total')!.get()
+        expect(Object.fromEntries(metric.values.map((v) => [v.labels.outcome, v.value]))).toEqual({ abandoned: 3 })
+        expect(jest.getTimerCount()).toBe(0)
     })
 
     it('splits a large team batch into requests under the capture-logs body limit', async () => {
@@ -306,4 +320,79 @@ describe('InternalLogsProducer', () => {
         )
         expect(messages).toEqual(['\uFFFD', 'valid'])
     })
+
+    it.each(Array.from({ length: 20 }, (_, i) => i + 1))(
+        'keeps its accounting under random interleavings, seed %i',
+        async (seed) => {
+            register.resetMetrics()
+            let state = seed
+            const rand = (): number => {
+                state = (state * 1_103_515_245 + 12_345) % 2 ** 31
+                return state / 2 ** 31
+            }
+            const randomSpy = jest.spyOn(Math, 'random').mockImplementation(rand)
+            const open: { resolve: (response: any) => void; reject: (error: Error) => void }[] = []
+            fetchMock.mockImplementation(() => new Promise((resolve, reject) => open.push({ resolve, reject })))
+            const cfg = config({
+                LOGS_INTERNAL_PRODUCER_TEAMS: '*',
+                LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 1 + Math.floor(rand() * 3),
+                LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 2_000 + Math.floor(rand() * 20_000),
+                LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 5_000,
+            })
+            const producer = new InternalLogsProducer(cfg, teamManager)
+            const internals = producer as any
+            const counted = async (): Promise<number> => {
+                const metric = await register.getSingleMetric('logs_internal_producer_records_total')!.get()
+                return metric.values.reduce((sum, v) => sum + v.value, 0)
+            }
+            let enqueued = 0
+
+            for (let step = 0; step < 150; step++) {
+                const op = rand()
+                if (op < 0.35) {
+                    const entries = Array.from({ length: 1 + Math.floor(rand() * 5) }, () =>
+                        entry({ team_id: 1 + Math.floor(rand() * 3), message: 'x'.repeat(Math.floor(rand() * 2_000)) })
+                    )
+                    producer.enqueue('hog_flow', entries)
+                    enqueued += entries.length
+                } else if (op < 0.5) {
+                    void producer.flush()
+                } else if (op < 0.75 && open.length > 0) {
+                    const { resolve, reject } = open.splice(Math.floor(rand() * open.length), 1)[0]
+                    const status = [200, 200, 400, 503, 0][Math.floor(rand() * 5)]
+                    if (status === 0) {
+                        reject(new Error('reset'))
+                    } else {
+                        resolve({ status, dump: () => Promise.resolve() })
+                    }
+                } else if (op < 0.97) {
+                    await jest.advanceTimersByTimeAsync(Math.floor(rand() * 3_000))
+                } else {
+                    void producer.drain(Math.floor(rand() * 2_000))
+                }
+                await jest.advanceTimersByTimeAsync(0)
+
+                const queued = [...internals.queued.values()]
+                const live = [...internals.pending, ...[...internals.inFlight].flat()]
+                const bytes = (batches: { bytes: number }[]): number => batches.reduce((sum, b) => sum + b.bytes, 0)
+                expect(internals.bufferedBytes).toBe(bytes(queued) + bytes(live))
+                expect(internals.bufferedBytes).toBeLessThanOrEqual(cfg.LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES)
+                expect(internals.inFlight.size).toBeLessThanOrEqual(cfg.LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT)
+                for (const request of internals.inFlight) {
+                    expect(new Set(request.map((b: { teamId: number }) => b.teamId)).size).toBe(1)
+                }
+                // A stopped producer already counted its in-flight records as abandoned.
+                const held = internals.stopped ? 0 : [...queued, ...live].reduce((sum, b) => sum + b.records.length, 0)
+                expect((await counted()) + held).toBe(enqueued)
+            }
+
+            const drained = producer.drain(0)
+            await jest.advanceTimersByTimeAsync(0)
+            await drained
+            open.splice(0).forEach(({ resolve }) => resolve(ok))
+            await jest.advanceTimersByTimeAsync(60_000)
+            expect(await counted()).toBe(enqueued)
+            randomSpy.mockRestore()
+        }
+    )
 })

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
+import { Counter, Gauge } from 'prom-client'
 
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
@@ -43,36 +43,54 @@ export type InternalLogsProducerConfig = Pick<
     | 'LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS'
 >
 
-type QueuedBatch = { source: string; teamId: number; records: OtlpLogRecord[] }
+type QueuedBatch = { source: string; teamId: number; records: string[]; bytes: number }
 
-type Chunk = { records: OtlpLogRecord[]; bytes: number }
+type Chunk = { records: string[]; bytes: number }
 
 type BufferedRequest = Chunk & { source: string; teamId: number; settled: () => void }
 
-type AttemptResult = { outcome: 'sent' | 'rejected' | 'retry'; detail: string }
+type AttemptResult = { outcome: 'sent' | 'rejected' | 'unknown_team' | 'retry'; detail: string }
 
 const RETRY_BASE_DELAY_MS = 100
 const RETRY_MAX_DELAY_MS = 5_000
 
-const internalLogsProducerBatchesCounter = new Counter({
-    name: 'logs_internal_producer_batches_total',
-    help: 'Signed internal logs batches sent to capture-logs, by source and outcome. Only a sent batch reaches the logs product.',
+const internalLogsProducerRecordsCounter = new Counter({
+    name: 'logs_internal_producer_records_total',
+    help: 'Internal log records sent to capture-logs, by source and outcome. Only a sent record reaches the logs product.',
     labelNames: ['source', 'outcome'],
 })
 
+const internalLogsProducerBufferedBytesGauge = new Gauge({
+    name: 'logs_internal_producer_buffered_bytes',
+    help: 'Bytes of internal log records a producer holds in memory, queued, waiting or in flight.',
+})
+
+const internalLogsProducerInFlightGauge = new Gauge({
+    name: 'logs_internal_producer_in_flight_requests',
+    help: 'Requests a producer has open to capture-logs.',
+})
+
+function countRecords(source: string, outcome: string, records: number): void {
+    if (records > 0) {
+        internalLogsProducerRecordsCounter.inc({ source, outcome }, records)
+    }
+}
+
 /**
- * Delivery runs in the background, so a slow or down capture-logs never slows the caller. A batch is lost only when
- * the buffer is full, its retries time out, capture-logs rejects it, or the process stops before `drain` completes.
+ * Delivery runs in the background, so a slow or down capture-logs never slows the caller. A record is lost only when
+ * it is invalid, the buffer is full, its retries time out, capture-logs rejects it, or `drain` times out.
  */
 export class InternalLogsProducer {
     private readonly enabled: boolean
     private readonly isTeamEnabled: ValueMatcher<number>
     private queued = new Map<string, QueuedBatch>()
     private pending: BufferedRequest[] = []
-    // Counts in-flight requests as well as pending ones, because a request that retries keeps its records in memory.
+    // Counts queued and in-flight records as well as pending ones, because each one holds its bytes until it settles.
     private bufferedBytes = 0
     private inFlight = new Set<BufferedRequest[]>()
     private idleWaiters: (() => void)[] = []
+    // Set when `drain` ends. After it, nothing is sent or counted twice, and a retrying request stops.
+    private stopped = false
 
     constructor(
         private readonly config: InternalLogsProducerConfig,
@@ -92,59 +110,109 @@ export class InternalLogsProducer {
         ) {
             return
         }
+        let invalid = 0
+        let dropped = 0
+        let abandoned = 0
         for (const entry of entries) {
             if (!this.isTeamEnabled(entry.team_id)) {
                 continue
             }
+            if (this.stopped) {
+                abandoned++
+                continue
+            }
+            let record: string
+            try {
+                record = JSON.stringify(toOtlpLogRecord(entry))
+            } catch {
+                invalid++
+                continue
+            }
+            const bytes = Buffer.byteLength(record)
+            if (this.bufferedBytes + bytes > this.config.LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES) {
+                dropped++
+                continue
+            }
+            this.bufferedBytes += bytes
             const key = `${source}:${entry.team_id}`
-            const batch = this.queued.get(key) ?? { source, teamId: entry.team_id, records: [] }
-            batch.records.push(toOtlpLogRecord(entry))
+            const batch = this.queued.get(key) ?? { source, teamId: entry.team_id, records: [], bytes: 0 }
+            batch.records.push(record)
+            batch.bytes += bytes
             this.queued.set(key, batch)
         }
+        countRecords(source, 'invalid', invalid)
+        countRecords(source, 'dropped', dropped)
+        countRecords(source, 'abandoned', abandoned)
+        this.report()
     }
 
     /** Resolves when every batch from this flush is sent or given up on. Never throws. */
     flush(): Promise<void> {
-        const batches = [...this.queued.values()]
+        const settled: Promise<void>[] = []
+        for (const { source, teamId, records } of this.queued.values()) {
+            for (const chunk of splitBySize(records)) {
+                settled.push(
+                    new Promise((resolve) => this.pending.push({ ...chunk, source, teamId, settled: resolve }))
+                )
+            }
+        }
         this.queued = new Map()
-        const settled = batches.flatMap(({ source, teamId, records }) =>
-            splitBySize(records).map((chunk) => this.buffer(source, teamId, chunk))
-        )
         this.pump()
         return Promise.all(settled).then(() => undefined)
     }
 
-    /** Flushes, then waits until every buffered batch settles or the timeout passes. Call on shutdown. */
+    /** Sends what is left until the timeout, then stops and counts the rest as abandoned. Call on shutdown. */
     async drain(timeoutMs: number): Promise<void> {
-        void this.flush()
-        if (this.isIdle()) {
-            return
-        }
-        let timer: NodeJS.Timeout | undefined
-        const idle = new Promise<boolean>((resolve) => this.idleWaiters.push(() => resolve(true)))
-        const timeout = new Promise<boolean>((resolve) => {
-            timer = setTimeout(() => resolve(false), timeoutMs)
-        })
-        const drained = await Promise.race([idle, timeout])
-        clearTimeout(timer)
-        if (!drained) {
-            for (const { source } of [...this.pending, ...[...this.inFlight].flat()]) {
-                internalLogsProducerBatchesCounter.inc({ source, outcome: 'abandoned' })
+        const deadline = Date.now() + timeoutMs
+        while (!this.stopped && (this.queued.size > 0 || !this.isIdle())) {
+            void this.flush()
+            if (!(await this.waitForIdle(deadline - Date.now()))) {
+                this.abandon()
             }
-            logger.warn('Internal logs producer stopped before all batches were sent', {
-                pending: this.pending.length,
-                inFlight: this.inFlight.size,
-            })
         }
+        this.stopped = true
     }
 
-    private buffer(source: string, teamId: number, chunk: Chunk): Promise<void> {
-        if (this.bufferedBytes + chunk.bytes > this.config.LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES) {
-            internalLogsProducerBatchesCounter.inc({ source, outcome: 'dropped' })
-            return Promise.resolve()
+    private waitForIdle(timeoutMs: number): Promise<boolean> {
+        if (this.isIdle()) {
+            return Promise.resolve(true)
         }
-        this.bufferedBytes += chunk.bytes
-        return new Promise((settled) => this.pending.push({ ...chunk, source, teamId, settled }))
+        return new Promise((resolve) => {
+            const waiter = (): void => {
+                clearTimeout(timer)
+                resolve(true)
+            }
+            const timer = setTimeout(
+                () => {
+                    this.idleWaiters = this.idleWaiters.filter((other) => other !== waiter)
+                    resolve(false)
+                },
+                Math.max(0, timeoutMs)
+            )
+            this.idleWaiters.push(waiter)
+        })
+    }
+
+    private abandon(): void {
+        if (this.stopped) {
+            return
+        }
+        this.stopped = true
+        const unsent = [...this.queued.values(), ...this.pending, ...[...this.inFlight].flat()]
+        for (const { source, records } of unsent) {
+            countRecords(source, 'abandoned', records.length)
+        }
+        logger.warn('Internal logs producer stopped before all records were sent', {
+            abandonedRecords: unsent.reduce((sum, { records }) => sum + records.length, 0),
+            inFlightRequests: this.inFlight.size,
+        })
+        for (const batch of [...this.queued.values(), ...this.pending]) {
+            this.bufferedBytes -= batch.bytes
+        }
+        this.pending.forEach((request) => request.settled())
+        this.queued = new Map()
+        this.pending = []
+        this.report()
     }
 
     private pump(): void {
@@ -163,6 +231,7 @@ export class InternalLogsProducer {
                 }
             })
         }
+        this.report()
     }
 
     // A backlog must leave in a few large requests, because one request per batch cannot catch up while batches arrive.
@@ -189,63 +258,58 @@ export class InternalLogsProducer {
         return this.inFlight.size === 0 && this.pending.length === 0
     }
 
+    private report(): void {
+        internalLogsProducerBufferedBytesGauge.set(this.bufferedBytes)
+        internalLogsProducerInFlightGauge.set(this.inFlight.size)
+    }
+
     private async deliver(batches: BufferedRequest[]): Promise<void> {
         const [{ source, teamId }] = batches
-        // Counts batches, not requests, so that every outcome uses the same unit as `dropped`.
-        const count = (outcome: string): void =>
-            internalLogsProducerBatchesCounter.inc({ source, outcome }, batches.length)
+        const records = batches.flatMap((batch) => batch.records)
+        const body = toOtlpBody(source, records)
         const deadline = Date.now() + this.config.LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS
-        const body = JSON.stringify(
-            toOtlpJson(
-                source,
-                batches.flatMap((batch) => batch.records)
-            )
-        )
-        try {
-            const team = await this.teamManager.getTeam(teamId)
-            if (!team) {
-                count('unknown_team')
+        for (let attempt = 0; !this.stopped; attempt++) {
+            const result = await this.attempt(source, teamId, body)
+            if (this.stopped) {
                 return
             }
-            for (let attempt = 0; ; attempt++) {
-                const result = await this.attempt(source, teamId, team.api_token, body)
-                if (result.outcome !== 'retry') {
-                    count(result.outcome)
-                    if (result.outcome === 'rejected') {
-                        logger.warn('Internal logs batch rejected by capture-logs', {
-                            source,
-                            teamId,
-                            status: result.detail,
-                        })
-                    }
-                    return
-                }
-                const wait = Math.random() * Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** attempt)
-                if (Date.now() + wait > deadline) {
-                    count('failed')
-                    logger.warn('Internal logs batch failed after retries', {
+            if (result.outcome !== 'retry') {
+                countRecords(source, result.outcome, records.length)
+                if (result.outcome === 'rejected') {
+                    logger.warn('Internal logs batch rejected by capture-logs', {
                         source,
                         teamId,
-                        attempts: attempt + 1,
-                        last: result.detail,
+                        status: result.detail,
                     })
-                    return
                 }
-                await delay(wait)
+                return
             }
-        } catch (error) {
-            count('failed')
-            logger.warn('Internal logs batch failed', { source, teamId, error: String(error) })
+            const wait = Math.random() * Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** attempt)
+            if (Date.now() + wait > deadline) {
+                countRecords(source, 'failed', records.length)
+                logger.warn('Internal logs batch failed after retries', {
+                    source,
+                    teamId,
+                    attempts: attempt + 1,
+                    last: result.detail,
+                })
+                return
+            }
+            await delay(wait)
         }
     }
 
-    private async attempt(source: string, teamId: number, token: string, body: string): Promise<AttemptResult> {
+    private async attempt(source: string, teamId: number, body: string): Promise<AttemptResult> {
         try {
+            const team = await this.teamManager.getTeam(teamId)
+            if (!team) {
+                return { outcome: 'unknown_team', detail: String(teamId) }
+            }
             const response = await internalFetch(this.config.LOGS_INTERNAL_PRODUCER_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
+                    Authorization: `Bearer ${team.api_token}`,
                     [INTERNAL_LOGS_HTTP_HEADER]: signInternalLogs(
                         this.config.LOGS_INTERNAL_INGESTION_SIGNING_KEYS,
                         source,
@@ -284,12 +348,12 @@ function toOtlpLogRecord(entry: InternalLogEntry): OtlpLogRecord {
     }
 }
 
-function splitBySize(records: OtlpLogRecord[]): Chunk[] {
+function splitBySize(records: string[]): Chunk[] {
     const chunks: Chunk[] = []
-    let chunk: OtlpLogRecord[] = []
+    let chunk: string[] = []
     let chunkBytes = 0
     for (const record of records) {
-        const bytes = Buffer.byteLength(JSON.stringify(record))
+        const bytes = Buffer.byteLength(record)
         if (chunk.length > 0 && chunkBytes + bytes > MAX_REQUEST_RECORD_BYTES) {
             chunks.push({ records: chunk, bytes: chunkBytes })
             chunk = []
@@ -304,20 +368,9 @@ function splitBySize(records: OtlpLogRecord[]): Chunk[] {
     return chunks
 }
 
-function toOtlpJson(source: string, records: OtlpLogRecord[]): Record<string, unknown> {
-    return {
-        resourceLogs: [
-            {
-                resource: {
-                    attributes: [{ key: 'service.name', value: { stringValue: SERVICE_NAMES[source] } }],
-                },
-                scopeLogs: [
-                    {
-                        scope: { name: source },
-                        logRecords: records,
-                    },
-                ],
-            },
-        ],
-    }
+function toOtlpBody(source: string, records: string[]): string {
+    const resource = JSON.stringify({
+        attributes: [{ key: 'service.name', value: { stringValue: SERVICE_NAMES[source] } }],
+    })
+    return `{"resourceLogs":[{"resource":${resource},"scopeLogs":[{"scope":${JSON.stringify({ name: source })},"logRecords":[${records.join(',')}]}]}]}`
 }
