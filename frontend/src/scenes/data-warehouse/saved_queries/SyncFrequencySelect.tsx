@@ -1,7 +1,7 @@
-import { IconRabbit, IconTortoise } from '@posthog/icons'
-import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
+import { useState } from 'react'
 
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { IconRabbit, IconTortoise } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
 
 import { DataModelingSyncInterval } from '~/types'
 
@@ -89,6 +89,9 @@ export function SyncFrequencySelect({
     disabledReason,
     'data-attr': dataAttr,
 }: SyncFrequencySelectProps): JSX.Element {
+    // A cadence that also speeds up upstream views waits here until it is confirmed.
+    const [pending, setPending] = useState<DataModelingSyncInterval | null>(null)
+    const pendingWarning = pending ? speedUpWarning(bounds, pending) : null
     const options = buildOptions(bounds)
     const explanation = buildExplanation(bounds)
     const modeReason = modeDisabledReason(bounds)
@@ -121,35 +124,54 @@ export function SyncFrequencySelect({
                 <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
                 <LemonSegmentedButton<DataModelingSyncInterval>
                     size="small"
-                    value={value && value !== 'never' ? value : undefined}
-                    onChange={(next) => confirmCadence(bounds, next, onChange)}
+                    value={pending ?? (value && value !== 'never' ? value : undefined)}
+                    onChange={(next) => {
+                        if (next !== value && speedUpWarning(bounds, next)) {
+                            setPending(next)
+                            return
+                        }
+                        setPending(null)
+                        if (next !== value) {
+                            onChange(next)
+                        }
+                    }}
                     options={options}
                     disabledReason={reason}
                 />
                 <IconTortoise className={PACE_ICON_CLASS} aria-hidden />
             </div>
+            {pending && pendingWarning && (
+                <div
+                    className="flex flex-wrap items-center gap-x-4 gap-y-2 border rounded bg-surface-primary px-3 py-2 max-w-prose"
+                    role="alert"
+                >
+                    <span className="text-xs flex-1 min-w-60">{pendingWarning}</span>
+                    <div className="flex gap-2 ml-auto">
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => setPending(null)}
+                            data-attr="sync-frequency-speeds-up-cancel"
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            size="xsmall"
+                            type="primary"
+                            onClick={() => {
+                                setPending(null)
+                                onChange(pending)
+                            }}
+                            data-attr="sync-frequency-speeds-up-confirm"
+                        >
+                            Refresh every {CADENCE_LABELS[pending]}
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
             {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
         </div>
     )
-}
-
-/** Asks before a cadence that would also change how often upstream views refresh. */
-function confirmCadence(
-    bounds: SyncFrequencyBoundsApi | null | undefined,
-    next: DataModelingSyncInterval,
-    onChange: (value: DataModelingSyncInterval) => void
-): void {
-    const warning = speedUpWarning(bounds, next)
-    if (!warning) {
-        onChange(next)
-        return
-    }
-    LemonDialog.open({
-        title: `Refresh every ${CADENCE_LABELS[next]}?`,
-        description: warning,
-        primaryButton: { children: 'Change cadence', onClick: () => onChange(next) },
-        secondaryButton: { children: 'Cancel' },
-    })
 }
 
 /**
