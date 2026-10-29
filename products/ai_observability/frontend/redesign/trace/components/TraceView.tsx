@@ -64,6 +64,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     conversation={props.thread}
                     onSelectMessage={props.onSelectFromView}
                     highlightQuery={props.highlightQuery}
+                    matchingNodeIds={props.matchingNodeIds}
                 />
             ) : (
                 <TraceTimeline

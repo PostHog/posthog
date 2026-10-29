@@ -10,9 +10,16 @@ export interface ThreadProps {
     conversation: ConversationState
     onSelectMessage: (sourceNodeId: string) => void
     highlightQuery?: string | null
+    /** The steps that contain the search query, or null when nothing is searched. */
+    matchingNodeIds?: ReadonlySet<string> | null
 }
 
-export function Thread({ conversation, onSelectMessage, highlightQuery = null }: ThreadProps): JSX.Element {
+export function Thread({
+    conversation,
+    onSelectMessage,
+    highlightQuery = null,
+    matchingNodeIds = null,
+}: ThreadProps): JSX.Element {
     const highlightRef = useSearchHighlight(highlightQuery)
     if (conversation.status === 'loading') {
         return (
@@ -42,7 +49,7 @@ export function Thread({ conversation, onSelectMessage, highlightQuery = null }:
                     turn={turn}
                     isActive={turns.length > 1 && turn.id === activeTurnId}
                     onSelectMessage={onSelectMessage}
-                    highlightQuery={highlightQuery}
+                    matchingNodeIds={matchingNodeIds}
                 />
             ))}
         </div>

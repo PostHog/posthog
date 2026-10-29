@@ -8,17 +8,17 @@ import { pluralize } from 'lib/utils/strings'
 import { ConversationTurn } from '../types'
 import { conversationalMessages } from './conversationalMessages'
 import { ErrorCallout } from './ErrorCallout'
-import { messageContainsText } from './messageContainsText'
 import { ThreadBubble } from './ThreadBubble'
 
 export interface ThreadTurnProps {
     turn: ConversationTurn
     isActive: boolean
     onSelectMessage: (sourceNodeId: string) => void
-    highlightQuery?: string | null
+    /** The steps that contain the search query, or null when nothing is searched. */
+    matchingNodeIds?: ReadonlySet<string> | null
 }
 
-export function ThreadTurn({ turn, isActive, onSelectMessage, highlightQuery = null }: ThreadTurnProps): JSX.Element {
+export function ThreadTurn({ turn, isActive, onSelectMessage, matchingNodeIds = null }: ThreadTurnProps): JSX.Element {
     const [showInternal, setShowInternal] = useState(false)
     const conversational = conversationalMessages(turn.messages)
     const hiddenCount = conversational.filter((message) => message.isInternal).length
@@ -44,7 +44,9 @@ export function ThreadTurn({ turn, isActive, onSelectMessage, highlightQuery = n
                         key={message.id}
                         message={message}
                         onSelect={sourceNodeId ? () => onSelectMessage(sourceNodeId) : undefined}
-                        isFaded={!!highlightQuery && !messageContainsText(message, highlightQuery)}
+                        isFaded={
+                            matchingNodeIds !== null && sourceNodeId !== null && !matchingNodeIds.has(sourceNodeId)
+                        }
                     />
                 )
             })}
