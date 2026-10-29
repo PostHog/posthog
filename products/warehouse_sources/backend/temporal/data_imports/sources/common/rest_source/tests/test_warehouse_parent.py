@@ -627,18 +627,23 @@ def test_pin_parent_table_version_keeps_the_current_pin(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "rollback,version_offset",
-    [(timedelta(0), 0), (warehouse_parent.MAX_SNAPSHOT_ROLLBACK, 5)],
-    ids=["outside_the_vacuum_window", "newer_than_the_table"],
+    "rollback,sweep_budget,version_offset",
+    [
+        (timedelta(0), timedelta(0), 0),
+        (warehouse_parent.MAX_SNAPSHOT_ROLLBACK, warehouse_parent.MAX_SNAPSHOT_ROLLBACK, 0),
+        (warehouse_parent.MAX_SNAPSHOT_ROLLBACK, warehouse_parent.RESUMED_SWEEP_BUDGET, 5),
+    ],
+    ids=["outside_the_vacuum_window", "no_retention_left_for_the_sweep", "newer_than_the_table"],
 )
 def test_pin_parent_table_version_refuses_a_version_it_cannot_vouch_for(
-    rollback: timedelta, version_offset: int, tmp_path: Path
+    rollback: timedelta, sweep_budget: timedelta, version_offset: int, tmp_path: Path
 ) -> None:
     _uri, checkpointed, newest = _table_with_a_later_commit(tmp_path)
 
     with (
         patch.object(warehouse_parent, "delta_storage_options", return_value={}),
         patch.object(warehouse_parent, "MAX_SNAPSHOT_ROLLBACK", rollback),
+        patch.object(warehouse_parent, "RESUMED_SWEEP_BUDGET", sweep_budget),
     ):
         assert pin_parent_table_version(newest, checkpointed + version_offset) is None
 

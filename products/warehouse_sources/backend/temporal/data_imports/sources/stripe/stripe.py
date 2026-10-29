@@ -1558,6 +1558,14 @@ def _reconcile_warehouse_resume(
     ):
         pinned = pin_parent_table_version(warehouse_parent, resume_config.warehouse_version)
         if pinned is not None and _warehouse_start_position(resume_config, pinned) is not None:
+            logger.info(
+                "Stripe: resuming the sweep on the parent version it checkpointed against",
+                endpoint=endpoint,
+                pinned_version=pinned.version,
+                latest_version=warehouse_parent.version,
+                fragment_index=resume_config.warehouse_fragment_index,
+                row_offset=resume_config.warehouse_row_offset,
+            )
             return pinned, table_id
 
     logger.info(

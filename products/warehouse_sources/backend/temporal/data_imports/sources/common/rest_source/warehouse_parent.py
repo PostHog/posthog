@@ -34,6 +34,11 @@ MAX_PARENT_PAGE_SIZE = 5000
 # version can only be tombstoned after that version, so any pin inside the window is safe.
 MAX_SNAPSHOT_ROLLBACK = VACUUM_RETENTION - dt.timedelta(hours=4)
 
+# How long a resumed fan-out may still read the snapshot it re-pins. The rest of its sweep runs
+# after the re-pin, so the snapshot needs this much retention left on top of the margin above.
+# The longest clean fan-out sweep in production takes about 6 hours.
+RESUMED_SWEEP_BUDGET = dt.timedelta(hours=8)
+
 logger = structlog.get_logger(__name__)
 
 
@@ -341,6 +346,8 @@ def pin_parent_table_version(table: ParentTableRef, version: int) -> ParentTable
     live at `version` can only be tombstoned by a later commit, and vacuum deletes it only once the
     tombstone ages past its retention. So the version stays readable while the first commit
     after it is inside `MAX_SNAPSHOT_ROLLBACK`, the bound `_snapshot_pin_as_of` puts on a rollback.
+    The rest of the sweep reads it after this check, so the version also needs
+    `RESUMED_SWEEP_BUDGET` of that window left, or vacuum can delete its files mid-sweep.
 
     Returns None rather than raising on any failure, so the caller's start-over branch covers an
     unreadable log too.
@@ -361,7 +368,7 @@ def pin_parent_table_version(table: ParentTableRef, version: int) -> ParentTable
     except Exception:
         logger.warning("data_imports.fanout_parent_repin_failed", uri=table.uri, version=version, exc_info=True)
         return None
-    if dt.datetime.now(dt.UTC) - tombstoned_from > MAX_SNAPSHOT_ROLLBACK:
+    if dt.datetime.now(dt.UTC) - tombstoned_from > MAX_SNAPSHOT_ROLLBACK - RESUMED_SWEEP_BUDGET:
         return None
     return ParentTableRef(uri=table.uri, version=version)
 
