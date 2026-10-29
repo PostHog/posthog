@@ -24,14 +24,14 @@ class WriterSectionBusy(Exception):
 
 
 def daily_run_cap_reached(writer: WriterSettings) -> bool:
-    recent_task_ids = tasks_facade.owner_origin_recent_task_ids(
+    recent_run_ids = tasks_facade.owner_origin_recent_run_ids(
         team_id=writer.team_id,
         created_by_id=writer.user_id,
         origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
         since=timezone.now() - timedelta(days=1),
         limit=DAILY_RUN_CAP,
     )
-    return len(recent_task_ids) >= DAILY_RUN_CAP
+    return len(recent_run_ids) >= DAILY_RUN_CAP
 
 
 @frozen

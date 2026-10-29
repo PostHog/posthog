@@ -361,3 +361,22 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     )
     dispatch_options = start_workflow.call_args.kwargs["options"]
     assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
+
+
+@pytest.mark.django_db
+def test_a_rerun_counts_toward_the_daily_run_cap(team, writer_env, monkeypatch) -> None:
+    monkeypatch.setattr(caps, "DAILY_RUN_CAP", 2)
+
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+        patch(CAPTURE_ALERT),
+    ):
+        started = intake.submit(_verdict(), team_id=team.id)
+        assert started.task_id is not None
+        TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
+        rerun = intake.submit(_verdict(), team_id=team.id)
+        next_request = intake.submit(_verdict(pull_request_number=456), team_id=team.id)
+
+    assert (started.status, rerun.status, next_request.status) == ("started", "started", "capped")
