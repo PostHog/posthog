@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-28 20:03:22 UTC
+// Generated at: 2026-10-29 10:04:42 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -145,6 +145,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'mistral-eu'
+    | 'mistral-fp8'
     | 'mistral-nvfp4'
     | 'mistral-nvfp4-eu'
     | 'mistral-us'
