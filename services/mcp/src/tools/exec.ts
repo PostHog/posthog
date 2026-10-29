@@ -242,6 +242,8 @@ export interface ExecToolOptions {
      */
     isInlineExecUiHost?: boolean
     mcpClientName?: string | undefined
+    /** Serve the online-evaluations hint after trace queries (see `isEvalsHintEnabled`). */
+    evalsHintEnabled?: boolean | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -2252,6 +2254,7 @@ export function createExecTool(
                                 mcpClientName: options.mcpClientName,
                                 includeUiResponseMeta: isInlineUiAppHost,
                                 includeRenderNote: isInlineUiAppHost,
+                                evalsHintEnabled: options.evalsHintEnabled,
                             })
                         )
                         trackInnerCall?.(tool.name, {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildToolResultPayload, markExecPayload, toolResultAnalyticsProperties } from '@/lib/build-tool-result'
-import { getDiscoveryHint, isEmptyToolResult } from '@/lib/discovery-hints'
+import { getDiscoveryHint, isEmptyToolResult, isEvalsHintEnabled } from '@/lib/discovery-hints'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 describe('isEmptyToolResult', () => {
@@ -73,6 +73,29 @@ describe('getDiscoveryHint', () => {
         const hint = getDiscoveryHint({ toolName: 'logs-context', handlerResult: { timeline: [{ body: 'x' }] } })
 
         expect(hint?.kind).not.toBe('empty_state')
+    })
+
+    it.each([
+        ['query-llm-traces-list', true],
+        ['query-llm-trace', true],
+        ['query-llm-traces-list', false],
+        ['query-llm-trace', false],
+    ])('serves the online evaluations hint after %s only when enabled (%s)', (toolName, evalsHintEnabled) => {
+        const hint = getDiscoveryHint({ toolName, handlerResult: { results: [{ id: 'trace-1' }] }, evalsHintEnabled })
+
+        expect(hint?.text?.includes('creating-online-evaluations') ?? false).toBe(evalsHintEnabled)
+    })
+
+    it.each([
+        ['mcp', [], true],
+        ['mcp', ['internal_run:read'], true],
+        ['mcp', ['signal_scout_internal:write', 'internal_run:read'], false],
+        ['control', [], false],
+        ['email', [], false],
+        [true, [], false],
+        [undefined, [], false],
+    ])('enables the evals hint for flag %s with scopes %j: %s', (flagValue, scopes, expected) => {
+        expect(isEvalsHintEnabled(flagValue, scopes)).toBe(expected)
     })
 
     it('cross-sells subscriptions and dashboards after insight creation', () => {

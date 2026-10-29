@@ -1,6 +1,7 @@
 import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
+import { AIO_EVALS_HINT_FLAG } from '@/lib/discovery-hints'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
@@ -202,6 +203,7 @@ export class RequestStateResolver {
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+                AIO_EVALS_HINT_FLAG,
             ]),
         ]
 
