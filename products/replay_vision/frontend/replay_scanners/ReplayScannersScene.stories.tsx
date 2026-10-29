@@ -1984,7 +1984,7 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The goal step: a typed goal and budget on the left, one-click starting points on the right.
+// The goal step: one goal box with starters that fill it, a budget, and a single draft button.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerGoal('new'),
@@ -2308,21 +2308,19 @@ export const ScannerEditorGoalFlowBudget: StoryObj = {
     ],
 }
 
-// "Track an experiment" opened and an experiment picked: the starter lists running experiments and drafts an
-// experiment scanner on the one picked.
+// An experiment picked from the "Track an experiment" chip: the pick fills the goal box, links the experiment
+// to the draft, and the chip shows its name.
 export const ScannerEditorGoalFlowExperimentPicker: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerGoal('new'),
     },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Track an experiment'))
-        const picker = await waitFor(() => {
-            const button = canvasElement.querySelector('[data-attr="vision-goal-starter-experiment-picker"]')
+        const chip = await waitFor(() => {
+            const button = canvasElement.querySelector('[data-attr="vision-goal-starter-experiment"]')
             expect(button).not.toHaveClass('LemonButton--loading')
             return button as HTMLElement
         })
-        await userEvent.click(picker)
+        await userEvent.click(chip)
         await userEvent.click(await within(document.body).findByText('AI creation flow'))
     },
 }
