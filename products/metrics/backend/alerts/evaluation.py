@@ -46,6 +46,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
@@ -341,7 +342,15 @@ def _observations(
         )
     breaching = {observation.grouping_key for observation in observations if observation.current_breached}
     held = frozenset(unknown - breaching)
-    return [observation for observation in observations if observation.grouping_key not in held], held
+    kept = [observation for observation in observations if observation.grouping_key not in held]
+    # A firing group the query still returns is reported as still firing, which notifies nothing, so the
+    # platform records it as seen and its absence hold counts from this check.
+    kept.extend(
+        GroupObservation(grouping_key=key, current_breached=True)
+        for key in held
+        if check.instance(key).state == PlatformAlertState.FIRING.value
+    )
+    return kept, held
 
 
 def _grouping_key_of(labels: dict[str, str]) -> str:
