@@ -306,6 +306,21 @@ class TestFetchTableStats:
         assert cursor.execute.call_count == 1
         capture.assert_not_called()
 
+    def test_tempdb_log_full_skips_capture(self, impl, cursor, logger, mocker):
+        # SQL Server 9002: another session's active transaction filled tempdb's log. This clears
+        # once that transaction ends, so it's as self-recovering as the connection-death case above
+        # and must not flood error tracking.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.execute.side_effect = pymssql.OperationalError(
+            9002,
+            b"The transaction log for database 'tempdb' is full due to 'ACTIVE_TRANSACTION' and the holdup lsn "
+            b"is (1:2:3).DB-Lib error message 20018, severity 17:\nGeneral SQL Server error\n",
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
+        capture.assert_not_called()
+
 
 class TestFetchAverageRowSize:
     """MSSQL's `fetch_average_row_size` samples a separate `TOP 100` query
