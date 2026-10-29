@@ -661,6 +661,11 @@ class BIAggregation(StrEnum):
     CUSTOM = "custom"
 
 
+class BICatalogMetricStatus(StrEnum):
+    APPROVED = "approved"
+    PROPOSED = "proposed"
+
+
 class Operator1(StrEnum):
     AND_ = "AND"
     OR_ = "OR"

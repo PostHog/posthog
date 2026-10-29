@@ -6225,6 +6225,10 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICatalogMetricStatus": {
+            "enum": ["approved", "proposed"],
+            "type": "string"
+        },
         "BICategoryGroup": {
             "additionalProperties": false,
             "properties": {
@@ -6270,6 +6274,32 @@
                 "catalogMetric": {
                     "description": "Catalog provenance only: the snapshot does not track subsequent definition edits.",
                     "type": "string"
+                },
+                "catalogMetricContext": {
+                    "additionalProperties": false,
+                    "description": "Catalog metadata at copy time, not a live approval of the worksheet.",
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        },
+                        "isDrifted": {
+                            "type": "boolean"
+                        },
+                        "owner": {
+                            "type": ["string", "null"]
+                        },
+                        "status": {
+                            "$ref": "#/definitions/BICatalogMetricStatus"
+                        },
+                        "unit": {
+                            "type": "string"
+                        },
+                        "updatedAt": {
+                            "type": ["string", "null"]
+                        }
+                    },
+                    "required": ["id", "status", "isDrifted", "unit", "owner", "updatedAt"],
+                    "type": "object"
                 },
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
@@ -10203,6 +10233,13 @@
         "CachedLifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -12831,6 +12868,10 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "disclaimer": {
+                    "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -12913,6 +12954,7 @@
             },
             "required": [
                 "cache_key",
+                "disclaimer",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -14797,6 +14839,13 @@
         "CachedStickinessQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -15940,6 +15989,13 @@
         "CachedTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "boxplot_data": {
                     "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
@@ -26111,7 +26167,7 @@
                     "description": "Stable identifier of the check."
                 },
                 "name": {
-                    "description": "What the check looks at, as the health panel lists it.",
+                    "description": "The problem the check looks for, as the health panel lists it.",
                     "type": "string"
                 },
                 "reason": {
@@ -31628,6 +31684,13 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -36036,6 +36099,10 @@
         "MarketingAnalyticsRecommendationsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "disclaimer": {
+                    "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -36095,7 +36162,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": ["disclaimer", "results"],
             "type": "object"
         },
         "MarketingAnalyticsRecommendationsSource": {
@@ -45271,6 +45338,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "disclaimer": {
+                            "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -45330,7 +45401,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": ["disclaimer", "results"],
                     "type": "object"
                 },
                 {
@@ -47162,6 +47233,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "boxplot_data": {
                             "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
@@ -47494,6 +47572,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -47559,6 +47644,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -54107,6 +54199,13 @@
         "StickinessQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -56761,6 +56860,13 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "boxplot_data": {
                     "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
@@ -59638,9 +59744,13 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "order": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The index of the row's series in the query."
                 }
             },
-            "required": ["data", "days", "action"],
+            "required": ["data", "days", "order", "action"],
             "type": "object"
         },
         "WebVitalsItemAction": {

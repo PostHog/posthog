@@ -1119,6 +1119,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'metrics-dashboard-import',
             'managed-warehouse-trino-query',
             'llm-analytics-tags',
+            'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
             'marketing-analytics-recommendations',
             'insight-data-checks',
@@ -1129,6 +1130,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
+            'workflows-customerio-import',
             'mcp-session-recording-console-logs',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))

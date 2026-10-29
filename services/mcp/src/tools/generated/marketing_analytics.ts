@@ -453,5 +453,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         schema: MarketingAnalyticsRecommendationsQuery,
         kind: 'MarketingAnalyticsRecommendationsQuery',
         outputFormat: 'json',
+        urlPrefix: '/marketing',
     }),
 }
