@@ -35,9 +35,12 @@ export function isCorePropertyKey(propertyKey: string, type?: PropertyDefinition
     if (!PROPERTY_KEYS.includes(propertyKey)) {
         return false
     }
-    // The taxonomy does not mirror some event keys onto persons because the same key means something else there,
-    // for example `title` is a page title on events and usually a job title on persons.
-    return type !== PropertyDefinitionType.Person || propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties
+    if (type === undefined || type === PropertyDefinitionType.Event) {
+        return true
+    }
+    // The taxonomy does not mirror some event keys onto persons because the same key is usually customer data
+    // outside events, for example `title` is a page title on events and a job title on persons or groups.
+    return propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties
 }
 
 /**

@@ -236,6 +236,7 @@ describe('PropertiesTable inline editor', () => {
     describe('core property keys', () => {
         it.each<[PropertyDefinitionType, string, boolean]>([
             [PropertyDefinitionType.Person, 'title', true],
+            [PropertyDefinitionType.Group, 'title', true],
             [PropertyDefinitionType.Person, 'utm_source', false],
             [PropertyDefinitionType.Event, 'title', false],
         ])('%s property %s can be deleted: %s', (type, key, deletable) => {
