@@ -6,6 +6,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
+from itertools import chain
 
 from django.conf import settings
 from django.db import transaction
@@ -1615,6 +1616,22 @@ def _admit(cluster: ClickhouseCluster, queue: list[_PlanTeam], cap: int, now: da
     return admissions
 
 
+def _send_notices(
+    context: dagster.OpExecutionContext, notices: dict[tuple[uuid.UUID, date], list[_PlanTeam]]
+) -> dict[tuple[uuid.UUID, date], list[_PlanTeam]]:
+    """Email each organization its deletion notice, and return the notices that didn't go out."""
+    unsent: dict[tuple[uuid.UUID, date], list[_PlanTeam]] = {}
+    for (organization_id, deletion_on), notice_teams in notices.items():
+        try:
+            send_events_deletion_notice(
+                str(organization_id), sorted(team.team_id for team in notice_teams), deletion_on
+            )
+        except Exception as error:
+            context.log.warning(f"org {organization_id}: no deletion notice went out, so its teams wait: {error!r}")
+            unsent[(organization_id, deletion_on)] = notice_teams
+    return unsent
+
+
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def update_plan_deletions(
     context: dagster.OpExecutionContext,
@@ -1650,21 +1667,13 @@ def update_plan_deletions(
     for team in admissions.with_notice:
         notices[(team.organization_id, changed[team.team_id].next_deletion_on)].append(team)
 
-    orgs_not_notified = 0
-    for (organization_id, deletion_on), notice_teams in notices.items():
-        try:
-            send_events_deletion_notice(
-                str(organization_id), sorted(team.team_id for team in notice_teams), deletion_on
-            )
-        except Exception as error:
-            orgs_not_notified += 1
-            context.log.warning(f"org {organization_id}: no deletion notice went out, so its teams wait: {error!r}")
-            for team in notice_teams:
-                if team.team_id in states:
-                    # The old window makes the next run see the downgrade again and retry the notice.
-                    changed[team.team_id] = replace(changed[team.team_id], months=states[team.team_id].months)
-                else:
-                    del changed[team.team_id]
+    unsent = _send_notices(context, notices)
+    for team in chain.from_iterable(unsent.values()):
+        if team.team_id in states:
+            # The old window makes the next run see the downgrade again and retry the notice.
+            changed[team.team_id] = replace(changed[team.team_id], months=states[team.team_id].months)
+        else:
+            del changed[team.team_id]
 
     passes = {
         team.team_id: team.plan_months
@@ -1690,8 +1699,8 @@ def update_plan_deletions(
             "admitted": dagster.MetadataValue.int(sum(team.team_id in changed for team in admissions.with_notice)),
             "admitted_without_notice": dagster.MetadataValue.int(len(admissions.without_notice)),
             "downgrades": dagster.MetadataValue.int(downgrades),
-            "orgs_notified": dagster.MetadataValue.int(len(notices) - orgs_not_notified),
-            "orgs_not_notified": dagster.MetadataValue.int(orgs_not_notified),
+            "orgs_notified": dagster.MetadataValue.int(len(notices) - len(unsent)),
+            "orgs_not_notified": dagster.MetadataValue.int(len(unsent)),
             "passes_due": dagster.MetadataValue.int(len(passes)),
         }
     )
