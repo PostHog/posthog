@@ -113,7 +113,6 @@ def test_failed_gh_attach_exits_nonzero(tmp_path: Path) -> None:
 def test_pr_assets_route_records_why_gh_was_skipped(
     tmp_path: Path, extra_args: list[str], detected_pr: int | None, gh: str | None, route: str
 ) -> None:
-    # The route property is how adoption of the gh route is measured before pr-assets retires.
     path = tmp_path / "after.png"
     path.write_bytes(b"fake bytes")
     with (

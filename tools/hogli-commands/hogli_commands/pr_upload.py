@@ -7,7 +7,7 @@ share: warn, validate, gate on --yes, then publish.
 With an open PR and a gh that supports ``--attach``, the files go to GitHub's own
 attachment storage through ``gh pr edit --attach``. Otherwise they go to PostHog/pr-assets
 and the command prints markdown. The ``upload_route`` command property records which
-route ran, so the pr-assets route can be retired once gh covers everyone.
+route ran.
 """
 
 from __future__ import annotations
@@ -121,9 +121,15 @@ def _attach_to_pr(gh: str, files: tuple[Path, ...], caption: str | None, kind: A
         label = caption if caption is not None else path.stem
         args += ["--attach", f"{path}#{label}" if kind.gh_alt_text else str(path)]
 
+    if caption is not None and not kind.gh_alt_text:
+        click.secho(f"gh takes no caption for a {kind.noun}, so {kind.caption_flag} is ignored.", fg="yellow", err=True)
     click.secho(f"Attaching to the description of PR #{pr} …", fg="cyan", err=True)
     if subprocess.run(args, check=False).returncode != 0:
-        raise click.ClickException("gh pr edit --attach failed, see its output above")
+        # gh writes the files that did upload into the body before it exits non-zero.
+        raise click.ClickException(
+            "gh pr edit --attach failed, see its output above. Files that uploaded are already in the "
+            "PR description, so re-run only the ones that failed."
+        )
     click.secho(f"✓ attached {len(files)} {kind.noun}(s) to the PR description", fg="green", err=True)
 
 
