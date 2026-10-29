@@ -1489,7 +1489,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # Capture and the history table write their own columns next to the source's, so a synced
             # source column that loads under one of those names would fail the source's first sync.
             # Refuse before any replication state exists.
-            new_history = new_history_naming()
+            new_history = new_history_naming(new_source_model)
             reserved_columns_by_table = {
                 schema["name"]: reserved_column_collisions(
                     [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],

@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from uuid import UUID
 
-from django.conf import settings
 from django.db.models import Q, QuerySet
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -22,6 +21,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     build_table_name,
     resolve_table_and_folder_names,
 )
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_source_flag_enabled
+
+# New history tables are named `<table>_history` with `_ph_valid_from` / `_ph_valid_to` while this flag is on
+# for the source. Keep it off until every loader reads the validity names from the batch: an older loader
+# appends such a batch without closing the open versions.
+PH_HISTORY_NAMING_FLAG = "warehouse-ph-history-naming"
 
 
 class HistoryTableNameTakenError(Exception):
@@ -41,9 +46,9 @@ def not_another_schemas_table(tables: QuerySet[DataWarehouseTable], schema_id: U
     return tables.filter(Q(externaldataschema__isnull=True) | Q(externaldataschema__id=schema_id)).distinct()
 
 
-def new_history_naming() -> HistoryNaming:
-    """The naming a history table created now gets."""
-    return HISTORY_NAMING if settings.DATA_WAREHOUSE_PH_HISTORY_NAMING else LEGACY_HISTORY_NAMING
+def new_history_naming(source: ExternalDataSource) -> HistoryNaming:
+    """The naming a history table of this source created now gets."""
+    return HISTORY_NAMING if is_source_flag_enabled(source, PH_HISTORY_NAMING_FLAG) else LEGACY_HISTORY_NAMING
 
 
 def kept_history_naming(schema: ExternalDataSchema) -> HistoryNaming | None:
@@ -84,8 +89,8 @@ def history_naming(schema: ExternalDataSchema) -> HistoryNaming:
     registered = registered_history_naming(schema)
     if registered is not None:
         return registered
-    naming = new_history_naming()
     source = schema.source
+    naming = new_history_naming(source)
     new_name = build_table_name(source, companion_resource_name(schema.name, naming))
     if DataWarehouseTable.objects.filter(
         team_id=schema.team_id, external_data_source_id=source.id, deleted=False, name=new_name
@@ -109,7 +114,7 @@ def new_history_names_taken(
     source: ExternalDataSource, history_schema_names: Iterable[str], synced_schema_names: Iterable[str]
 ) -> list[str]:
     """The schemas of a new source whose history table would take the catalog name of a synced schema."""
-    naming = new_history_naming()
+    naming = new_history_naming(source)
     taken = {build_table_name(source, name) for name in synced_schema_names}
     return sorted(
         name
@@ -206,5 +211,5 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
     """
     if not schema.keeps_history:
         return None
-    naming = registered_history_naming(schema) or new_history_naming()
+    naming = registered_history_naming(schema) or new_history_naming(schema.source)
     return build_table_name(schema.source, companion_resource_name(schema.name, naming))

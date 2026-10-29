@@ -3,9 +3,9 @@ from io import StringIO
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
-from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -22,8 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table 
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
+_PH_HISTORY_NAMING_FLAG = (
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
+)
 
-@override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+
+@patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
 class TestHistoryNaming(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -69,9 +73,9 @@ class TestHistoryNaming(BaseTest):
 
         assert history_naming(self.schema) == expected
 
-    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=False)
-    def test_a_new_history_table_keeps_the_legacy_naming_until_the_setting_is_on(self) -> None:
-        assert history_naming(self.schema) == LEGACY_HISTORY_NAMING
+    def test_a_new_history_table_keeps_the_legacy_naming_until_the_flag_is_on(self) -> None:
+        with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: False):
+            assert history_naming(self.schema) == LEGACY_HISTORY_NAMING
 
     def test_a_stamped_new_table_wins_over_a_legacy_named_table(self) -> None:
         # An unlinked `orders_cdc` can be a source table that has not synced yet. Taking the legacy naming
@@ -91,7 +95,7 @@ class TestHistoryNaming(BaseTest):
     def test_new_history_names_taken_compares_the_payload_of_a_new_source(
         self, _name: str, ph_naming: bool, sibling: str
     ) -> None:
-        with override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=ph_naming):
+        with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: ph_naming):
             taken = new_history_names_taken(self.source, ["orders", "items"], ["orders", sibling, "items"])
 
         assert taken == ["orders"]

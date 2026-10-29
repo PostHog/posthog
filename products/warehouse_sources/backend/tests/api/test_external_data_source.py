@@ -139,6 +139,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsAPIError
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 
+_PH_HISTORY_NAMING_FLAG = (
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
+)
+
 
 def _configure_source_mock_versioning(mock_get_source) -> None:
     """Tests that patch `SourceRegistry.get_source` with a bare MagicMock must give the versioning
@@ -5087,7 +5091,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    @patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_create_postgres_cdc_rejects_a_table_it_cannot_capture(
         self,
         _name,
