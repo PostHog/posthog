@@ -1,9 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { ExternalDataSourceSchema } from '~/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { ColumnSensitivity, ExternalDataSourceSchema, SchemaAvailableColumn } from '~/types'
+
+const SENSITIVITY_LABELS: Record<ColumnSensitivity, string> = {
+    email: 'Email',
+    phone: 'Phone',
+    name: 'Name',
+    address: 'Address',
+    date_of_birth: 'Date of birth',
+    ip_address: 'IP address',
+    token: 'Token',
+    secret: 'Secret',
+    card_number: 'Card number',
+}
 
 // Unifies the existing-source schema and the wizard's pre-creation sync schema so
 // both can drive the picker without coupling it to either concrete type.
@@ -16,7 +30,7 @@ export interface ColumnSelectionTarget {
     /** The key discovery found, which a sync merges on when no key is stored. */
     detected_primary_keys?: string[] | null
     incremental_field?: string | null
-    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    available_columns?: SchemaAvailableColumn[]
 }
 
 interface ColumnSelectionPickerProps {
@@ -51,11 +65,13 @@ interface UseColumnSelectionResult {
     isSyncKey: (name: string) => boolean
     toggleMask: (name: string) => void
     missingMasked: string[]
+    suggestedColumns: string[]
+    maskSuggested: () => void
     persistedSelection: () => string[] | null
-    available: { name: string; data_type?: string; is_nullable?: boolean }[]
+    available: SchemaAvailableColumn[]
     primaryKeys: Set<string>
     incrementalField: string | null | undefined
-    filteredColumns: { name: string; data_type?: string; is_nullable?: boolean }[]
+    filteredColumns: SchemaAvailableColumn[]
 }
 
 function useColumnSelection(
@@ -126,6 +142,11 @@ function useColumnSelection(
         commit(next)
     }
 
+    const commitMaskedSet = (next: Set<string>): void => {
+        setMasked(next)
+        onMaskedChange?.(Array.from(next))
+    }
+
     const commitMasked = (name: string, shouldMask: boolean): void => {
         const next = new Set(masked)
         if (shouldMask) {
@@ -133,8 +154,7 @@ function useColumnSelection(
         } else {
             next.delete(name)
         }
-        setMasked(next)
-        onMaskedChange?.(Array.from(next))
+        commitMaskedSet(next)
     }
 
     const isMasked = (name: string): boolean => masked.has(name)
@@ -168,6 +188,13 @@ function useColumnSelection(
         }
     }
 
+    // Keys and the incremental field are never suggested, because a hashed value can't be merged or ordered on.
+    const suggestedColumns = available
+        .filter((column) => column.sensitivity && !masked.has(column.name) && isMaskable(column.name))
+        .map((column) => column.name)
+
+    const maskSuggested = (): void => commitMaskedSet(new Set([...masked, ...suggestedColumns]))
+
     const setSyncAll = (): void => commit(null)
 
     const filteredColumns = useMemo(() => {
@@ -193,6 +220,8 @@ function useColumnSelection(
         isSyncKey,
         toggleMask,
         missingMasked,
+        suggestedColumns,
+        maskSuggested,
         persistedSelection,
         available,
         primaryKeys,
@@ -222,15 +251,36 @@ export function ColumnSelectionPicker({
         isSyncKey,
         toggleMask,
         missingMasked,
+        suggestedColumns,
+        maskSuggested,
         persistedSelection,
         available,
         primaryKeys,
         filteredColumns,
     } = useColumnSelection(schema, onChange, onMaskedChange)
+    const suggestSensitive = useFeatureFlag('WAREHOUSE_COLUMN_SENSITIVITY') && !!enableMasking
 
     return (
         <div className="flex flex-col gap-2">
             <LemonInput type="search" placeholder="Filter columns" size="small" value={filter} onChange={setFilter} />
+            {suggestSensitive && suggestedColumns.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-secondary">
+                        {suggestedColumns.length === 1
+                            ? '1 column looks like personal or secret data.'
+                            : `${suggestedColumns.length} columns look like personal or secret data.`}
+                    </span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconLock />}
+                        onClick={maskSuggested}
+                        data-attr="schema-mask-suggested-columns"
+                    >
+                        Mask suggested columns
+                    </LemonButton>
+                </div>
+            )}
             <div className="max-h-96 overflow-y-auto border rounded">
                 {available.length === 0 && (
                     <div className="text-center text-muted-alt py-6 text-sm">
@@ -239,6 +289,7 @@ export function ColumnSelectionPicker({
                 )}
                 {filteredColumns.map((column) => {
                     const retained = isAlwaysRetained(column.name)
+                    const sensitivity = suggestSensitive && isMaskable(column.name) ? column.sensitivity : null
                     const checkbox = (
                         <LemonCheckbox
                             checked={isChecked(column.name)}
@@ -249,6 +300,13 @@ export function ColumnSelectionPicker({
                                     <code>{column.name}</code>
                                     {column.data_type && (
                                         <span className="text-xs text-muted-alt">{column.data_type}</span>
+                                    )}
+                                    {sensitivity && (
+                                        <Tooltip title="This column's name suggests personal or secret data. Consider masking it.">
+                                            <LemonTag size="small" type="caution">
+                                                {SENSITIVITY_LABELS[sensitivity]}
+                                            </LemonTag>
+                                        </Tooltip>
                                     )}
                                     {retained && (
                                         <span className="text-xs text-muted">

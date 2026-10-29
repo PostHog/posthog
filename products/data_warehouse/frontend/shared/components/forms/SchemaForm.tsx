@@ -672,6 +672,7 @@ export default function SchemaForm(): JSX.Element {
                                               name: c.field,
                                               data_type: c.type,
                                               is_nullable: c.nullable,
+                                              sensitivity: c.sensitivity,
                                           })),
                                       }
                                     : null

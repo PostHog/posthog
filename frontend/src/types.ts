@@ -112,6 +112,7 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     ExternalDataSourceTypeEnumApi,
     IncrementalSyncBlockedReasonEnumApi,
     RowFilterColumnApi,
@@ -6597,11 +6598,23 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
 }
 
+/** The kind of personal or secret data a column's name and type suggest. */
+export type ColumnSensitivity = NonNullable<ExternalDataSchemaApiAvailableColumnsItemSensitivity>
+
+/** A column offered by the column picker. */
+export interface SchemaAvailableColumn {
+    name: string
+    data_type?: string
+    is_nullable?: boolean
+    sensitivity?: ColumnSensitivity | null
+}
+
 export interface AvailableColumn {
     label: string
     field: string
     type: string
     nullable: boolean
+    sensitivity?: ColumnSensitivity | null
 }
 
 /** The comparison operators a row filter may use. Mirrors the backend allowlist. */
@@ -6728,7 +6741,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     enabled_columns?: string[] | null
     /** Source columns whose values are replaced with a one-way hash at sync time. */
     masked_columns?: string[] | null
-    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    available_columns?: SchemaAvailableColumn[]
     /** Exact source identifiers are available for sources that project columns upstream. */
     source_column_metadata_available?: boolean
     /**

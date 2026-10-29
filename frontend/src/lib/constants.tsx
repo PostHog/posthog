@@ -576,6 +576,7 @@ export const FEATURE_FLAGS = {
     VISION_EXPERIMENT_SCANNER: 'experiment-scanner', // owner: #team-replay, experiment scanners overall: the type in the scanner editor, creating one from experiments, and the variants tab
     VISION_SCANNER_WIZARD_RECORDINGS_FIRST: 'vision-scanner-wizard-recordings-first', // owner: #team-replay multivariate=control,test, new scanner wizard and goal overview ask which recordings to watch before the prompt; gate on === 'test'
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
+    WAREHOUSE_COLUMN_SENSITIVITY: 'warehouse-column-sensitivity', // owner: #team-warehouse-sources, flags and suggests masking personal or secret columns
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WAREHOUSE_SUGGESTIONS: 'warehouse-suggestions', // owner: #team-data-modeling
