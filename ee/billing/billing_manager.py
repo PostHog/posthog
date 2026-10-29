@@ -1,5 +1,6 @@
 import hmac
 import json
+import math
 import time
 import hashlib
 from datetime import UTC, datetime, timedelta
@@ -18,7 +19,7 @@ import jwt
 import requests
 import structlog
 from requests import JSONDecodeError
-from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, Throttled
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
@@ -322,7 +323,8 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
 
 
 class BillingServiceResponseError(Exception):
-    """Billing answered with a status code the caller does not accept."""
+    """Billing answered with a status code the caller does not accept, other than 429,
+    which raises BillingServiceRateLimited."""
 
     def __init__(self, status_code: int, body: Any) -> None:
         # The message and the body keep the positions callers already read: see
@@ -332,8 +334,32 @@ class BillingServiceResponseError(Exception):
         self.body = body
 
 
+class BillingServiceRateLimited(Throttled):
+    # DRF sets this in Throttled.__init__ and its handler turns it into Retry-After; the stubs omit it.
+    wait: Optional[float]
+
+    default_code = "billing_rate_limited"
+    default_detail = "Billing is receiving too many requests for this organization. Try again shortly."
+
+
+def _retry_after_seconds(res: requests.Response) -> Optional[float]:
+    try:
+        seconds = float(res.headers.get("Retry-After", ""))
+    except ValueError:
+        return None
+    # DRF rounds the wait up with math.ceil, which raises on nan and infinity.
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
+        if res.status_code == 429:
+            wait = _retry_after_seconds(res)
+            # A streamed response (see _get_csv) keeps its pooled connection until it is closed.
+            res.close()
+            # Keyword arguments only, so args stays empty: the legacy handlers in ee/api/billing.py turn an
+            # exception with more than two args into a 400.
+            raise BillingServiceRateLimited(wait=wait)
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
             body: Any = res.json()
