@@ -472,6 +472,28 @@ describe('evaluationsOverviewLogic', () => {
         expect(drawerLogic.values.openDetails).toMatchObject({ status: 'ready' })
     })
 
+    it('opens paused evaluations in Explore only when they have results in the period', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:teamId/evaluations/': {
+                    count: 2,
+                    next: null,
+                    results: [
+                        { ...evaluation('eval-a', null), enabled: false },
+                        { ...evaluation('eval-z', null), enabled: false },
+                    ],
+                },
+            },
+        })
+        llmEvaluationsLogic.actions.loadEvaluations()
+        await expectLogic(llmEvaluationsLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const url = decodeURIComponent(logic.values.exploreUrl ?? '')
+        expect(url).toContain('eval-a')
+        expect(url).not.toContain('eval-z')
+    })
+
     test.each([
         { dateFrom: '-14d', dateTo: null, expected: '"date_from":"2026-10-09","date_to":"2026-10-22"' },
         // Hourly buckets read a date-only end as midnight, which would drop the whole day.

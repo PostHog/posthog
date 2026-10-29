@@ -521,7 +521,8 @@ export interface evaluationsOverviewLogicMeta {
             evaluations: EvaluationConfig[],
             scopedIds: string[] | null,
             request: OverviewRequest,
-            interval: BucketInterval
+            interval: BucketInterval,
+            rowsById: Map<string, EvaluationResultApi>
         ) => string | null
         evaluationListFailed: (
             evaluationsLoadFailed: boolean,
@@ -975,19 +976,23 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             },
         ],
         exploreUrl: [
-            (s) => [s.evaluations, s.scopedIds, s.request, s.interval],
+            (s) => [s.evaluations, s.scopedIds, s.request, s.interval, s.rowsById],
             (
                 evaluations: EvaluationConfig[],
                 scopedIds: string[] | null,
                 request: OverviewRequest,
-                interval: BucketInterval
+                interval: BucketInterval,
+                rowsById: Map<string, EvaluationResultApi>
             ): string | null => {
                 if (!request.ready) {
                     return null
                 }
-                const scoped = scopedIds
-                    ? evaluations.filter((evaluation) => scopedIds.includes(evaluation.id))
-                    : evaluations
+                // Paused evaluations with results in the period count, as they do on the overview chart.
+                const scoped = evaluations.filter(
+                    (evaluation) =>
+                        (!scopedIds || scopedIds.includes(evaluation.id)) &&
+                        (evaluation.enabled || (rowsById.get(evaluation.id)?.gradedCount ?? 0) > 0)
+                )
                 const { date_from = null, date_to = null } = request.params
                 // Trends reads a date-only end as that day's midnight when it buckets by hour, so the day gets an end.
                 const dateTo =
