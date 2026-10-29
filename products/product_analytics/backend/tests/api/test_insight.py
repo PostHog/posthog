@@ -69,13 +69,14 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
-from products.product_analytics.backend.presentation.insight import chart_display_filter
+from products.product_analytics.backend.presentation.insight import InsightSerializer, chart_display_filter
 from products.subscriptions.backend.facade.testing import (
     create_subscription,
     create_subscription_delivery,
@@ -649,7 +650,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # never execute the body of. A 200 alone doesn't prove this: insight_result's
         # broad except Exception swallows calculation crashes into a query_status error
         # and still renders 200, so assert the embedded result actually computed.
-        insight_id, _ = self.dashboard_api.create_insight({"name": "insight"})
+        action = Action.objects.create(team=self.team, name="Viewed a page", steps_json=[{"event": "$pageview"}])
+        query = default_pageview_query()
+        query["source"]["series"] = [{"kind": "ActionsNode", "id": action.id}]
+        insight_id, _ = self.dashboard_api.create_insight({"name": "insight", "query": query})
         sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
 
         # .json suffix returns exported_data directly, skipping exporter.html rendering
@@ -662,6 +666,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         query_status = exported["insight"]["query_status"] or {}
         self.assertFalse(query_status.get("error"), query_status)
         self.assertIsNotNone(exported["insight"]["result"])
+        # A shared view cannot read actions, so an action series saved without a name takes its name from here.
+        self.assertEqual(exported["insight"]["action_names"], {str(action.id): "Viewed a page"})
 
     def test_shared_force_refresh_ignores_client_filter_overrides(self) -> None:
         # Regression: the /shared/<token> page load runs without an authenticator, so the serializer
@@ -4423,6 +4429,24 @@ class TestInsightQueryScan(APIBaseTest):
         self.assertIsNone(body["query_scan"])
         self.assertNotIn("cache_key", body["query_status"])
         self.assertNotIn("query_scan", body["query_status"])
+
+
+class TestInsightExportCacheShortcut(APIBaseTest):
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
+    def test_an_entry_cached_without_action_names_takes_them_from_the_query(
+        self, mock_query_cache: mock.MagicMock
+    ) -> None:
+        action = Action.objects.create(team=self.team, name="Completed checkout")
+        query = default_pageview_query()
+        query["source"]["series"] = [{"kind": "ActionsNode", "id": action.id}]
+        insight = Insight.objects.create(team=self.team, query=query)
+        # The image exporter hands over the key of an entry cached before responses carried `action_names`.
+        mock_query_cache.return_value.lookup.return_value.entry.as_full_response.return_value = {"results": []}
+        serializer = InsightSerializer(context={"export_cache_keys": {insight.id: f"cache_{self.team.pk}_abc123"}})
+
+        result = serializer.insight_result(insight)
+
+        self.assertEqual(result.action_names, {str(action.id): "Completed checkout"})
 
 
 class TestInsightWarnings(APIBaseTest):

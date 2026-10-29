@@ -14,15 +14,15 @@ register it in ``_cdc_adapters`` below.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, CDCLag
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import CDCEngine, ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -39,6 +39,9 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     Generic over the engine's concrete CDC config type so that ``parse_cdc_config``
     is typed precisely without forcing callers to do ``isinstance`` checks.
     """
+
+    # The catalog serves it as `cdcEngine`. Engines that are the same database on the wire share one.
+    engine: CDCEngine
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader: ...
 
@@ -57,24 +60,25 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         management_mode: Literal["posthog", "self_managed"],
         tables: list[str],
         schema: str,
-        slot_name: str | None,
-        publication_name: str | None,
-    ) -> list[str]: ...
+        setup: Mapping[str, Any],
+    ) -> list[str]:
+        """Check the source database against the engine's CDC prerequisites. ``setup`` holds the
+        engine's own ``cdc_*`` setup fields from the request (PG: the slot and publication names)."""
+        ...
 
-    def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None: ...
+    def drop_stream(self, conn: Any, source: ExternalDataSource) -> None:
+        """Best-effort drop of the source's engine-side change stream and the resources PostHog owns
+        with it (PG: the slot and the publication). Logs a refused drop instead of raising."""
+        ...
 
-    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+    def stream_exists(self, conn: Any, source: ExternalDataSource) -> bool:
         """Whether the change-stream resource still exists on the source database. Callers use it to
         confirm a best-effort drop actually removed it before acting as if it were gone."""
         ...
 
-    def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None: ...
-
-    def get_retention_cap_mb(self, conn: Any) -> int | None:
-        """Engine-enforced cap on retained change-stream backlog in MB (PG:
-        max_slot_wal_keep_size). None when unlimited or unknown. Once the backlog
-        crosses this cap the engine invalidates the slot itself, so safety nets
-        must act below it."""
+    def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
+        """How far capture is behind the change stream, or None when the stream is missing or reports
+        no position."""
         ...
 
     def is_slot_invalidation_error(self, exc: BaseException) -> bool:
@@ -103,7 +107,7 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         ``is_slot_invalidation_error``: keeps psycopg/engine specifics out of the shared layer."""
         ...
 
-    def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
+    def recreate_stream(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop and recreate the change-stream resource after invalidation, against the
         existing capture definition (recreating it when PostHog owns it). ``tables`` is
         the schema-qualified (``schema.table``) capture set used if the definition must be
@@ -142,10 +146,17 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
         """Live engine-side CDC health for the source, read from the source DB.
 
-        Opens a short management connection and returns at minimum
-        ``{"slot_exists": bool, "publication_exists": bool, "lag_bytes": int | None}``.
-        Engines may add extra fields. Raises on connection failure — the caller
-        surfaces that as a 400 / unreachable state.
+        Opens a short management connection and returns the engine's fields of the CDC status
+        payload: its stored stream identifiers, whether each engine-side resource exists, and the
+        lag. Raises on connection failure — the caller surfaces that as a 400 / unreachable state.
+        """
+        ...
+
+    def capture_resources_present(self, status: Mapping[str, Any]) -> bool:
+        """Whether a ``get_status`` result shows every engine-side resource capture reads from.
+
+        False is the evidence that lets Repair CDC run, and that stops Resume CDC from unpausing a
+        source that would only fail again.
         """
         ...
 
@@ -159,6 +170,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         """Best-effort exclude a table from the change-capture set. Inverse of ``add_table``."""
+        ...
+
+    def manages_capture_set(self, source: ExternalDataSource) -> bool:
+        """Whether PostHog owns the source's change-capture set (PG: a PostHog-managed publication),
+        so ``add_table`` and ``remove_table`` change it."""
         ...
 
 
@@ -206,6 +222,12 @@ def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
 def cdc_supported_source_types() -> list[ExternalDataSourceType]:
     """Source types that support CDC. Use for queries (e.g. ``source_type__in=...``)."""
     return list(_cdc_adapters().keys())
+
+
+def cdc_engine(source_type: ExternalDataSourceType) -> CDCEngine | None:
+    """The engine name of the source type's CDC adapter, or None when it has no change stream."""
+    adapter = _cdc_adapters().get(source_type)
+    return adapter.engine if adapter is not None else None
 
 
 def source_type_supports_cdc(source_type: ExternalDataSourceType | str | None) -> bool:

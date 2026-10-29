@@ -1,5 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -79,10 +83,8 @@ describe('analyticsSpacesLogic', () => {
     it('lists spaces alphabetically with counts from the API, pinned ones first, leaving out Unfiled and Users', async () => {
         const logic = analyticsSpacesLogic()
         logic.mount()
-        await expectLogic(logic, () => {
-            logic.actions.loadShortcuts()
-            logic.actions.loadSpaces()
-        }).toDispatchActions(['loadShortcutsSuccess', 'loadSpacesSuccess'])
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
 
         expect(logic.values.spaces.map((space) => [space.name, space.total])).toEqual([
             ['Finance', 0],
@@ -90,7 +92,7 @@ describe('analyticsSpacesLogic', () => {
         ])
         expect(logic.values.spaces[1].counts).toEqual({ canvas: 0, dashboard: 2, insight: 7, notebook: 0 })
         // The shortcut's ref names the folder; a home folder shortcut is not a space.
-        expect(logic.values.pinnedSpaces.map((space) => space.path)).toEqual(['Growth'])
+        expect([...logic.values.pinnedCollectionPaths]).toEqual(['Growth'])
         expect(logic.values.visibleSpaces.map((space) => space.name)).toEqual(['Growth', 'Finance'])
         logic.actions.setSearch('fin')
         expect(logic.values.visibleSpaces.map((space) => space.name)).toEqual(['Finance'])
@@ -99,7 +101,7 @@ describe('analyticsSpacesLogic', () => {
     it('drops the pin of a collection deleted through the project tree, and only for a top-level folder', async () => {
         const logic = analyticsSpacesLogic()
         logic.mount()
-        await expectLogic(logic, () => logic.actions.loadShortcuts()).toDispatchActions(['loadShortcutsSuccess'])
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
         logic.actions.deleteSavedItem({ id: 'fs-Growth-Q4', type: 'folder', path: 'Growth/Q4' } as FileSystemEntry)
         await expectLogic(logic, () =>
@@ -117,6 +119,7 @@ describe('analyticsSpacesLogic', () => {
         ]
         const logic = analyticsSpacesLogic()
         logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
 
         await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
         expect(logic.values.spaces).toHaveLength(20)
@@ -142,5 +145,25 @@ describe('analyticsSpacesLogic', () => {
         }
         expect(folderRequests).toHaveLength(1)
         expect(metadataRequests).toHaveLength(24 * 4)
+    })
+
+    it('loads the first page again when a collection is unpinned after paging', async () => {
+        folders = [
+            ...Array.from({ length: 22 }, (_, index) => `Collection ${String(index + 1).padStart(2, '0')}`),
+            'Growth',
+        ]
+        router.actions.push(urls.analyticsSpaces())
+        const logic = analyticsSpacesLogic()
+        logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
+        await expectLogic(logic, () => logic.actions.loadMore()).toDispatchActions(['loadSpacesSuccess'])
+        expect(logic.values.pagination).toEqual({ offset: 23, hasMore: false })
+
+        await expectLogic(logic, () => projectTreeDataLogic.actions.deleteShortcut('sc-growth')).toDispatchActions([
+            'loadSpacesSuccess',
+        ])
+        expect(logic.values.pagination).toEqual({ offset: 20, hasMore: true })
+        expect(logic.values.spaces.map((space) => space.name)).toEqual(folders.slice(0, 20))
     })
 })

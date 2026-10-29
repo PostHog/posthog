@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 import type { LegendItem } from '../components/Legend/Legend'
 import type { LegendItemControls } from '../components/Legend/useChartLegend'
+import type { DefaultTooltipProps } from '../overlays/DefaultTooltip'
 
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
@@ -377,7 +378,7 @@ export interface ChartLegendConfig {
     renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
 }
 
-export interface TooltipConfig {
+export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {
     /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */

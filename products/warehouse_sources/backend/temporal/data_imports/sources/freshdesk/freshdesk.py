@@ -2,7 +2,9 @@ import dataclasses
 from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
+from urllib.parse import parse_qs, urlsplit
 
+from requests import Response
 from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -16,7 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
+    BasePaginator,
     HeaderLinkPaginator,
+    JSONResponsePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -29,7 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.settings import (
     FRESHDESK_ENDPOINTS,
     IGNORE_DELETED_PARENT,
-    PER_PAGE,
     FreshdeskEndpointConfig,
 )
 
@@ -52,6 +56,52 @@ def _base_url(subdomain: str) -> str:
     return f"https://{normalize_subdomain(subdomain)}.freshdesk.com"
 
 
+class FreshdeskCustomObjectsPaginator(BaseNextUrlPaginator):
+    """Follows `_links.next.href`, which is relative to `/api/v2/custom_objects`, not to the host."""
+
+    def __init__(self, base_url: str) -> None:
+        super().__init__()
+        self.links_base_url = f"{base_url}/api/v2/custom_objects"
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            next_link = response.json().get("_links", {}).get("next")
+        except Exception:
+            next_link = None
+        href = next_link.get("href") if isinstance(next_link, dict) else next_link
+        # The last page can still carry a next link, with an empty `next_token`.
+        if not isinstance(href, str) or not parse_qs(urlsplit(href).query).get("next_token"):
+            self._advance_to(None)
+            return
+        self._advance_to(href if href.startswith("http") else f"{self.links_base_url}{href}")
+
+    def __str__(self) -> str:
+        return "FreshdeskCustomObjectsPaginator"
+
+
+def _paginator(config: FreshdeskEndpointConfig, base_url: str) -> Optional[BasePaginator]:
+    """Returns ``None`` for the client default, the `Link` header paginator."""
+    if config.pagination == "paging_next":
+        return JSONResponsePaginator(next_url_path="paging.next")
+    if config.pagination == "custom_objects":
+        return FreshdeskCustomObjectsPaginator(base_url)
+    return None
+
+
+def _page_size_params(config: FreshdeskEndpointConfig) -> dict[str, Any]:
+    return {config.page_size_param: config.page_size} if config.page_size_param else {}
+
+
+def _endpoint_extra(config: FreshdeskEndpointConfig, base_url: str) -> Endpoint:
+    extra: Endpoint = {}
+    paginator = _paginator(config, base_url)
+    if paginator is not None:
+        extra["paginator"] = paginator
+    if config.data_key:
+        extra["data_selector"] = config.data_key
+    return extra
+
+
 def _format_updated_since(value: Any) -> str:
     """Format an incremental cursor value as the ISO 8601 UTC string Freshdesk expects."""
     if isinstance(value, datetime):
@@ -67,7 +117,7 @@ def _build_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": PER_PAGE}
+    params = _page_size_params(config)
     params.update(config.extra_params)
 
     if should_use_incremental_field and config.updated_since_param and db_incremental_field_last_value:
@@ -127,12 +177,18 @@ def _fanout_resource(
     initial_paginator_state: Optional[dict[str, Any]],
 ) -> Iterable[Any]:
     assert config.fanout is not None
+    parent = FRESHDESK_ENDPOINTS[config.fanout.parent_name]
+    fanout = _windowed_fanout(config.fanout, should_use_incremental_field, db_incremental_field_last_value)
+    # Parent and child can name their page-size param differently, so each side is sized here
+    # instead of through the helper's single shared `page_size_param`.
+    fanout = dataclasses.replace(fanout, parent_params={**_page_size_params(parent), **fanout.parent_params})
+    base_url = client_config["base_url"]
     return cast(
         Iterable[Any],
         build_dependent_resource(
             endpoint_configs=FRESHDESK_ENDPOINTS,
             child_endpoint=endpoint,
-            fanout=_windowed_fanout(config.fanout, should_use_incremental_field, db_incremental_field_last_value),
+            fanout=fanout,
             client_config=client_config,
             path_format_values={},
             team_id=team_id,
@@ -143,7 +199,10 @@ def _fanout_resource(
             # No Freshdesk sub-resource takes a timestamp filter, so the cursor binds to no
             # request param. The child still merges on its primary key.
             incremental_config_factory=lambda _field: None,
-            page_size_param="per_page",
+            page_size_param=None,
+            child_params_extra=_page_size_params(config),
+            parent_endpoint_extra=_endpoint_extra(parent, base_url) or None,
+            child_endpoint_extra=_endpoint_extra(config, base_url) or None,
             resume_hook=resume_hook,
             initial_paginator_state=initial_paginator_state,
         ),
@@ -265,19 +324,18 @@ def freshdesk_source(
             initial_paginator_state,
         )
     else:
+        endpoint_config: Endpoint = {
+            "path": config.path,
+            "params": _build_params(config, should_use_incremental_field, db_incremental_field_last_value),
+            # Most list endpoints return a bare array; a few (e.g. skills) wrap it in an object.
+            "data_selector": config.data_key,
+        }
+        paginator = _paginator(config, client_config["base_url"])
+        if paginator is not None:
+            endpoint_config["paginator"] = paginator
         rest_config: RESTAPIConfig = {
             "client": client_config,
-            "resources": [
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": config.path,
-                        "params": _build_params(config, should_use_incremental_field, db_incremental_field_last_value),
-                        # Most list endpoints return a bare array; a few (e.g. skills) wrap it in an object.
-                        "data_selector": config.data_key,
-                    },
-                }
-            ],
+            "resources": [{"name": endpoint, "endpoint": endpoint_config}],
         }
         resource = rest_api_resource(
             rest_config,
@@ -291,7 +349,7 @@ def freshdesk_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=["id"],
+        primary_keys=config.primary_keys,
         partition_count=1 if config.partition_key else None,
         partition_size=1 if config.partition_key else None,
         partition_mode="datetime" if config.partition_key else None,

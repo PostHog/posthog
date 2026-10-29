@@ -32,7 +32,8 @@ from products.signals.backend.emission.steering import SourceSteering, apply_ste
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import SignalEmissionRecord
-from products.signals.backend.spend import signal_id_for
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -681,6 +682,15 @@ async def run_signal_pipeline(
         )
     logger.info(f"Built {len(outputs)} signal outputs from {len(records)} records for {source_label}", **extra)
 
+    # An activity retry must not rerun filters for a signal whose pipeline already finished.
+    finished = await database_sync_to_async(finalized_signal_ids)(
+        team_id=team.id, signal_ids=[output.signal_id for output in outputs if output.signal_id]
+    )
+    if config.record_processed_outputs and finished:
+        # Dispatch may have succeeded before the emission ledger write failed.
+        await _record_processed_outputs(team, [output for output in outputs if output.signal_id in finished])
+    outputs = [output for output in outputs if output.signal_id not in finished]
+
     organization = await database_sync_to_async(lambda: team.organization)()
     for output in outputs:
         capture_pipeline_stage("signal_data_source_entered", team, organization, output)
@@ -725,6 +735,14 @@ async def run_signal_pipeline(
             threshold=threshold,
             extra=extra,
         )
+        summarized_ids = {output.signal_id for output in outputs}
+        for original in pre_summary_by_id.values():
+            if original.signal_id and original.signal_id not in summarized_ids:
+                await database_sync_to_async(complete_signal_pipeline)(
+                    team_id=team.id,
+                    signal_id=original.signal_id,
+                    billing_exempt=system_source_exempt(original.source_product),
+                )
         for output in outputs:
             pre = pre_summary_by_id.get(output.source_id)
             if pre is not None and len(pre.description) > threshold:
@@ -756,6 +774,12 @@ async def run_signal_pipeline(
             )
         for source_id, output in pre_filter_by_id.items():
             if source_id not in post_filter_ids:
+                if output.signal_id:
+                    await database_sync_to_async(complete_signal_pipeline)(
+                        team_id=team.id,
+                        signal_id=output.signal_id,
+                        billing_exempt=system_source_exempt(output.source_product),
+                    )
                 capture_pipeline_stage(
                     "signal_data_source_filtered", team, organization, output, {"steering_applied": steering.active}
                 )

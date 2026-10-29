@@ -9,6 +9,7 @@ import { Button } from '@posthog/quill'
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -211,6 +212,21 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                 <LemonTextArea value={editDefinition.description} />
                             </LemonField>
                         </div>
+
+                        {'owner' in editDefinition && (
+                            <div className="ph-ignore-input">
+                                <LemonField name="owner" label="Owner" className="w-60" data-attr="definition-owner">
+                                    {({ value, onChange }) => (
+                                        <MemberSelect
+                                            value={value?.id ?? null}
+                                            onChange={onChange}
+                                            defaultLabel="No owner"
+                                            data-attr="definition-owner-select"
+                                        />
+                                    )}
+                                </LemonField>
+                            </div>
+                        )}
 
                         {/* Allow uploading media previews only for custom events; not that useful for properties or autocapture events */}
                         {objectStorageAvailable && !isProperty && !isCoreFilter(editDefinition.name) && (

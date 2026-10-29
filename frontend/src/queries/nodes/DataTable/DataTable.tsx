@@ -1167,7 +1167,11 @@ export function DataTable({
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
                                         !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
-                                        <LoadNext query={query.source} nouns={context?.dataTableNouns} />
+                                        <LoadNext
+                                            query={query.source}
+                                            nouns={context?.dataTableNouns}
+                                            expectedTotalRows={context?.dataTableExpectedTotalRows}
+                                        />
                                     ) : null
                                 }
                                 nouns={context?.dataTableNouns}
