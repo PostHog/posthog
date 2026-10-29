@@ -317,16 +317,29 @@ class TestMaterializeRefreshMode(BaseTest):
         ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
 
 
-class TestDeprecateCandidate(SimpleTestCase):
-    def test_waits_for_a_full_window_of_read_data(self) -> None:
-        materialized = view(VIEW_ID, materializes=True)
+class TestDeprecateCandidate(BaseTest):
+    @parameterized.expand(
+        [
+            ("a_few_missing_days", 29, [VIEW_ID], None),
+            ("too_many_missing_days", 26, [], "needs 27 days of read data, has 26"),
+        ]
+    )
+    def test_waits_for_most_of_a_window_of_read_data(
+        self, _name: str, days_with_data: int, expected_subjects: list, expected_skip: str | None
+    ) -> None:
+        candidate_context = context(
+            team_reads({}, days_with_data=days_with_data),
+            views=[view(VIEW_ID, materializes=True)],
+            team_id=self.team.pk,
+        )
 
-        result = DeprecateCandidate().evaluate(context(team_reads({}, days_with_data=29), views=[materialized]))
+        result = DeprecateCandidate().evaluate(candidate_context)
 
-        assert (result.drafts, result.skipped_reason) == ((), "needs 30 days of read data, has 29")
+        assert ([draft.subject_id for draft in result.drafts], result.skipped_reason) == (
+            expected_subjects,
+            expected_skip,
+        )
 
-
-class TestDeprecateBackgroundReads(BaseTest):
     @parameterized.expand([("background_reads_count", True, []), ("only_people_count", False, [VIEW_ID])])
     def test_a_view_read_only_by_background_traffic(
         self, _name: str, counts_background_reads: bool, expected_subjects: list
