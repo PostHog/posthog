@@ -251,6 +251,7 @@ wrappers:
             idempotent: true
         title: Get paid and organic search recommendations
         description_file: ./prompts/query-marketing-recommendations.md
+        url_prefix: /marketing
         system_prompt_hint: Google Ads and Search Console recommendations - wasted spend, budgets, brand and organic overlap
         exclude_properties:
             - response
