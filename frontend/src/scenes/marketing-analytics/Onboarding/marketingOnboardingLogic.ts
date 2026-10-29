@@ -30,8 +30,7 @@ export interface marketingOnboardingLogicActions {
 
 export type marketingOnboardingLogicType = MakeLogicType<
     marketingOnboardingLogicValues,
-    marketingOnboardingLogicActions,
-    Record<string, any>
+    marketingOnboardingLogicActions
 >
 
 export const marketingOnboardingLogic = kea<marketingOnboardingLogicType>([
