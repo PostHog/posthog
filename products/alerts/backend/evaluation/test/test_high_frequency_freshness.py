@@ -266,25 +266,33 @@ def test_cache_age_never_exceeds_the_shared_threshold(interval, hours_into_bucke
 # The dispatcher reads the interval for every kind here, unlike _resolve_execution_mode, which reads
 # it only for trends — that gate is why an hourly funnel alert kept answering with the previous hour.
 @pytest.mark.parametrize(
-    "kind,interval,execution_mode,expects_limit",
+    "kind,interval,execution_mode,expects_limit,date_to",
     [
-        (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, True),
-        (NodeKind.TRENDS_QUERY, "day", IF_STALE, True),
+        (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, True, None),
+        (NodeKind.TRENDS_QUERY, "day", IF_STALE, True, None),
+        (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, True, "-1d"),
+        # A range that already ended cannot change, so the shared rule keeps it cached. The limit
+        # replaces that rule, and would rescan ClickHouse every bucket for the same answer.
+        (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, False, "2020-01-01"),
         # A metrics query has no query_date_range, so its runner already ages a result on the minute
         # threshold. A bucket limit would replace that rule with a looser one.
-        (NodeKind.METRICS_QUERY, "hour", IF_STALE, False),
-        (NodeKind.METRICS_QUERY, "day", IF_STALE, False),
+        (NodeKind.METRICS_QUERY, "hour", IF_STALE, False, None),
+        (NodeKind.METRICS_QUERY, "day", IF_STALE, False, None),
         # A metrics insight types its interval as a plain string and buckets on its own scale, so
         # these reach the resolver as values no IntervalType member matches. Mapping them eagerly
         # raised ValueError and failed the whole check for alerts that run today.
-        (NodeKind.METRICS_QUERY, "minute_5", IF_STALE, False),
-        (NodeKind.METRICS_QUERY, "$window", IF_STALE, False),
-        (NodeKind.HOG_QL_QUERY, None, IF_STALE, False),
-        (NodeKind.FUNNELS_QUERY, "hour", ALWAYS, False),
+        (NodeKind.METRICS_QUERY, "minute_5", IF_STALE, False, None),
+        (NodeKind.METRICS_QUERY, "$window", IF_STALE, False, None),
+        (NodeKind.HOG_QL_QUERY, None, IF_STALE, False, None),
+        (NodeKind.FUNNELS_QUERY, "hour", ALWAYS, False, None),
     ],
 )
-def test_resolve_cache_age_seconds(kind, interval, execution_mode, expects_limit):
+def test_resolve_cache_age_seconds(kind, interval, execution_mode, expects_limit, date_to):
     alert = MagicMock()
     alert.team = _team("UTC")
-    query = {"kind": kind, "interval": interval} if interval is not None else {"kind": kind}
+    query: dict = {"kind": kind}
+    if interval is not None:
+        query["interval"] = interval
+    if date_to is not None:
+        query["dateRange"] = {"date_to": date_to}
     assert (_resolve_cache_age_seconds(alert, query, execution_mode) is not None) is expects_limit

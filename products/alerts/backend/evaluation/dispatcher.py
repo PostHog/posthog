@@ -3,6 +3,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -14,9 +15,10 @@ from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
+from posthog.models.team import Team
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
-from posthog.utils import get_from_dict_or_attr
+from posthog.utils import get_from_dict_or_attr, relative_date_parse_with_delta_mapping
 
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import (
@@ -90,6 +92,28 @@ def _query_interval(query: object) -> IntervalType | None:
         return None
 
 
+def _ends_in_the_past(query: object, *, now: datetime, team: Team) -> bool:
+    """True when the insight pins its range to an end date that has already passed.
+
+    The result cannot change, and the shared rule keeps it cached forever on that ground. The
+    override replaces that rule, so without this the alert rescans ClickHouse every bucket.
+    """
+    try:
+        date_range = get_from_dict_or_attr(query, "dateRange")
+    except AttributeError:
+        return False
+    if date_range is None:
+        return False
+    try:
+        date_to = get_from_dict_or_attr(date_range, "date_to")
+    except AttributeError:
+        return False
+    if not isinstance(date_to, str):
+        return False
+    parsed, delta_mapping, _position = relative_date_parse_with_delta_mapping(date_to, ZoneInfo(team.timezone), now=now)
+    return delta_mapping is None and parsed < now
+
+
 def _resolve_cache_age_seconds(alert: AlertConfiguration, query: object, execution_mode: ExecutionMode) -> int | None:
     # Read for every kind, unlike _resolve_execution_mode: a bucketed insight the execution mode
     # leaves on the cache (a funnel, a non-hourly trend) still has to reject a result computed in an
@@ -101,7 +125,10 @@ def _resolve_cache_age_seconds(alert: AlertConfiguration, query: object, executi
         # threshold — already tighter than any bucket. The override replaces that rule rather than
         # joining it, so passing a bucket limit here would loosen the alert to hours.
         return None
-    return cache_age_seconds_for_alert(_query_interval(query), now=datetime.now(UTC), team=alert.team)
+    now = datetime.now(UTC)
+    if _ends_in_the_past(query, now=now, team=alert.team):
+        return None
+    return cache_age_seconds_for_alert(_query_interval(query), now=now, team=alert.team)
 
 
 @contextmanager
