@@ -71,6 +71,7 @@ interface SessionState {
   context: SessionContext;
   transcriptBoundaries: TranscriptBoundaries;
   chunkBuffer?: ChunkBuffer;
+  leadingEmptyChunkEventId?: string;
   lastAgentMessage?: string;
   currentTurnMessages: string[];
   toolUpdateCache: Map<string, BufferedToolUpdate>;
@@ -256,9 +257,10 @@ export class SessionLogWriter {
             session.chunkBuffer = {
               text,
               firstTimestamp: timestamp,
-              firstEventId: eventId,
+              firstEventId: session.leadingEmptyChunkEventId ?? eventId,
               lastEventId: eventId,
             };
+            session.leadingEmptyChunkEventId = undefined;
           } else {
             session.chunkBuffer.text += text;
             if (eventId) {
@@ -267,6 +269,8 @@ export class SessionLogWriter {
           }
         } else if (session.chunkBuffer && eventId) {
           session.chunkBuffer.lastEventId = eventId;
+        } else if (eventId && !session.leadingEmptyChunkEventId) {
+          session.leadingEmptyChunkEventId = eventId;
         }
         // Don't emit chunk events
         return;
@@ -281,6 +285,9 @@ export class SessionLogWriter {
         session.chunkBuffer = undefined;
       } else if (!session.transcriptBoundaries.isNeutral(message)) {
         this.emitCoalescedMessage(sessionId, session);
+      }
+      if (!session.transcriptBoundaries.isNeutral(message)) {
+        session.leadingEmptyChunkEventId = undefined;
       }
 
       message = redactSecrets(message) as Record<string, unknown>;
