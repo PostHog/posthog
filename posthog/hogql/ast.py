@@ -503,6 +503,8 @@ class CTETableAliasType(BaseTableType):
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
+    # The lazy table that this subquery stands for, when lazy table resolution built it.
+    lazy_table: Optional[LazyTable] = field(default=None, repr=False, compare=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
