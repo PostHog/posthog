@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
 use super::dom::{DomInspector, RemoteUrls, Srcset, UrlLimit};
-use super::events::{fields, number, Activity, EventCounter};
+use super::events::{number, Activity, DataFields, EventCounter, NetworkRequest};
+use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
 use super::rrweb::{
     is_click, CUSTOM, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, META, MOUSE_INTERACTION, MUTATION,
 };
@@ -46,6 +47,9 @@ pub struct SessionInspector {
 #[derive(Default)]
 pub struct BlockInspection {
     counter: EventCounter,
+    features: FeatureRecorder,
+    /// Reused for each network event's requests.
+    network_requests: Vec<NetworkRequest>,
     moments: Vec<Moment>,
     image_urls: Vec<String>,
     remote_urls: RemoteUrls,
@@ -55,6 +59,8 @@ pub struct BlockInspection {
 /// What the inspector learned about one block.
 pub struct Inspected {
     pub stats: BlockStats,
+    /// The surfacing values as the TypeScript recorder computes them, which `stats.surfacing` stores in index units.
+    pub features: BlockFeatures,
     pub moments: Vec<Moment>,
     /// Remote image URLs the block's DOM referenced, for the image fetcher.
     pub image_urls: Vec<String>,
@@ -68,8 +74,12 @@ pub struct Inspected {
 
 impl BlockInspection {
     pub fn finish(mut self) -> Inspected {
+        let features = self.features.finish();
+        let mut stats = self.counter.finish();
+        stats.surfacing = SurfacingFeatures::from(&features);
         Inspected {
-            stats: self.counter.finish(),
+            stats,
+            features,
             moments: self.moments,
             image_urls: self.image_urls,
             url_limit: self.remote_urls.limit,
@@ -139,10 +149,12 @@ impl SessionInspector {
         let index = block.events;
         block.events += 1;
         let navigations = block.counter.stats.navigations;
+        let data = DataFields::read(inner, event, &mut block.network_requests);
         let carried_href =
             block
                 .counter
-                .observe(inner, event, &mut self.last_href, &mut self.activity);
+                .observe(inner, event, &data, &mut self.last_href, &mut self.activity);
+        block.features.observe(inner, event, &data);
         let navigated = block.counter.stats.navigations > navigations;
 
         let waiting = block.counter.stats.events_before_first_full_snapshot;
@@ -182,19 +194,17 @@ impl SessionInspector {
             }
             _ => None,
         };
-        if event.kind == Some(INCREMENTAL_SNAPSHOT) && event.source == Some(MOUSE_INTERACTION) {
-            if let Some(data) = event.data {
-                let [interaction, x, y] = fields(inner, data, [b"type", b"x", b"y"]);
-                if number(inner, interaction).is_some_and(|t| is_click(t as u8)) {
-                    let position = number(inner, x).zip(number(inner, y));
-                    match self.clicks.click(ts, position) {
-                        ClickKind::Rage => stats.rage_clicks += 1,
-                        ClickKind::AfterDead => stats.dead_clicks += 1,
-                        ClickKind::Plain => {}
-                    }
-                    moment = Some("click");
-                }
+        if event.kind == Some(INCREMENTAL_SNAPSHOT)
+            && event.source == Some(MOUSE_INTERACTION)
+            && number(inner, data.interaction).is_some_and(|t| is_click(t as u8))
+        {
+            let position = number(inner, data.x).zip(number(inner, data.y));
+            match self.clicks.click(ts, position) {
+                ClickKind::Rage => stats.rage_clicks += 1,
+                ClickKind::AfterDead => stats.dead_clicks += 1,
+                ClickKind::Plain => {}
             }
+            moment = Some("click");
         }
         if let Some(kind) = moment {
             if block.moments.len() < MAX_MOMENTS_PER_BLOCK {
