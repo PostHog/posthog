@@ -1,19 +1,23 @@
 import type { Decorator } from '@storybook/react'
 
 import type {
+    TraceFeedbackScoreApi,
     TraceNodeApi,
     TraceNodeStatsApi,
     TraceSummaryContentApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
+import type { ClusterChipItem, TraceClustersChipProps } from './components/TraceClustersChip'
 import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
 import {
     ConversationTurn,
     EvalResult,
     EvalRollupOutcome,
     EvalsChipData,
+    FeedbackModeState,
     MessagePart,
     NodeProperties,
+    StepFeedback,
     ThreadMessage,
 } from './types'
 
@@ -405,6 +409,57 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
     timeline: { rows: FIXTURE_TIMELINE_ROWS, totalMs: 2310 },
 }
 
+const feedbackScore = (id: string, name: string | null, value: string, minute: number): TraceFeedbackScoreApi => ({
+    id,
+    name,
+    value,
+    nodeId: 'gen-answer',
+    timestamp: `2026-09-01T10:${minute}:00Z`,
+})
+
+export const FIXTURE_STEP_FEEDBACK: StepFeedback = {
+    scores: [
+        feedbackScore('score-helpful', 'helpfulness', '0', 16),
+        feedbackScore('score-resolved', 'resolved', 'false', 17),
+        feedbackScore('score-tone', 'tone', '4.5', 18),
+        feedbackScore('score-latency', 'latency_ok', 'true', 19),
+        feedbackScore('score-unnamed', null, '{"stars":3}', 20),
+    ],
+    textCount: 1,
+}
+
+const answerStep = { id: 'gen-answer', name: 'draft-answer' }
+
+export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready' }> = {
+    status: 'ready',
+    scores: [
+        { ...feedbackScore('score-helpful', 'helpfulness', '0', 16), step: answerStep, focused: true },
+        { ...feedbackScore('score-resolved', 'resolved', 'false', 17), step: answerStep, focused: true },
+        { ...feedbackScore('score-csat', 'csat', '4', 21), nodeId: 'trace-1', step: null, focused: false },
+        { ...feedbackScore('score-unnamed', null, '{"stars":3}', 22), nodeId: 'trace-1', step: null, focused: false },
+    ],
+    responses: [
+        {
+            kind: 'text',
+            id: 'text-long',
+            text: 'Too long, but correct.',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:23:00Z',
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'text',
+            id: 'text-step',
+            text: 'The second paragraph repeats the first one. Shorter answers would help when I am on my phone.',
+            nodeId: 'gen-answer',
+            timestamp: '2026-09-01T10:24:00Z',
+            step: answerStep,
+            focused: true,
+        },
+    ],
+}
+
 export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
     title: 'Billing question answered from invoice history',
     bullets: [
@@ -430,4 +485,37 @@ export function withWidth(px: number): Decorator {
             <Story />
         </div>
     )
+}
+
+export const FIXTURE_CLUSTER: ClusterChipItem = {
+    label: 'Billing questions',
+    description: 'Users ask why an invoice changed after adding seats.',
+    jobName: 'Support conversations',
+    isOutlier: false,
+    runAt: '2026-09-02T03:40:00Z',
+    href: '/ai-observability/clusters/1_trace_20260902_030000/3',
+}
+
+export const FIXTURE_OUTLIER_CLUSTER: ClusterChipItem = {
+    label: 'Outliers',
+    description: null,
+    jobName: 'Agent runs',
+    isOutlier: true,
+    runAt: '2026-09-01T03:40:00Z',
+    href: '/ai-observability/clusters/1_trace_20260901_030000/-1',
+}
+
+export const FIXTURE_CLUSTERS_CHIP: TraceClustersChipProps = {
+    first: FIXTURE_CLUSTER,
+    others: [
+        FIXTURE_OUTLIER_CLUSTER,
+        {
+            label: 'Refund requests',
+            description: 'Users ask for money back on an annual plan.',
+            jobName: null,
+            isOutlier: false,
+            runAt: '2026-09-02T04:40:00Z',
+            href: '/ai-observability/clusters/1_trace_20260902_040000/5',
+        },
+    ],
 }

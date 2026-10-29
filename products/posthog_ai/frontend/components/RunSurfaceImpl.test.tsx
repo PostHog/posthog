@@ -143,7 +143,7 @@ describe('RunSurface', () => {
         })
     })
 
-    it('keeps a Pi task behind the unavailable banner until Pi web sessions are on', () => {
+    it.each(['live', 'read-only'] as const)('renders Pi logs with the rollout flag off in %s mode', (interaction) => {
         const bootstrapRun = jest.fn()
         ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun, reset: jest.fn(), loadTask: jest.fn() })
         setValues({
@@ -152,14 +152,18 @@ describe('RunSurface', () => {
         })
 
         render(
-            <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+            <RunSurface.Root taskId="task-1" runId="run-1" interaction={interaction}>
                 <RunSurface.Thread />
             </RunSurface.Root>
         )
 
-        expect(screen.getByText("Pi session logs aren't available in PostHog yet.")).toBeInTheDocument()
-        expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
-        expect(bootstrapRun).not.toHaveBeenCalled()
+        expect(screen.getByTestId('thread')).toBeInTheDocument()
+        expect(bootstrapRun).toHaveBeenCalledWith({
+            taskId: 'task-1',
+            runId: 'run-1',
+            taskRuntime: TaskRuntimeEnumApi.Pi,
+            pagedHistory: true,
+        })
     })
 
     describe('Composer slot', () => {
