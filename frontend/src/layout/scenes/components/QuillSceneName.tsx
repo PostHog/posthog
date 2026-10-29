@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconPencil, IconSparkles } from '@posthog/icons'
 import { Button, Input, SkeletonText, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { useSceneNameEditing } from './useSceneNameEditing'
@@ -120,11 +120,13 @@ export function QuillSceneName({
                         data-attr={editDataAttr}
                         className={cn(
                             NAME_BOX,
-                            'min-w-0 cursor-text truncate border-transparent text-start text-foreground',
+                            'flex min-w-0 cursor-text items-center gap-1 border-transparent text-start text-foreground',
                             'hover:bg-fill-hover focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:outline-none disabled:cursor-not-allowed'
                         )}
                     >
-                        {label}
+                        <span className="truncate">{label}</span>
+                        {/* Shown all the time: the hover fill only hints at editing once the pointer is already on the name. */}
+                        <IconPencil className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                     </button>
                 </h1>
             ) : (
