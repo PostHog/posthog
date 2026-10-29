@@ -676,6 +676,17 @@ class TestRedeliveredFinalBatchPostLoad:
         }
 
 
+class TestPartialDataLoadingApplies:
+    @parameterized.expand([("main_table", None, True), ("history_table", "scd2_append", False)])
+    @patch(f"{_PROCESSOR}.supports_partial_data_loading", return_value=True)
+    def test_only_the_main_table_feeds_partial_loading(
+        self, _case: str, cdc_write_mode: str | None, expected: bool, _supports: MagicMock
+    ) -> None:
+        signal = MagicMock(is_first_ever_sync=True, cdc_write_mode=cdc_write_mode)
+
+        assert _partial_data_loading_applies(signal, MagicMock()) is expected
+
+
 class TestPostWriteHandleReads:
     # `DeltaWriter.write` can return a handle one deltalite commit behind the log. Column names and
     # types survive that lag, a file list does not: partial data loading must read its file list

@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     record_companion_job,
     retire_companion_job,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
     DurableProgress,
@@ -141,6 +142,19 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         # Companions whose final batch is queued: the loader owns them from there, and retiring
         # one would have it discard a tail that lands on its own.
         self._final_sent_job_ids: set[str] = set()
+
+    def _build_producer(
+        self, s3_batch_writer: S3BatchWriter, *, resource_name: str, cdc_write_mode: str | None
+    ) -> PostgresProducer:
+        # The first lane writes through this producer, so its batches carry that lane's write mode. An
+        # incremental run whose only lane is history keeps no write mode on the response, so it loads
+        # as incremental.
+        return super()._build_producer(
+            s3_batch_writer, resource_name=resource_name, cdc_write_mode=self._output_lanes[0].cdc_write_mode
+        )
+
+    def _maintains_companion_table(self) -> bool:
+        return super()._maintains_companion_table() or self._output_lanes[0].cdc_write_mode == SCD2_APPEND_MODE
 
     async def run(self) -> PipelineResult:
         completed = False

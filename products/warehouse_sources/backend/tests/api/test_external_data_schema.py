@@ -4774,11 +4774,27 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             ("integer_cursor", "both", "consolidated", "integer", True, "date or a time"),
             ("turn_on", "both", "consolidated", "datetime", True, None),
             ("turn_off", "consolidated", "both", "date", True, None),
+            (
+                "integer_field_while_keeping_history",
+                "both",
+                "both",
+                "datetime",
+                True,
+                "date or a time",
+                {"incremental_field": "id", "incremental_field_type": "integer"},
+            ),
         ]
     )
-    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_patch_sets_the_output_tables_of_an_incremental_table(
-        self, _name: str, mode: str, initial_mode: str, cursor_type: str, flag_on: bool, refusal: str | None
+        self,
+        _name: str,
+        mode: str,
+        initial_mode: str,
+        cursor_type: str,
+        flag_on: bool,
+        refusal: str | None,
+        request_body: dict | None = None,
     ):
         self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
         self.schema.sync_type_config = {
@@ -4797,11 +4813,12 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             "products.warehouse_sources.backend.presentation.views.external_data_schema.is_incremental_history_enabled_for_team",
             return_value=flag_on,
         ):
+            body = request_body or {"cdc_table_mode": mode}
             if refusal:
                 with pytest.raises(ValidationError, match=refusal):
-                    self._save_through_serializer(self.schema, {"cdc_table_mode": mode})
+                    self._save_through_serializer(self.schema, body)
             else:
-                self._save_through_serializer(self.schema, {"cdc_table_mode": mode})
+                self._save_through_serializer(self.schema, body)
 
         self.schema.refresh_from_db()
         assert self.schema.cdc_table_mode == (initial_mode if refusal else mode)

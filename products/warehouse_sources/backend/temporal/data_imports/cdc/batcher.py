@@ -104,13 +104,18 @@ CAPTURE_COLUMNS: frozenset[str] = frozenset(
 )
 
 
+# The metadata the history writer stamps on its staging table (`STAGED_*_COLUMN` in `history_writer.py`).
+# Named here because the capture path does not import the writer.
+HISTORY_STAGING_COLUMNS: frozenset[str] = frozenset({"_ph_staged_batch", "_ph_staged_row"})
+
+
 def history_columns(naming: HistoryNaming) -> frozenset[str]:
-    """The columns a history table adds to the capture columns.
+    """The columns a history table adds to the capture columns, and the ones its staging table adds.
 
     `_ph_valid_*` stays reserved on a legacy history table too, because `history_naming_of` reads the
     naming from it.
     """
-    return HISTORY_NAMING.stamped_columns | naming.stamped_columns
+    return HISTORY_NAMING.stamped_columns | naming.stamped_columns | HISTORY_STAGING_COLUMNS
 
 
 def reserved_column_names(history: HistoryNaming | None) -> frozenset[str]:

@@ -30,15 +30,20 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import kept_history_naming
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_writer import (
     HistoryFinalizeResult,
     HistoryWriter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    execute_with_conflict_retry,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane, SourceResponse
 
-SCD2_APPEND_MODE = "scd2_append"
 INCREMENTAL_HISTORY_FLAG = "dwh-incremental-history"
 HISTORY_CURSOR_TYPES = frozenset(
     {IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date}
@@ -74,7 +79,11 @@ def attach_history_lanes(schema: ExternalDataSchema, source_response: SourceResp
     """Add the history lane to an incremental run of a schema that keeps history."""
     if not (schema.is_incremental and schema.keeps_history):
         return
-    if source_response.lanes or source_response.replace_scope is not None or not source_response.primary_keys:
+    if (
+        source_response.lanes
+        or source_response.replace_scope is not None
+        or not resolve_primary_keys(schema, source_response)
+    ):
         raise ValueError(
             f"{schema.name} keeps a history table, which needs a primary key and a source that merges rows by it"
         )
@@ -159,4 +168,17 @@ async def finalize_history_lane(table: DeltaTableRef, primary_keys: Sequence[str
     if staged is None:
         return None
     naming = history_naming_of(field.name for field in staged.schema().fields)
-    return await _history_writer(table, staging, primary_keys, naming).finalize()
+    result = await _history_writer(table, staging, primary_keys, naming).finalize()
+    # finalize only tombstones the rows it staged. The files go once they are past the retention
+    # every vacuum of this product keeps, so the staging table does not grow with every run.
+    await execute_with_conflict_retry(
+        staged,
+        lambda: staged.vacuum(
+            retention_hours=int(VACUUM_RETENTION.total_seconds() // 3600),
+            enforce_retention_duration=False,
+            dry_run=False,
+        ),
+        "vacuum_history_staging",
+        staging.logger,
+    )
+    return result

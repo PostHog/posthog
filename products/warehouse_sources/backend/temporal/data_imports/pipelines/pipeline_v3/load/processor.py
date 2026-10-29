@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     history_naming_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
+    SCD2_APPEND_MODE,
     has_engine_seq,
     resolve_batch,
     verify_delete_enrichment,
@@ -429,9 +430,15 @@ def _partial_data_loading_applies(
     reader never sees part of the rows. Only a table that this job created publishes each batch.
 
     Read before the write as well as after: `previous_file_uris` only exists to serve this
-    feature, and collecting it means listing every file in the table.
+    feature, and collecting it means listing every file in the table. A history table never feeds
+    it: partial loading publishes into the schema's own table, and incremental history batches go to
+    a staging table first.
     """
-    if not export_signal.is_first_ever_sync or not supports_partial_data_loading(schema):
+    if (
+        not export_signal.is_first_ever_sync
+        or export_signal.cdc_write_mode == SCD2_APPEND_MODE
+        or not supports_partial_data_loading(schema)
+    ):
         return False
     served_table = schema.table
     return served_table is None or served_table.created_at >= job.created_at

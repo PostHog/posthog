@@ -208,6 +208,16 @@ def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str 
     return bool(new_targets - old_targets)
 
 
+def _refuse_ineligible_incremental_history(payload: dict[str, Any]) -> None:
+    refusal = incremental_history_refusal(
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        incremental_field=payload.get("incremental_field"),
+        incremental_field_type=payload.get("incremental_field_type"),
+    )
+    if refusal:
+        raise ValidationError(refusal)
+
+
 def _apply_incremental_history_mode(
     instance: ExternalDataSchema, data: dict[str, Any], payload: dict[str, Any], history_mode_before: str | None
 ) -> bool:
@@ -223,13 +233,7 @@ def _apply_incremental_history_mode(
     else:
         if not is_incremental_history_enabled_for_team(instance.team):
             raise ValidationError("History tables for incremental syncs are not enabled for this organization.")
-        refusal = incremental_history_refusal(
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            incremental_field=payload.get("incremental_field"),
-            incremental_field_type=payload.get("incremental_field_type"),
-        )
-        if refusal:
-            raise ValidationError(refusal)
+        _refuse_ineligible_incremental_history(payload)
         payload[INCREMENTAL_HISTORY_KEY] = True
     payload["cdc_table_mode"] = mode
     if instance.table is None or not _cdc_table_mode_change_needs_resnapshot(
@@ -671,10 +675,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         choices=["consolidated", "cdc_only", "both"],
         required=False,
         allow_null=True,
-        help_text=(
-            "Output tables for a CDC sync, or for an incremental sync whose incremental field is a date or a time: "
-            "consolidated (the merged table), cdc_only (the history table only), or both."
-        ),
+        help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
     incremental_sync_blocked = serializers.ChoiceField(
         choices=IncrementalSyncBlockedReason.choices,
@@ -1392,6 +1393,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 trigger_refresh = (
                     _apply_incremental_history_mode(instance, data, payload, history_mode_before) or trigger_refresh
                 )
+            elif (
+                resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                and payload.get(INCREMENTAL_HISTORY_KEY)
+                and is_history_table_mode(payload.get("cdc_table_mode"))
+            ):
+                _refuse_ineligible_incremental_history(payload)
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
