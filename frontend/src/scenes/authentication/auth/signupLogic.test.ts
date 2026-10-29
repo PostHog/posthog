@@ -291,6 +291,25 @@ describe('signupLogic — name handling', () => {
         expect(signupRequestBody?.last_name).toBe('van Der Berg')
     })
 
+    it('sends only the follow-up answer whose question is shown for the referral source', async () => {
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: 'A YouTube video',
+            // A stale answer from before the referral source was edited away from an AI mention
+            referral_source_ai_prompt: 'best analytics tool',
+            referral_source_influencer: 'The Hedgehog Dev channel',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signupRequestBody?.referral_source).toBe('A YouTube video')
+        expect(signupRequestBody?.referral_source_ai_prompt).toBe('')
+        expect(signupRequestBody?.referral_source_influencer).toBe('The Hedgehog Dev channel')
+    })
+
     it('omits a whitespace-only organization name so the backend applies its default', async () => {
         await advanceToOnboardingPanel()
         logic.actions.setSignupPanelOnboardingValues({

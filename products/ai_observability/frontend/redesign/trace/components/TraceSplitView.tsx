@@ -10,6 +10,7 @@ export interface TraceSplitViewProps {
     onPrefetchNode: (id: string) => void
     detail: Omit<NodeDetailProps, 'onSelectNode'> | null
     evalOutcomes: Record<string, EvalRollupOutcome>
+    feedbackCountByNodeId?: Record<string, number>
 }
 
 export function TraceSplitView({
@@ -19,6 +20,7 @@ export function TraceSplitView({
     onPrefetchNode,
     detail,
     evalOutcomes,
+    feedbackCountByNodeId,
 }: TraceSplitViewProps): JSX.Element {
     return (
         <div className="@container">
@@ -30,6 +32,7 @@ export function TraceSplitView({
                         onSelectNode={onSelectNode}
                         onPrefetchNode={onPrefetchNode}
                         evalOutcomes={evalOutcomes}
+                        feedbackCountByNodeId={feedbackCountByNodeId}
                     />
                 </aside>
                 <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(100vh-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">
