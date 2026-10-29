@@ -10,6 +10,7 @@ import {
     buildSections,
     emptyRemoteSlots,
     pickDisplayedQuery,
+    resultsSettled,
 } from './commandKSections'
 import { RESULTS_LIMIT } from './commandKSources'
 
@@ -33,6 +34,7 @@ const emptyLocal = (): LocalLists => ({
     people: [],
     health: [],
     misc: [],
+    shortcuts: [],
     settings: [],
     create: [],
     recents: [],
@@ -75,6 +77,14 @@ const remoteResults = (items: SearchItem[]): Partial<SectionsInput> => {
 }
 
 describe('buildSections', () => {
+    it('shows every shortcut last when the input is empty', () => {
+        const shortcuts = [dashboard('shortcut-1', '1'), dashboard('shortcut-2', '2')]
+        const sections = buildSections(input('empty', { local: { ...emptyLocal(), shortcuts } }))
+
+        expect(sections.at(-1)?.key).toBe('shortcuts')
+        expect(sections.at(-1)?.rows).toHaveLength(2)
+    })
+
     test.each<[string, SectionsInput, string, number]>([
         ['remote results', input('search', remoteResults(itemsWithRepeats(RESULTS_LIMIT))), 'results', RESULTS_LIMIT],
         [
@@ -196,16 +206,16 @@ describe('buildSections', () => {
             ['results', 'loading-more'],
         ],
         [
-            'PostHog AI without waiting for slow person searches',
+            'no PostHog AI row while other rows match',
             { events: [dashboard('e', '8')] },
             false,
-            ['results', 'events', 'ask-ai', 'loading-more'],
+            ['results', 'events', 'loading-more'],
         ],
         [
-            'persons last, below PostHog AI, once they load',
+            'persons last, once they load',
             { events: [dashboard('e', '8')], persons: [dashboard('p', '9')] },
             false,
-            ['results', 'events', 'ask-ai', 'persons'],
+            ['results', 'events', 'persons'],
         ],
         [
             'only result skeletons while persons that go first load',
@@ -236,6 +246,35 @@ describe('buildSections', () => {
         expect(sections.map((section) => section.key)).toEqual(expectedKeys)
     })
 
+    test.each([
+        [
+            'while persons load',
+            undefined,
+            [
+                ['ask-ai', ['ask-ai']],
+                ['loading-more', ['loading-more']],
+            ],
+        ],
+        ['when nothing else matches', [], [['ask-ai', ['ask-ai']]]],
+        ['unless persons match', [dashboard('p', '9')], [['persons', ['item']]]],
+    ])('offers PostHog AI %s', (_, persons, expected) => {
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { xyzzy: [] } }
+        remote.events = { cache: { xyzzy: [] } }
+        if (persons) {
+            remote.persons = { cache: { xyzzy: persons } }
+        }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'xyzzy', events: 'xyzzy', persons: 'xyzzy' },
+                localQuery: 'xyzzy',
+                askAiQuestion: 'xyzzy',
+            })
+        )
+        expect(sectionKinds(sections)).toEqual(expected)
+    })
+
     it('ranks a person who matches every word of an email search above results that match fewer', () => {
         const person: SearchItem = {
             id: 'person-1',
@@ -260,6 +299,48 @@ describe('buildSections', () => {
 
         expect(sections.map((section) => section.key)).toEqual(['best-matches'])
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
+    })
+
+    test.each(['results', 'accounts'] as const)('waits for both ranked sources when %s loads first', (firstSource) => {
+        const account: SearchItem = {
+            id: 'account-1',
+            name: 'Test organization',
+            category: 'accounts',
+            href: '/customer_analytics/accounts/account-1',
+        }
+        const remote = emptyRemoteSlots()
+        const current = query({
+            remoteQueries: { results: 'atlas.example.org', accounts: 'atlas.example.org' },
+            localQuery: 'atlas.example.org',
+        })
+        const shown = query({ remoteQueries: { results: 'old' }, localQuery: 'old' })
+        remote.results.cache.old = []
+        remote[firstSource].cache['atlas.example.org'] = firstSource === 'accounts' ? [account] : []
+        const sectionsInput = input('search', { remote, ...current })
+
+        expect(sectionKinds(buildSections(sectionsInput))).toEqual([['results', ['skeleton', 'skeleton', 'skeleton']]])
+        expect(resultsSettled(current, remote)).toBe(false)
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: shown, stale: true })
+
+        remote.results.cache['atlas.example.org'] = []
+        remote.accounts.cache['atlas.example.org'] = [account]
+        const sections = buildSections(sectionsInput)
+        expect(resultsSettled(current, remote)).toBe(true)
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: current, stale: false })
+        expect(sections.map((section) => section.key)).toEqual(['best-matches'])
+        expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'accounts', item: account }])
+    })
+
+    it('shows saved objects when the Accounts request settles empty', () => {
+        const remote = emptyRemoteSlots()
+        remote.results.cache.billing = [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }]
+        remote.accounts.cache.billing = []
+        const current = query({ remoteQueries: { results: 'billing', accounts: 'billing' }, localQuery: 'billing' })
+
+        expect(resultsSettled(current, remote)).toBe(true)
+        expect(sectionKinds(buildSections(input('search', { remote, ...current })))).toEqual([
+            ['best-matches', ['item']],
+        ])
     })
 
     test.each([

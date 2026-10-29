@@ -16,6 +16,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
+    CONTROL_ARM_SET,
     DEFAULT_REVIEW_ARM,
     DEFAULT_VALIDATION_ARM,
     FLASH_ARM,
@@ -23,9 +24,11 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_ARMS_BY_TIER,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    SINGLE_AGENT_ARM_SETS,
     SINGLE_AGENT_FLASH_ARM,
     SINGLE_AGENT_PASS_NUMBER,
     ReviewTier,
+    SingleAgentArms,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -47,6 +50,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_review_arm,
     load_run_issues,
     load_run_validations,
+    load_single_agent_results,
     load_turn_findings,
     load_valid_findings,
     persist_chunk_set,
@@ -1058,6 +1062,55 @@ class TestWorkingState(BaseTest):
             REVIEW_DESIGN_PIPELINE: {(1, 1)},
             REVIEW_DESIGN_SINGLE_AGENT: {(SINGLE_AGENT_PASS_NUMBER, 1), (lens_pass, 2)},
         }
+
+    def test_single_agent_results_read_each_session_under_its_own_arm(self) -> None:
+        # A set whose main and lens sessions run on different arms loses its lens findings if dedup reads one arm.
+        # A fallback must count for its own set only: an earlier control turn's result at this head is not one.
+        trial = SingleAgentArms(
+            main=replace(SINGLE_AGENT_FLASH_ARM, reasoning_effort=ReasoningEffort.HIGH),
+            lens=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"),
+        )
+        perf_pass = FLASH_LENSES["performance-reliability"].pass_number
+        contracts_pass = FLASH_LENSES["contracts-security"].pass_number
+        stored = [
+            ((SINGLE_AGENT_PASS_NUMBER, 1), trial.main, None, "main-trial"),
+            ((perf_pass, 1), SINGLE_AGENT_FLASH_ARM, None, "perf-control-turn"),
+            ((perf_pass, 1), trial.lens, None, "perf-trial"),
+            ((contracts_pass, 1), SINGLE_AGENT_FLASH_ARM, trial.lens, "contracts-fallback"),
+            ((contracts_pass, 2), SINGLE_AGENT_FLASH_ARM, None, "contracts-control-turn"),
+            ((1, 1), SINGLE_AGENT_FLASH_ARM, None, "pipeline"),
+        ]
+        for key, arm, fallback_for, issue_id in stored:
+            persist_perspective_results(
+                team_id=self.team.id,
+                report_id=self.report_id,
+                head_sha="sha-aaa",
+                results={key: IssuesReview(issues=[_issue(issue_id)])},
+                review_arm=arm,
+                fallback_for=fallback_for,
+            )
+
+        loaded = {
+            name: load_single_agent_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", arms=arms
+            )
+            for name, arms in (("control", SINGLE_AGENT_ARM_SETS[CONTROL_ARM_SET]), ("trial", trial))
+        }
+
+        assert {
+            name: {key: r.issues[0].id for key, r in results.reviews.items()} for name, results in loaded.items()
+        } == {
+            "control": {(perf_pass, 1): "perf-control-turn", (contracts_pass, 2): "contracts-control-turn"},
+            "trial": {
+                (SINGLE_AGENT_PASS_NUMBER, 1): "main-trial",
+                (perf_pass, 1): "perf-trial",
+                (contracts_pass, 1): "contracts-fallback",
+            },
+        }
+        assert (loaded["control"].fallbacks, loaded["trial"].fallbacks) == (
+            frozenset(),
+            frozenset({(contracts_pass, 1)}),
+        )
 
 
 class TestPersistCommitSnapshot(BaseTest):

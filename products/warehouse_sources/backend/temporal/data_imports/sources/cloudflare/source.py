@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
     CLOUDFLARE_BASE_URL,
-    DNS_ANALYTICS_ALL_ZONES_FAILED,
     cloudflare_source,
     validate_credentials as validate_cloudflare_credentials,
 )
@@ -199,7 +198,6 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
             f"403 Client Error: Forbidden for url: {CLOUDFLARE_BASE_URL}/zones?": "Your Cloudflare API token can't list your zones. Check that the token is still active and has the Zone Read permission, then re-enable the sync.",
             f"403 Client Error: Forbidden for url: {CLOUDFLARE_BASE_URL}/accounts?": "Your Cloudflare API token can't list your accounts. Check that the token is still active and has the Account Settings Read permission, then re-enable the sync.",
             "403 Client Error: Forbidden for url: https://api.cloudflare.com": "Cloudflare denied access. Please check that your API token has read permissions for this resource.",
-            DNS_ANALYTICS_ALL_ZONES_FAILED: "Your Cloudflare API token can't read analytics for any of your zones. Add the Zone Analytics read permission to the token, then re-enable the sync.",
         }
 
     @property

@@ -391,6 +391,8 @@ Each upload must contain a result, and every declared item must be referenced by
 Requests exceeding the body limit return HTTP 413.
 Per-caller and shared project limits allow 60 requests per minute and 1,000 per hour; HTTP 429 responses include retry guidance.
 The shared project limits apply across the parent project and all its child environments, regardless of which credentials each request uses.
+Uploads containing new results also check the shared AI observability billing quota before writing items, results, payloads, or usage.
+While the quota is active, these uploads return HTTP 402 with code `quota_limit_exceeded`; exact retries remain available and add no usage.
 
 The optional `run_source` accepts `ci`, `local`, `scheduled`, or null; empty strings are invalid.
 For hosted datasets, set `dataset_revision_id` to the UUID of a hosted dataset revision when you create the experiment.
@@ -399,7 +401,32 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
-Automatic payload deletion and usage billing are not enabled by these endpoints.
+Automatic payload deletion is not enabled by these endpoints.
+
+### Product usage events
+
+The API reports these product usage events after the database transaction commits:
+
+| Events                                                                                                               | When they fire                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `llma offline experiment created`                                                                                    | An experiment is first accepted.                                                                                                                               |
+| `llma offline experiment results uploaded`                                                                           | A batch accepts new items or results. `created_item_count` and `created_result_count` exclude retries.                                                         |
+| `llma offline experiment completed`, `llma offline experiment failed`                                                | An uploading experiment changes to the corresponding terminal state. Repeated closure emits no event.                                                          |
+| `llma dataset created`, `llma dataset updated`, `llma dataset archived`, `llma dataset restored`                     | A dataset is created or changes. Updates include `changed_fields`; unchanged updates and repeated archive/restore requests emit no event.                      |
+| `llma dataset item created`, `llma dataset item updated`, `llma dataset item archived`, `llma dataset item restored` | A new item version is accepted. Events include item and dataset IDs, version and dataset revision; restoration also includes the requested `source_version`.   |
+| `llma dataset export requested`, `llma dataset export downloaded`                                                    | An export starts successfully or its content is served. Events include the export ID and pinned dataset revision. Each successful download request is counted. |
+| `llma scorer created`, `llma scorer updated`, `llma scorer version created`                                          | A scorer is created, changed, or versioned. Archive and unarchive use `llma scorer updated` with `archived_new_value`.                                         |
+
+Events include the acting user or service principal, project groups, and request context.
+Experiment lifecycle events include dataset source, run source, status, and expected and accepted counts.
+Dataset source is classified as `posthog` for hosted revisions, `external` for a supplied external source, or `unknown` when omitted; the original source string is never captured.
+Dataset and experiment usage events exclude input, output, reasoning, metadata values, and resource names.
+Rejected requests, unchanged item updates, and exact ingestion retries emit no success event.
+Dataset and experiment reporting failures are logged without failing successful API operations.
+
+Frontend controls use `data-attr` for autocapture action matching.
+Dataset row actions retain their existing resource-specific `data-attr` values and have stable `data-attr` values on their menu wrappers for aggregate matching.
+Existing `llma` event names and attributes remain unchanged so saved actions and dashboards continue to match.
 
 ### Durable usage recording
 
@@ -410,13 +437,60 @@ Exact retries add no usage, including retries split or regrouped into different 
 Mixed uploads count only new results, and changed content still returns a conflict.
 
 Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
-These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove usage.
+These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove ledger entries.
 Moving a project to another organization does not rewrite historical attribution.
-The ownership snapshots and timestamp preserve the information needed for future aggregation by organization, team, and UTC day.
 
 Recording begins with newly accepted results after deployment; there is no historical backfill, compaction, or ledger cleanup.
-The ledger has no editing API or editable admin interface.
-Organization usage reporting, billing, actual charging, and quota enforcement remain unchanged and do not consume this ledger.
+The ledger has no editing API, admin registration, or production update/delete path.
+The database enforces positive quantities and result identity uniqueness; experiment row locks serialize overlapping uploads, and database transactions include results, payloads, and the ledger write.
+Independent scalar identifiers prevent product deletion cascades from deleting usage.
+`editable=False`, environment scoping, and server-assigned fields are application protections, not database immutability: privileged SQL and ORM bulk updates/deletes can still change the ledger.
+
+Retry deduplication uses retained result identities, not the batch ledger. Payload expiry preserves these identities.
+There is no result/experiment deletion endpoint. Privileged deletion of a result followed by reupload while its experiment is still open creates a new result and another usage unit; the ledger cannot identify the old metric after deletion.
+Operators must not delete durable result identities and then replay uploads as a billing-neutral operation. Any future identity cleanup needs an explicit replay policy before deployment.
+
+### Usage reporting and shared AIO meter
+
+The `organization usage report` exposes:
+
+| Property                                 | Meaning                                                                                                |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `ai_ingested_event_count_in_period`      | Billing-eligible ingested AIO events, preserving wallet-billed gateway and sponsored-event exemptions. |
+| `ai_offline_eval_metric_count_in_period` | Sum of eligible offline ledger quantities accepted in the reporting window.                            |
+| `ai_event_count_in_period`               | The sum of the two components.                                                                         |
+
+Organization reports include the same breakdown in each `teams` entry, including existing environments that have moved. A moved environment can appear under both organizations, with only the usage attributed to each.
+`team_count` continues to count live billable teams; historical entries do not increase it.
+The existing `ai_event_count_in_period` → `llm_events` contract remains the shared AIO meter. Reporting does not deduct the standard 100,000-unit monthly allowance or determine prices or custom allowances; billing owns those calculations.
+
+The `llm analytics usage` event adds `ai_offline_eval_metric_count_in_period` from the same offline ledger aggregation. Its existing `ai_metric_count`, event-type analytics, traces, costs, tokens, and dimension breakdowns remain ClickHouse-derived. Billing-eligible ingested counts and combined billing totals belong to the organization usage report; analytics reporting does not run an additional billing scan.
+
+`get_offline_evaluation_usage` performs database-side `SUM(quantity)` grouped by the stored organization and environment, with `accepted_at >= period_start AND accepted_at < period_end`.
+Eligibility follows current team records, like ingested AI events: deleted teams, demo teams, and teams in internal-metrics organizations are excluded. The stored organization must also still exist and not be internal-metrics.
+The ledger retains all accepted usage; reporting applies these exclusions without recording a separate eligibility field.
+It uses timezone-aware UTC windows and never counts ledger rows or current results.
+Scheduled daily reports and current-day quota refresh query the offline ledger with midnight-to-midnight windows, including the final microsecond of the day.
+The exclusive day end applies only to the offline ledger query; shared report metadata and other usage queries retain their existing windows.
+The existing acceptance-time index supports the range filter. Team and organization eligibility use SQL subqueries in the same aggregation query. Only grouped totals reach Python; there is no query per metric, team, or organization.
+
+Celery and Temporal compose offline quantities after selecting the ingested counter source, so source switching and shadow comparisons remain about ingested events only.
+Temporal queries the ledger in its aggregation activity before emitting chunks; existing query files and activity inputs need no new serialized counter.
+Offline-only organizations reach the normal delivery path when they have eligible usage. Stored attribution can include an organization whose team has since moved elsewhere.
+Deleted teams' usage is omitted from newly generated reports, even though its ledger entries remain. Deleted organizations are also omitted; no customer or organization is recreated.
+
+Current-day quota refresh adds eligible offline usage to `llm_events.todays_usage` by the stored organization, using the same current-team exclusions.
+It leaves the prior-period `usage` received from billing intact. Ledger failures abort before quota updates or report delivery, allowing existing retries without publishing an incomplete total.
+Organizations included only through offline usage are read in bounded, buffered pages so database connection cleanup between quota batches cannot interrupt the scan.
+Reports are absolute totals: rereading an unchanged window does not consume or modify ledger entries. Existing analytics dispatch claims and already-reported checks still apply.
+Separately scheduled reports can observe different late-arriving data; identical windows and ledger snapshots produce matching offline metric totals.
+
+### Deployment
+
+Offline usage reporting uses the requested reporting window without a separate charging-start date or activation setting.
+The reporting integration uses the existing ledger schema without an additional migration.
+Temporal computes the offline ledger's exclusive day end inside the aggregation activity.
+The shared workflow window and already serialized reports are unchanged.
 
 ## Resource tags
 

@@ -644,6 +644,9 @@ class ReviewPRWorkflow:
                         review_design=review_design,
                         review_design_reason=meta.review_design_reason,
                         coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
+                        arm_set=meta.arm_set,
+                        zero_change_skip_arm=meta.zero_change_skip,
+                        delta_band_arm=meta.delta_band,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -714,6 +717,7 @@ class ReviewPRWorkflow:
                             review_design=review_design,
                             coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                             publishes=publishes_to_pr,
+                            arm_set=meta.arm_set,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -734,6 +738,7 @@ class ReviewPRWorkflow:
                 review_design=review_design,
                 trigger_source=inputs.trigger_source,
                 delta_since_head_sha=delta_since_head_sha,
+                arm_set=meta.arm_set,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -873,6 +878,10 @@ class ReviewPRWorkflow:
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
                             last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
+                            arm_set=meta.arm_set,
+                            zero_change_skip_arm=meta.zero_change_skip,
+                            delta_band_arm=meta.delta_band,
+                            coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -911,6 +920,7 @@ class ReviewPRWorkflow:
                     zero_change_skip_arm=meta.zero_change_skip,
                     delta_band_arm=meta.delta_band,
                     delta_review=delta_since_head_sha is not None,
+                    arm_set=meta.arm_set,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -1034,11 +1044,12 @@ class ReviewPRWorkflow:
         # Workflow time, so a replay measures the same durations.
         session_seconds: list[float] = []
 
-        async def _main_session() -> None:
+        # Each session returns whether it fell back to the control arm, or None in a history from before the result.
+        async def _main_session() -> bool | None:
             async with semaphore:
                 started = workflow.now()
                 try:
-                    await workflow.execute_activity(
+                    return await workflow.execute_activity(
                         single_agent_review_activity,
                         stage,
                         start_to_close_timeout=_SANDBOX_TIMEOUT,
@@ -1048,11 +1059,11 @@ class ReviewPRWorkflow:
                 finally:
                     session_seconds.append((workflow.now() - started).total_seconds())
 
-        async def _lens_session(lens: str, chunk_id: int) -> None:
+        async def _lens_session(lens: str, chunk_id: int) -> bool | None:
             async with semaphore:
                 started = workflow.now()
                 try:
-                    await workflow.execute_activity(
+                    return await workflow.execute_activity(
                         lens_review_activity,
                         LensReviewInput(
                             team_id=stage.team_id,
@@ -1066,6 +1077,7 @@ class ReviewPRWorkflow:
                             flash_reasoning_effort=stage.flash_reasoning_effort,
                             review_design=stage.review_design,
                             delta_since_head_sha=stage.delta_since_head_sha,
+                            arm_set=stage.arm_set,
                             lens=lens,
                             chunk_id=chunk_id,
                         ),
@@ -1097,6 +1109,7 @@ class ReviewPRWorkflow:
             lens_failures=lens_failures,
             lens_timeouts=lens_timeouts,
             slowest_session_seconds=round(max(session_seconds, default=0.0), 1),
+            arm_fallbacks=sum(result is True for result in (main_result, *lens_results)),
         )
 
     @staticmethod

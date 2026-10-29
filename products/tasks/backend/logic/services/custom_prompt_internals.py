@@ -22,9 +22,13 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import is_transient_failure_error_type
 from products.tasks.backend.facade.api import upload_task_run_artifacts
-from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
+from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
+from products.tasks.backend.logic.services.startup_failure import (
+    AgentStartupFailed,
+    SandboxRunFailed as SandboxRunFailed,
+    read_startup_failure,
+)
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
@@ -141,6 +145,10 @@ class CustomPromptSandboxContext:
     """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
     agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
     sub-agents included."""
+    disable_repo_hooks: bool = False
+    """Stop hooks from the cloned repo's ``.claude/settings*.json`` from running. A repo's Stop hook
+    can block the turn that must return the caller's JSON. The agent still reads the repo's CLAUDE.md.
+    Claude-only."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -270,14 +278,9 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
-class SandboxRunFailed(RuntimeError):
-    def __init__(self, message: str, *, error_type: str | None) -> None:
-        super().__init__(message)
-        self.error_type = error_type
-
-    @property
-    def transient(self) -> bool:
-        return is_transient_failure_error_type(self.error_type)
+class RepositoryContextUnavailable(SandboxRunFailed):
+    def __init__(self, error_type: str, message: str | None = None) -> None:
+        super().__init__(message or error_type, error_type=error_type)
 
 
 SESSION_FILE_ARTIFACT_TYPE = "context"
@@ -340,6 +343,7 @@ async def _create_task_and_trigger(
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
     files: Sequence[SessionFile] = (),
+    spend_signal_id: str | None = None,
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -359,6 +363,8 @@ async def _create_task_and_trigger(
         extra_run_state["codex_max_subagents"] = context.codex_max_subagents
     if context.codex_shared_prompt_cache:
         extra_run_state["codex_shared_prompt_cache"] = True
+    if context.disable_repo_hooks:
+        extra_run_state["disable_repo_hooks"] = True
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:
@@ -377,6 +383,7 @@ async def _create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
         posthog_mcp_scopes=posthog_mcp_scopes,
@@ -426,6 +433,7 @@ async def create_task_and_trigger(
     mcp_gateway_server_ids: list[str] | None = None,
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
+    spend_signal_id: str | None = None,
 ) -> AgentTaskRunDTO:
     task, task_run = await _create_task_and_trigger(
         description,
@@ -434,6 +442,7 @@ async def create_task_and_trigger(
         step_name=step_name,
         origin_product=origin_product,
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
         internal=internal,
@@ -675,6 +684,7 @@ async def poll_for_turn(
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
                 failure_error_type=(refreshed.state or {}).get("failure_error_type"),
+                startup_failure=read_startup_failure(refreshed.state),
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -701,6 +711,7 @@ async def poll_for_turn(
             refreshed_status=refreshed.status,
             error_message=refreshed.error_message,
             failure_error_type=(refreshed.state or {}).get("failure_error_type"),
+            startup_failure=read_startup_failure(refreshed.state),
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -884,6 +895,7 @@ async def _drain_final_log(
     refreshed_status: str,
     error_message: str | None = None,
     failure_error_type: str | None = None,
+    startup_failure: AgentStartupFailure | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -900,6 +912,13 @@ async def _drain_final_log(
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
+    if refreshed_status == TaskRun.Status.FAILED and startup_failure is not None:
+        raise AgentStartupFailed(
+            failure=startup_failure,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+            error_type=failure_error_type,
+        )
     final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
     printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
     if final_state.last_message:
@@ -928,6 +947,14 @@ async def _drain_final_log(
     cause = f" (cause: {error_message})" if error_message else ""
     message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     if refreshed_status == TaskRun.Status.FAILED:
+        if failure_error_type in {
+            "RepositoryAccessError",
+            "RepositoryCloneError",
+            "GitHubAuthenticationError",
+            "GitHubIntegrationError",
+            "GitHubRateLimitedError",
+        }:
+            raise RepositoryContextUnavailable(failure_error_type, f"{message} ({failure_error_type})")
         raise SandboxRunFailed(message, error_type=failure_error_type)
     raise RuntimeError(message)
 

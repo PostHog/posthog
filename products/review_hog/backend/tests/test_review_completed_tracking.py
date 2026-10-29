@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -16,8 +17,11 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     REVIEW_MODEL,
+    SINGLE_AGENT_ARM_SETS,
+    SINGLE_AGENT_FLASH_ARM,
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
+    SingleAgentArms,
 )
 from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
@@ -116,6 +120,7 @@ class TestTrackReviewCompleted(BaseTest):
         flash_turn: FlashTurnStats | None = None,
         flash_sessions: FlashSessionStats | None = None,
         review_design: str = REVIEW_DESIGN_PIPELINE,
+        arm_set: str = "control",
     ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
@@ -131,6 +136,7 @@ class TestTrackReviewCompleted(BaseTest):
             flash_turn=flash_turn,
             flash_sessions=flash_sessions,
             review_design=review_design,
+            arm_set=arm_set,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -249,10 +255,23 @@ class TestTrackReviewCompleted(BaseTest):
             must_fix_on_change=1,
             must_fix_off_change=2,
         )
-        sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
+        sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5, arm_fallbacks=2)
+        trial = SingleAgentArms(main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"), lens=SINGLE_AGENT_FLASH_ARM)
 
-        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(self._tracking_input(report_id, flash_turn=turn, flash_sessions=sessions))
+        with (
+            patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
+            patch.dict(SINGLE_AGENT_ARM_SETS, {"trial": trial}),
+        ):
+            _track_review_completed(
+                self._tracking_input(
+                    report_id,
+                    review_mode=REVIEW_MODE_FLASH,
+                    review_design=REVIEW_DESIGN_SINGLE_AGENT,
+                    flash_turn=turn,
+                    flash_sessions=sessions,
+                    arm_set="trial",
+                )
+            )
             _track_review_completed(self._tracking_input(report_id))
 
         single_agent, pipeline = (call.kwargs["properties"] for call in capture.call_args_list)
@@ -275,8 +294,11 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,
             "flash_coordinator": False,
+            "flash_arm_fallbacks": 2,
         }
         assert not [key for key in pipeline if key.startswith("flash_")]
+        assert (single_agent["single_agent_arm_set"], single_agent["review_model"]) == ("trial", "gpt-6-luna")
+        assert pipeline["single_agent_arm_set"] == "control"
 
     def test_missing_snapshot_still_captures_without_pr_size(self) -> None:
         # A turn whose pr_snapshot is unavailable must still count as a review — size props go
@@ -694,6 +716,48 @@ class TestTrackReviewCompleted(BaseTest):
         # The failed event needs its own stable uuid namespace: colliding with the completed event's
         # would make ingestion dedupe a real failure against a later success of the same turn.
         assert failed.kwargs["uuid"] != completed.kwargs["uuid"]
+
+    def test_every_turn_event_names_the_arms_of_each_split(self) -> None:
+        # Failure and start rates per arm need the arms on the failed and started events too, because a failed
+        # turn has no completed event to join against.
+        report_id = self._review_report()
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_started(
+                TrackReviewStartedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    head_sha="sha1",
+                    turn_trigger_source=None,
+                    arm_set="trial",
+                    zero_change_skip_arm=True,
+                    delta_band_arm=True,
+                )
+            )
+            _track_review_failed(
+                TrackReviewFailedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    arm_set="trial",
+                    zero_change_skip_arm=True,
+                    delta_band_arm=True,
+                )
+            )
+            _track_review_completed(
+                replace(
+                    self._tracking_input(report_id), arm_set="trial", zero_change_skip_arm=True, delta_band_arm=True
+                )
+            )
+
+        for call in capture.call_args_list:
+            props = call.kwargs["properties"]
+            assert (props["single_agent_arm_set"], props["zero_change_skip_arm"], props["delta_band_arm"]) == (
+                "trial",
+                True,
+                True,
+            )
 
     def test_events_carry_the_tier_and_report_link_of_an_agent_pr(self) -> None:
         # The per-tier dashboards split on these: an event that drops the tier, the priority, or

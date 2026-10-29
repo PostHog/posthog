@@ -131,7 +131,7 @@ FLASH_ARM = ReviewArm(
 LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
-# Every single-agent session runs on this arm, whatever the user's Flash effort setting.
+# The control arm set runs every single-agent session on this arm, whatever the user's Flash effort setting.
 SINGLE_AGENT_FLASH_ARM = ReviewArm(
     runtime_adapter=RuntimeAdapter.CODEX,
     model="gpt-6.1-sol",
@@ -143,6 +143,37 @@ SINGLE_AGENT_FLASH_ARM = ReviewArm(
 SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+
+@frozen
+class SingleAgentArms:
+    """The arms of one single-agent turn: one for the main session, one for every lens session."""
+
+    main: ReviewArm
+    lens: ReviewArm
+
+    def for_pass(self, pass_number: int) -> ReviewArm:
+        return self.main if pass_number == SINGLE_AGENT_PASS_NUMBER else self.lens
+
+
+CONTROL_ARM_SET = "control"
+
+# The `reviewhog-single-agent-arms` flag variant picks a set per PR (`reviewer/feature_flags.py`). Events carry only
+# the name, so every name but control keeps its arms for life. A turn in flight reads its arms by name, so a row
+# leaves only after its variant has been off for a day.
+SINGLE_AGENT_ARM_SETS: dict[str, SingleAgentArms] = {
+    CONTROL_ARM_SET: SingleAgentArms(main=SINGLE_AGENT_FLASH_ARM, lens=SINGLE_AGENT_FLASH_ARM),
+    "gpt-6-1-terra": SingleAgentArms(
+        main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6.1-terra", reasoning_effort=ReasoningEffort.HIGH),
+        lens=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6.1-terra"),
+    ),
+}
+
+
+def single_agent_arms(arm_set: str) -> SingleAgentArms:
+    """The arms of a named set. A name no longer in the table, on a turn that started before a deploy, runs the control set."""
+    return SINGLE_AGENT_ARM_SETS.get(arm_set, SINGLE_AGENT_ARM_SETS[CONTROL_ARM_SET])
+
 
 # Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
 # so the resolution stage can recognize its own threads by content. Installation bot logins vary per
@@ -242,10 +273,14 @@ def review_arm_for_mode(
     *,
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
     review_design: str = REVIEW_DESIGN_PIPELINE,
+    arm_set: str = CONTROL_ARM_SET,
 ) -> ReviewArm:
-    """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
+    """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own.
+
+    A single-agent turn answers with its main session's arm.
+    """
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        return SINGLE_AGENT_FLASH_ARM
+        return single_agent_arms(arm_set).main
     return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
 
 
@@ -450,6 +485,9 @@ FAN_OUT_FAILURE_FLOOR = 0.70
 NON_RETRYABLE_UNIT_FAILURE_CATEGORIES = frozenset(
     {"upstream_request_rejected", "task_spend_limit", "subscription_usage_limit", "content_block_rejection"}
 )
+# Limits on the run rather than on the model, so a session that hits one on a trial arm would hit it on the
+# control arm too and does not fall back.
+RUN_LIMIT_FAILURE_CATEGORIES = frozenset({"task_spend_limit", "subscription_usage_limit"})
 
 # Attempts for a chunk's warm validation session. Retries are cheap — skip-resume re-validates only
 # issues without a persisted verdict. On the final attempt a failed turn is skipped, not raised.

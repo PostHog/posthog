@@ -7,12 +7,12 @@ It adds the PostHog LLM provider and the extensions in `src/extensions/` while k
 ## CLI
 
 ```bash
-hog
-hog /login
-hog -p "Fix the tests" --model posthog/claude-opus-4-8
+hogness
+hogness /login
+hogness -p "Fix the tests" --model posthog/claude-opus-4-8
 ```
 
-`harness` is an alias for `hog`.
+`harness` is an alias for `hogness`.
 
 ## Runtime
 
@@ -39,7 +39,7 @@ RPC is Pi's JSONL protocol over stdin/stdout. Harness does not define another pr
 
 ## Authentication
 
-Run `hog /login`, or pass a PostHog personal API key:
+Run `hogness /login`, or pass a PostHog personal API key:
 
 ```ts
 const runtime = await createHarnessRuntime({ apiKey: "pha_…" });

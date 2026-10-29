@@ -6,7 +6,6 @@ from dataclasses import dataclass
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from google.genai import types
 from google.genai.errors import APIError
 from prometheus_client import CollectorRegistry
 from temporalio.client import WorkflowExecutionStatus
@@ -20,11 +19,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     REDIS_KEY_TTL,
     SWEEP_MIN_AGE,
 )
-from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import (
-    CleanupSweepInputs,
-    CleanupSweepResult,
-    GeminiStorageUsage,
-)
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import CleanupSweepInputs, CleanupSweepResult
 
 _PUSHED_REGISTRY = "products.replay_vision.backend.temporal.metrics.pushed_metrics_registry"
 _NOW = dt.datetime(2026, 6, 12, 12, 0, 0, tzinfo=dt.UTC)
@@ -65,13 +60,6 @@ class _StubFiles:
     def __init__(self) -> None:
         self.deleted: list[str] = []
         self.delete_raises_for: dict[str, BaseException] = {}
-        self.listed: list[types.File] = []
-        self.list_raises: BaseException | None = None
-
-    def list(self, *, config: dict) -> list[types.File]:
-        if self.list_raises is not None:
-            raise self.list_raises
-        return self.listed
 
     def delete(self, *, name: str) -> None:
         if name in self.delete_raises_for:
@@ -108,7 +96,7 @@ async def _track(client, *, file_name: str, workflow_id: str, age: dt.timedelta)
 def _patch_clients(raw_client: _StubRawClient, temporal: _StubTemporal):
     return (
         patch(
-            "products.replay_vision.backend.temporal.gemini_cleanup_sweep.activities.RawGenAIClient",
+            "products.replay_vision.backend.temporal.gemini_cleanup_sweep.activities.gemini_files_client",
             return_value=raw_client,
         ),
         patch(
@@ -132,9 +120,7 @@ async def test_no_keys_returns_zeros(activity_environment, fixed_now, gemini_red
     p1, p2 = _patch_clients(raw, tmp)
     with p1, p2:
         result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
-    assert result == CleanupSweepResult(
-        storage=GeminiStorageUsage(files=0, total_bytes=0, oldest_age_seconds=0.0, truncated=False)
-    )
+    assert result == CleanupSweepResult()
     assert raw.files.deleted == []
 
 
@@ -353,36 +339,12 @@ async def test_mixed_cycle_aggregates_correctly(activity_environment, fixed_now,
 
 
 @pytest.mark.asyncio
-async def test_reports_storage_from_the_full_gemini_listing(activity_environment, fixed_now, gemini_redis):
-    raw, tmp = _StubRawClient(), _StubTemporal({})
-    raw.files.listed = [
-        types.File(name="files/tracked", size_bytes=300, create_time=_NOW - dt.timedelta(minutes=5)),
-        types.File(name="files/untracked", size_bytes=700, create_time=_NOW - dt.timedelta(hours=30)),
-        types.File(name="files/no-metadata"),
-    ]
-    p1, p2 = _patch_clients(raw, tmp)
-    pushed = CollectorRegistry()
-    with p1, p2, patch(_PUSHED_REGISTRY, lambda _job: nullcontext(pushed)):
-        result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
-    assert result.storage == GeminiStorageUsage(
-        files=3, total_bytes=1000, oldest_age_seconds=30 * 3600, truncated=False
-    )
-    assert pushed.get_sample_value("replay_vision_gemini_storage_bytes") == 1000
-    assert pushed.get_sample_value("replay_vision_gemini_cleanup_backlog") == 0
-
-
-@pytest.mark.asyncio
-async def test_storage_listing_failure_still_deletes_and_drops_storage_gauges(
-    activity_environment, fixed_now, gemini_redis
-):
+async def test_pushes_the_backlog_seen_before_deleting(activity_environment, fixed_now, gemini_redis):
     await _track(gemini_redis, file_name="files/old", workflow_id="wf-1", age=SWEEP_MIN_AGE * 10)
     raw, tmp = _StubRawClient(), _StubTemporal({"wf-1": _Outcome(status=WorkflowExecutionStatus.COMPLETED)})
-    raw.files.list_raises = RuntimeError("simulated")
     p1, p2 = _patch_clients(raw, tmp)
     pushed = CollectorRegistry()
     with p1, p2, patch(_PUSHED_REGISTRY, lambda _job: nullcontext(pushed)):
         result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
     assert result.deleted == 1
-    assert result.storage is None
     assert pushed.get_sample_value("replay_vision_gemini_cleanup_backlog") == 1
-    assert pushed.get_sample_value("replay_vision_gemini_storage_bytes") is None

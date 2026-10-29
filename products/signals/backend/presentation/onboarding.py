@@ -22,10 +22,12 @@ from posthog.permissions import APIScopePermission, get_authenticator_scopes
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.onboarding import (
     InboxOnboarding,
+    InboxOnboardingPermissionError,
     InboxOnboardingValidationError,
     can_create_onboarding_scout,
     onboarding_first_report_statuses,
     onboarding_priorities,
+    onboarding_setup_modes,
     onboarding_source_products,
     onboarding_source_types,
 )
@@ -39,19 +41,6 @@ class InboxOnboardingStep(models.TextChoices):
     GITHUB = "github", "GitHub"
 
 
-class InboxOnboardingVariant(models.TextChoices):
-    CONTROL = "control", "Control"
-    TEST_UI = "test-ui", "Focused steps"
-    TEST_GITHUB = "test-github", "Activate and explore"
-
-
-class InboxOnboardingExposureSerializer(serializers.Serializer):
-    variant = serializers.ChoiceField(
-        choices=InboxOnboardingVariant.choices,
-        help_text="Assigned experiment variant at the eligible Inbox impression.",
-    )
-
-
 class InboxOnboardingSourceSerializer(serializers.Serializer):
     source_product = serializers.ChoiceField(
         choices=onboarding_source_products(), help_text="Source product selected during setup."
@@ -62,8 +51,22 @@ class InboxOnboardingSourceSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether this source should be enabled at activation.")
 
 
+class InboxActivationMode(models.TextChoices):
+    GITHUB_OPTIONAL = "github_optional", "GitHub optional"
+
+
 class InboxOnboardingDraftSerializer(serializers.Serializer):
+    activation_mode = serializers.ChoiceField(
+        choices=InboxActivationMode.choices,
+        required=False,
+        help_text="Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.",
+    )
     step = serializers.ChoiceField(choices=InboxOnboardingStep.choices, help_text="Step to resume after returning.")
+    setup_mode = serializers.ChoiceField(
+        choices=onboarding_setup_modes(),
+        required=False,
+        help_text="How setup was chosen: quick activation from the welcome screen, or the guided steps.",
+    )
     sources: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
         child=InboxOnboardingSourceSerializer(), max_length=50, help_text="Staged signal source choices."
     )
@@ -135,6 +138,9 @@ class FirstReportStateSerializer(serializers.Serializer):
 
 @extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    github_optional_available = serializers.BooleanField(
+        required=False, help_text="Whether this project can activate Self-driving without connecting GitHub."
+    )
     first_report_completion_notification = serializers.BooleanField(
         required=False,
         help_text="Whether the current user can receive an in-app notification when this investigation finishes.",
@@ -148,11 +154,6 @@ class InboxOnboardingStateSerializer(serializers.Serializer):
     jobs = InboxOnboardingJobsSerializer(required=False, help_text="Background work started by quick activation.")
     draft = InboxOnboardingDraftSerializer(allow_null=True, help_text="Saved setup choices, without activating them.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When verified setup completed.")
-    variant = serializers.ChoiceField(
-        choices=InboxOnboardingVariant.choices,
-        allow_null=True,
-        help_text="Variant recorded at the first eligible impression.",
-    )
 
 
 class InboxOnboardingPermission(BasePermission):
@@ -203,20 +204,10 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             lambda write: self._check_suggestion_access(self.request, write=write),
         )
 
-    @extend_schema(request=InboxOnboardingExposureSerializer, responses=InboxOnboardingStateSerializer)
-    @action(detail=False, methods=["POST"])
-    def expose(self, request: Request, *args: object, **kwargs: object) -> Response:
-        serializer = InboxOnboardingExposureSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        if serializer.validated_data["variant"] == InboxOnboardingVariant.CONTROL:
-            self._check_scout_access(request)
-        return Response(self._service().expose(serializer.validated_data["variant"]))
-
     @extend_schema(request=None, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])
-    def reconcile(self, request: Request, *args: object, **kwargs: object) -> Response:
-        self._check_scout_access(request)
-        return Response(self._service().reconcile())
+    def expose(self, request: Request, *args: object, **kwargs: object) -> Response:
+        return Response(self._service().expose())
 
     @extend_schema(responses=InboxOnboardingStateSerializer)
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
@@ -226,7 +217,10 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = InboxOnboardingDraftSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return Response(self._service().save_draft(dict(serializer.data)))
+        try:
+            return Response(self._service().save_draft(dict(serializer.data)))
+        except InboxOnboardingValidationError as error:
+            raise serializers.ValidationError(str(error)) from error
 
     @extend_schema(request=InboxOnboardingDraftSerializer, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])
@@ -237,5 +231,7 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._check_scout_access(request)
         try:
             return Response(self._service().complete(dict(serializer.data)))
+        except InboxOnboardingPermissionError as error:
+            raise PermissionDenied(str(error)) from error
         except InboxOnboardingValidationError as error:
             raise serializers.ValidationError(str(error)) from error

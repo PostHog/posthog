@@ -4,6 +4,16 @@
         "id": {
             "description": "A UUID string identifying this signal report.",
             "type": "string"
+        },
+        "removal_note": {
+            "description": "The user's own words for why, such as \"I'm not on the payments team any more\". Scouts read it when they route later reports.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "removal_reason": {
+            "description": "Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.\n\n* `wrong_area` - Not their area\n* `already_covered` - Someone else is on it\n* `unavailable` - No bandwidth\n* `other` - Other",
+            "enum": ["wrong_area", "already_covered", "unavailable", "other"],
+            "type": "string"
         }
     },
     "required": ["id"],
