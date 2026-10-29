@@ -114,6 +114,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     so deletes, updates, merges and compactions reach the table.
     """
 
+    supports_incremental_history = False
+
     @abstractmethod
     def object_store_config(self, config: ConfigType) -> StoreConfig: ...
 

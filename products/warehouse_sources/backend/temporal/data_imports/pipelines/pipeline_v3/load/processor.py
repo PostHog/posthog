@@ -19,6 +19,8 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
+from posthog.hogql.database.models import StringJSONDatabaseField
+
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
 
@@ -990,6 +992,9 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
     # so it must be promoted only here, when the final batch completes the job. A run that completes
     # outside the loader (a run with zero batches) must not promote it.
     schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
+    if export_signal.cdc_write_mode == SCD2_APPEND_MODE and schema.cdc_table_mode == "both":
+        # The history table's job shares the consolidated table's read, whose own job promotes the cursor.
+        return
 
     def merge_source_cursors(current: Any, candidate: Any) -> dict[str, Any]:
         source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
@@ -1203,9 +1208,18 @@ def _finalize_run(
             async_to_sync(finalize_history_lane)(delta_table_ref, run_signal.primary_keys or [])
             history_table = async_to_sync(delta_table_ref.get_delta_table)()
             if history_table is not None:
-                # The batches went to the staging table, whose columns are not the history table's.
+                # The batches went to the staging table, whose columns are not the history table's. Only
+                # the batch tells a JSON string from a plain one, so those types carry over.
+                batch_types = internal_schema.to_hogql_types()
                 internal_schema = HogQLSchema()
                 internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(history_table.schema()))
+                internal_schema.schema.update(
+                    {
+                        name: hogql_type
+                        for name, hogql_type in batch_types.items()
+                        if hogql_type == StringJSONDatabaseField.__name__ and name in internal_schema.schema
+                    }
+                )
         post_load_result = async_to_sync(run_post_load_operations)(
             job=job,
             schema=schema,

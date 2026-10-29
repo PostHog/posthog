@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DeltaWriter,
     commit_covers_batch,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
     SUMMARY_EVENT,
     post_load_phase,
@@ -470,9 +471,10 @@ class TestMarkJobCompleted:
             # If the job was cancelled (absorbing Failed) after the final batch passed
             # should_process_batch, the Completed write is rejected and the staged
             # incremental cursor must NOT be promoted.
-            ("completed_write_lands", "Completed", True, None),
-            ("completed_write_absorbed_by_failed", "Failed", False, None),
-            ("schedule_resume_fails", "Completed", True, RuntimeError("temporal down")),
+            ("completed_write_lands", "Completed", True, None, None),
+            ("completed_write_absorbed_by_failed", "Failed", False, None, None),
+            ("schedule_resume_fails", "Completed", True, RuntimeError("temporal down"), None),
+            ("history_companion_job", "Completed", False, None, "scd2_append"),
         ]
     )
     @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
@@ -499,6 +501,7 @@ class TestMarkJobCompleted:
         resulting_status: str,
         expect_promotion: bool,
         resume_error: Exception | None,
+        cdc_write_mode: str | None,
         mock_update: MagicMock,
         mock_schema_objects: MagicMock,
         mock_finish_row_tracking: AsyncMock,
@@ -512,21 +515,25 @@ class TestMarkJobCompleted:
         model.status = resulting_status
         mock_update.return_value = model
 
-        schema = MagicMock()
+        schema = MagicMock(cdc_table_mode="both")
         mock_schema_objects.get.return_value = schema
         job = MagicMock()
         job.workflow_run_id = "wf-run-1"
         mock_job_objects.only.return_value.get.return_value = job
+        signal = self._make_signal()
+        signal.cdc_write_mode = cdc_write_mode
 
-        _mark_job_completed(self._make_signal())
+        _mark_job_completed(signal)
 
         if expect_promotion:
             schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
-            mock_resume.assert_called_once_with("schema-1", 1, "job-1")
         else:
             schema.promote_staged_incremental_values.assert_not_called()
+        if resulting_status == "Failed":
             mock_finish_row_tracking.assert_not_awaited()
             mock_resume.assert_not_called()
+        else:
+            mock_resume.assert_called_once_with("schema-1", 1, "job-1")
         # The pipeline lock must be released either way, or the next sync is blocked.
         mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
 
@@ -684,7 +691,7 @@ class TestPartialDataLoadingApplies:
     ) -> None:
         signal = MagicMock(is_first_ever_sync=True, cdc_write_mode=cdc_write_mode)
 
-        assert _partial_data_loading_applies(signal, MagicMock()) is expected
+        assert _partial_data_loading_applies(signal, MagicMock(table=None), MagicMock()) is expected
 
 
 class TestPostWriteHandleReads:
@@ -808,7 +815,13 @@ class TestHistoryLaneFinalBatch:
         _complete: MagicMock,
     ) -> None:
         ts = pa.timestamp("us", tz="UTC")
-        batch = pa.table({"id": pa.array([1], pa.int64()), "_ph_valid_from": pa.array([1_000_000], ts)})
+        batch = pa.table(
+            {
+                "id": pa.array([1], pa.int64()),
+                "payload": pa.array(['{"a": 1}']),
+                "_ph_valid_from": pa.array([1_000_000], ts),
+            }
+        )
         seen: dict[str, Any] = {}
 
         with tempfile.TemporaryDirectory() as root:
@@ -818,7 +831,7 @@ class TestHistoryLaneFinalBatch:
 
             async def _post_load(**kwargs: Any) -> PostLoadResult:
                 seen["rows"] = DeltaTable(f"{root}/orders_history").to_pyarrow_table().num_rows
-                seen["columns"] = set(kwargs["table_schema_dict"])
+                seen["columns"] = dict(kwargs["table_schema_dict"])
                 return _POST_LOAD_RESULT
 
             mock_post_load.side_effect = _post_load
@@ -837,12 +850,14 @@ class TestHistoryLaneFinalBatch:
                     total_rows=1,
                 )
                 if case == "final_batch":
+                    batch_schema = HogQLSchema()
+                    batch_schema.add_pyarrow_table(batch)
                     _finalize_run(
                         signal,
                         job=MagicMock(),
                         schema=MagicMock(),
                         delta_table_ref=ref,
-                        internal_schema=MagicMock(),
+                        internal_schema=batch_schema,
                         verify_ownership=None,
                     )
                 else:
@@ -850,8 +865,9 @@ class TestHistoryLaneFinalBatch:
                     _run_post_load_for_already_processed_batch(signal)
 
         assert seen["rows"] == 1
-        assert {"_ph_valid_to", "_ph_history_partition"} <= seen["columns"]
-        assert not {"_ph_staged_batch", "_ph_staged_row"} & seen["columns"]
+        assert {"_ph_valid_to", "_ph_history_partition"} <= seen["columns"].keys()
+        assert not {"_ph_staged_batch", "_ph_staged_row"} & seen["columns"].keys()
+        assert seen["columns"]["payload"] == "StringJSONDatabaseField"
 
 
 class TestFinalDataBatch:

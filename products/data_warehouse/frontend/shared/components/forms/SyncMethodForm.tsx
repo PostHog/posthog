@@ -21,6 +21,10 @@ const LOOKBACK_ELIGIBLE_TYPES = new Set(['datetime', 'date', 'timestamp'])
 export const isLookbackEligibleType = (fieldType: string | null | undefined): boolean =>
     !!fieldType && LOOKBACK_ELIGIBLE_TYPES.has(fieldType)
 
+// A history version starts at the cursor value. A date stays equal for every change made that day, so only a
+// cursor with a time can keep history. Mirrors HISTORY_CURSOR_TYPES on the backend.
+const HISTORY_CURSOR_TYPES = new Set(['datetime', 'timestamp'])
+
 export const secondsToLookbackParts = (
     seconds: number | null | undefined
 ): { amount: number | null; unit: LookbackUnit } => {
@@ -261,10 +265,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const lookbackSeconds =
         lookbackAmount != null && lookbackAmount > 0 ? lookbackAmount * LOOKBACK_UNIT_SECONDS[lookbackUnit] : null
 
-    // A history version starts at the cursor value, so only a point-in-time cursor can keep history.
+    const historyFieldType = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.field_type
     const historyAvailable =
-        !!schema.incremental_history_available &&
-        isLookbackEligibleType(schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.field_type)
+        !!schema.incremental_history_available && !!historyFieldType && HISTORY_CURSOR_TYPES.has(historyFieldType)
     const incrementalTableMode = historyAvailable ? cdcTableMode : 'consolidated'
 
     const radioOptions: {
@@ -522,7 +525,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                                     value: 'cdc_only',
                                                     disabledReason: historyAvailable
                                                         ? undefined
-                                                        : 'Choose an incremental field that holds a date or a time',
+                                                        : 'Choose an incremental field that holds a date and time',
                                                     label: (
                                                         <div className="font-normal mb-2">
                                                             <div className="font-semibold">History table only</div>
@@ -537,7 +540,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                                     value: 'both',
                                                     disabledReason: historyAvailable
                                                         ? undefined
-                                                        : 'Choose an incremental field that holds a date or a time',
+                                                        : 'Choose an incremental field that holds a date and time',
                                                     label: (
                                                         <div className="font-normal mb-2">
                                                             <div className="font-semibold">Both</div>

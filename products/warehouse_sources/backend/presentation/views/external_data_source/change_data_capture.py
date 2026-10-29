@@ -36,7 +36,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCSourceAdapter,
     PostgresSource,
     get_cdc_adapter,
-    history_table_ids,
+    history_table_name,
+    history_tables,
     repair_cdc_source,
     source_type_supports_cdc,
 )
@@ -536,7 +537,15 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 except ExternalDataSchema.DoesNotExist:
                     pass
 
-            table_ids = history_table_ids(instance)
+            # An incremental schema that keeps history goes on syncing its history table.
+            kept_names = {
+                history_table_name(schema)
+                for schema in ExternalDataSchema.objects.filter(
+                    source=instance, sync_type=ExternalDataSchema.SyncType.INCREMENTAL
+                ).exclude(deleted=True)
+                if schema.keeps_history
+            }
+            table_ids = [table.id for table in history_tables(instance) if table.name not in kept_names]
 
             # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
             ExternalDataSchema.objects.filter(

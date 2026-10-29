@@ -4771,16 +4771,28 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
     @parameterized.expand(
         [
             ("flag_off", "both", "consolidated", "datetime", False, "not enabled"),
-            ("integer_cursor", "both", "consolidated", "integer", True, "date or a time"),
+            ("integer_cursor", "both", "consolidated", "integer", True, "date and time"),
             ("turn_on", "both", "consolidated", "datetime", True, None),
             ("turn_off", "consolidated", "both", "date", True, None),
+            # The form sends the mode it shows on every save, which must not need the flag again.
+            ("flag_off_keeping_the_mode", "both", "both", "datetime", False, None),
+            (
+                "source_replaces_rows_by_file",
+                "both",
+                "consolidated",
+                "datetime",
+                True,
+                "replaces rows by file",
+                None,
+                False,
+            ),
             (
                 "integer_field_while_keeping_history",
                 "both",
                 "both",
                 "datetime",
                 True,
-                "date or a time",
+                "date and time",
                 {"incremental_field": "id", "incremental_field_type": "integer"},
             ),
         ]
@@ -4795,6 +4807,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         flag_on: bool,
         refusal: str | None,
         request_body: dict | None = None,
+        source_supports_history: bool = True,
     ):
         self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
         self.schema.sync_type_config = {
@@ -4809,9 +4822,15 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         )
         self.schema.save()
 
-        with mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_incremental_history_enabled_for_team",
-            return_value=flag_on,
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_incremental_history_enabled_for_team",
+                return_value=flag_on,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.supports_incremental_history",
+                new=source_supports_history,
+            ),
         ):
             body = request_body or {"cdc_table_mode": mode}
             if refusal:
@@ -4824,6 +4843,23 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert self.schema.cdc_table_mode == (initial_mode if refusal else mode)
         assert self.schema.keeps_history == ((initial_mode if refusal else mode) != "consolidated")
         assert bool(self.schema.sync_type_config.get("reset_pipeline")) == (_name == "turn_on")
+
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_leaving_incremental_drops_the_history_choice(self):
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": "both",
+            INCREMENTAL_HISTORY_KEY: True,
+        }
+        self.schema.save()
+
+        self._save_through_serializer(self.schema, {"sync_type": "full_refresh"})
+
+        self.schema.refresh_from_db()
+        assert INCREMENTAL_HISTORY_KEY not in self.schema.sync_type_config
 
     @parameterized.expand(
         [

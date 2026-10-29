@@ -56,7 +56,10 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
     current_import_attempt,
     set_attempts_before_this_execution,
 )
-from products.warehouse_sources.backend.temporal.data_imports.incremental_history import attach_history_lanes
+from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
+    IncrementalHistoryUnavailableError,
+    attach_history_lanes,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
     get_import_attempt_duration_metric,
@@ -942,7 +945,10 @@ async def _import_data_with_reporting(
                     on_resumable_retry_budget=inputs.on_resumable_retry_budget,
                 )
 
-            await database_sync_to_async_pool(attach_history_lanes)(schema, source_response)
+            try:
+                await database_sync_to_async_pool(attach_history_lanes)(schema, source_response)
+            except IncrementalHistoryUnavailableError as e:
+                await _handle_import_error(job_inputs, logger, e)
 
             return await _run(
                 job_inputs=job_inputs,
@@ -1122,6 +1128,12 @@ async def _handle_import_error(
     # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
+    # The schema's settings or the source's shape rule out its history table, so a retry fails the same way.
+    if isinstance(error, IncrementalHistoryUnavailableError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
     if isinstance(error, RESTClientNonRetryableError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error

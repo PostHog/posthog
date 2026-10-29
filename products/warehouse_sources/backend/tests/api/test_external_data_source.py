@@ -35,6 +35,7 @@ from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTE
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
+    INCREMENTAL_HISTORY_KEY,
     DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataJob,
@@ -56,6 +57,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.facade.source_management import history_table_name
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.models.external_data_destination import (
@@ -11919,8 +11921,20 @@ class TestDisableCDC(APIBaseTest):
             team_id=self.team.pk,
             source_id=source.pk,
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"cdc_table_mode": "both", INCREMENTAL_HISTORY_KEY: True},
             should_sync=True,
         )
+        history_tables = {
+            schema.name: DataWarehouseTable.objects.create(
+                team_id=self.team.pk,
+                name=str(history_table_name(schema)),
+                format="DeltaS3Wrapper",
+                url_pattern="s3://bucket/history",
+                external_data_source=source,
+                options={"history_table": True},
+            )
+            for schema in (history_schema, non_cdc_schema)
+        }
 
         with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
             response = self.client.post(
@@ -11947,6 +11961,14 @@ class TestDisableCDC(APIBaseTest):
         cdc_schema.refresh_from_db()
         assert cdc_schema.sync_type is None
         assert cdc_schema.should_sync is False
+
+        # The CDC history table goes; the incremental one keeps syncing.
+        assert {
+            name: DataWarehouseTable.objects.get(id=table.id).deleted for name, table in history_tables.items()
+        } == {
+            "cdc_history_table": True,
+            "incremental_table": False,
+        }
 
         # Non-CDC schema must NOT be touched.
         non_cdc_schema.refresh_from_db()
