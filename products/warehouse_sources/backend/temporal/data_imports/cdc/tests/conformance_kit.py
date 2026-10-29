@@ -541,7 +541,10 @@ class ConformanceKit:
             patch(f"{_CDC}.activities.get_cdc_adapter", return_value=self._engine.adapter),
             patch(f"{_CDC}.activities.source_type_supports_cdc", return_value=True),
             # The kit registers no tables, so every history table is a new one.
-            patch(f"{_CDC}.activities.history_naming_unless_taken", return_value=HISTORY_NAMING),
+            patch(
+                f"{_CDC}.activities.SourceHistoryNamings",
+                return_value=MagicMock(naming_unless_taken=MagicMock(return_value=HISTORY_NAMING)),
+            ),
             patch(f"{_CDC}.activities.ExternalDataSource", source_model),
             patch.object(CDCExtractActivity, "_get_cdc_schemas", cdc_schemas),
             patch(f"{_CDC}.activities.update_sync_type_config_keys", merge_config),
