@@ -2,6 +2,8 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 TRIGGER = {
@@ -54,6 +56,23 @@ class TestUnwakeableWaitRejection(APIBaseTest):
 
         assert status == 400, body
         assert "uses a group property" in str(body)
+
+    @parameterized.expand(
+        [
+            ("dotted", "organization.properties.plan == 'pro'"),
+            ("bracket_notation", "organization['properties']['plan'] == 'pro'"),
+        ]
+    )
+    def test_rejects_a_wait_that_reads_a_group_by_its_type_name(self, _name: str, hogql: str):
+        # Real-time filters see only group_N, so a type-name alias fails to compile and the save fails.
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        status, body = self._post(wait_on(hogql))
+
+        assert status == 400, body
+        assert "cannot read organization" in str(body)
 
     @parameterized.expand(
         [
