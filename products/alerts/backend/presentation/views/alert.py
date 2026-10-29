@@ -264,10 +264,11 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
 
 
 def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
-    """Refuse an AI preview the person asking cannot use.
+    """Refuse an AI preview or takeover the person asking cannot use.
 
     Saved alerts go through ``admit_llm_alert_write`` instead, which checks the alert's
-    creator: a preview has no alert, so the requester is the principal.
+    creator. A preview has no alert, and a takeover makes the requester the creator, so
+    both check the requester.
     """
     if DetectorType.LLM.value not in _detector_types(detector_config):
         return
@@ -1244,7 +1245,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 }
             )
 
-        if self.context["request"].method == "POST":
+        # Only a create adds an alert; a takeover is a POST that enables an existing one.
+        if self.instance is None:
             if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
                 raise ValidationError({"alert": [msg]})
 
@@ -1835,9 +1837,15 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             assert_creator_can_run(user, alert.team, alert.insight)
         except (CreatorLeftOrganizationError, UserAccessControlError):
             raise ValidationError("Can't take ownership: you don't have access to this insight.") from None
+        # The scheduled checks run as the owner, so an AI alert needs the requester on the rollout.
+        # An already enabled alert does not pass through the admission below, so it is checked here.
+        _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config)
         # One transaction, so a refused enable leaves the owner as it was. The enable below reloads
         # the row, so the owner is saved first.
         with transaction.atomic():
+            # Same lock order as update(): insight, then alert row. The owner write below locks the row.
+            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
+                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
             assign_alert_owner(
                 team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
             )

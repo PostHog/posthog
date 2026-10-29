@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -38,3 +39,23 @@ class TestAlertTakeOwnership(APIBaseTest):
         assert takeover.detail is not None
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
+
+    def test_take_ownership_is_not_blocked_by_the_alert_limit(self) -> None:
+        alert = self._disabled_alert_of_a_former_member()
+
+        with patch.object(AlertConfiguration, "check_alert_limit", return_value="Your team has reached the limit."):
+            response = self.client.post(f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_take_ownership_of_an_ai_alert_needs_the_rollout(self) -> None:
+        former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
+        # Enabled, so the enable path's admission does not run and only the takeover check applies.
+        alert = create_insight_alert(self.team, created_by=former_member, enabled=True, detector_config={"type": "llm"})
+
+        with patch("products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.post(f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        alert.refresh_from_db()
+        assert alert.created_by == former_member
