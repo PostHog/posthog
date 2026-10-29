@@ -41,6 +41,7 @@ from products.tasks.backend.facade import (
 from . import follow_ups
 from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef, SubjectRef
 from .schema import AssignArgs, DocsArgs, LoopArgs, QaArgs, ResolveArgs, ReviewArgs, StampArgs
+from .subjects import candidate_team_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +82,11 @@ def stamp_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarge
         team_ids=tuple(reviewing),
         not_member_message="You aren't a member of the PostHog project where Stamphog reviews this repository.",
     )
+
+
+def docs_listed(subject: SubjectRef) -> bool:
+    writer_team_id = knowledge_writer_facade.writer_team_id()
+    return writer_team_id is not None and writer_team_id in candidate_team_ids(subject)
 
 
 def docs_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
