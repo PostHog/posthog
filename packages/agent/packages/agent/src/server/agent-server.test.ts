@@ -3183,11 +3183,6 @@ describe("AgentServer HTTP Mode", () => {
           approveMcpTool: typeof approveMcpTool;
           getUserId: () => Promise<number>;
         };
-        productLaunch: { originProduct?: string };
-      };
-      exposed.productLaunch = {
-        ...exposed.productLaunch,
-        originProduct: "posthog_ai",
       };
       exposed.mcpToolPolicies = new Map([
         [
@@ -3210,6 +3205,7 @@ describe("AgentServer HTTP Mode", () => {
       testServer: ReturnType<typeof exposeCloudClient>,
       optionId: string,
       userId: number,
+      confirmPersistentApproval?: boolean,
     ) {
       testServer.session = {
         hasDesktopConnected: true,
@@ -3233,7 +3229,7 @@ describe("AgentServer HTTP Mode", () => {
       const [requestId] = testServer.pendingPermissions.keys();
       await commandServer.executeCommand(
         "permission_response",
-        { requestId, optionId },
+        { requestId, optionId, confirmPersistentApproval },
         { user_id: userId },
       );
       return result;
@@ -3294,9 +3290,10 @@ describe("AgentServer HTTP Mode", () => {
 
     it.each([
       {
-        label: "the run's user allows",
+        label: "the run's user allows and confirms saving",
         optionId: "allow",
         userId: RUN_USER_ID,
+        confirmed: true,
         outcome: { outcome: "selected", optionId: "allow" },
         saved: true,
       },
@@ -3304,19 +3301,29 @@ describe("AgentServer HTTP Mode", () => {
         label: "the run's user declines",
         optionId: "reject",
         userId: RUN_USER_ID,
+        confirmed: undefined,
         outcome: { outcome: "selected", optionId: "reject" },
+        saved: false,
+      },
+      {
+        label: "a client allows without confirming saving",
+        optionId: "allow",
+        userId: RUN_USER_ID,
+        confirmed: undefined,
+        outcome: { outcome: "cancelled" },
         saved: false,
       },
       {
         label: "a teammate allows",
         optionId: "allow",
         userId: RUN_USER_ID + 1,
+        confirmed: true,
         outcome: { outcome: "cancelled" },
         saved: false,
       },
     ])(
-      "relays one labeled allow and saves the approval only when $label",
-      async ({ optionId, userId, outcome, saved }) => {
+      "relays one labeled allow and handles when $label",
+      async ({ optionId, userId, confirmed, outcome, saved }) => {
         const testServer = exposeCloudClient(createServer());
         const approveMcpTool = withNeedsApprovalTool(
           testServer as unknown as AgentServer,
@@ -3328,7 +3335,12 @@ describe("AgentServer HTTP Mode", () => {
           "awaitPermissionAnswer",
         );
 
-        const result = await answerApproval(testServer, optionId, userId);
+        const result = await answerApproval(
+          testServer,
+          optionId,
+          userId,
+          confirmed,
+        );
 
         const relayed = relaySpy.mock.calls[0][0] as {
           options: Array<{ kind: string; name?: string }>;
@@ -3360,7 +3372,12 @@ describe("AgentServer HTTP Mode", () => {
         testServer as unknown as AgentServer,
       ).mockRejectedValue(new Error("403"));
 
-      const result = await answerApproval(testServer, "allow", RUN_USER_ID);
+      const result = await answerApproval(
+        testServer,
+        "allow",
+        RUN_USER_ID,
+        true,
+      );
 
       expect(result.outcome).toEqual({ outcome: "cancelled" });
     });
@@ -3370,31 +3387,19 @@ describe("AgentServer HTTP Mode", () => {
         label: "a background run",
         mode: "background" as const,
         connected: true,
-        originProduct: "posthog_ai",
       },
       {
         label: "an interactive run with no client",
         mode: "interactive" as const,
         connected: false,
-        originProduct: "posthog_ai",
-      },
-      {
-        label: "a Slack run whose prompts are auto-answered",
-        mode: "interactive" as const,
-        connected: true,
-        originProduct: "slack",
       },
     ])(
       "cancels a needs_approval MCP tool in $label instead of relaying it",
-      async ({ mode, connected, originProduct }) => {
+      async ({ mode, connected }) => {
         const testServer = exposeCloudClient(createServer());
         withNeedsApprovalTool(testServer as unknown as AgentServer);
         testServer.session = { hasDesktopConnected: connected };
         testServer.eventStreamSender = null;
-        const exposed = testServer as unknown as {
-          productLaunch: { originProduct?: string };
-        };
-        exposed.productLaunch = { ...exposed.productLaunch, originProduct };
         const relaySpy = vi.spyOn(testServer, "relayPermissionToClient");
 
         const { requestPermission } = testServer.createCloudClient({

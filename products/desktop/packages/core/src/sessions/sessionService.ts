@@ -122,6 +122,7 @@ import {
   routeLocalConnect,
 } from "./connectRouting";
 import {
+  confirmsPersistentApproval,
   formatPermissionAnswerPrompt,
   type PermissionSelectionPlan,
   planPermissionResponse,
@@ -6062,6 +6063,9 @@ export class SessionService {
             optionId,
             customInput,
             answers,
+            ...(confirmsPersistentApproval(permission, optionId)
+              ? { confirmPersistentApproval: true }
+              : {}),
           });
         } catch (error) {
           const latestCloudStatus = await this.refreshCloudRunStatus(session);

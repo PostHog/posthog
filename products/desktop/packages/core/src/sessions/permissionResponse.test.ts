@@ -2,6 +2,7 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { PermissionRequest } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
+  confirmsPersistentApproval,
   formatPermissionAnswerPrompt,
   getPermissionOptionMeta,
   isOtherPermissionOption,
@@ -235,4 +236,39 @@ describe("formatPermissionAnswerPrompt", () => {
       ).toBeNull();
     },
   );
+});
+
+describe("confirmsPersistentApproval", () => {
+  const savedApproval = {
+    taskRunId: "run-1",
+    receivedAt: 0,
+    toolCall: { toolCallId: "tool-1", _meta: { persistsApproval: true } },
+    options: [
+      { optionId: "allow", name: "Approve", kind: "allow_once" },
+      { optionId: "reject", name: "No", kind: "reject_once" },
+    ],
+  } as PermissionRequest;
+
+  it.each([
+    {
+      label: "allowing a saved approval",
+      permission: savedApproval,
+      optionId: "allow",
+      expected: true,
+    },
+    {
+      label: "declining a saved approval",
+      permission: savedApproval,
+      optionId: "reject",
+      expected: false,
+    },
+    {
+      label: "allowing a run-scoped approval",
+      permission: { ...savedApproval, toolCall: { toolCallId: "tool-1" } },
+      optionId: "allow",
+      expected: false,
+    },
+  ])("is $expected when $label", ({ permission, optionId, expected }) => {
+    expect(confirmsPersistentApproval(permission, optionId)).toBe(expected);
+  });
 });

@@ -6198,6 +6198,34 @@ describe('runStreamLogic', () => {
             )
         })
 
+        it.each([
+            { label: 'a person allows', optionId: 'allow', automatic: false, confirmed: true },
+            { label: 'a person declines', optionId: 'reject', automatic: false, confirmed: undefined },
+            { label: 'an automatic allow', optionId: 'allow', automatic: true, confirmed: undefined },
+        ])('confirms a saved approval only when $label', async ({ optionId, automatic, confirmed }) => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const record = parsePermissionRequestFrame(
+                {
+                    type: 'permission_request',
+                    requestId: 'req-saved',
+                    toolCall: { toolCallId: 'tool-1', _meta: { persistsApproval: true } },
+                    options: [
+                        { optionId: 'allow', name: 'Yes, and approve this tool in PostHog', kind: 'allow_once' },
+                        { optionId: 'reject', name: 'No', kind: 'reject_once' },
+                    ],
+                },
+                'run-1'
+            )!
+
+            await expectLogic(logic, () => {
+                logic.actions.deliverPermission(record, optionId, undefined, undefined, automatic)
+            }).toFinishAllListeners()
+
+            expect(jest.mocked(tasksRunsCommandCreate).mock.calls[0][3].params?.confirmPersistentApproval).toEqual(
+                confirmed
+            )
+        })
+
         it('cancelRun cancels the streamed run via the tasks relay', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
 

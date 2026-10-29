@@ -253,9 +253,6 @@ const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
-// The Slack permission broker answers prompts as the run's own user, so its
-// answer would pass the answerer check without a person deciding.
-const AUTO_ANSWERED_ORIGIN_PRODUCTS = new Set(["slack"]);
 // Approval states are best-effort; past this, tools load ungated rather than delay the run.
 const MCP_TOOL_APPROVALS_TIMEOUT_MS = 5_000;
 
@@ -273,6 +270,8 @@ interface PermissionAnswer {
   response: RelayedPermissionResponse;
   /** The `/command` caller who answered; unset when the session settled it. */
   answeredByUserId?: number;
+  /** Sent only when a person picks an approval that outlives the run; auto-responders omit it. */
+  confirmPersistentApproval?: boolean;
 }
 
 function mcpToolApprovalCancel(
@@ -1994,6 +1993,8 @@ export class AgentServer {
         const optionId = params.optionId as string;
         const customInput = params.customInput as string | undefined;
         const answers = params.answers as Record<string, string> | undefined;
+        const confirmPersistentApproval =
+          params.confirmPersistentApproval === true;
 
         this.logger.debug("Permission response received", {
           requestId,
@@ -2005,7 +2006,7 @@ export class AgentServer {
           optionId,
           customInput,
           answers,
-          caller?.user_id,
+          { answeredByUserId: caller?.user_id, confirmPersistentApproval },
         );
         if (resolved === "not_found") {
           throw new Error(
@@ -5242,13 +5243,7 @@ export class AgentServer {
         // in PostHog, so auto-approving here would only produce a failed call.
         const gatedMcpTool = this.needsApprovalMcpTool(params);
         if (gatedMcpTool) {
-          if (
-            mode !== "background" &&
-            !AUTO_ANSWERED_ORIGIN_PRODUCTS.has(
-              this.productLaunch.originProduct ?? "",
-            ) &&
-            this.hasReachableClient()
-          ) {
+          if (mode !== "background" && this.hasReachableClient()) {
             return this.relayMcpToolApproval(params, gatedMcpTool);
           }
           return mcpToolApprovalCancel(
@@ -5945,33 +5940,44 @@ export class AgentServer {
    * record the approval in PostHog first so the gateway proxy accepts the call.
    * The proxy has no per-call approval, and clients hide "always" options by
    * default, so the one allow option is a plain allow labeled as saving it.
-   * `persistsApproval` tells clients the answer outlives the run, so a
-   * run-scoped auto-approve mode must not answer it. The save uses the run's
-   * credentials, so only an answer from the user they belong to can make it.
+   * `persistsApproval` tells clients the answer outlives the run, and only an
+   * answer carrying `confirmPersistentApproval` saves it, since auto-responders
+   * (Slack broker, auto-approve modes, older clients) pick any allow option.
+   * The save uses the run's credentials, so only an answer from the user they
+   * belong to can make it.
    */
   private async relayMcpToolApproval(
     params: RequestPermissionRequest,
     policy: McpToolPolicy,
   ): Promise<RequestPermissionResponse> {
-    const { response, answeredByUserId } = await this.awaitPermissionAnswer({
-      ...params,
-      toolCall: {
-        ...params.toolCall,
-        _meta: { ...params.toolCall._meta, persistsApproval: true },
-      },
-      options: params.options.flatMap((option) => {
-        if (option.kind === "allow_always") return [];
-        if (option.kind === "allow_once") {
-          return [{ ...option, name: "Yes, and approve this tool in PostHog" }];
-        }
-        return [option];
-      }),
-    });
+    const { response, answeredByUserId, confirmPersistentApproval } =
+      await this.awaitPermissionAnswer({
+        ...params,
+        toolCall: {
+          ...params.toolCall,
+          _meta: { ...params.toolCall._meta, persistsApproval: true },
+        },
+        options: params.options.flatMap((option) => {
+          if (option.kind === "allow_always") return [];
+          if (option.kind === "allow_once") {
+            return [
+              { ...option, name: "Yes, and approve this tool in PostHog" },
+            ];
+          }
+          return [option];
+        }),
+      });
     const selected = params.options.find(
       (option) => option.optionId === response.outcome.optionId,
     );
     if (selected?.kind !== "allow_once") {
       return response;
+    }
+    if (!confirmPersistentApproval) {
+      return mcpToolApprovalCancel(
+        policy,
+        "the answer did not confirm saving the approval",
+      );
     }
     const runUserId = await this.posthogAPI.getUserId();
     if (answeredByUserId !== runUserId) {
@@ -6067,7 +6073,7 @@ export class AgentServer {
     optionId: string,
     customInput?: string,
     answers?: Record<string, string>,
-    answeredByUserId?: number,
+    answerer: Omit<PermissionAnswer, "response"> = {},
   ): "resolved" | "not_found" | "invalid_option" {
     const pending = this.pendingPermissions.get(requestId);
     if (!pending) return "not_found";
@@ -6094,7 +6100,7 @@ export class AgentServer {
         outcome: { outcome: "selected" as const, optionId },
         ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
       },
-      answeredByUserId,
+      ...answerer,
     });
     return "resolved";
   }

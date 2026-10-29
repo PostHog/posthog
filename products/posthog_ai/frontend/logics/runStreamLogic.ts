@@ -5408,6 +5408,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         optionId,
                         customInput,
                         answers: answers ? { ...answers } : undefined,
+                        ...(!automatic &&
+                        record.persistsApproval &&
+                        record.options.find((option) => option.optionId === optionId)?.kind.startsWith('allow')
+                            ? { confirmPersistentApproval: true }
+                            : {}),
                     },
                 }
                 try {
