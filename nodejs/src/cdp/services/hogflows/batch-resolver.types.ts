@@ -52,6 +52,14 @@ export const BatchResolverStateSchema = z.object({
             waitUntil: z.string().datetime().optional(),
         })
         .optional(),
+    // Set by Django when the run resolves its whole audience once before paging; `waitUntil` is when a
+    // resolution that never finished fails the run.
+    audienceSnapshot: z
+        .object({
+            waitUntil: z.string().datetime(),
+            ready: z.boolean().optional(),
+        })
+        .optional(),
     maxAudienceSize: z.number().int().nonnegative(),
     cursor: z.string().nullable(),
     totalEnqueued: z.number().int().nonnegative(),

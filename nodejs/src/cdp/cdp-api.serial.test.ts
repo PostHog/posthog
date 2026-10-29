@@ -1358,6 +1358,47 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a deadline', { wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
+            ['no request', undefined, 200, undefined],
+            ['an unreadable deadline', { wait_until: 'soon' }, 400, undefined],
+        ])(
+            'resolves the audience up front only on a valid deadline: %s',
+            async (_desc, audienceSnapshot, status, waitUntil) => {
+                const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+                api['batchResolverProducer'] = {
+                    createJob: createJobMock,
+                    countInFlightJobs: jest.fn(),
+                    rescheduleParkedJobs: jest.fn(),
+                    cancelJobs: jest.fn(),
+                    resumeParkedSteps: jest.fn(),
+                    resumeParkedBatchResolver: jest.fn(),
+                    disconnect: jest.fn().mockResolvedValue(undefined),
+                }
+
+                try {
+                    const res = await supertest(app)
+                        .post(
+                            `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-794`
+                        )
+                        .send({ audience_snapshot: audienceSnapshot })
+
+                    expect(res.status).toEqual(status)
+                    if (status !== 200) {
+                        expect(createJobMock).not.toHaveBeenCalled()
+                        return
+                    }
+                    const arg = createJobMock.mock.calls[0][0]
+                    // The resolver asks Django for the snapshot on its first dequeue, so the job starts now.
+                    expect(arg.scheduled).toBeUndefined()
+                    const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                    expect(state.audienceSnapshot).toEqual(waitUntil ? { waitUntil } : undefined)
+                } finally {
+                    api['batchResolverProducer'] = null
+                }
+            }
+        )
+
+        it.each([
             ['a deadline', { id: 7, team_id: 1, wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
             ['no deadline', { id: 7, team_id: 1 }, 200, undefined],
             ['an unreadable deadline', { id: 7, team_id: 1, wait_until: 'tomorrow-ish' }, 400, undefined],

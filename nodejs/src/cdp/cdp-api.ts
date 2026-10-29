@@ -167,6 +167,20 @@ function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort
     return { id: id as number, teamId: team_id as number, waitUntil: waitUntil.toISOString() }
 }
 
+// Null means the run asks to resolve its audience up front but its deadline is unreadable, so the caller
+// rejects it instead of running the live query the snapshot was meant to replace.
+function parseAudienceSnapshot(value: unknown): BatchResolverState['audienceSnapshot'] | null {
+    if (typeof value !== 'object' || value === null) {
+        return undefined
+    }
+    const { wait_until } = value as { wait_until?: unknown }
+    const waitUntil = typeof wait_until === 'string' ? new Date(wait_until) : null
+    if (!waitUntil || isNaN(waitUntil.getTime())) {
+        return null
+    }
+    return { waitUntil: waitUntil.toISOString() }
+}
+
 export class CdpApi {
     private hogExecutorAsync: HogExecutorAsyncService
     private hogInputsService: HogInputsService
@@ -1705,6 +1719,10 @@ export class CdpApi {
             if (realtimeCohort === null) {
                 return res.status(400).json({ error: 'realtime_cohort.wait_until must be an ISO 8601 date' })
             }
+            const audienceSnapshot = parseAudienceSnapshot(req.body.audience_snapshot)
+            if (audienceSnapshot === null) {
+                return res.status(400).json({ error: 'audience_snapshot.wait_until must be an ISO 8601 date' })
+            }
 
             const snapshotFilters: BatchResolverState['filters'] | undefined = req.body.filters
             const audienceType = snapshotFilters?.audience_type ?? hogFlow.trigger.filters.audience_type
@@ -1744,6 +1762,7 @@ export class CdpApi {
                 // Account audiences carry no person (and external ids are already unique), so never dedupe.
                 dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
                 realtimeCohort,
+                audienceSnapshot,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,
