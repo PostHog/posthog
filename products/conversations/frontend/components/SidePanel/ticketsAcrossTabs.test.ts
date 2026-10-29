@@ -26,6 +26,7 @@ describe('loadTicketsAcrossTabs', () => {
             read: async () => stored,
             write: async (snapshot) => {
                 stored = snapshot
+                return true
             },
             announce,
             withLock: (fn) => fn(),
@@ -73,6 +74,16 @@ describe('loadTicketsAcrossTabs', () => {
 
         expect(tickets).toBeNull()
         expect(stored?.tickets).toEqual([ticket('stored')])
+        expect(announce).not.toHaveBeenCalled()
+    })
+
+    it('does not announce a snapshot that failed to save', async () => {
+        deps.write = async () => false
+        const fetchTickets = jest.fn().mockResolvedValue([ticket('fetched')])
+
+        const tickets = await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS }, deps)
+
+        expect(tickets).toEqual([ticket('fetched')])
         expect(announce).not.toHaveBeenCalled()
     })
 

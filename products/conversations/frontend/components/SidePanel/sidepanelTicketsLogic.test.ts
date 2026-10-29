@@ -15,7 +15,7 @@ import { BillingType, SidePanelTab } from '~/types'
 
 import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
-import { loadTicketsAcrossTabs } from './ticketsAcrossTabs'
+import { loadTicketsAcrossTabs, subscribeToSharedTickets } from './ticketsAcrossTabs'
 
 jest.mock('./ticketsAcrossTabs', () => ({
     loadTicketsAcrossTabs: jest.fn((fetchTickets) => fetchTickets()),
@@ -107,6 +107,18 @@ describe('sidepanelTicketsLogic', () => {
         logic.actions.setView('list')
         expect(logic.values.newTicketDraft).toBeNull()
         expect(logic.values.newTicketContext).toBeNull()
+    })
+
+    it('resumes polling when another tab brings the first ticket to an idle tab', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const onSharedTickets = (subscribeToSharedTickets as jest.Mock).mock.calls.at(-1)[0]
+
+        await expectLogic(logic, () => {
+            onSharedTickets([{ id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' }])
+        }).toDispatchActions(['setTickets', 'startPolling'])
+        expect(logic.values.tickets).toHaveLength(1)
     })
 
     it('switches to the composer when the support form opens while already mounted', async () => {

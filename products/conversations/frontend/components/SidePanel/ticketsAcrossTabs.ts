@@ -10,7 +10,7 @@ export interface TicketsSnapshot {
 export interface AcrossTabsDeps {
     now: () => number
     read: () => Promise<TicketsSnapshot | null>
-    write: (snapshot: TicketsSnapshot) => Promise<void>
+    write: (snapshot: TicketsSnapshot) => Promise<boolean>
     announce: () => void
     withLock: <T>(fn: () => Promise<T>) => Promise<T>
 }
@@ -50,8 +50,9 @@ export async function loadTicketsAcrossTabs(
         }
         const tickets = await fetchTickets()
         if (tickets) {
-            await deps.write({ tickets, fetchedAt: deps.now() })
-            deps.announce()
+            if (await deps.write({ tickets, fetchedAt: deps.now() })) {
+                deps.announce()
+            }
         }
         return tickets
     })
@@ -84,10 +85,11 @@ function browserDeps(): AcrossTabsDeps {
         read: async () => (await runRequest('readonly', (store) => store.get(key))) as TicketsSnapshot | null,
         write: async (snapshot) => {
             // Only the latest snapshot stays, so a person who used this browser earlier leaves nothing behind.
-            await runRequest('readwrite', (store) => {
+            const written = await runRequest('readwrite', (store) => {
                 store.clear()
                 return store.put(snapshot, key)
             })
+            return written !== null
         },
         announce: () => {
             if (typeof BroadcastChannel !== 'undefined') {
