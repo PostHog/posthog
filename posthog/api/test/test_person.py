@@ -2256,9 +2256,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # saved-expressions fetch in the HogQL database build. +1 each for the shared-database
         # kill-switch and flag-cache TTL instance settings, cold-cache here but TTL-cached per
         # worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL
-        # database build. +1 for the MCP custom harness fetch in the HogQL database build, which later
-        # requests read from Redis.
-        with self.assertNumQueries(19):
+        # database build.
+        with self.assertNumQueries(18):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]

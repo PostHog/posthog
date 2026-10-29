@@ -211,7 +211,6 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
-    from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
     from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
     from products.revenue_analytics.backend.views.core import SourceHandle
     from products.warehouse_sources.backend.facade.models import (
@@ -262,7 +261,6 @@ class HogQLDatabaseSources:
     user_access_control: Optional[UserAccessControl]
     denied_system_table_names: set[str]  # node names under the "system" node to remove during build
     group_types: list[dict[str, Any]]
-    mcp_custom_harness_rules: Sequence[CustomHarnessRule]
     saved_queries: list[DataWarehouseSavedQuery]
     endpoint_saved_queries: list[DataWarehouseSavedQuery]
     revenue_views: list[RevenueAnalyticsBaseView]
@@ -305,7 +303,6 @@ class HogQLDatabaseSources:
                 dict(self.direct_connection_metadata) if self.direct_connection_metadata is not None else None
             ),
             group_types=list(self.group_types),
-            mcp_custom_harness_rules=tuple(self.mcp_custom_harness_rules),
             saved_queries=list(self.saved_queries),
             endpoint_saved_queries=list(self.endpoint_saved_queries),
             revenue_views=[view.model_copy(deep=True) for view in self.revenue_views],
@@ -1969,7 +1966,6 @@ class Database(BaseModel):
             read_flag_calls_from_flag_evaluations=False,
             flag_calls_only_in_flag_evaluations=False,
             group_types=[],
-            mcp_custom_harness_rules=(),
             saved_queries=[],
             endpoint_saved_queries=[],
             revenue_views=[],
@@ -2011,7 +2007,6 @@ class Database(BaseModel):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
         from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
-        from products.mcp_analytics.backend.facade.api import custom_harness_rules  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
             ExternalDataSource,
@@ -2152,9 +2147,6 @@ class Database(BaseModel):
             group_types: list[dict[str, Any]] = (
                 [] if is_direct_query else list(get_group_types_for_project(team.project_id))
             )
-
-        with timings.measure("mcp_custom_harnesses", emit_span=True):
-            mcp_custom_harness_rules = () if is_direct_query else custom_harness_rules(team)
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             saved_queries: list[DataWarehouseSavedQuery] = []
@@ -2363,7 +2355,6 @@ class Database(BaseModel):
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
             group_types=group_types,
-            mcp_custom_harness_rules=mcp_custom_harness_rules,
             saved_queries=saved_queries,
             endpoint_saved_queries=endpoint_saved_queries,
             revenue_views=revenue_views,
@@ -2527,7 +2518,7 @@ class Database(BaseModel):
 
         with timings.measure("virtual_fields", emit_span=True):
             if not database._is_direct_query():
-                _use_virtual_fields(database, modifiers, timings, sources.mcp_custom_harness_rules)
+                _use_virtual_fields(database, modifiers, timings)
 
         with timings.measure("group_type_mapping", emit_span=True):
             if not database._is_direct_query():
@@ -3248,12 +3239,7 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
                 )
 
 
-def _use_virtual_fields(
-    database: Database,
-    modifiers: HogQLQueryModifiers,
-    timings: HogQLTimings,
-    mcp_custom_harness_rules: Sequence[CustomHarnessRule],
-) -> None:
+def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
     events_table = database.get_table("events")
     persons_table = database.get_table("persons")
     groups_table = database.get_table("groups")
@@ -3317,7 +3303,7 @@ def _use_virtual_fields(
 
         events_table.fields["$virt_mcp_harness"] = ExpressionField(
             name="$virt_mcp_harness",
-            expr=mcp_harness_virtual_field_expr(mcp_custom_harness_rules),
+            expr=mcp_harness_virtual_field_expr(),
             isolate_scope=True,
             description="MCP client label computed from this event's client identity signals.",
         )
