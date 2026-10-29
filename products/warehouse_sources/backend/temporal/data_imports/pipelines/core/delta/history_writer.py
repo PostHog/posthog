@@ -2,7 +2,7 @@ import json
 import asyncio
 import tempfile
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     align_incoming_decimals_to_delta,
     normalize_column_name,
+    pyarrow_schema_from_arrow_exportable,
     realign_decimal_buffers,
     relax_batch_nullability,
 )
@@ -38,7 +39,8 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 STAGED_BATCH_COLUMN = "_ph_staged_batch"
-# Append order, `batch_index << 32 | row`. It decides which of two rows with the same key and order value wins.
+# Append order, `staging version << 32 | row`. It decides which of two rows with the same key and order value
+# wins, also across runs, because the staging version only grows.
 STAGED_ROW_COLUMN = "_ph_staged_row"
 _STAGING_COLUMNS = (STAGED_BATCH_COLUMN, STAGED_ROW_COLUMN)
 # Compressed staged bytes per bucket. Parquet expands several times in memory, so a bucket stays a few hundred MB.
@@ -46,6 +48,10 @@ DEFAULT_BUCKET_TARGET_MIB = 32
 # Each bucket holds one open spill file while the staging table is read. Past this many buckets, a
 # bucket grows instead.
 _MAX_BUCKETS = 256
+# DuckDB runs inside the shared worker process, so it gets a bounded slice and spills to the run's
+# temporary directory past it.
+_DUCKDB_THREADS = 2
+_DUCKDB_MEMORY_LIMIT = "1GB"
 _CLOSE_ORDER = "_ph_close_order"
 _CLOSE_AT = "_ph_close_at"
 _CLOSE_PARTITION = "_ph_close_partition"
@@ -130,12 +136,13 @@ class HistoryWriter:
         if taken:
             raise ValueError(f"History batch has column(s) {taken}, which the staging table writes itself")
         data = data.drop_columns([c for c in (self._valid_to, self._partition_column) if c in data.column_names])
-        first_row = batch_index << 32
+        staging_table = await self._staging.get_delta_table()
+        # Creating the table commits version 0, so the first append is version 1.
+        first_row = (staging_table.version() + 1 if staging_table is not None else 1) << 32
         data = data.append_column(
             STAGED_BATCH_COLUMN, pa.repeat(pa.scalar(f"{run_uuid}:{batch_index}"), data.num_rows)
         ).append_column(STAGED_ROW_COLUMN, pa.array(np.arange(first_row, first_row + data.num_rows, dtype=np.int64)))
 
-        staging_table = await self._staging.get_delta_table()
         if staging_table is None:
             staging_table = await asyncio.to_thread(
                 deltalake.DeltaTable.create,
@@ -169,22 +176,40 @@ class HistoryWriter:
         buckets = min(_MAX_BUCKETS, max(1, int(-(-staged_mib // self._bucket_target_mib)))) if staged_mib else 1
         staged_rows = inserted_rows = backwards_rows = 0
         closes: list[pa.Table] = []
-        with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
-            bucket_paths, batch_tags = await asyncio.to_thread(
-                self._spill_buckets, staging_table.to_pyarrow_dataset(), buckets, Path(directory)
+        # Read before the first append: a table this run creates holds no open version of any staged key.
+        history_table = await self._table.get_delta_table()
+        # A table created before partitioning stays unpartitioned, so its rows get no partition column.
+        partition_versions = self._partition_column is not None and (
+            history_table is None or self._partitioned(history_table)
+        )
+        with tempfile.TemporaryDirectory(prefix="history-finalize-") as name:
+            directory = Path(name)
+            staging_dataset = staging_table.to_pyarrow_dataset()
+            bucket_paths, batch_tags = await asyncio.to_thread(self._spill_buckets, staging_dataset, buckets, directory)
+            # With several buckets, one scan splits the open versions the same way, so no bucket scans
+            # the whole current partition again.
+            open_paths = (
+                await asyncio.to_thread(
+                    self._spill_open_versions, history_table, staging_dataset.schema, buckets, directory
+                )
+                if history_table is not None and buckets > 1
+                else None
             )
-            for path in bucket_paths:
+            for index, path in enumerate(bucket_paths):
                 staged = await asyncio.to_thread(_read_bucket, path)
                 if staged.num_rows == 0:
                     continue
                 staged_rows += staged.num_rows
-                history_table = await self._table.get_delta_table()
-                open_versions = (
-                    await asyncio.to_thread(self._open_versions, history_table, staged)
-                    if history_table is not None
-                    else None
-                )
-                plan = await asyncio.to_thread(self._plan_bucket, staged, open_versions)
+                open_versions = None
+                if open_paths is not None:
+                    open_versions = await asyncio.to_thread(
+                        self._matching_open_versions, _bucket_batches(open_paths[index]), staged, directory
+                    )
+                elif history_table is not None:
+                    open_versions = await asyncio.to_thread(
+                        self._matching_open_versions, self._scan_open_versions(history_table), staged, directory
+                    )
+                plan = await asyncio.to_thread(self._plan_bucket, staged, open_versions, partition_versions, directory)
                 del staged
                 if plan.inserts.num_rows:
                     await self._append_versions(plan.inserts)
@@ -213,60 +238,108 @@ class HistoryWriter:
         return result
 
     def _spill_buckets(self, dataset: ds.Dataset, buckets: int, directory: Path) -> tuple[list[Path], set[str]]:
-        paths = [directory / f"bucket-{index}.arrow" for index in range(buckets)]
-        sinks = [pa.OSFile(str(path), "wb") for path in paths]
-        writers = [pa.ipc.new_file(sink, dataset.schema) for sink in sinks]
         batch_tags: set[str] = set()
-        key_list = ", ".join(_quote(key) for key in self._primary_keys)
+
+        def _tag(batch: pa.RecordBatch) -> pa.RecordBatch:
+            batch_tags.update(str(tag) for tag in pc.unique(batch.column(STAGED_BATCH_COLUMN)).drop_null().to_pylist())
+            return batch
+
+        scanner = dataset.scanner(batch_readahead=1, fragment_readahead=1, use_threads=False)
+        batches = (_tag(batch) for batch in scanner.to_batches())
+        paths = self._spill(batches, dataset.schema, buckets, directory, "staged")
+        return paths, batch_tags
+
+    def _spill_open_versions(
+        self, history_table: deltalake.DeltaTable, staged_schema: pa.Schema, buckets: int, directory: Path
+    ) -> list[Path]:
+        # Keys take the staged types, so a key hashes to the same bucket on both sides.
+        key_types = {key: staged_schema.field(key).type for key in self._primary_keys}
+        batches = (
+            pa.RecordBatch.from_arrays(
+                [
+                    batch.column(name).cast(key_types[name]) if name in key_types else batch.column(name)
+                    for name in batch.schema.names
+                ],
+                names=batch.schema.names,
+            )
+            for batch in self._scan_open_versions(history_table)
+        )
+        schema = self._open_versions_schema(history_table, key_types)
+        return self._spill(batches, schema, buckets, directory, "open")
+
+    def _spill(
+        self, batches: Iterable[pa.RecordBatch], schema: pa.Schema, buckets: int, directory: Path, name: str
+    ) -> list[Path]:
+        """Write each batch's rows into one file per bucket of key hash."""
+        paths = [directory / f"{name}-{index}.arrow" for index in range(buckets)]
+        sinks = [pa.OSFile(str(path), "wb") for path in paths]
+        writers = [pa.ipc.new_file(sink, schema) for sink in sinks]
+        key_list = ", ".join(f"k{index}" for index in range(len(self._primary_keys)))
         try:
-            with duckdb.connect() as connection:
-                scanner = dataset.scanner(batch_readahead=1, fragment_readahead=1, use_threads=False)
-                for batch in scanner.to_batches():
+            with _connect(directory) as connection:
+                for batch in batches:
                     if batch.num_rows == 0:
                         continue
-                    batch_tags.update(
-                        str(tag) for tag in pc.unique(batch.column(STAGED_BATCH_COLUMN)).drop_null().to_pylist()
-                    )
                     if buckets == 1:
                         writers[0].write_batch(batch)
                         continue
-                    connection.register("staged", pa.Table.from_batches([batch]))
+                    connection.register("keys", _positional(pa.Table.from_batches([batch]), self._primary_keys))
                     bucket_ids = (
-                        connection.execute(f"SELECT hash({key_list}) % {buckets} FROM staged")
+                        connection.execute(f"SELECT hash({key_list}) % {buckets} FROM keys")
                         .arrow()
                         .read_all()
                         .column(0)
                     )
-                    connection.unregister("staged")
+                    connection.unregister("keys")
+                    # One sort per batch, then a slice per bucket, instead of a filter pass per bucket.
+                    order = pc.sort_indices(bucket_ids)
+                    sorted_batch = batch.take(order)
+                    sorted_ids = bucket_ids.take(order).to_numpy()
+                    starts = np.searchsorted(sorted_ids, np.arange(buckets + 1))
                     for index, writer in enumerate(writers):
-                        part = batch.filter(pc.equal(bucket_ids, pa.scalar(index, bucket_ids.type)))
-                        if part.num_rows:
-                            writer.write_batch(part)
+                        if starts[index + 1] > starts[index]:
+                            writer.write_batch(
+                                sorted_batch.slice(int(starts[index]), int(starts[index + 1] - starts[index]))
+                            )
         finally:
             for writer in writers:
                 writer.close()
             for sink in sinks:
                 sink.close()
-        return paths, batch_tags
+        return paths
 
-    def _open_versions(self, history_table: deltalake.DeltaTable, staged: pa.Table) -> pa.Table | None:
-        """Key, order and `valid_from` of each open version whose key is staged in this bucket."""
+    def _open_versions_schema(
+        self, history_table: deltalake.DeltaTable, key_types: dict[str, pa.DataType] | None = None
+    ) -> pa.Schema:
+        history_schema = pyarrow_schema_from_arrow_exportable(history_table.schema())
         columns = list(dict.fromkeys([*self._primary_keys, self._order, self._valid_from]))
-        history_columns = {field.name for field in history_table.schema().fields}
-        missing = [column for column in columns if column not in history_columns]
+        missing = [column for column in columns if column not in history_schema.names]
         if missing:
             # Without these columns every staged row would look new and duplicate its key's versions.
             raise ValueError(f"History table is missing column(s) {missing}")
+        return pa.schema(
+            [pa.field(column, (key_types or {}).get(column, history_schema.field(column).type)) for column in columns]
+        )
+
+    def _scan_open_versions(self, history_table: deltalake.DeltaTable) -> Iterator[pa.RecordBatch]:
+        """Key, order and `valid_from` of every open version, one bounded batch at a time."""
+        columns = self._open_versions_schema(history_table).names
         row_filter = ds.field(self._valid_to).is_null()
         if self._partitioned(history_table):
             row_filter = row_filter & (ds.field(str(self._partition_column)) == self._current_partition)
         scanner = history_table.to_pyarrow_dataset().scanner(
             columns=columns, filter=row_filter, batch_readahead=1, fragment_readahead=1, use_threads=False
         )
+        return iter(scanner.to_batches())
+
+    def _matching_open_versions(
+        self, batches: Iterable[pa.RecordBatch], staged: pa.Table, directory: Path
+    ) -> pa.Table | None:
+        """The open versions among `batches` whose key is staged in this bucket."""
         matches: list[pa.Table] = []
-        with duckdb.connect() as connection:
+        with _connect(directory) as connection:
             connection.register("staged_keys", _positional(staged, self._primary_keys))
-            for batch in scanner.to_batches():
+            for batch in batches:
                 if batch.num_rows == 0:
                     continue
                 table = pa.Table.from_batches([batch])
@@ -289,7 +362,9 @@ class HistoryWriter:
                 matches.append(table.take(matched.column(0)))
         return pa.concat_tables(matches) if matches else None
 
-    def _plan_bucket(self, staged: pa.Table, open_versions: pa.Table | None) -> _BucketPlan:
+    def _plan_bucket(
+        self, staged: pa.Table, open_versions: pa.Table | None, partition_versions: bool, directory: Path
+    ) -> _BucketPlan:
         key_count = len(self._primary_keys)
         keys = ", ".join(f"k{index}" for index in range(key_count))
         narrow = (
@@ -303,7 +378,7 @@ class HistoryWriter:
         open_rows = _positional(open_versions, self._primary_keys, self._order).append_column(
             "open_index", pa.array(np.arange(open_versions.num_rows, dtype=np.int64))
         )
-        with duckdb.connect() as connection:
+        with _connect(directory) as connection:
             connection.register("staged", narrow)
             connection.register("open_rows", open_rows)
             connection.execute(
@@ -377,7 +452,7 @@ class HistoryWriter:
         )
         closes = closed.select(self._primary_keys).append_column(_CLOSE_ORDER, closed.column(self._order))
         closes = closes.append_column(pa.field(_CLOSE_AT, valid_to.type), close_at)
-        if self._partition_column is not None:
+        if partition_versions and self._partition_column is not None:
             inserts = inserts.append_column(
                 self._partition_column,
                 pc.if_else(pc.is_null(valid_to), self._current_partition, _month(valid_to)),
@@ -451,6 +526,19 @@ def _read_bucket(path: Path) -> pa.Table:
         return pa.ipc.open_file(source).read_all()
 
 
+def _bucket_batches(path: Path) -> Iterator[pa.RecordBatch]:
+    with pa.memory_map(str(path)) as source:
+        reader = pa.ipc.open_file(source)
+        for index in range(reader.num_record_batches):
+            yield reader.get_batch(index)
+
+
+def _connect(directory: Path) -> duckdb.DuckDBPyConnection:
+    return duckdb.connect(
+        config={"threads": _DUCKDB_THREADS, "memory_limit": _DUCKDB_MEMORY_LIMIT, "temp_directory": str(directory)}
+    )
+
+
 def _positional(table: pa.Table, keys: Sequence[str], order: str | None = None) -> pa.Table:
     """The key columns as `k0..kN` and the order column as `ord`, so no source column name reaches SQL."""
     columns = {f"k{index}": table.column(key) for index, key in enumerate(keys)}
@@ -461,10 +549,6 @@ def _positional(table: pa.Table, keys: Sequence[str], order: str | None = None) 
 
 def _null_safe_keys(left: str, right: str, key_count: int) -> str:
     return " AND ".join(f"{left}.k{index} IS NOT DISTINCT FROM {right}.k{index}" for index in range(key_count))
-
-
-def _quote(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
 
 
 def _month(values: pa.ChunkedArray | pa.Array) -> pa.ChunkedArray | pa.Array:

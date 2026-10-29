@@ -105,6 +105,29 @@ class TestHistoryWriter:
         ]
 
     @pytest.mark.asyncio
+    async def test_the_last_staged_row_wins_a_tie_across_runs(self, tmp_path: Path) -> None:
+        # A run whose finalize never ran leaves its rows staged, and the next run stages from batch 0 again.
+        writer = _writer(tmp_path)
+        await writer.append(_batch([(1, "stale", _at(3))]), run_uuid="run-2", batch_index=5)
+        await writer.append(_batch([(1, "fresh", _at(3))]), run_uuid="run-3", batch_index=0)
+        await writer.finalize()
+
+        assert [row[1] for row in _history(tmp_path)] == ["fresh"]
+
+    @pytest.mark.asyncio
+    async def test_a_table_created_before_partitioning_stays_unpartitioned(self, tmp_path: Path) -> None:
+        deltalake.write_deltalake(
+            str(tmp_path / "history"),
+            _batch([(1, "a", _at(1))]).append_column("_ph_valid_to", pa.array([None], type=_TS)),
+        )
+        await _run(_writer(tmp_path), "run-1", _batch([(1, "b", _at(2))]))
+
+        table = deltalake.DeltaTable(str(tmp_path / "history"))
+        rows = table.to_pyarrow_table().sort_by("_ph_valid_from").to_pylist()
+        assert "_ph_history_partition" not in table.schema().to_arrow().names
+        assert [(r["name"], r["_ph_valid_to"]) for r in rows] == [("a", _at(2)), ("b", None)]
+
+    @pytest.mark.asyncio
     async def test_a_null_key_part_matches_its_open_version(self, tmp_path: Path) -> None:
         writer = _writer(tmp_path, primary_keys=["id", "name"])
         await _run(writer, "run-1", _batch([(None, "x", _at(1))]))
