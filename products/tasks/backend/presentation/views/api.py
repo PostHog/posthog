@@ -3454,18 +3454,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def logs(self, request, pk=None, **kwargs):
         return self._logs_response(request, pk)
 
-    @validated_request(
-        query_serializer=TaskRunLogsQuerySerializer,
-        responses={
-            200: OpenApiResponse(description="Log content in JSONL format"),
-            404: OpenApiResponse(description="Task run not found"),
-        },
-        summary="Get task run log entries",
-        description=(
-            "Same response as the task run logs endpoint, with the same query parameters. Browser clients use "
-            "this path because content blockers block URLs that contain logs?."
-        ),
-    )
+    @validated_request(query_serializer=TaskRunLogsQuerySerializer, exclude=True)
     @action(detail=True, methods=["get"], url_path="log_entries", required_scopes=["task:read"])
     def log_entries(self, request, pk=None, **kwargs):
         return self._logs_response(request, pk)

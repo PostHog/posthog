@@ -142183,40 +142183,6 @@ export namespace Schemas {
     version?: number;
     };
 
-    export type TasksRunsLogEntriesRetrieveParams = {
-    /**
-     * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
-     * @minimum 0
-     */
-    before?: number;
-    /**
-     * With tail_bytes, return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. When those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start.
-     * @minimum 0
-     */
-    start?: number;
-    /**
-     * Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before counts the user turns before the slice, so a client numbers turns the way the full log does.
-     * @minimum 1
-     */
-    tail_bytes?: number;
-    /**
-     * 'full' returns every entry as stored. 'thread' drops the duplicate tool response copy in _meta.claudeCode.toolResponse and keeps only its decisionReason and message, for clients that render the conversation. It applies to the full log and to every slice.
-     *
-     * * `full` - full
-     * * `thread` - thread
-     * @minLength 1
-     */
-    view?: TasksRunsLogEntriesRetrieveView;
-    };
-
-    export type TasksRunsLogEntriesRetrieveView = typeof TasksRunsLogEntriesRetrieveView[keyof typeof TasksRunsLogEntriesRetrieveView];
-
-
-    export const TasksRunsLogEntriesRetrieveView = {
-      Full: 'full',
-      Thread: 'thread',
-    } as const;
-
     export type TasksRunsLogsRetrieveParams = {
     /**
      * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
