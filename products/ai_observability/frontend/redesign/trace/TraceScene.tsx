@@ -4,12 +4,13 @@ import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
-import { FeedbackEntry, NodeDetailTab, SummaryItemKind, TraceMode } from './types'
+import { FeedbackEntry, MatchDirection, NodeDetailTab, SummaryItemKind, TraceMode } from './types'
 
 type ReadyValues = Pick<
     traceViewAdapterLogicValues,
     | 'header'
     | 'summary'
+    | 'clustersChip'
     | 'mode'
     | 'tree'
     | 'selectedNodeId'
@@ -22,6 +23,10 @@ type ReadyValues = Pick<
     | 'evalsChip'
     | 'evalOutcomesByNode'
     | 'gitBranch'
+    | 'searchBox'
+    | 'matchingNodeIds'
+    | 'highlightQuery'
+    | 'matchStepCount'
     | 'summaryState'
     | 'summaryRequesting'
     | 'summaryRequestError'
@@ -41,6 +46,8 @@ interface ReadyActions {
     viewInThread: () => void
     prefetchNode: (id: string) => void
     showFailingEvals: () => void
+    setQuery: (query: string) => void
+    stepMatch: (direction: MatchDirection) => void
     summarize: () => void
     regenerateSummary: () => void
     loadSummary: () => void
@@ -57,6 +64,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         header: values.header,
         summary: {
             ...values.summary,
+            clusters: values.clustersChip,
             evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
             feedback: values.feedbackChip
                 ? { chip: values.feedbackChip, onClick: () => actions.showFeedback(null, 'chip') }
@@ -88,6 +96,10 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         thread: values.thread,
         timeline: values.timeline,
         evalOutcomes: values.evalOutcomesByNode,
+        search: { ...values.searchBox, onQueryChange: actions.setQuery, onStep: actions.stepMatch },
+        matchingNodeIds: values.matchingNodeIds,
+        highlightQuery: values.highlightQuery,
+        matchStepCount: values.matchStepCount,
         summaryMode: {
             state: values.summaryState,
             requesting: values.summaryRequesting,
@@ -115,6 +127,7 @@ export function TraceScene(): JSX.Element {
         backLink,
         header,
         summary,
+        clustersChip,
         mode,
         tree,
         selectedNodeId,
@@ -127,6 +140,10 @@ export function TraceScene(): JSX.Element {
         evalsChip,
         evalOutcomesByNode,
         gitBranch,
+        searchBox,
+        matchingNodeIds,
+        highlightQuery,
+        matchStepCount,
         summaryState,
         summaryRequesting,
         summaryRequestError,
@@ -145,6 +162,7 @@ export function TraceScene(): JSX.Element {
                   {
                       header,
                       summary,
+                      clustersChip,
                       mode,
                       tree,
                       selectedNodeId,
@@ -157,6 +175,10 @@ export function TraceScene(): JSX.Element {
                       evalsChip,
                       evalOutcomesByNode,
                       gitBranch,
+                      searchBox,
+                      matchingNodeIds,
+                      highlightQuery,
+                      matchStepCount,
                       summaryState,
                       summaryRequesting,
                       summaryRequestError,

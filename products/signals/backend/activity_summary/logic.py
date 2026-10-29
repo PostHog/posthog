@@ -67,6 +67,11 @@ class UpdateStatus(StrEnum):
     SKIPPED_NOT_ENROLLED = "skipped_not_enrolled"
     SKIPPED_NOT_ELIGIBLE_YET = "skipped_not_eligible_yet"
     SKIPPED_TOO_FEW_UNITS = "skipped_too_few_units"
+    SKIPPED_EMPTY_PROFILE = "skipped_empty_profile"
+
+
+# The statuses of an update that called the model, so its cost counts against the daily caps.
+CALLED_MODEL_STATUSES = frozenset({UpdateStatus.OK, UpdateStatus.FAILED, UpdateStatus.SKIPPED_EMPTY_PROFILE})
 
 
 @frozen
@@ -111,7 +116,7 @@ def is_stale(stored: StoredSummaryVersion | None, rebuild_before: datetime.datet
 
 
 def skip_backoff(consecutive_skips: int, max_skip_backoff: datetime.timedelta) -> datetime.timedelta:
-    """The wait after a skip for too few units, when `consecutive_skips` skips came before it."""
+    """The wait after a skip, when `consecutive_skips` skips came before it."""
     return max(RETRY_BACKOFF, min(RETRY_BACKOFF * 2 ** min(consecutive_skips, _MAX_SKIP_DOUBLINGS), max_skip_backoff))
 
 
@@ -255,8 +260,9 @@ def update_activity_summary(
     run or for a stale summary (see `is_stale`). A stale summary is not sent to the model. A failed
     update records the error and keeps the stored summary and the watermark. With `dry_run`, the
     model is still called but nothing is written. `force` ignores `next_eligible_at`.
-    A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units sets it
-    to `skip_backoff` from now, which doubles with each skip until a good update resets it.
+    A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units or for an
+    empty first profile sets it to `skip_backoff` from now, which doubles with each skip until a good update
+    resets it. An empty first profile keeps the cost of its model call.
     A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
@@ -323,8 +329,14 @@ def update_activity_summary(
         computed=computed,
     )
     cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
+    if outcome.summary is not None:
+        status = UpdateStatus.OK
+    elif outcome.empty_profile:
+        status = UpdateStatus.SKIPPED_EMPTY_PROFILE
+    else:
+        status = UpdateStatus.FAILED
     result = ActivitySummaryUpdate(
-        status=UpdateStatus.OK if outcome.summary is not None else UpdateStatus.FAILED,
+        status=status,
         rendered_input=rendered.text,
         summary=outcome.summary,
         tokens_in=outcome.tokens_in,
@@ -350,6 +362,21 @@ def update_activity_summary(
             "inputs_used": inputs_used,
             "error": outcome.error,
         }
+        if outcome.empty_profile:
+            skips = stored.consecutive_skips if stored is not None else 0
+            # `update_or_create` saves `updated_at`, so the daily caps count the model call.
+            UserActivitySummary.objects.for_team(team_id).update_or_create(
+                team_id=team_id,
+                user_id=user_id,
+                defaults={
+                    **accounting,
+                    "status": UserActivitySummary.Status.EMPTY_PROFILE,
+                    "next_eligible_at": now + skip_backoff(skips, max_skip_backoff),
+                    "consecutive_skips": min(skips + 1, _MAX_SKIP_DOUBLINGS),
+                },
+            )
+            return result
+
         if outcome.summary is None:
             UserActivitySummary.objects.for_team(team_id).update_or_create(
                 team_id=team_id,

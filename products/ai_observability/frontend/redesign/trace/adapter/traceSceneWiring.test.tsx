@@ -10,6 +10,7 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
+import type { TraceClusterApi } from '../../../generated/api.schemas'
 import { TraceScene } from '../TraceScene'
 import {
     decodeIdSegment,
@@ -21,6 +22,7 @@ import {
     makeFeedbackText,
     makeNodeDetail,
     makeTrace,
+    makeTraceCluster,
     makeTraceResource,
 } from './testFixtures'
 
@@ -36,8 +38,10 @@ jest.mock('../../../utils', () => ({
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
+const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -47,15 +51,23 @@ const answeredGeneration = makeNodeDetail({
     },
     ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
 })
+const askedGeneration = makeNodeDetail({
+    id: 'gen-1',
+    properties: { $ai_input: [{ role: 'user', content: 'Is my invoice right?' }] },
+    ioKeys: { input: '$ai_input' },
+})
+const nodeDetails: Record<string, typeof answeredGeneration> = { 'gen-1': askedGeneration, 'gen-2': answeredGeneration }
 let nodeRequests: string[] = []
 const nodeMock = {
     [NODE_URL]: ({ params }: { params: Record<string, unknown> }) => {
         const nodeId = decodeIdSegment(String(params.node_id))
         nodeRequests.push(nodeId)
-        return [200, nodeId === 'gen-2' ? answeredGeneration : makeNodeDetail({ id: nodeId })]
+        return [200, nodeDetails[nodeId] ?? makeNodeDetail({ id: nodeId })]
     },
 }
 const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
+let clusters: TraceClusterApi[] = []
+const clustersMock = { [CLUSTERS_URL]: () => [200, { clusters }] }
 const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
 
 const generation = makeEvent({
@@ -86,6 +98,10 @@ function renderNewView(flags: Record<string, boolean> = {}): ReturnType<typeof r
 }
 
 describe('TraceScene', () => {
+    beforeEach(() => {
+        clusters = []
+    })
+
     afterEach(cleanup)
 
     describe('the new view', () => {
@@ -94,8 +110,10 @@ describe('TraceScene', () => {
                 get: {
                     [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })],
                     [DATASETS_URL]: () => [200, { count: 0, results: [] }],
+                    [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
                     ...evaluationsMock,
+                    ...clustersMock,
                     ...feedbackMock,
                 },
             })
@@ -120,6 +138,56 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('links the clusters chip to the cluster page', async () => {
+            clusters = [
+                makeTraceCluster({ runId: '1_trace_20260902_030000', clusterId: 3, title: 'Billing questions' }),
+            ]
+            const { findByText } = renderNewView()
+
+            const chip = (await findByText('Billing questions')).closest('a')
+
+            expect(
+                chip?.getAttribute('href')?.endsWith(urls.aiObservabilityCluster('1_trace_20260902_030000', 3))
+            ).toBe(true)
+        })
+
+        it('searches from the header, fades the steps without a match and steps to the match in view', async () => {
+            const { container, findAllByText, findByText } = renderNewView()
+            const treeRow = async (name: string): Promise<Element> => {
+                const row = (await findAllByText(name))
+                    .map((element) => element.closest('[data-attr="trace-view-tree-node"]'))
+                    .find((element) => element !== null)
+                if (!row) {
+                    throw new Error(`expected ${name} to render as a tree row`)
+                }
+                return row
+            }
+            await treeRow('gen-1')
+            const input = container.querySelector('input[data-attr="trace-view-search-input"]')
+            if (!input) {
+                throw new Error('expected the header to render the search input')
+            }
+            expect(input.getAttribute('maxlength')).toBe('200')
+
+            fireEvent.change(input, { target: { value: 'invoice' } })
+
+            expect(await findByText('1 match')).toBeTruthy()
+            expect((await treeRow('gen-2')).className).toContain('opacity-50')
+            expect((await treeRow('gen-1')).className).not.toContain('opacity-50')
+
+            const scrollIntoView = jest.spyOn(Element.prototype, 'scrollIntoView')
+
+            fireEvent.keyDown(input, { key: 'Enter' })
+
+            const matchedRow = await treeRow('gen-1')
+            await waitFor(() => expect(matchedRow.getAttribute('aria-current')).toBe('true'))
+            const firstHighlight = await findByText('Is my invoice right?')
+            await waitFor(() =>
+                expect(scrollIntoView.mock.contexts).toEqual(expect.arrayContaining([matchedRow, firstHighlight]))
+            )
+            scrollIntoView.mockRestore()
         })
 
         it('the Summary tab shows a stored summary whose step link opens that step in spans', async () => {
@@ -245,6 +313,7 @@ describe('TraceScene', () => {
                     [TRACE_URL]: () => [200, makeTraceResource()],
                     ...nodeMock,
                     ...evaluationsMock,
+                    ...clustersMock,
                     ...feedbackMock,
                 },
             })
