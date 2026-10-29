@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 
-import { LONGEST_PLAN_RETENTION_MONTHS } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { urls } from 'scenes/urls'
+
+import { LONGEST_PLAN_RETENTION_MONTHS } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 
 export interface EventsRetentionWindowFormProps {
     retentionMonths: number | null

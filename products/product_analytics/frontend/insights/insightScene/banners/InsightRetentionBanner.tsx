@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 
 import { InsightLogicProps } from '~/types'
+
+import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 
 import { insightRetentionBannerLogic } from './insightRetentionBannerLogic'
 

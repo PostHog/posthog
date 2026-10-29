@@ -45,9 +45,9 @@ def _definitions_matching(project_id: int, property_type: int, pattern: str) -> 
         _project_definitions(project_id, property_type)
         .filter(name__regex=pattern)
         .order_by(
-            "effective_project_id",
+            F("effective_project_id"),
             "type",
-            "group_type_index_key",
+            F("group_type_index_key"),
             F("query_usage_30_day").desc(nulls_last=True),
             "name",
         )

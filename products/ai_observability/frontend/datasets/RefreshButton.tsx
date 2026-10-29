@@ -13,6 +13,7 @@ export function RefreshButton({ onClick, isRefreshing }: RefreshButtonProps): JS
         <div className="relative">
             <LemonButton
                 onClick={onClick}
+                data-attr="dataset-refresh"
                 type="secondary"
                 icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
                 size="small"

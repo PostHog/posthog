@@ -366,6 +366,11 @@ export const defaultMocks: Mocks = {
         '/api/team_sdk_versions/': teamSdkVersions,
         '/api/environments/:team_id/endpoints/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/signals/source_configs/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/signals/onboarding/': {
+            draft: null,
+            completed_at: null,
+            github_optional_available: false,
+        },
         '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_prompts/resolve/': {},
         '/api/environments/:team_id/llm_analytics/': {},

@@ -562,6 +562,10 @@ jobs:
                       errorTracking:
                         - 'products/error_tracking/backend/temporal/**'
                         - 'products/error_tracking/backend/logic/**'
+                        # The automatic suppression rules hash the bot list, so the worker
+                        # must redeploy with web analytics when that list changes.
+                        - 'products/web_analytics/backend/facade/bot_definitions.py'
+                        - 'products/web_analytics/backend/hogql_queries/bot_definitions.py'
                         - 'products/error_tracking/backend/models.py'
                         - 'products/error_tracking/backend/weekly_digest.py'
                         - 'products/error_tracking/backend/weekly_digest_delivery.py'
@@ -1602,6 +1606,11 @@ jobs:
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: .github
+                  sparse-checkout-cone-mode: false
 
             - name: Compute ordered release tag
               id: ordered-release
@@ -1665,6 +1674,11 @@ jobs:
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: .github
+                  sparse-checkout-cone-mode: false
 
             - name: Inspect shared-image publication channels
               id: shared-image-channels

@@ -17,6 +17,7 @@ import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
     InboxScope,
@@ -196,6 +197,9 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (scope === INBOX_SCOPE_FOR_YOU) {
         return 'No reports suggested for you yet. Switch the scope to see the entire project.'
     }
+    if (scope === INBOX_SCOPE_CLAIMED_BY_YOU) {
+        return "You haven't claimed any reports. Open a report and select I'm on it to claim it."
+    }
     return 'No reports here yet.'
 }
 
@@ -357,7 +361,7 @@ export function ReportsTab(): JSX.Element {
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
-            {showActivation && firstReportProgress && (
+            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
                 <div className="min-w-0" data-attr="inbox-first-report-progress">
                     <FirstReportProgress
                         result={firstReportProgress}

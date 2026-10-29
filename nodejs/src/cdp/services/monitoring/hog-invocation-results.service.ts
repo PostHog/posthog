@@ -133,7 +133,7 @@ const truncate = (value: string, max: number): string => {
 // status_idx skipping index stays small. Only the message lands in
 // `error_message`, never the stack trace — app-level executors pass the whole
 // `Error` here, and its stack would otherwise leak into the Invocations tab.
-const classifyError = (error: unknown): { kind: string; message: string } => {
+export const classifyError = (error: unknown): { kind: string; message: string } => {
     if (!error) {
         return { kind: '', message: '' }
     }

@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
     get_import_handoffs_per_run_metric,
@@ -563,14 +564,15 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         def _resolve_job() -> ExternalDataJob | None:
             # Resolve this run's own job by run id; the finally-block update is the only finalizer for
             # zero-batch runs (e.g. quiet Slack channels) that never send a batch to complete the job.
+            # The create-job activity stamps the run id on every row it inserts, so a miss means this run
+            # never created a job. The legacy fallback would then pick an unrelated RUNNING job, such as
+            # an orphan from an earlier run, and fail it with this run's error.
             if inputs.workflow_run_id is not None:
-                job = (
+                return (
                     ExternalDataJob.objects.filter(team_id=inputs.team_id, workflow_run_id=inputs.workflow_run_id)
                     .order_by("-created_at")
                     .first()
                 )
-                if job is not None:
-                    return job
             # Legacy fallback for runs started before workflow_run_id existed; racy under concurrent runs.
             return (
                 ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
@@ -971,6 +973,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         source_type = None
+        # The finally block reads it, so it must exist when job creation itself fails.
+        failed_runs_in_a_row = 0
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1085,7 +1089,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = False
                 source_templates_needed = True
                 import_handoffs_are_free = False
-                failed_runs_in_a_row = 0
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -1512,7 +1515,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 consumer_manages_job_status and update_inputs.status == ExternalDataJob.Status.COMPLETED
             )
 
-            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+            finished_status = update_inputs.status.lower()
+            get_data_import_finished_metric(
+                source_type=source_type,
+                status=finished_status,
+                streak=failure_streak_label(finished_status, failed_runs_in_a_row),
+            ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed
             # before producing batches, or a zero-batch run); the loader releases it otherwise.

@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
 from products.signals.backend.models import (
@@ -26,7 +27,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
 )
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
-from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 
 
@@ -861,45 +862,51 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert not SignalReportAssignment.all_teams.filter(report=report).exists()
 
-    def test_unclaimed_filter_excludes_claims_and_open_prs(self):
+    @parameterized.expand([("live_filters", False), ("cached_columns", True)])
+    def test_unclaimed_filter_excludes_claims_and_open_prs(self, _name: str, cached: bool) -> None:
         unclaimed = self._create_report(title="Unclaimed")
         claimed = self._create_report(title="Claimed")
         in_review = self._create_report(title="In review")
         self.client.post(self._claim_url(claimed), data={}, format="json")
-        SignalReportAssignment.all_teams.create(
-            team=self.team,
-            report=in_review,
-            pr_url="https://github.com/PostHog/posthog/pull/123",
-            repository="posthog/posthog",
-            pr_number=123,
-            pr_state=SignalReportAssignment.PrState.OPEN,
-        )
-        merged_assignment = self._create_report(title="Merged assignment")
-        SignalReportAssignment.all_teams.create(
-            team=self.team,
-            report=merged_assignment,
-            pr_url="https://github.com/PostHog/posthog/pull/124",
-            repository="posthog/posthog",
-            pr_number=124,
-            pr_state=SignalReportAssignment.PrState.MERGED,
-            pr_merged=True,
-        )
-        linked = {}
-        for number, state in [(125, SignalReportPullRequest.State.OPEN), (126, SignalReportPullRequest.State.MERGED)]:
-            report = self._create_report(title=f"Linked {state}")
-            pr = SignalReportPullRequest.objects.create(
+        with self.captureOnCommitCallbacks(execute=True):
+            SignalReportAssignment.all_teams.create(
                 team=self.team,
+                report=in_review,
+                pr_url="https://github.com/PostHog/posthog/pull/123",
                 repository="posthog/posthog",
-                number=number,
-                url=f"https://github.com/PostHog/posthog/pull/{number}",
-                state=state,
+                pr_number=123,
+                pr_state=SignalReportAssignment.PrState.OPEN,
             )
-            SignalReportArtefact.objects.create(
-                team=self.team, report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request=pr
+            merged_assignment = self._create_report(title="Merged assignment")
+            SignalReportAssignment.all_teams.create(
+                team=self.team,
+                report=merged_assignment,
+                pr_url="https://github.com/PostHog/posthog/pull/124",
+                repository="posthog/posthog",
+                pr_number=124,
+                pr_state=SignalReportAssignment.PrState.MERGED,
+                pr_merged=True,
             )
-            linked[state] = report
+            linked = {}
+            for number, state in [
+                (125, SignalReportPullRequest.State.OPEN),
+                (126, SignalReportPullRequest.State.MERGED),
+            ]:
+                report = self._create_report(title=f"Linked {state}")
+                pr = SignalReportPullRequest.objects.create(
+                    team=self.team,
+                    repository="posthog/posthog",
+                    number=number,
+                    url=f"https://github.com/PostHog/posthog/pull/{number}",
+                    state=state,
+                )
+                SignalReportArtefact.objects.create(
+                    team=self.team, report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request=pr
+                )
+                linked[state] = report
 
-        response = self.client.get(self._list_url(unclaimed="true"))
+        with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
+            response = self.client.get(self._list_url(unclaimed="true"))
 
         assert response.status_code == status.HTTP_200_OK
         ids = {row["id"] for row in response.json()["results"]}
@@ -933,6 +940,52 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert {row["id"] for row in response.json()["results"]} == {str(mine.id)}
+
+    def test_assignee_mine_matches_claims_by_the_user_their_agents_and_their_tasks(self):
+        Task = apps.get_model("tasks", "Task")
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        own_task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Own task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        teammate_task = Task.objects.create(
+            team=self.team, created_by=teammate, title="Teammate task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        mine = [self._create_report(title=title) for title in ("By me", "By my agent", "By my task")]
+        theirs = [self._create_report(title=title) for title in ("By teammate", "By teammate task")]
+        for report, headers in [
+            (mine[0], {}),
+            (mine[1], self._agent_headers("codex")),
+            (mine[2], {"X-PostHog-Task-Id": str(own_task.id)}),
+            (theirs[1], {"X-PostHog-Task-Id": str(teammate_task.id)}),
+        ]:
+            assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
+        self.client.force_login(teammate)
+        assert self.client.post(self._claim_url(theirs[0]), data={}, format="json").status_code == 200
+        self.client.force_login(self.user)
+
+        response = self.client.get(self._list_url(assignee="mine"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()["results"]
+        assert {row["id"] for row in rows} == {str(report.id) for report in mine}
+        assert {row["assignee"]["responsible_user"]["id"] for row in rows} == {self.user.id}
+
+    def test_responsible_users_resolves_task_claims_in_fixed_queries(self):
+        Task = apps.get_model("tasks", "Task")
+        reports = [self._create_report(title=f"Task report {i}") for i in range(3)]
+        for report in reports:
+            task = Task.objects.create(
+                team=self.team, created_by=self.user, title="Task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+            )
+            headers = {"X-PostHog-Task-Id": str(task.id)}
+            assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
+        claims = get_active_claims(team_id=self.team.id, report_ids=[str(report.id) for report in reports])
+
+        with self.assertNumQueries(2):
+            users = responsible_users(claims.values())
+
+        assert len(users) == len(reports)
+        assert {user.id for user in users.values()} == {self.user.id}
 
     def test_claimed_report_remains_in_default_actionable_list(self):
         report = self._create_report()
