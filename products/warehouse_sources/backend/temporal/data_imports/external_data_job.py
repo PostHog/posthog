@@ -1089,7 +1089,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = False
                 source_templates_needed = True
                 import_handoffs_are_free = False
-                failed_runs_in_a_row = 0
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
