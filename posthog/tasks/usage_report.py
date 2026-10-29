@@ -869,8 +869,8 @@ def get_teams_with_event_count_with_groups_in_period(
 def get_teams_with_mcp_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> TeamUsageRows:
-    # Same table, dedup and splits as `get_teams_with_billable_event_count_in_period`,
-    # so the MCP count and the product analytics count agree on which events exist.
+    # Same table and dedup key as `get_teams_with_billable_event_count_in_period`, but split at midnight,
+    # so two copies of one event a few hours apart still count once.
     if count_distinct:
         distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
     else:
@@ -886,7 +886,7 @@ def get_teams_with_mcp_event_count_in_period(
     """
 
     with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.USAGE_REPORT):
-        return _execute_split_query(
+        return _execute_calendar_aligned_split_query(
             begin,
             end,
             query_template,
@@ -3162,9 +3162,6 @@ def _get_all_usage_data(
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
             period_start, period_end, count_distinct=True
         ),
-        "teams_with_mcp_event_count_in_period": get_teams_with_mcp_event_count_in_period(
-            period_start, period_end, count_distinct=True
-        ),
         "teams_with_event_count_from_helicone_in_period": all_metrics["helicone_events"],
         "teams_with_event_count_from_langfuse_in_period": all_metrics["langfuse_events"],
         "teams_with_event_count_from_keywords_ai_in_period": all_metrics["keywords_ai_events"],
@@ -3384,6 +3381,9 @@ def _get_all_usage_data(
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
         "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
         "teams_with_metrics_records_in_period": metrics_usage["records"],
+        "teams_with_mcp_event_count_in_period": get_teams_with_mcp_event_count_in_period(
+            period_start, period_end, count_distinct=True
+        ),
     }
 
 

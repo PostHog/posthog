@@ -6426,6 +6426,32 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertIsNone(dict(event_metrics[parent_metric]).get(self.team.id))
 
+    def test_mcp_event_count_deduplicates_copies_hours_apart_on_the_same_day(self) -> None:
+        # make sure we don't collapse duplicate rows
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+        tool_call_event_uuid = create_event(
+            event_uuid=uuid4(),
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user",
+            timestamp=self.begin + relativedelta(hours=1),
+        )
+        _create_event(
+            event="$mcp_tool_call",
+            team=self.team,
+            distinct_id="mcp_user",
+            event_uuid=tool_call_event_uuid,
+            timestamp=self.begin + relativedelta(hours=5),
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(
+            get_teams_with_mcp_event_count_in_period(self.begin, self.end, count_distinct=True),
+            [(self.team.id, 1)],
+        )
+
     @parameterized.expand(
         [
             ("posthog-godot", "godot_events"),
