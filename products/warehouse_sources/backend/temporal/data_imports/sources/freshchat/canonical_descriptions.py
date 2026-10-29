@@ -87,6 +87,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "description": "Description of what the role covers.",
         },
     },
+    "outbound_messages": {
+        "description": "A templated outbound message sent from your Freshchat account, such as a WhatsApp notification.",
+        "docs_url": "https://developers.freshchat.com/api/#outbound-messages",
+        "columns": {
+            "message_id": "Unique identifier for the outbound message.",
+            "request_id": "Identifier of the send request that produced the message.",
+            "from": "The business number the message was sent from.",
+            "to": "The recipient numbers or handles the message was sent to.",
+            "provider": "Channel the message was sent through, such as whatsapp.",
+            "data": "The message template and the values used to fill it.",
+            "status": "Delivery state of the message: Accepted, Sent, Delivered or Failed.",
+            "failure_code": "Code that identifies why the message failed, when status is Failed.",
+            "failure_reason": "Reason why the message failed, when status is Failed.",
+            "created_on": "Time at which the send request was triggered, in epoch format.",
+        },
+    },
     "user_conversations": {
         "description": (
             "Links each user to the conversations they take part in. Freshchat lists conversations "

@@ -14,9 +14,19 @@ export type ExposureChecksState = 'not_launched' | 'pending' | 'missing' | 'read
 
 export type HealthChipState =
     | { kind: 'hidden' }
-    | { kind: 'issues'; count: number; hasCritical: boolean }
+    | {
+          kind: 'issues'
+          count: number
+          hasCritical: boolean
+          checks: HealthPanelCheck[]
+          findings: HealthPanelFinding[]
+      }
     | { kind: 'pending' }
-    | { kind: 'checks'; label: string; checks: HealthPanelCheck[]; notes: HealthPanelFinding[] }
+    | { kind: 'checks'; label: string; checks: HealthPanelCheck[]; findings: HealthPanelFinding[] }
+
+// The flag history check only lets the checks of changes since launch look. When it can't read the history, they say
+// they couldn't check and its note says why, so its own row would tell the reader nothing.
+const UNLISTED_CHECKS: ReadonlySet<HealthPanelCheck['key']> = new Set(['flag_history'])
 
 const CHECK_STATUS_ORDER: Record<HealthPanelCheck['status'], number> = {
     finding: 0,
@@ -36,9 +46,9 @@ export function healthPanelChecks(
     // A reset to draft keeps the previous exposure answer in the page, as for the findings.
     const exposureChecks = isExperimentDraft ? [] : (exposures?.health_checks ?? [])
     // A server from before the checks were reported sends none, for example while a deploy rolls out.
-    return [...(health.checks ?? []), ...exposureChecks].sort(
-        (a, b) => CHECK_STATUS_ORDER[a.status] - CHECK_STATUS_ORDER[b.status]
-    )
+    return [...(health.checks ?? []), ...exposureChecks]
+        .filter((check) => !UNLISTED_CHECKS.has(check.key))
+        .sort((a, b) => CHECK_STATUS_ORDER[a.status] - CHECK_STATUS_ORDER[b.status])
 }
 
 export function exposureChecksState(
@@ -78,6 +88,8 @@ export function healthChipState(
             kind: 'issues',
             count: issues.length,
             hasCritical: issues.some((finding) => finding.severity === 'critical'),
+            checks,
+            findings,
         }
     }
     // A verdict before the exposure checks answer could turn into an issue a moment later.
@@ -87,10 +99,10 @@ export function healthChipState(
     // Without an issue, every finding is an info finding.
     const passedCount = countHealthChecks(checks, 'passed')
     const label = [
-        passedCount > 0 ? `${pluralize(passedCount, 'check')} passed` : null,
+        passedCount > 0 ? `No problems found (${pluralize(passedCount, 'check')})` : null,
         findings.length > 0 ? pluralize(findings.length, 'note') : null,
     ]
         .filter(Boolean)
         .join(' · ')
-    return { kind: 'checks', label: label || 'No checks apply yet', checks, notes: findings }
+    return { kind: 'checks', label: label || 'No checks apply yet', checks, findings }
 }

@@ -81,19 +81,21 @@ hogli ci:insights search "<test name or error>"    # cross-run history — corro
 
 ### Corroborate with Trunk Flaky Tests
 
-CI uploads test results to [Trunk Flaky Tests](https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog), which tracks per-test failure history across `master` and PR runs.
-On a PR, the `trunk-io` bot's "Trunk Test Analytics" comment links that PR's slice (`https://app.trunk.io/posthog-inc/flaky-tests/pr/<number>?repo=PostHog/posthog`).
+CI uploads test results to [Trunk Flaky Tests](https://app.trunk.io/posthog-inc/flaky-tests/collections), which tracks per-test failure history across `master` and PR runs.
+It keeps one test collection per suite: backend-core `AA6dvTdI`, backend-product `C0LrorjW`, backend-temporal `smyQjxZ3`, frontend-jest `OZ6hVJ5z`, storybook `P3SjL3vy`, e2e-playwright `kF88Gx2u`, nodejs `ugvRjGsw`, rust `TewkWR1w`, mcp `Nt38b1Ej`.
+A collection's page is `https://app.trunk.io/posthog-inc/flaky-tests/collections/<shortId>`, and a test's page is `…/collections/<shortId>/tests/<id>`.
+A PR's page in Trunk is `https://app.trunk.io/posthog-inc/pull/<number>?repo=dcf9eb51-cf4b-4bdc-8bc1-a2040fdbe8f4`.
+The Trunk browser extension also links to it from the GitHub PR view.
 
 The `trunk` MCP server in `.mcp.json` queries it (tools are marked experimental by Trunk):
 
-- `search-test` (`repoName: "PostHog/posthog"`, `testNameSearch: "<test name, no filepath>"`) → the test case ID.
+- `search-test` (`repoName: "PostHog/posthog"`, `testNameSearch: "<test name, no filepath>"`) → the test case ID. Add `testCollectionShortId` (one of the short IDs above) to search one collection, or leave it out to search all of them.
 - `fix-flaky-test` (`repoName`, `testCaseId`) → failure history, first-seen commit, git blame, and Trunk's root-cause investigation; `createNewInvestigation: true` triggers a fresh analysis (takes up to a minute).
 
 Authenticate once via `/mcp` → `trunk` (browser OAuth); headless environments instead add an `Authorization: Bearer` header with a `TRUNK_API_TOKEN` org token to the server entry.
 
-Two limits worth knowing before you start here.
 AI investigations are not enabled for this repo, so `fix-flaky-test` returns history or nothing, never a root cause.
-And lookup only goes name to ID: a bare dashboard link identifies a test you cannot name, so ask for the test name rather than guessing at the ID.
+A bare collection test link still identifies the test: its last segment is the test's ID, which `GET /v2/tests/{testId}` accepts.
 
 Trunk attributes each test to a team through CODEOWNERS, which cannot express the `owners.yaml` map.
 `.github/scripts/trunk-codeowners.sh` projects the map into a generated CODEOWNERS before each upload (`hogli owners:codeowners` builds the same file locally), so a test's owner in Trunk should match `hogli owners:who`.

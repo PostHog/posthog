@@ -24,6 +24,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import {
     FLAG_EVALUATIONS_TABLE,
+    flagEvaluationsRetentionStartDate,
     insightReachesPastFlagEvaluationsRetention,
 } from 'scenes/feature-flags/flagEvaluationsTable'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
@@ -237,6 +238,7 @@ export interface insightVizDataLogicValues {
     display: ChartDisplayType | null | undefined
     enabledIntervals: Intervals
     erroredQueryId: any
+    flagCallsRetentionStartDate: string
     formula: string | null | undefined
     formulaNodes: TrendsFormulaNode[]
     formulas: string[] | null | undefined
@@ -1216,6 +1218,7 @@ export interface insightVizDataLogicMeta {
             compareFilter: CompareFilter | null | undefined,
             insightData: Record<string, any>
         ) => boolean
+        flagCallsRetentionStartDate: (insightData: Record<string, any>) => string
         isNonTimeSeriesDisplay: (display: ChartDisplayType | null | undefined) => boolean
         isSingleSeriesOutput: (
             isTrends: boolean,
@@ -2325,9 +2328,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 readsFlagCalls(querySource) &&
                 insightReachesPastFlagEvaluationsRetention({
                     dateFrom: dateRange?.date_from,
-                    resolvedDateRange: insightData?.resolved_date_range,
+                    response: insightData,
                     compareFilter,
                 }),
+        ],
+        flagCallsRetentionStartDate: [
+            (s) => [s.insightData],
+            (insightData: Record<string, any>): string => flagEvaluationsRetentionStartDate(insightData),
         ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],

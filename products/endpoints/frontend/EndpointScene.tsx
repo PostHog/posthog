@@ -58,6 +58,7 @@ import { VersionBanner } from './endpoint-tabs/VersionBanner'
 import { EndpointSceneHeader } from './EndpointHeader'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
+import { EndpointSceneSkeleton } from './EndpointSceneSkeleton'
 import { endpointsLogic } from './endpointsLogic'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
@@ -361,8 +362,14 @@ export function EndpointScene(): JSX.Element {
                         onGoToLatest={() => setViewingVersion(null)}
                     />
                 )}
-                {!endpointLoading && <EndpointOverview />}
-                {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={visibleTab} tabs={tabs} />}
+                {endpointLoading && !endpoint ? (
+                    <EndpointSceneSkeleton showTabs={!sceneMenuBarEnabled} />
+                ) : (
+                    <>
+                        <EndpointOverview />
+                        {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={visibleTab} tabs={tabs} />}
+                    </>
+                )}
             </SceneContent>
             {endpoint && (
                 <ScenePanel>

@@ -1,4 +1,4 @@
-"""What to watch ranking from observation embeddings.
+"""Highlights feed ranking from observation embeddings.
 
 A consumer of the embedding worker's results ranks each observation once, from the vector the scan
 already embeds for search, so the feed needs no model call and no sweep. Each vector is compared with fixed anchor sentences: the
@@ -10,8 +10,10 @@ errors all the time does not fill the feed.
 import math
 import asyncio
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
-from typing import Any, Literal
+from datetime import timedelta
+from typing import Any, Literal, cast
 
 from django.core.cache import cache
 from django.core.exceptions import EmptyResultSet
@@ -32,7 +34,9 @@ from posthog.utils import dict_from_cursor_fetchall
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
+from products.replay_vision.backend.highlight_feed import HIGHLIGHT_FEED_MIN_ITEMS, HighlightFeedEntry, finish_feed
 from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
     ReplayObservation,
     jsonb_typeof,
     watch_group_root,
@@ -40,7 +44,6 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.scanner_access import accessible_observations
-from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, WatchFeedEntry, finish_feed
 
 WatchCategory = Literal["failure", "struggle", "revenue", "routine"]
 
@@ -92,18 +95,22 @@ CATEGORY_WEIGHT: dict[str, float] = {"failure": 1.0, "revenue": 1.0, "struggle":
 
 # The feed surfaces a scanner's top fifth by score, once the scanner has enough ranked rows to
 # make a percentile mean something.
-WATCH_PICK_MIN_PERCENTILE = 0.8
-WATCH_PICK_MIN_SCANNER_ROWS = 10
-WATCH_PICK_SEEN_PENALTY = 0.3
+HIGHLIGHT_PICK_MIN_PERCENTILE = 0.8
+HIGHLIGHT_PICK_MIN_SCANNER_ROWS = 10
+HIGHLIGHT_PICK_SEEN_PENALTY = 0.3
 # Each earlier impression keeps this share of a pick's score, so a pick shown three times without a
 # click sinks below a fresh one.
-WATCH_PICK_IMPRESSION_DECAY = 0.8
+HIGHLIGHT_PICK_IMPRESSION_DECAY = 0.8
 # A pick's score grows by this factor times the log of the people its group reached, up to the cap, so a problem
 # that hit six people outranks an equally strong one-off without burying everything else.
-WATCH_PICK_PEOPLE_BOOST = 0.25
-WATCH_PICK_PEOPLE_BOOST_CAP = 2.0
+HIGHLIGHT_PICK_PEOPLE_BOOST = 0.25
+HIGHLIGHT_PICK_PEOPLE_BOOST_CAP = 2.0
 # Copies of one finding the pick query keeps, so a viewed or restricted top copy does not hide the group.
-WATCH_PICK_GROUP_CANDIDATES = 3
+HIGHLIGHT_PICK_GROUP_CANDIDATES = 3
+# Group members older than the feed's longest window before the oldest pick can never fall inside a requested window.
+HIGHLIGHT_FEED_MEMBER_LOOKBACK = timedelta(days=90)
+# How much wider the second pick fetch reads when the first is all copies of a few feed groups.
+HIGHLIGHT_PICK_REFILL_FACTOR = 10
 
 _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 
@@ -252,25 +259,9 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
     return "ranked"
 
 
-def _scanner_percentiles(rows: list[dict[str, Any]]) -> dict[str, float]:
-    """Each ranked row's score as a percentile among its scanner's ranked rows in the window."""
-    by_scanner: dict[Any, list[tuple[float, str]]] = {}
-    for row in rows:
-        if rank := current_rank(row):
-            by_scanner.setdefault(row["scanner_id"], []).append((float(rank["contrast"]), str(row["id"])))
-    percentiles: dict[str, float] = {}
-    for scored in by_scanner.values():
-        if len(scored) < WATCH_PICK_MIN_SCANNER_ROWS:
-            continue
-        scored.sort()
-        for position, (_, observation_id) in enumerate(scored):
-            percentiles[observation_id] = (position + 0.5) / len(scored)
-    return percentiles
-
-
 def people_boost(people: int) -> float:
     """How much a pick's score grows with the number of people its feed group reached."""
-    return min(WATCH_PICK_PEOPLE_BOOST_CAP, 1 + WATCH_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
+    return min(HIGHLIGHT_PICK_PEOPLE_BOOST_CAP, 1 + HIGHLIGHT_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
 
 
 def _cap_feed_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str, Any]]:
@@ -281,7 +272,7 @@ def _cap_feed_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str
     picked: dict[Any, dict[str, Any]] = {}
     group_rows: Counter[str] = Counter()
     for row in rows:
-        if group_rows[row["watch_group_root"]] >= WATCH_PICK_GROUP_CANDIDATES:
+        if group_rows[row["watch_group_root"]] >= HIGHLIGHT_PICK_GROUP_CANDIDATES:
             continue
         group_rows[row["watch_group_root"]] += 1
         picked[row["id"]] = row
@@ -291,7 +282,10 @@ def _cap_feed_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str
 
 
 def _pick_window_rows(
-    ranked: QuerySet[ReplayObservation], current_ranks: QuerySet[ReplayObservation], limit: int | None
+    ranked: QuerySet[ReplayObservation],
+    current_ranks: QuerySet[ReplayObservation],
+    limit: int,
+    categories: Sequence[str],
 ) -> list[dict[str, Any]]:
     """Each scanner's top-fifth issue rows in pick order: every scanner's best first, then every second-best.
 
@@ -302,7 +296,7 @@ def _pick_window_rows(
     scanner_counts = (
         ranked.values("scanner_id")
         .annotate(scanner_rows=Count("id"))
-        .filter(scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS)
+        .filter(scanner_rows__gte=HIGHLIGHT_PICK_MIN_SCANNER_ROWS)
         .values("scanner_id", "scanner_rows")
     )
     scanner_top = (
@@ -325,7 +319,7 @@ def _pick_window_rows(
     # Only fragments written here join the compiled ORM SQL; every value travels as a parameter.
     sql = f"""
         WITH scanner_counts AS ({counts_sql})
-        SELECT id, watch_percentile, watch_group_root FROM (
+        SELECT id, created_at, watch_percentile, watch_group_root FROM (
             SELECT scanner_top.*,
                 ((scanner_counts.scanner_rows - scanner_top.scanner_rank + 1) - 0.5)
                     / scanner_counts.scanner_rows::double precision AS watch_percentile
@@ -339,9 +333,9 @@ def _pick_window_rows(
     params = (
         *counts_params,
         *top_params,
-        1 - WATCH_PICK_MIN_PERCENTILE,
-        list(ISSUE_CATEGORIES),
-        WATCH_PICK_MIN_PERCENTILE,
+        1 - HIGHLIGHT_PICK_MIN_PERCENTILE,
+        list(categories),
+        HIGHLIGHT_PICK_MIN_PERCENTILE,
         limit,
     )
     with connections[ranked.db].cursor() as cursor:
@@ -356,11 +350,14 @@ def select_embedding_picks(
     access: UserAccessControl,
     team_id: int,
     cap: int,
+    categories: Sequence[str],
 ) -> list[dict[str, Any]]:
     """The window's pick rows for the embedding ranker, with each row's percentile and the reach of its feed group.
 
     The percentile is taken over every ranked row a scanner has in the window, not over a recency slice, so a
-    longer window reaches further back instead of re-ranking the same newest rows.
+    longer window reaches further back instead of re-ranking the same newest rows. `categories` narrows the picks
+    after that ranking, so turning a category off drops its rows without promoting weaker rows of the others. A
+    group's reach counts only members of those categories, so it matches the similar sessions the card's popover lists.
     """
     group_root = watch_group_root()
     ranked = walkable.filter(
@@ -373,43 +370,57 @@ def select_embedding_picks(
         watch_category=KeyTextTransform("category", "watch_rank"),
         contrast_type=jsonb_typeof(KeyTransform("contrast", "watch_rank")),
     ).filter(contrast_type="number")
-    # Bounds the fetch, since a client-side cursor buffers every row; only a window full of copies needs the rest.
-    fetch_limit = cap * (WATCH_PICK_GROUP_CANDIDATES + 1)
-    rows = _pick_window_rows(ranked, current_ranks, fetch_limit)
+    # Bounds the fetch, since a client-side cursor buffers every row. A window full of copies reads a wider slice
+    # once, still bounded, and a feed that stays short past it shows fewer picks rather than reading every row.
+    fetch_limit = cap * (HIGHLIGHT_PICK_GROUP_CANDIDATES + 1)
+    rows = _pick_window_rows(ranked, current_ranks, fetch_limit, categories)
     window_values = _cap_feed_groups(rows, cap)
     if len(window_values) < cap and len(rows) == fetch_limit:
-        window_values = _cap_feed_groups(_pick_window_rows(ranked, current_ranks, None), cap)
+        window_values = _cap_feed_groups(
+            _pick_window_rows(ranked, current_ranks, fetch_limit * HIGHLIGHT_PICK_REFILL_FACTOR, categories), cap
+        )
     if not window_values:
         return []
     # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Members
     # below the cutoff still count, and a person who hit the problem twice counts once.
     person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
     roots = {row["watch_group_root"] for row in window_values.values()}
+    # Postgres misjudges the JSON filters and would walk the whole window, so the members come from the group index
+    # alone. Group ids are random UUIDs, so no other team's row matches; the next query applies the team scope.
+    oldest = min(row["created_at"] for row in window_values.values()) - HIGHLIGHT_FEED_MEMBER_LOOKBACK
+    member_ids = list(
+        ReplayObservation.objects.filter(
+            status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, created_at__gte=oldest
+        )
+        .alias(member_root=group_root)
+        .filter(member_root__in=list(roots))
+        .values_list("id", flat=True)
+    )
     group_reach = {
         row["watch_group_root"]: row
         for row in accessible_observations(
             access,
             team_id,
-            # Matches the picks' groups on the indexed group root first, so only their members reach the snapshot gate.
-            current_ranks.alias(member_root=group_root).filter(
-                member_root__in=list(roots), watch_category__in=ISSUE_CATEGORIES
-            ),
+            current_ranks.filter(id__in=member_ids, watch_category__in=list(categories)),
         )
         .annotate(watch_group_root=group_root)
         .values("watch_group_root")
         .annotate(sessions=Count("id"), people=Count(person, distinct=True))
     }
     # The row-gate reads each row's snapshot JSON, so it runs on the picks only.
-    rows = list(
-        accessible_observations(
-            access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
-        )
-        .annotate(feed_viewed=viewed)
-        .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+    rows = cast(
+        list[dict[str, Any]],
+        list(
+            accessible_observations(
+                access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
+            )
+            .annotate(feed_viewed=viewed)
+            .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+        ),
     )
     for row in rows:
         window = window_values[row["id"]]
-        reach = group_reach.get(window["watch_group_root"], {})
+        reach: Mapping[str, Any] = group_reach.get(window["watch_group_root"], {})
         row["watch_percentile"] = window["watch_percentile"]
         row["watch_group_root"] = window["watch_group_root"]
         row["watch_group_size"] = reach.get("sessions", 1)
@@ -434,32 +445,29 @@ def select_embedding_filler(
     )
     fields = ("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
     # Two short newest-first walks, because ordering by the viewed flag would sort the whole window.
-    rows = list(base.filter(feed_viewed=False).order_by("-created_at", "-id").values(*fields)[:WATCH_FEED_MIN_ITEMS])
-    if len(rows) < WATCH_FEED_MIN_ITEMS:
+    rows = list(
+        base.filter(feed_viewed=False).order_by("-created_at", "-id").values(*fields)[:HIGHLIGHT_FEED_MIN_ITEMS]
+    )
+    if len(rows) < HIGHLIGHT_FEED_MIN_ITEMS:
         rows += list(
             base.filter(feed_viewed=True)
             .order_by("-created_at", "-id")
-            .values(*fields)[: WATCH_FEED_MIN_ITEMS - len(rows)]
+            .values(*fields)[: HIGHLIGHT_FEED_MIN_ITEMS - len(rows)]
         )
     return rows
 
 
-def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
+def rank_highlight_feed_by_embedding(rows: list[dict[str, Any]]) -> list[HighlightFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `session_id`, `created_at`, `watch_rank`, `feed_viewed`,
     and optionally `feed_impressions`) on the embedding rank the watch rank consumer wrote.
 
     A pick is a row in its scanner's top fifth by score whose category is an issue. Rows of one feed group
     collapse to their best-scoring row, which carries the size of the group. Picks sort by weighted
     percentile, decayed for each earlier impression, viewed rows docked, one scanner held to a share
-    of the picks, and one session's picks spaced apart. Every other row is filler, trimmed to the same
-    floor as the other rankers.
+    of the picks, and one session's picks spaced apart. Every other row is filler, kept only to reach the
+    feed's floor.
     """
-    # Rows from `select_embedding_picks` carry their whole-window percentile; a plain candidate slice does not.
-    percentiles = (
-        {str(row["id"]): row["watch_percentile"] for row in rows if row.get("watch_percentile") is not None}
-        if any("watch_percentile" in row for row in rows)
-        else _scanner_percentiles(rows)
-    )
+    percentiles = {str(row["id"]): row["watch_percentile"] for row in rows if row.get("watch_percentile") is not None}
     best_in_group: dict[str, tuple[float, dict[str, Any]]] = {}
     group_members: dict[str, list[str]] = {}
     for row in rows:
@@ -472,21 +480,21 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         group = str(rank.get("group") or observation_id)
         group_members.setdefault(group, []).append(observation_id)
         # Only a member above the cutoff can stand for the group, so the seen penalty never disqualifies it.
-        if percentile < WATCH_PICK_MIN_PERCENTILE:
+        if percentile < HIGHLIGHT_PICK_MIN_PERCENTILE:
             continue
         score = (
             percentile
             * CATEGORY_WEIGHT[rank["category"]]
             * people_boost(row.get("watch_group_people") or 1)
-            * WATCH_PICK_IMPRESSION_DECAY ** row.get("feed_impressions", 0)
+            * HIGHLIGHT_PICK_IMPRESSION_DECAY ** row.get("feed_impressions", 0)
         )
         if row.get("feed_viewed"):
-            score -= WATCH_PICK_SEEN_PENALTY
+            score -= HIGHLIGHT_PICK_SEEN_PENALTY
         if group not in best_in_group or score > best_in_group[group][0]:
             best_in_group[group] = (score, row)
     grouped_ids = {member for group in best_in_group for member in group_members[group]}
 
-    picks: list[tuple[float, Any, Any, WatchFeedEntry]] = []
+    picks: list[tuple[float, Any, Any, HighlightFeedEntry]] = []
     for group, (score, row) in best_in_group.items():
         rank = row["watch_rank"]
         reason = {
@@ -500,7 +508,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
                 score,
                 row["created_at"],
                 row.get("scanner_id"),
-                WatchFeedEntry(observation_id=row["id"], reason=reason, session_id=row["session_id"]),
+                HighlightFeedEntry(observation_id=row["id"], reason=reason, session_id=row["session_id"]),
             )
         )
     # A pick stands for its whole feed group, so no member returns as filler.
