@@ -20,7 +20,7 @@ import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import { useGoalLines, useTimeSeries, useValueBounds } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesComboChartConfig {
@@ -134,6 +134,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     )
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
+    const valueBounds = useValueBounds(primaryYAxis)
 
     const comboChartConfig: ComboChartConfig = {
         margins,
@@ -157,6 +158,8 @@ export function TimeSeriesComboChart<Meta = unknown>({
         bandPadding,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,
+        valueBounds,
+        floatBaseline: primaryYAxis?.startAtZero === false && primaryYAxis?.scale !== 'log',
         yAxes,
     }
 

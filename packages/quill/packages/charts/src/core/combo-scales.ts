@@ -1,5 +1,6 @@
 import { scaleBand, type ScaleBand } from 'd3-scale'
 
+import { mergeValueDomains } from '../utils/goal-lines'
 import { createYScale, type D3YScale, groupVisibleSeriesByAxis, orderedAxisPositions, type StackedBand } from './scales'
 import type { ChartDimensions, Series, SeriesType, ValueDomain } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
@@ -39,9 +40,20 @@ export interface CreateComboScalesOptions {
     /** Applied to the primary (default/left) axis only — goal lines (`{ include }`) render against
      *  the primary axis, so secondary axes keep their own data-derived scale. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Primary-axis `min` / `max`, applied only while the axis carries no bar series. */
+    valueBounds?: Pick<ValueDomain, 'min' | 'max'>
+    /** Float the primary axis to its data range. Ignored while the axis carries bar series. */
+    floatBaseline?: boolean
     /** Per-axis overrides — explicit values win over the alternating-side default and
-     *  `options.scaleType`. `startAtZero: false` is ignored for axes carrying bar series. */
-    axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
+     *  `options.scaleType`. `startAtZero: false` and the `valueDomain` bounds are ignored for axes
+     *  carrying bar series. */
+    axes?: {
+        id: string
+        position?: 'left' | 'right'
+        scaleType?: 'linear' | 'log'
+        startAtZero?: boolean
+        valueDomain?: ValueDomain
+    }[]
 }
 
 export function resolveSeriesType(series: Pick<Series, 'type'>, defaultType: SeriesType): SeriesType {
@@ -66,6 +78,8 @@ export function createComboScales(
         seriesTypeOf,
         barStackedData,
         valueDomain,
+        valueBounds,
+        floatBaseline = false,
         axes,
     } = options
 
@@ -120,12 +134,21 @@ export function createComboScales(
         // Percent-clamp only axes that actually carry bar series — a line/area-only axis (e.g. a
         // series explicitly routed to the right axis) keeps its own data-derived scale instead of
         // being forced onto [0, 1].
+        // A bar encodes magnitude as length from zero, so axis bounds and a floating baseline only
+        // apply to axes without bars.
         const hasBarSeries = axisSeries.some((s) => seriesTypeOf(s) === 'bar')
+        const override = axisOverrides.get(axisId)
+        const isPrimary = axisId === primaryAxisId
+        let axisDomain = isPrimary ? valueDomain : undefined
+        if (!hasBarSeries) {
+            axisDomain = mergeValueDomains(axisDomain, isPrimary ? valueBounds : override?.valueDomain)
+        }
+        const startAtZero = override?.startAtZero ?? (isPrimary ? !floatBaseline : true)
         const scale = createYScale(axisValueSeries, dimensions, {
-            scaleType: axisOverrides.get(axisId)?.scaleType ?? scaleType,
+            scaleType: override?.scaleType ?? scaleType,
             percentStack: barLayout === 'percent' && hasBarSeries,
-            valueDomain: axisId === primaryAxisId ? valueDomain : undefined,
-            floatBaseline: !hasBarSeries && axisOverrides.get(axisId)?.startAtZero === false,
+            valueDomain: axisDomain,
+            floatBaseline: !hasBarSeries && !startAtZero,
         })
         yAxes[axisId] = { scale, position }
     }
