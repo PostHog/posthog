@@ -12,16 +12,16 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { Breakdown, BreakdownFilter } from '~/queries/schema/schema-general'
+import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
+import type { PropertyDefinition, PropertyDefinitionType } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
-import type { DatabaseSchemaField } from '../../../../queries/schema/schema-general'
-import type { PropertyDefinition, PropertyDefinitionType } from '../../../../types'
 import {
     isBreakdownType,
     isCohortBreakdown,

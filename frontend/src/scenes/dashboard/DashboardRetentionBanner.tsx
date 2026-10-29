@@ -4,7 +4,8 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { dataRetentionBannerLogic } from '../insights/dataRetention/dataRetentionBannerLogic'
+import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
+
 import { dashboardLogic } from './dashboardLogic'
 
 export const DashboardRetentionBanner = (): JSX.Element | null => {
