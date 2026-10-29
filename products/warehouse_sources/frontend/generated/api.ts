@@ -78,6 +78,8 @@ import type {
     WarehouseMigrationConnectLinkApi,
     WarehouseMigrationCreateApi,
     WarehouseMigrationItemApi,
+    WarehouseMigrationSkipItemsApi,
+    WarehouseMigrationSkipItemsResponseApi,
     WarehouseMigrationsConnectLinkRetrieveParams,
     WarehouseMigrationsListParams,
     WebhookInfoResponseApi,
@@ -1802,6 +1804,30 @@ export const warehouseMigrationsItemsSkipCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getWarehouseMigrationsItemsBulkSkipCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/skip/`
+}
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+export const warehouseMigrationsItemsBulkSkipCreate = async (
+    projectId: string,
+    id: string,
+    warehouseMigrationSkipItemsApi?: WarehouseMigrationSkipItemsApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationSkipItemsResponseApi> => {
+    return apiMutator<WarehouseMigrationSkipItemsResponseApi>(
+        getWarehouseMigrationsItemsBulkSkipCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(warehouseMigrationSkipItemsApi),
+        }
+    )
 }
 
 export const getWarehouseMigrationsRefreshCreateUrl = (projectId: string, id: string) => {

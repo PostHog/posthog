@@ -1,4 +1,5 @@
 from collections import Counter
+from collections.abc import Sequence
 from uuid import UUID
 
 from django.db.models import Count
@@ -69,6 +70,27 @@ def skip_item(*, team_id: int, migration_id: UUID, item_id: UUID) -> WarehouseMi
     if item is not None and not skipped and item.status != WarehouseMigrationItem.Status.SKIPPED:
         raise WarehouseMigrationItemClaimedError()
     return item
+
+
+def skip_items(
+    *,
+    team_id: int,
+    migration_id: UUID,
+    item_ids: Sequence[UUID] | None,
+    keep_item_ids: Sequence[UUID] | None,
+) -> tuple[list[UUID], list[UUID]]:
+    """Skip the chosen items, or all but the kept ones. Returns the skipped ids and the ids an apply holds."""
+    items = WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
+    chosen = items.filter(id__in=item_ids) if item_ids is not None else items.exclude(id__in=keep_item_ids or [])
+    # The same conditional update as a single skip, so an apply that claimed an item keeps it.
+    chosen.filter(status__in=(WarehouseMigrationItem.Status.PENDING, WarehouseMigrationItem.Status.FAILED)).update(
+        status=WarehouseMigrationItem.Status.SKIPPED, updated_at=timezone.now()
+    )
+    skipped: list[UUID] = []
+    not_skipped: list[UUID] = []
+    for item_id, status in chosen.order_by("name").values_list("id", "status"):
+        (skipped if status == WarehouseMigrationItem.Status.SKIPPED else not_skipped).append(item_id)
+    return skipped, not_skipped
 
 
 def item_counts(migration: WarehouseMigration) -> dict[str, int]:
