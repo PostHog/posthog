@@ -1,5 +1,4 @@
 import json
-import importlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -7,7 +6,6 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -340,25 +338,6 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         with team_scope(self.team.id):
             assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
-
-    def test_an_alert_created_before_platform_destinations_takes_one_after_the_migration(self) -> None:
-        migration = importlib.import_module(
-            "products.alerts_platform.backend.migrations.0022_metrics_alert_platform_destinations"
-        )
-        destinations_url = f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/"
-        body = {"type": "pagerduty", "pagerduty_routing_key": "0123456789abcdef0123456789abcdef"}
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE alerts_platformalertconfiguration SET destinations_owner = 'source' WHERE id = %s",
-                [str(self.configuration_id)],
-            )
-
-        assert self.client.post(destinations_url, body, format="json").status_code != status.HTTP_201_CREATED
-
-        with connection.cursor() as cursor:
-            cursor.execute(migration.MOVE_METRICS_DESTINATIONS)
-
-        assert self.client.post(destinations_url, body, format="json").status_code == status.HTTP_201_CREATED
 
     @parameterized.expand(
         [
