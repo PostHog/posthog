@@ -1484,7 +1484,7 @@ export interface QueryStatusApi {
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
-    /** The earliest timestamp the query reads, when it reads rows from before date_from. Lifecycle reads the interval before the range. Weekly and monthly active users read 7 or 30 days before it. */
+    /** The earliest timestamp the query reads, when it reads rows from before date_from. Lifecycle sets it, because it reads the interval before the range. */
     read_from?: string | null
 }
 
