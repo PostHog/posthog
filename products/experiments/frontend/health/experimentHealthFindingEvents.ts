@@ -24,7 +24,11 @@ export type ExperimentHealthFindingCode =
     | 'zero_exposures'
     | 'no_metric'
     | 'metric_event_not_ingested'
+    | 'metric_cannot_compile'
+    | 'metric_calculation_failed'
     | 'exposure_criteria_cannot_match'
+    | 'exposure_filter_on_dynamic_cohort'
+    | 'exposure_filter_excludes_events'
     | 'forced_variant_release_condition'
     | 'flag_variants_mismatch'
     | 'split_changed_mid_run'
@@ -69,7 +73,7 @@ export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> 
 )
 
 // pinned: `opened_from` property values of `experiment health checks opened`.
-export type ExperimentHealthChecksOpenedFrom = 'meta_bar' | 'panel'
+export type ExperimentHealthChecksOpenedFrom = 'meta_bar'
 
 // pinned: `health_ui` property values. Insights compare the server's findings with the separate warnings on them.
 // 'panel' means the page shows the server's findings: in the health panel when one is an issue, otherwise in the
@@ -242,8 +246,8 @@ export function captureExperimentHealthChecked(
  * every load. `experiment results refresh completed` follows the exposure load on every tab.
  * `has_srm`, `has_bias_risk` and a zero `exposures_total` are the page's own rules. The `_server` values are
  * the server's checks on the same answer, null when the answer holds no server findings (a cached answer
- * from before the server ran them). `zero_exposures_cause` is the server's zero-exposures subcode, null without the
- * finding or when it names no cause.
+ * from before the server ran them). `zero_exposures_cause` and `srm_cause` are the server's subcodes of those findings,
+ * null without the finding or when it names no cause.
  */
 export function exposureHealthEventProperties(
     exposures: ExperimentExposureQueryResponse | null | undefined,
@@ -254,6 +258,7 @@ export function exposureHealthEventProperties(
     has_srm: boolean | null
     has_bias_risk: boolean | null
     srm_server: boolean | null
+    srm_cause: string | null
     zero_exposures_server: boolean | null
     zero_exposures_cause: string | null
     bias_risk_server: boolean | null
@@ -265,6 +270,7 @@ export function exposureHealthEventProperties(
             has_srm: null,
             has_bias_risk: null,
             srm_server: null,
+            srm_cause: null,
             zero_exposures_server: null,
             zero_exposures_cause: null,
             bias_risk_server: null,
@@ -282,6 +288,8 @@ export function exposureHealthEventProperties(
         has_srm: hasSampleRatioMismatch(exposures),
         has_bias_risk: exposures.bias_risk != null,
         srm_server: serverCodes ? serverCodes.has('srm') : null,
+        // pinned: analytics property, so renaming it breaks insights. Its values are the server's pinned subcodes.
+        srm_cause: exposures.health_findings?.find(({ code }) => code === 'srm')?.subcode ?? null,
         zero_exposures_server: serverCodes ? serverCodes.has('zero_exposures') : null,
         // pinned: analytics property, so renaming it breaks insights. Its values are the server's pinned subcodes.
         zero_exposures_cause: exposures.health_findings?.find(({ code }) => code === 'zero_exposures')?.subcode ?? null,

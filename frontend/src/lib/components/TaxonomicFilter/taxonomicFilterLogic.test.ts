@@ -17,6 +17,7 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { getMCPPropertyFilterOptions } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -121,6 +122,32 @@ describe('taxonomicFilterLogic', () => {
             infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Cohorts }).isMounted()
         ).toBeFalsy()
     })
+
+    it.each([
+        [TaxonomicFilterGroupType.Events, 'test', false, 'true'],
+        [TaxonomicFilterGroupType.CustomEvents, 'test', false, 'true'],
+        [TaxonomicFilterGroupType.Events, 'test', true, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, 'test', true, 'false'],
+        [TaxonomicFilterGroupType.Events, 'control', false, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, 'control', false, 'false'],
+        [TaxonomicFilterGroupType.Events, false, false, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, false, false, 'false'],
+    ])(
+        'for %s with the flag %p and allowNonCapturedEvents %p, fuzzy_search is %p',
+        (groupType, flagValue, allowNonCapturedEvents, expected) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH]: flagValue,
+            })
+            const fuzzyLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `fuzzy-${groupType}-${flagValue}-${allowNonCapturedEvents}`,
+                taxonomicGroupTypes: [groupType],
+                allowNonCapturedEvents,
+            })
+            fuzzyLogic.mount()
+            const group = fuzzyLogic.values.taxonomicGroups.find((item) => item.type === groupType)
+            expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe(expected)
+        }
+    )
 
     it('loads actions when a taxonomic filter mounts', async () => {
         await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
@@ -916,8 +943,6 @@ describe('taxonomicFilterLogic', () => {
     })
 
     describe('MCP properties group by event scope', () => {
-        // Mirrors the rebuild-side assertions in utils/mcpProperties.test.ts — the two
-        // variants define the group independently, so both sides guard against drift.
         it.each([
             { eventNames: ['$mcp_tool_call'], expectPresent: true },
             { eventNames: ['$pageview'], expectPresent: false },
@@ -1713,7 +1738,7 @@ describe('taxonomicFilterLogic', () => {
                 (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
             )!
             const item = { name: 'properties.$current_url', value: 'properties.$current_url' }
-            // Mirror TaxonomicFilterMenu's handleCommit: the value is derived via group.getValue.
+            // The value is derived via group.getValue.
             const value = group.getValue?.(item as any) ?? null
 
             await expectLogic(hogqlLogic, () => {

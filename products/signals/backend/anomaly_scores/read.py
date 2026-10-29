@@ -30,7 +30,7 @@ from products.signals.backend.anomaly_scores.scoring import bucket_end
 
 # The window before the requested range that `baseline_rate` covers.
 BASELINE_WINDOW = datetime.timedelta(days=30)
-# One row is one series. Far more than the series of every watched insight of one project.
+# One row is one series. Far more than the series of every active insight of one project.
 MAX_SERIES = 10_000
 MAX_BUCKETS = 2_000
 # Each rate shrinks toward its baseline by this many buckets, so 1 flagged of 1 scored does not top a ranking.
@@ -425,12 +425,14 @@ def prior_rate(series: Sequence[SeriesSummary]) -> float:
 
 
 def rate_lift(summary: SeriesSummary, prior: float) -> float:
-    """The smoothed rate in the range less the smoothed baseline rate. Only a ranking uses it."""
-    baseline = summary.baseline_rate if summary.baseline_rate is not None else prior
-    rate = (summary.flagged_buckets + PRIOR_BUCKETS * baseline) / (summary.scored_buckets + PRIOR_BUCKETS)
+    """The smoothed rate in the range less the smoothed baseline rate. Only a ranking uses it.
+
+    Both rates shrink toward the same smoothed baseline, so a series with no scored bucket gets a lift of 0.
+    """
     smoothed_baseline = (summary.baseline_flagged_buckets + PRIOR_BUCKETS * prior) / (
         summary.baseline_scored_buckets + PRIOR_BUCKETS
     )
+    rate = (summary.flagged_buckets + PRIOR_BUCKETS * smoothed_baseline) / (summary.scored_buckets + PRIOR_BUCKETS)
     return rate - smoothed_baseline
 
 

@@ -88,7 +88,8 @@ describe('Hog Executor', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            null
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         return new HogExecutorAsyncService(
@@ -2089,6 +2090,51 @@ describe('Hog Executor', () => {
                 { Authorization: 'Bearer crm_secret_token', 'X-Chat': 'chat_secret_token' },
                 { token: 'crm_secret_token', title: lookAlike },
             ])
+        })
+
+        it('does not substitute the access token of a warehouse source row', async () => {
+            jest.mocked(fetch).mockImplementation(() =>
+                Promise.resolve({
+                    status: 200,
+                    body: 'Hello, world!',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const warehouse = await insertIntegration(hub.postgres, team.id, {
+                kind: 'postgresql' as any,
+                config: { warehouse_source_type: 'Postgres' },
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('warehouse_secret_token') },
+            })
+            const placeholder = (
+                new HogInputsService(
+                    hub.integrationManager,
+                    new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                    hub.encryptedFields
+                ) as any
+            ).accessTokenPlaceholder(warehouse.id)
+
+            const invocation = createExampleInvocation({ ...hogFunction, team_id: team.id })
+            invocation.hogFunction.inputs = { connection: { value: warehouse.id } }
+            invocation.hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+            invocation.state.vmState = { stack: [] } as any
+            invocation.queueParameters = {
+                type: 'fetch',
+                url: 'https://example.com/test',
+                method: 'POST',
+                headers: { Authorization: `Bearer ${placeholder}` },
+                body: JSON.stringify({ token: placeholder }),
+            } as any
+
+            await createExecutor(hub.encryptedFields).executeFetch(invocation)
+
+            const [, options] = jest.mocked(fetch).mock.calls[0] as any
+            expect(options.headers).toEqual({ Authorization: `Bearer ${placeholder}` })
+            expect(options.body).not.toContain('warehouse_secret_token')
         })
 
         describe('with non_failure_status_codes', () => {

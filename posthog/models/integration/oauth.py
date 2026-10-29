@@ -23,6 +23,7 @@ from posthog.credentials_service.instance_settings import get_many_or_instance_s
 from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope
@@ -66,6 +67,39 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
     return snippet[:300] if snippet else None
 
 
+_INVALID_GRANT_MESSAGE = (
+    "This authorization is no longer valid. Start the connection again and approve access without waiting in between."
+)
+
+_STRIPE_MODE_MISMATCH_MESSAGE = (
+    "Stripe approved this connection in test mode or a sandbox, but PostHog can only connect live mode Stripe accounts. "
+    "Starting the connection again won't fix this. To sync your live data, change Authentication type to "
+    "Restricted API key and use a key you create in live mode."
+)
+
+
+def _oauth_error_field(res: requests.Response, field: str) -> str | None:
+    try:
+        body = res.json()
+    except Exception:
+        return None
+    value = body.get(field) if isinstance(body, dict) else None
+    return value if isinstance(value, str) else None
+
+
+def _oauth_error_code(res: requests.Response) -> str | None:
+    return _oauth_error_field(res, "error")
+
+
+def _is_stripe_mode_mismatch(kind: str, res: requests.Response) -> bool:
+    # The install link that issued the code fixes its mode, and Stripe redeems it only with the secret
+    # key of that mode. A retry gets a code from the same link, so it fails the same way.
+    if kind != "stripe":
+        return False
+    description = _oauth_error_field(res, "error_description") or ""
+    return "authorization code only supports returning" in description
+
+
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
     """Raise a ValidationError describing a failed OAuth token exchange.
 
@@ -73,6 +107,12 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
     a useful message instead of the generic "Something went wrong" fallback that follows from a
     bare Exception (which surfaces as a 500 with no detail).
     """
+    if _oauth_error_code(res) == "invalid_grant":
+        if _is_stripe_mode_mismatch(kind, res):
+            raise ValidationError(_STRIPE_MODE_MISMATCH_MESSAGE)
+        # The code expired, was already exchanged, or was issued for another account. The
+        # provider's description can echo the code itself, so it stays in the logs.
+        raise ValidationError(_INVALID_GRANT_MESSAGE)
     provider_error = _extract_oauth_error_message(res)
     if provider_error:
         raise ValidationError(f"{kind} OAuth failed: {provider_error}")
@@ -516,8 +556,8 @@ class OauthIntegration:
     def __str__(self) -> str:
         return f"OauthIntegration(integration={self.integration.id}, kind={self.integration.kind}, team={self.integration.team_id})"
 
-    def __init__(self, integration: model.Integration) -> None:
-        self.integration = integration
+    def __init__(self, integration: IntegrationRecord) -> None:
+        self.integration = model.integration_model(integration)
 
     @classmethod
     @cache_for(timedelta(minutes=5))

@@ -1,8 +1,6 @@
 // These tests check the CI workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
-import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
+import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -453,6 +451,27 @@ const pathsFilterJobs = workflowFiles.flatMap((file) =>
 )
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...[
+        { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
+        { name: 'schema cache miss', matched: '', runs: false },
+        { name: 'master snapshot fallback', matched: `posthog-schema-master-${'a'.repeat(40)}`, runs: true },
+    ].map(({ name, matched, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'check-migrations',
+        step: 'validate-master-schema',
+        scenario: {
+            name,
+            github: mergeQueue(),
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                'check-migrations': {
+                    'master-schema-key': { outputs: { key: 'posthog-schema-mig-v2-exact' } },
+                    'master-schema-cache': { outputs: { 'cache-matched-key': matched } },
+                },
+            },
+        },
+        runs,
+    })),
     ...pathsFilterJobs.flatMap(({ file, job }) => [
         {
             file,
@@ -477,11 +496,11 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         },
     ]),
     ...[
-        { name: 'known fallback', selective: '', changedFiles: '', fork: false },
-        { name: 'empty source selection', selective: 'true', changedFiles: '', fork: false },
-        { name: 'selective PR', selective: 'true', changedFiles: 'src/example.ts', fork: false },
-        { name: 'selective fork PR', selective: 'true', changedFiles: 'src/example.ts', fork: true },
-    ].flatMap(({ name, selective, changedFiles, fork }) =>
+        { name: 'known fallback', needsDependencies: 'false', fork: false },
+        { name: 'empty source selection', needsDependencies: 'false', fork: false },
+        { name: 'selective PR', needsDependencies: 'true', fork: false },
+        { name: 'selective fork PR', needsDependencies: 'true', fork: true },
+    ].flatMap(({ name, needsDependencies, fork }) =>
         ['setup-gh-token', 'selector-install'].map((step) => ({
             file: 'ci-frontend.yml',
             job: 'select-jest-tests',
@@ -491,10 +510,10 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
                 github: pullRequest({ fork }),
                 steps: {
                     ...allFiltersChanged(workflow('ci-frontend.yml')),
-                    'select-jest-tests': { prepare: { outputs: { selective, changed_files: changedFiles } } },
+                    'select-jest-tests': { prepare: { outputs: { needs_dependencies: needsDependencies } } },
                 },
             },
-            runs: selective === 'true' && changedFiles !== '' && (step === 'selector-install' || !fork),
+            runs: needsDependencies === 'true' && (step === 'selector-install' || !fork),
         }))
     ),
     {
@@ -566,47 +585,6 @@ describe('CI workflow run plans', () => {
                     planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
                 )
             ).toBe('stub-token')
-        }
-    })
-
-    it.each([
-        ['failed install', 'failure', 'src/example.ts', 'full'],
-        ['empty source selection', 'skipped', '', 'selective'],
-        ['successful install', 'success', 'src/example.ts', 'selective'],
-    ])('Jest selection after %s', (_name, installOutcome, changedFiles, mode) => {
-        const script = workflow('ci-frontend.yml').jobs['select-jest-tests']?.steps?.find(
-            (step) => step.id === 'classify'
-        )?.run
-        if (!script) {
-            throw new Error('Missing Jest matrix classification script')
-        }
-        const directory = mkdtempSync(path.join(os.tmpdir(), 'jest-selection-'))
-        const output = path.join(directory, 'output')
-        const fallback = path.join(directory, 'fallback')
-        try {
-            writeFileSync(fallback, 'mode=full\nshould_run=true\n')
-            const result = spawnSync(
-                'bash',
-                [
-                    '-e',
-                    '-c',
-                    `node() { printf 'mode=selective\\nshould_run=false\\n' >> "$GITHUB_OUTPUT"; }\n${script.replaceAll('/tmp/jest-selection-fallback', fallback)}`,
-                ],
-                {
-                    encoding: 'utf8',
-                    env: {
-                        PATH: process.env.PATH,
-                        SELECTIVE: 'true',
-                        INSTALL_OUTCOME: installOutcome,
-                        CHANGED_FILES: changedFiles,
-                        GITHUB_OUTPUT: output,
-                    },
-                }
-            )
-            expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
-            expect(readFileSync(output, 'utf8')).toBe(`mode=${mode}\nshould_run=${mode === 'full'}\n`)
-        } finally {
-            rmSync(directory, { recursive: true, force: true })
         }
     })
 

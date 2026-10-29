@@ -81,9 +81,6 @@ DIRECT_CONNECTION_UNSUPPORTED = (
     "Endpoints can't query a direct connection. "
     "Switch the connection to PostHog (ClickHouse) and query a synced table instead."
 )
-NATIVE_CLUSTER_UNSUPPORTED = (
-    "Endpoints do not support native events cluster opt-ins. Use the query API for comparisons."
-)
 
 
 def validate_hogql_query(query: HogQLQuery, team: Team, user: User) -> None:
@@ -293,9 +290,6 @@ def validate_optional_breakdown_properties(
 def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, strict: bool = True) -> None:
     """Validate a create/update payload. With strict=True, name and query are required."""
     query = data.query
-    modifiers = getattr(query, "modifiers", None)
-    if modifiers and modifiers.useNewEventsCluster:
-        raise ValidationError({"query": NATIVE_CLUSTER_UNSUPPORTED})
     if not query and strict:
         raise ValidationError({"query": "This field is required."})
 

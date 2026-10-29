@@ -66,8 +66,8 @@ Mouse hover and click behavior is unchanged; the split lives in `useChartInterac
 
 ## Testing
 
-For a chart mounted through `renderHogChart`, `chart.waitForTooltip()` returns a structured `TooltipSnapshot`.
-For a chart rendered anywhere else (a product scene), read the tooltip from the DOM: `getHogChartTooltip()` and `waitForHogChartTooltip()` return the portal element, and `createHogChartTooltip(el)` wraps it as `{ element, isPinned }`.
-`createDefaultTooltipAccessor(el)` reads a rendered `DefaultTooltip` through its `data-attr="hog-chart-tooltip-*"` hooks: `label()`, `rows()`, `value(seriesLabel)`, `swatchColors()`, `total()`.
+For a chart mounted through `renderChart`, `chart.waitForTooltip()` returns a structured `TooltipSnapshot`.
+For a chart rendered anywhere else (a product scene), `await chart.hoverTooltip(i)` reads a rendered `DefaultTooltip` through its `data-attr="hog-chart-tooltip-*"` hooks: `label()`, `rows()`, `value(seriesLabel)`, `swatchColors()`, `total()`, `clickRow(seriesLabel)`.
+For a custom tooltip, read `tooltip.element`, or wrap a portal element from `waitForChartTooltip()` with `createChartTooltipAccessor(el)`.
 Those attributes are a testing contract; keep the accessor and the component in sync.
 All helpers come from `@posthog/quill-charts/testing`.

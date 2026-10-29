@@ -48,6 +48,10 @@ pnpm --filter=@posthog/mcp run generate:ui-apps
 MCP tools should be **basic capabilities** – atomic CRUD operations and simple actions.
 Agents compose these primitives into higher-level workflows.
 
+For tools that save a visual artifact, briefly suggest checking the rendered result after substantial visual changes
+when browser access is already available. Skip browser checks for small edits. Check the final saved artifact once after
+all edits, rather than after every tool call. The tool can save the artifact, but it cannot give an agent browser access.
+
 **Good tools**:
 
 - List feature flags
@@ -305,6 +309,22 @@ before retrying, because a write may already have succeeded. Replies on earlier 
 after ten minutes and are bound to the authenticated user, PostHog instance, invitation, and original
 token. They remain valid after project changes or flag changes because they cannot execute a tool.
 Duplicate, expired, and mismatched replies do not update suppression or emit response events.
+
+## MCP UI hosts
+
+In CLI mode, MCP Apps UI hosts receive a separate `render-ui` tool beside `exec`.
+A client declares UI support with the `extensions["io.modelcontextprotocol/ui"]` capability.
+The client supports `render-ui` when that capability lists `text/html;profile=mcp-app` in `mimeTypes`.
+If the client sends the capability, the server uses it, and it overrides name detection in both directions.
+If the client does not send the capability, the server falls back to known hosts: Claude web and desktop, Cowork, and the exact `openai-mcp` client name or user agent product.
+The OpenAI match is exact, so Codex CLI (`codex-mcp-client`) does not receive `render-ui` without a declaration.
+Legacy clients declare capabilities during `initialize`; the server retains UI support for later requests in that session.
+Stateless clients declare capabilities in each request's `_meta["io.modelcontextprotocol/clientCapabilities"]`.
+An explicit request declaration takes precedence over stored session support.
+The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
+The schema stays the same across accounts; execution checks the tools available to the current account.
+The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
+This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
 
 ## Claude web and desktop exec schema budget
 
@@ -667,7 +687,9 @@ Product teams own their definitions and control which operations are exposed as 
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
 
-   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, and private PostHog tokens. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, private PostHog and GitHub tokens, credential command-line flags such as `--password VALUE` and `-u user:pass`, and private key blocks inside one string. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+
+   The Engineering analytics CI failure-log tools and the broken-tests tool use `engineeringAnalytics/redactFailureLogsHooks`. It applies the same masking, but with a narrower list of credential names: CI output uses names such as `key`, `code` and `input_tokens` for diagnostics. It also masks the lines of a private key that spans several log lines in one job, including body lines next to an omitted gap, and keeps each line's original line number.
 
    #### Typed-confirm paradigm for destructive tools
 

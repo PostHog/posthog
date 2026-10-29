@@ -1,6 +1,8 @@
 import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import type { FunnelLayout } from 'lib/constants'
+import type { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 
 import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {
@@ -10,6 +12,7 @@ import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
+    BinCountValue,
     BreakdownAttributionType,
     BreakdownKeyType,
     BreakdownType,
@@ -31,19 +34,20 @@ import {
     FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
-    FunnelsFilterType,
+    FunnelPathType,
+    FunnelStepReference,
+    FunnelVizType,
     GroupMathType,
     HogQLMathType,
     InsightShortId,
     InsightType,
     IntegrationType,
     IntervalType,
-    LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
     PathCleaningFilter,
-    PathsFilterType,
+    PathType,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -51,13 +55,13 @@ import {
     PropertyOperator,
     RecordingPropertyFilter,
     RetentionDashboardDisplayType,
-    RetentionFilterType,
+    RetentionEntity,
+    RetentionPeriod,
+    RetentionType,
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
     StepOrderValue,
-    StickinessFilterType,
-    TrendsFilterType,
 } from '~/types'
 
 import { BIVisualizationNode } from './schema-business-intelligence'
@@ -108,6 +112,7 @@ export enum NodeKind {
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
     ErrorTrackingReleasesQuery = 'ErrorTrackingReleasesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
+    ErrorTrackingIssueEventsQuery = 'ErrorTrackingIssueEventsQuery',
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
@@ -168,10 +173,12 @@ export enum NodeKind {
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
     ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
+    ExperimentWarehouseNativeExposureConfig = 'ExperimentWarehouseNativeExposureConfig',
     ExperimentActorsQuery = 'ExperimentActorsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentDataWarehouseNode = 'ExperimentDataWarehouseNode',
+    ExperimentWarehouseNativeNode = 'ExperimentWarehouseNativeNode',
     ExperimentExposureNode = 'ExperimentExposureNode',
 
     // Database metadata
@@ -268,6 +275,7 @@ export type AnyDataNode =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
+    | ErrorTrackingIssueEventsQuery
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
@@ -339,6 +347,7 @@ export type QuerySchema =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
+    | ErrorTrackingIssueEventsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
     | DocumentSimilarityQuery
@@ -542,10 +551,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
@@ -559,6 +566,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean
     pushDownPredicates?: boolean
@@ -1790,9 +1799,6 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase> extends
     tags?: QueryLogTags
 }
 
-/** `TrendsFilterType` minus everything inherited from `FilterType` and `shown_as` */
-export type TrendsFilterLegacy = Omit<TrendsFilterType, keyof FilterType | 'shown_as'>
-
 export enum ResultCustomizationBy {
     Value = 'value',
     Position = 'position',
@@ -1817,21 +1823,21 @@ export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
     /** @deprecated Use formulaNodes instead. */
-    formula?: TrendsFilterLegacy['formula']
+    formula?: string
     /** @deprecated Use formulaNodes instead. */
     formulas?: string[]
     /** List of formulas with optional custom names. Takes precedence over formula/formulas if set. */
     formulaNodes?: TrendsFormulaNode[]
     /** @default ActionsLineGraph */
-    display?: TrendsFilterLegacy['display']
+    display?: ChartDisplayType
     /** @default false */
-    showLegend?: TrendsFilterLegacy['show_legend']
+    showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showAlertThresholdLines?: boolean
-    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    breakdown_histogram_bin_count?: number // TODO: fully move into BreakdownFilter
     // The aggregation-axis description below is duplicated, intentionally and divergently, on
     // `AssistantTrendsFilter` in schema-assistant-queries.ts. The assistant copy is deliberately
     // more cautious ("do not use unless absolutely sure") because Max picks formats without explicit
@@ -1849,28 +1855,28 @@ export type TrendsFilter = {
      * - `short`: compact notation for large counts (`1.2K`, `3.4M`).
      * @default numeric
      */
-    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisFormat?: AggregationAxisFormat
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
-    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPrefix?: string
     /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
-    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    aggregationAxisPostfix?: string
     /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
-    decimalPlaces?: TrendsFilterLegacy['decimal_places']
-    minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
+    decimalPlaces?: number
+    minDecimalPlaces?: number
     /** Custom label rendered under the X axis. */
-    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+    xAxisLabel?: string
     /** Custom label rendered alongside the Y axis. */
-    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
+    yAxisLabel?: string
     /** @default false */
-    showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
-    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    showValuesOnSeries?: boolean
+    showLabelsOnSeries?: boolean
     /** @default false */
-    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    showPercentStackView?: boolean
     /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar
      *  instead of rendering one bar per breakdown value.
      * @default false */
     stackBreakdownValues?: boolean
-    yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    yAxisScaleType?: 'log10' | 'linear'
     /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero.
      *  Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while
      *  showing percentages.
@@ -1883,7 +1889,7 @@ export type TrendsFilter = {
      *  `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
     yAxisMax?: number
     /** @default false */
-    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
+    showMultipleYAxes?: boolean
     hiddenLegendIndexes?: integer[]
     /**
      * Wether result datasets are associated by their values or by their order.
@@ -1986,6 +1992,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
 export interface BoxPlotDatum {
     day: string
     label: string
+    count?: integer
     min: number
     p25: number
     median: number
@@ -1998,6 +2005,11 @@ export interface BoxPlotDatum {
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
     /** Wether more breakdown values are available. */
     hasMore?: boolean
     /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
@@ -2123,17 +2135,6 @@ export interface IntegrationFilter {
     includeNonIntegrated?: boolean
 }
 
-/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
-export type FunnelsFilterLegacy = Omit<
-    FunnelsFilterType,
-    | keyof FilterType
-    | 'funnel_step_breakdown'
-    | 'entrance_period_start'
-    | 'drop_off'
-    | 'funnel_step'
-    | 'funnel_custom_steps'
->
-
 export interface FunnelExclusionSteps {
     funnelFromStep: integer
     funnelToStep: integer
@@ -2149,29 +2150,29 @@ export type FunnelsFilter = {
     /** @default [] */
     exclusions?: FunnelExclusion[]
     /** @default vertical */
-    layout?: FunnelsFilterLegacy['layout']
+    layout?: FunnelLayout
     /** @asType integer */
-    binCount?: FunnelsFilterLegacy['bin_count']
+    binCount?: BinCountValue
     /** @default first_touch */
-    breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
+    breakdownAttributionType?: BreakdownAttributionType
     breakdownAttributionValue?: integer
-    funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    funnelAggregateByHogQL?: string | null
     /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean
     /** To select the range of steps for trends & time to convert funnels, 0-indexed */
     funnelToStep?: integer
     funnelFromStep?: integer
     /** @default ordered */
-    funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    funnelOrderType?: StepOrderValue
     /** @default steps */
-    funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    funnelVizType?: FunnelVizType
     /** @default 14 */
     funnelWindowInterval?: integer
     /** @default day */
-    funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
+    funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnit
     hiddenLegendBreakdowns?: string[]
     /** @default total */
-    funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
+    funnelStepReference?: FunnelStepReference
     useUdf?: boolean
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
@@ -2254,20 +2255,18 @@ export interface FunnelsQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedFunnelsQueryResponse = CachedQueryResponse<FunnelsQueryResponse>
 
-/** `RetentionFilterType` minus everything inherited from `FilterType` */
-export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
-
 export type RetentionFilter = {
-    retentionType?: RetentionFilterLegacy['retention_type']
-    retentionReference?: RetentionFilterLegacy['retention_reference']
+    retentionType?: RetentionType
+    /** Whether retention is with regard to initial cohort size, or that of the previous period. */
+    retentionReference?: 'total' | 'previous'
     /** @default 8 */
     totalIntervals?: integer
     minimumOccurrences?: integer
-    returningEntity?: RetentionFilterLegacy['returning_entity']
-    targetEntity?: RetentionFilterLegacy['target_entity']
+    returningEntity?: RetentionEntity
+    targetEntity?: RetentionEntity
     /** @default Day */
-    period?: RetentionFilterLegacy['period']
-    cumulative?: RetentionFilterLegacy['cumulative']
+    period?: RetentionPeriod
+    cumulative?: boolean
     /** @description The time window mode to use for retention calculations */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
     /** @description Custom brackets for retention calculations */
@@ -2284,7 +2283,7 @@ export type RetentionFilter = {
     customAggregationTarget?: boolean
 
     //frontend only
-    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
+    meanRetentionCalculation?: 'simple' | 'weighted' | 'none'
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
@@ -2343,27 +2342,23 @@ export interface PathsQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
-/** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
-export type PathsFilterLegacy = Omit<
-    PathsFilterType,
-    keyof FilterType | 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
->
-
 export type PathsFilter = {
     /** @default 50 */
     edgeLimit?: integer
-    pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
-    includeEventTypes?: PathsFilterLegacy['include_event_types']
-    startPoint?: PathsFilterLegacy['start_point']
-    endPoint?: PathsFilterLegacy['end_point']
-    pathGroupings?: PathsFilterLegacy['path_groupings']
-    excludeEvents?: PathsFilterLegacy['exclude_events']
+    pathsHogQLExpression?: string
+    includeEventTypes?: PathType[]
+    startPoint?: string
+    endPoint?: string
+    pathGroupings?: string[]
+    excludeEvents?: string[]
     /** @default 5 */
     stepLimit?: integer
-    pathReplacements?: PathsFilterLegacy['path_replacements']
-    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters'] | null
-    minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
-    maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
+    pathReplacements?: boolean
+    localPathCleaningFilters?: PathCleaningFilter[] | null
+    /** @asType integer */
+    minEdgeWeight?: number
+    /** @asType integer */
+    maxEdgeWeight?: number
     showFullUrls?: boolean
     /** Remove the query string from page view URLs, so pages that differ only in query parameters become one path item */
     stripQueryString?: boolean
@@ -2376,7 +2371,7 @@ export type PathsFilter = {
 }
 
 export type FunnelPathsFilter = {
-    funnelPathType: PathsFilterLegacy['funnel_paths']
+    funnelPathType: FunnelPathType | undefined
     funnelSource: FunnelsQuery
     funnelStep?: integer
 }
@@ -2574,9 +2569,6 @@ export interface PathsV2Query extends Omit<
     pathsV2Filter?: PathsV2Filter
 }
 
-/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
-export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
-
 export type StickinessOperator =
     | PropertyOperator.GreaterThanOrEqual
     | PropertyOperator.LessThanOrEqual
@@ -2595,13 +2587,13 @@ export interface StickinessCriteria {
 }
 
 export type StickinessFilter = {
-    display?: StickinessFilterLegacy['display']
-    showLegend?: StickinessFilterLegacy['show_legend']
+    display?: ChartDisplayType
+    showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
-    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
-    showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
+    showValuesOnSeries?: boolean
+    showMultipleYAxes?: boolean
     hiddenLegendIndexes?: integer[]
     stickinessCriteria?: StickinessCriteria
     computedAs?: StickinessComputationMode
@@ -2629,6 +2621,11 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
 }
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
@@ -2667,20 +2664,14 @@ export interface StickinessQuery extends Omit<
     compareFilter?: CompareFilter
 }
 
-/** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
-    /** Lifecycles that have been removed from display are not included in this array */
-    toggledLifecycles?: LifecycleToggle[]
-} // using everything except what it inherits from FilterType
-
 export type LifecycleFilter = {
-    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: boolean
     /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires
      *  `showValuesOnSeries` — on its own it has no visible effect. */
     showPercentagesOnSeries?: boolean
-    toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    toggledLifecycles?: LifecycleToggle[]
     /** @default false */
-    showLegend?: LifecycleFilterLegacy['show_legend']
+    showLegend?: boolean
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
      * @default bottom */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
@@ -2851,6 +2842,8 @@ export interface DataWarehouseSourceUsage {
     source_type?: string
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean
 }
 
 export interface AnalyticsQueryResponseBase {
@@ -2988,6 +2981,11 @@ export type QueryStatus = {
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
 }
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
@@ -4380,6 +4378,8 @@ export interface WebVitalsItemAction {
 export interface WebVitalsItem {
     data: number[]
     days: string[]
+    /** The index of the row's series in the query. */
+    order: integer
     action: WebVitalsItemAction
 }
 
@@ -4610,6 +4610,26 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 }
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
+
+/** The exceptions of one issue, optionally only the ones with a recording. */
+export interface ErrorTrackingIssueEventsQuery extends DataNode<ErrorTrackingIssueEventsQueryResponse> {
+    kind: NodeKind.ErrorTrackingIssueEventsQuery
+    issueId: string
+    /** The issue's exceptions list. It must order by `timestamp DESC`, the default, so that pages continue from a cursor. */
+    source: EventsQuery
+    /** Keep only the exceptions whose session has a recording the player can open. */
+    onlyWithRecording?: boolean
+}
+
+export interface ErrorTrackingIssueEventsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hasMore?: boolean
+    /** Where the next page starts. */
+    nextCursor?: string
+}
+export type CachedErrorTrackingIssueEventsQueryResponse = CachedQueryResponse<ErrorTrackingIssueEventsQueryResponse>
 
 export interface ErrorTrackingIssueFilteringToolOutput extends Pick<
     ErrorTrackingQuery,
@@ -5660,6 +5680,7 @@ export type FileSystemIconType =
     | 'uptime_monitoring'
     | 'workflows'
     | 'broadcasts'
+    | 'transactional'
     | 'notebook'
     | 'action'
     | 'activity'
@@ -5783,19 +5804,6 @@ export type InsightQueryNode =
 
 export type ProductAnalyticsInsightQueryNode = Exclude<InsightQueryNode, WebStatsTableQuery | WebOverviewQuery>
 
-export interface ExperimentVariantTrendsBaseStats {
-    key: string
-    count: number
-    exposure: number
-    absolute_exposure: number
-}
-
-export interface ExperimentVariantFunnelsBaseStats {
-    key: string
-    success_count: number
-    failure_count: number
-}
-
 export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
@@ -5829,14 +5837,6 @@ export interface MaxExperimentSummaryContext {
     stats_method: ExperimentStatsMethod
 }
 
-export enum ExperimentSignificanceCode {
-    Significant = 'significant',
-    NotEnoughExposure = 'not_enough_exposure',
-    LowWinProbability = 'low_win_probability',
-    HighLoss = 'high_loss',
-    HighPValue = 'high_p_value',
-}
-
 /** Stored shape of a legacy experiment metric. It no longer runs, so it is kept only to list and migrate legacy experiments. */
 export interface ExperimentFunnelsQuery {
     kind: NodeKind.ExperimentFunnelsQuery
@@ -5858,15 +5858,19 @@ export interface ExperimentTrendsQuery {
     fingerprint?: string
 }
 
-export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
+export type ExperimentExposureConfig =
+    | ExperimentEventExposureConfig
+    | ActionsNode
+    | ExperimentWarehouseNativeExposureConfig
 
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentExposureConfig
     /** Additional event (or action) an entity must emit at/after their first default exposure
      *  event before they count as exposed; exposure time becomes this event's timestamp.
-     *  Only valid with the default exposure event, not a custom `exposure_config`. */
-    activation_config?: ExperimentExposureConfig
+     *  Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native
+     *  activation has no defined semantics yet, so only events and actions apply here. */
+    activation_config?: ExperimentEventExposureConfig | ActionsNode
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -5874,6 +5878,19 @@ export interface ExperimentEventExposureConfig extends Node {
     kind: NodeKind.ExperimentEventExposureConfig
     event: string
     properties: AnyPropertyFilter[]
+}
+
+/** Exposures that live in the customer's warehouse, read through a direct connection. An experiment
+ *  with this exposure runs entirely in the warehouse, so every metric source must be an
+ *  `ExperimentWarehouseNativeNode` on the same connection. */
+export interface ExperimentWarehouseNativeExposureConfig extends Node {
+    kind: NodeKind.ExperimentWarehouseNativeExposureConfig
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`,
+     *  `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies
+     *  the experiment's date range and multiple-variant handling. */
+    query: string
 }
 
 // ── Slim API types for experiment create/update ──────────────────────
@@ -6130,6 +6147,33 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
+/** The subset of `ExperimentMetricMathType` a warehouse-native source supports, with the same values. */
+export enum ExperimentWarehouseNativeMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
+/** Outcome rows that live in the customer's warehouse, read through a direct connection. PostHog joins
+ *  them to the experiment's exposures and aggregates them inside the warehouse, so the SQL never
+ *  mentions variants or exposures and only per-variant aggregates leave the warehouse. Distinct from
+ *  `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. It does not extend
+ *  `EntityNode`: property filters and the other event settings cannot apply to SQL PostHog does not
+ *  parse, so the shape lists every supported field. Only mean and ratio metrics accept it. */
+export interface ExperimentWarehouseNativeNode extends Node {
+    kind: NodeKind.ExperimentWarehouseNativeNode
+    /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+    connection_id: string
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and
+     *  `timestamp` columns plus any numeric columns a metric can measure. */
+    query: string
+    /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+    math?: ExperimentWarehouseNativeMathType
+    /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve
+     *  several metrics, each reading a different column. */
+    math_property?: string
+    custom_name?: string
+}
+
 // Named separately from `ExperimentMetricSource` so the JSDoc `@discriminator` tag
 // can attach without tripping ts-json-schema-generator's dedup (same workaround
 // pattern as `ExperimentMetricUnion = ExperimentMetric`). The alias is the public
@@ -6137,7 +6181,11 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
 /**
  * @discriminator kind
  */
-export type ExperimentMetricSourceUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export type ExperimentMetricSourceUnion =
+    | EventsNode
+    | ActionsNode
+    | ExperimentDataWarehouseNode
+    | ExperimentWarehouseNativeNode
 
 export type ExperimentMetricSource = ExperimentMetricSourceUnion
 
@@ -6168,6 +6216,13 @@ export type ExperimentRetentionStartUnion =
     | ExperimentExposureNode
 
 export type ExperimentRetentionStart = ExperimentRetentionStartUnion
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentRetentionCompletionUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentRetentionCompletion = ExperimentRetentionCompletionUnion
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
@@ -6214,7 +6269,7 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     // start resolves to the experiment's own exposure event at query time.
     start_event: ExperimentRetentionStart
     // Event that defines the completion of the retention window
-    completion_event: ExperimentMetricSource
+    completion_event: ExperimentRetentionCompletion
 
     // Start of the retention window
     retention_window_start: integer
@@ -6277,19 +6332,7 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
 }
 
 export interface ExperimentQueryResponse {
-    // Legacy fields
     kind?: NodeKind.ExperimentQuery
-    insight?: Record<string, any>[]
-    metric?: ExperimentMetric
-    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
-    probability?: Record<string, number>
-    significant?: boolean
-    significance_code?: ExperimentSignificanceCode
-    stats_version?: integer
-    p_value?: number
-    credible_intervals?: Record<string, [number, number]>
-
-    // New fields
     baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 
@@ -6467,7 +6510,7 @@ export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_ap
 export interface ExperimentExposureHealthCheck {
     /** Stable identifier of the check. */
     key: ExperimentExposureHealthCheckKey
-    /** What the check looks at, as the health panel lists it. */
+    /** The problem the check looks for, as the health panel lists it. */
     name: string
     /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
     status: ExperimentExposureHealthCheckStatus
@@ -9257,6 +9300,14 @@ export interface SQLEditorConfiguration {
  * A null configuration and any absent key mean "default".
  * Writers must send the complete object; the server validates and replaces it wholesale.
  */
+/** One person's display choices for the Analytics lists. */
+export interface AnalyticsListDisplayConfiguration {
+    /** Leaves insights out of the All list. */
+    hide_insights?: boolean
+    /** The sort a list opens with. A column header click still changes the sort for that visit. */
+    default_sort?: '-last_viewed_at' | '-created_at'
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9264,6 +9315,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sql_editor?: SQLEditorConfiguration
+    analytics_list?: AnalyticsListDisplayConfiguration
     [key: string]: unknown
 }
 

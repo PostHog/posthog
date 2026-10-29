@@ -938,8 +938,13 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
 
-        edge_ids = {edge["id"] for edge in response.json()["results"]}
-        self.assertEqual(str(self.edge.id) in edge_ids, expected_visible)
+        edges = {edge["id"]: edge for edge in response.json()["results"]}
+        self.assertEqual(str(self.edge.id) in edges, expected_visible)
+        if expected_visible:
+            self.assertEqual(
+                edges[str(self.edge.id)],
+                {"id": str(self.edge.id), "source_id": str(self.edge.source_id), "target_id": str(self.edge.target_id)},
+            )
 
     @parameterized.expand(
         [

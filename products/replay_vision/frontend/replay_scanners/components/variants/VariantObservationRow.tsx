@@ -21,7 +21,7 @@ export function VariantObservationRow({ observation }: VariantObservationRowProp
             data-attr="vision-variant-latest-observation"
         >
             <div className="hidden @md:block w-24 shrink-0">
-                <ObservationThumbnail observation={observation} className="rounded" />
+                <ObservationThumbnail observation={observation} className="rounded" size="small" />
             </div>
             <div className="min-w-0 flex-1 space-y-0.5">
                 <div className="text-sm line-clamp-3">

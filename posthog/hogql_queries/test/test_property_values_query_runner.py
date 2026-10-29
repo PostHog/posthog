@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.property_values_query_runner import (
     PROPERTY_VALUES_TABLE_FLAG,
     CachedPropertyValuesQueryResponse,
@@ -26,12 +27,45 @@ from posthog.hogql_queries.property_values_query_runner import (
     PropertyValuesQueryRunner,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Organization, Team
+
+from products.access_control.backend.facade.testing import create_access_control
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+def variant_filters(*keys: str) -> dict:
+    return {
+        "groups": [{"rollout_percentage": 100}],
+        "multivariate": {"variants": [{"key": key, "rollout_percentage": 100 // len(keys)} for key in keys]},
+    }
+
+
+def string_flag_filters(default_value: str, *rule_values: str) -> dict:
+    rules = [
+        {"id": f"rule-{value}", "rule_type": "targeted_release", "targeting": {"properties": []}, "value": value}
+        for value in rule_values
+    ]
+    return {"version": 2, "return_type": "string", "default_value": default_value, "rules": rules}
+
+
+MULTIVARIATE_FILTERS = {
+    "groups": [{"rollout_percentage": 100}],
+    "multivariate": {
+        "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+    },
+}
 
 
 class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run(self, query: PropertyValuesQuery) -> list[PropertyValueItem]:
         runner = PropertyValuesQueryRunner(team=self.team, query=query)
         return runner.calculate().results
+
+    def _run_cached(self, query: PropertyValuesQuery) -> list[PropertyValueItem]:
+        runner = PropertyValuesQueryRunner(team=self.team, query=query)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+        assert isinstance(response, CachedPropertyValuesQueryResponse)
+        return response.results
 
     def test_event_property_values_basic(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
@@ -142,6 +176,154 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
         assert results[0].count is None
+
+    @parameterized.expand(
+        [
+            ("boolean_flag", {"groups": [{"rollout_percentage": 100}]}, None, ["true", "false"]),
+            ("multivariate_flag", MULTIVARIATE_FILTERS, None, ["control", "test", "true", "false"]),
+            ("search_is_case_insensitive", MULTIVARIATE_FILTERS, "TES", ["test"]),
+            ("variant_named_true", variant_filters("true", "off"), None, ["true", "off", "false"]),
+            (
+                "holdout",
+                {**MULTIVARIATE_FILTERS, "holdout": {"id": 42, "exclusion_percentage": 10}},
+                None,
+                ["control", "test", "holdout-42", "true", "false"],
+            ),
+            ("deleted_flag", MULTIVARIATE_FILTERS, None, ["control", "test", "true", "false"], "kept_key"),
+            (
+                "deleted_flag_with_tombstoned_key",
+                MULTIVARIATE_FILTERS,
+                None,
+                ["control", "test", "true", "false"],
+                "tombstoned_key",
+            ),
+        ]
+    )
+    def test_feature_flag_property_values_come_from_the_flag(
+        self, _name, filters, search_value, expected_names, deletion=None
+    ):
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="beta", created_by=self.user, filters=filters, deleted=deletion is not None
+        )
+        if deletion == "tombstoned_key":
+            flag.key = flag.tombstoned_key()
+            flag.save()
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
+        flush_persons_and_events()
+
+        results = self._run(
+            PropertyValuesQuery(
+                property_type=PropertyType.EVENT, property_key="$feature/beta", search_value=search_value
+            )
+        )
+        assert [r.name for r in results] == expected_names
+
+    @parameterized.expand(
+        [
+            (
+                "variants",
+                MULTIVARIATE_FILTERS,
+                variant_filters("redesign", "control"),
+                variant_filters("fresh", "control"),
+                ["control", "false", "fresh", "redesign", "test", "true"],
+            ),
+            (
+                "string_flag",
+                string_flag_filters("compact"),
+                string_flag_filters("wide", "dense"),
+                string_flag_filters("standard"),
+                ["compact", "dense", "false", "standard", "true", "wide"],
+            ),
+            (
+                "holdout",
+                {**MULTIVARIATE_FILTERS, "holdout": {"id": 42, "exclusion_percentage": 10}},
+                MULTIVARIATE_FILTERS,
+                MULTIVARIATE_FILTERS,
+                ["control", "false", "holdout-42", "test", "true"],
+            ),
+        ]
+    )
+    def test_feature_flag_property_values_keep_values_from_earlier_flags_with_the_key(
+        self, _name, first_filters, edited_filters, current_filters, expected_names
+    ):
+        earlier = FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=first_filters)
+        earlier.filters = edited_filters
+        earlier.save()
+        earlier.delete()
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=current_filters)
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
+        assert sorted(str(r.name) for r in results) == expected_names
+
+    def test_feature_flag_property_values_skip_history_of_flags_hidden_from_any_member(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        hidden = FeatureFlag.objects.create(
+            team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS
+        )
+        hidden.filters = variant_filters("secret")
+        hidden.save()
+        hidden.key = "gamma"
+        hidden.save()
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=variant_filters("fresh"))
+        query = PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta")
+        self._run_cached(query)
+        create_access_control(
+            team_id=self.team.id, resource="feature_flag", access_level="none", resource_id=str(hidden.id)
+        )
+
+        assert [r.name for r in self._run_cached(query)] == ["fresh", "true", "false"]
+
+    def test_feature_flag_property_without_a_flag_in_the_project_uses_events_scan(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
+        FeatureFlag.objects.create(team=other_team, key="beta", filters=MULTIVARIATE_FILTERS)
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
+        assert [r.name for r in results] == ["retired"]
+
+    @parameterized.expand(
+        [
+            ("rule_on_the_flag", "beta", ["retired"]),
+            ("rule_on_every_flag", None, ["retired"]),
+            ("rule_on_another_flag", "other", ["control", "test", "true", "false"]),
+        ]
+    )
+    def test_feature_flag_access_rule_added_after_caching_decides_the_source(
+        self, _name, restricted_key, expected_names
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flags = {
+            key: FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, filters=MULTIVARIATE_FILTERS)
+            for key in ("beta", "other")
+        }
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
+        flush_persons_and_events()
+        query = PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta")
+        self._run_cached(query)
+        create_access_control(
+            team_id=self.team.id,
+            resource="feature_flag",
+            access_level="none",
+            resource_id=str(flags[restricted_key].id) if restricted_key else None,
+        )
+
+        assert [r.name for r in self._run_cached(query)] == expected_names
+
+    def test_restricted_feature_flag_property_is_not_served(self):
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS)
+
+        with patch(
+            "posthog.hogql_queries.property_values_query_runner.get_restricted_property_names",
+            return_value={"$feature/beta"},
+        ):
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
+        assert results == []
 
     @snapshot_clickhouse_queries
     def test_person_property_values_basic(self):
@@ -441,10 +623,11 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
             )
         assert {r.name for r in results} == {"$pageview"}
 
-    def test_virtual_key_uses_events_scan(self):
+    @parameterized.expand([("virtual_key", "$virt_initial_channel_type"), ("feature_flag_key", "$feature/beta")])
+    def test_key_the_table_may_lack_uses_events_scan(self, _name, property_key):
         runner = PropertyValuesQueryRunner(
             team=self.team,
-            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$virt_initial_channel_type"),
+            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key=property_key),
         )
         with self._flag_on():
             assert runner._use_property_values_table is False

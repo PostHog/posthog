@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AxisLinesConfig,
     BarChartConfig,
@@ -77,10 +78,13 @@ export interface TimeSeriesBarChartConfig {
 export interface TimeSeriesBarChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: TimeSeriesBarChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** See `ChartProps.isPointClickable`. */
     isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. See `BarChartProps.onDateRangeZoom`. */
@@ -94,10 +98,11 @@ export interface TimeSeriesBarChartProps<Meta = unknown> {
 export function TimeSeriesBarChart<Meta = unknown>({
     series,
     labels,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
+    onPointContextMenu,
     isPointClickable,
     onDateRangeZoom,
     dataAttr,
@@ -105,6 +110,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
     children,
     onError,
 }: TimeSeriesBarChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis,
         yAxis,
@@ -191,6 +197,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
                 theme={theme}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                onPointContextMenu={onPointContextMenu}
                 isPointClickable={isPointClickable}
                 onDateRangeZoom={onDateRangeZoom}
                 className={className}

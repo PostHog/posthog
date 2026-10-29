@@ -34,6 +34,13 @@ export function getRecordingLinkInfo(comment: RecordingCommentTarget): Recording
     }
 }
 
+/** Scopes whose discussions never mirror to Slack, because a Slack channel cannot apply their access checks. */
+const SCOPES_WITHOUT_SLACK_SYNC: ReadonlySet<string> = new Set([ActivityScope.REPLAY_OBSERVATION])
+
+export function scopeSyncsToSlack(scope: string): boolean {
+    return !SCOPES_WITHOUT_SLACK_SYNC.has(scope)
+}
+
 export function getCommentText(comment: { content?: string | null; rich_content?: JSONContent | null }): string {
     // This is only temporary until all comments are backfilled to rich content
     const content = comment.rich_content

@@ -2,35 +2,37 @@
 
 Two audiences:
 
-- **Embedding hog-charts** in your own component or page and writing tests for that surrounding code → [Testing code that uses hog-charts](#testing-code-that-uses-hog-charts).
+- **Embedding a chart** in your own component or page and writing tests for that surrounding code → [Testing code that uses charts](#testing-code-that-uses-charts).
 - **Working on the library itself** — chart types, overlays, the draw loop → [Testing the library itself](#testing-the-library-itself).
 
-The contract both sections rely on: the `data-attr` selectors and the `HogChart` accessor are stable. Renaming a `data-attr` is a breaking change — it breaks consumers' tests as much as renaming an exported type. JSdom's canvas is a stub, so canvas pixels aren't a viable test surface anyway — assertions go through the DOM.
+The contract both sections rely on: the `data-attr` selectors and the `ChartAccessor` are stable. Renaming a `data-attr` is a breaking change — it breaks consumers' tests as much as renaming an exported type. JSdom's canvas is a stub, so canvas pixels aren't a viable test surface anyway — assertions go through the DOM.
 
-## Testing code that uses hog-charts
+## Testing code that uses charts
 
-You've rendered a tree that contains a chart somewhere — a dashboard, an insight scene, a custom panel. Use your own `render` (or RTL wrappers like kea-test-utils) and read the chart with `getHogChart(scope)`:
+You've rendered a tree that contains a chart somewhere: a dashboard, an insight scene, a custom panel. Render it your usual way, then read the chart with `findChart()`:
 
 ```tsx
 import { render } from '@testing-library/react'
-import { ensureJsdom, getHogChart, hoverAtIndex, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
+import { findChart, setupChartTests } from '@posthog/quill-charts/testing'
 
-ensureJsdom()
+setupChartTests()
 
 it('renders the goal line on the dashboard chart', async () => {
-  const { container } = render(<Dashboard />)
-  const chart = getHogChart(container)
+  render(<Dashboard />)
+  const chart = await findChart()
 
   expect(chart.referenceLines()).toHaveLength(1)
-  expect(chart.yTicks()).toContain('0')
 
-  hoverAtIndex(chart.element, 1, LABELS.length)
-  const tooltip = await waitForHogChartTooltip()
-  expect(tooltip.textContent).toContain('Tue')
+  const tooltip = await chart.hoverTooltip(1)
+  expect(tooltip.label()).toBe('Tue')
+  expect(tooltip.value('Pageviews')).toBe('134')
 })
 ```
 
-`ensureJsdom()` installs the jsdom mocks (`ResizeObserver`, `getBoundingClientRect`) and a synchronous `requestAnimationFrame` shim. It's idempotent — call it once at the top of a file and forget about it.
+- Outside this repo, install `@testing-library/react` next to `@posthog/quill-charts`. The helpers need a jsdom test environment and a runner with global `beforeEach` and `afterEach`.
+- `setupChartTests()` registers the hooks every chart test needs: jsdom mocks for `ResizeObserver` and `getBoundingClientRect`, synchronous animation frames, and cleanup after each test.
+- `findChart()` waits for the chart to render. Pass `seriesCount` to wait for a specific series count, or `scope` when the page has more than one chart. `getChart()` is the synchronous version.
+- `chart.hoverTooltip(i)` hovers the label at index `i` until the tooltip shows its content, then reads it as a `DefaultTooltip`. `tooltip.clickRow('Pageviews')` clicks a row. For a custom tooltip, read `tooltip.element`.
 
 The accessor surface (full list in `testing/accessor.ts`):
 
@@ -49,29 +51,31 @@ chart.hasRightAxis // boolean
 chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
-chart.annotationBadges() // HTMLElement[]
+chart.legend() // legend container in the render scope, null when hidden
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
 chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
-chart.sankeyNodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
-chart.sankeyColumnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
+chart.slope.valueLabels() // [{ text, color, side }, …] slope value labels, start and end columns
+chart.slope.seriesLabels() // slope series names, after collision avoidance
+chart.sankey.nodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
+chart.sankey.columnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
+chart.pie.sliceLabels() // [{ text, lines }, …] on-slice labels, one entry per slice
 ```
 
-For interactions, use the module-level helpers:
+Gestures work under any wrapper, because the chart records its label count on its root:
 
-- `hoverAtIndex(wrapper, i, totalLabels)` — `mouseMove` over labels[i].
-- `clickAtIndex(wrapper, i, totalLabels)` — hover-then-click. Resolves after the click handler runs.
-- `dragSelection(wrapper, fromIndex, toIndex, totalLabels)` — simulates a drag-to-zoom gesture between two label indices.
-- `waitForHogChartTooltip()` — resolves with the rendered tooltip element once it mounts in the `FloatingPortal`.
+- `chart.hoverAtIndex(i)` fires one `mouseMove` over the label at index `i`, without waiting.
+- `await chart.clickAtIndex(i)` hovers, then clicks. It resolves after the click handler runs.
+- `chart.dragSelection(from, to)` drags between two label indices, for drag-to-zoom.
 
-`chart.hoverAtIndex(i)`, `chart.dragSelection(i, j)`, and `chart.waitForTooltip()` (returning a structured `TooltipSnapshot` with `seriesData`, `isPinned`, etc.) need `renderHogChart` — they read label count and the captured `TooltipContext` that only the library's own render wrapper sets up. For most consumer tests, DOM assertions through the accessor are enough.
+`chart.waitForTooltip()` returns the structured `TooltipContext` (`seriesData`, `isPinned` and so on). It needs `renderChart`, which captures that context.
 
 ## Testing the library itself
 
-Chart-level tests live under `charts/<name>/<Name>.test.tsx` and overlay tests under `overlays/<Name>.test.tsx`. They render the chart at the top level via `renderHogChart` and assert through the `chart` accessor.
+Chart-level tests live under `charts/<name>/<Name>.test.tsx` and overlay tests under `overlays/<Name>.test.tsx`. They render the chart at the top level via `renderChart` and assert through the `chart` accessor.
 
 ```tsx
 import type { ChartTheme, Series } from '../core/types'
-import { renderHogChart } from '../testing'
+import { renderChart } from '../testing'
 import { LineChart } from './LineChart'
 
 const THEME: ChartTheme = { colors: ['#111', '#222'], backgroundColor: '#ffffff' }
@@ -80,7 +84,7 @@ const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
 
 describe('LineChart', () => {
   it('formats percent-stack y-ticks by default', () => {
-    const { chart } = renderHogChart(
+    const { chart } = renderChart(
       <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ percentStackView: true }} />
     )
     expect(chart.yTicks().some((t) => t.endsWith('%'))).toBe(true)
@@ -88,7 +92,7 @@ describe('LineChart', () => {
 })
 ```
 
-`renderHogChart` is `render` plus three things consumers don't need: auto-`ensureJsdom`, tooltip-context capture (so `chart.waitForTooltip()` returns the structured `TooltipContext`), and a cached `labels.length` (so `chart.hoverAtIndex(i)` doesn't take a `totalLabels` argument).
+`renderChart` is `render` plus the jsdom mocks and tooltip-context capture, so `chart.waitForTooltip()` returns the context the chart's tooltip content received.
 
 ### Interactions and tooltip context
 
@@ -112,7 +116,7 @@ Prefer the structured fields. Reach for `tooltip.element.textContent` only when 
 
 ```tsx
 it('pins the tooltip on click when pinnable', async () => {
-  const { chart } = renderHogChart(
+  const { chart } = renderChart(
     <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
   )
 
@@ -127,9 +131,7 @@ it('pins the tooltip on click when pinnable', async () => {
 ```tsx
 it('invokes onPointClick with the clicked column', async () => {
   const onPointClick = jest.fn()
-  const { chart } = renderHogChart(
-    <LineChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />
-  )
+  const { chart } = renderChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />)
 
   await chart.clickAtIndex(1)
   expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue', value: 2 }))
@@ -144,7 +146,7 @@ it('renders a right axis when a series opts in', () => {
     { key: 'a', label: 'A', data: [10, 20, 30] },
     { key: 'b', label: 'B', data: [1000, 2000, 3000], yAxisId: 'right' },
   ]
-  const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
+  const { chart } = renderChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
 
   expect(chart.hasRightAxis).toBe(true)
   expect(chart.yRightTicks().length).toBeGreaterThan(0)
@@ -161,7 +163,7 @@ it('reports render errors through onError', () => {
   const tooltip = (): React.ReactNode => {
     throw new Error('boom')
   }
-  const { chart } = renderHogChart(
+  const { chart } = renderChart(
     <LineChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
   )
 
@@ -178,7 +180,7 @@ it('reports render errors through onError', () => {
 
 **Don't inspect canvas pixels.** No `getContext('2d')` spies, no pixel snapshots — JSdom's canvas is a stub anyway.
 
-**Don't fall back to `container.querySelector('canvas')` for canvas presence.** `renderHogChart` already throws when the canvas is missing. To act on a rendered canvas — asserting its backing store, dispatching a canvas-level event like `contextrestored` — use `chart.canvas` rather than re-querying the DOM. Absence assertions (`expect(container.querySelector('canvas')).toBeNull()`) still need a raw query, since the accessor throws when there's no canvas.
+**Don't fall back to `container.querySelector('canvas')` for canvas presence.** `renderChart` already throws when the canvas is missing. To act on a rendered canvas — asserting its backing store, dispatching a canvas-level event like `contextrestored` — use `chart.canvas` rather than re-querying the DOM. Absence assertions (`expect(container.querySelector('canvas')).toBeNull()`) still need a raw query, since the accessor throws when there's no canvas.
 
 **Don't write `it.each` matrices that only assert "a canvas rendered".** Each row should read at least one observable property of that permutation — `chart.yTicks().some(t => t.endsWith('%'))` for percent layout, `chart.hasRightAxis` for a multi-axis case.
 
