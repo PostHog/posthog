@@ -206,7 +206,11 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             platform_testing.set_due_at(self.configuration_id, self.due_at)
 
     def _kinds(self, outcome: PlatformAlertOutcome) -> dict[str, AlertEventKind]:
-        return {json.loads(group.grouping_key)["group"]: group.kind for group in outcome.groups}
+        return {
+            json.loads(group.grouping_key)["group"]: group.kind
+            for group in outcome.groups
+            if group.kind != AlertEventKind.CHECK
+        }
 
     def test_a_missing_series_holds_until_it_has_been_gone_an_hour_with_fresh_ingestion(self) -> None:
         self.freshness.return_value = self.due_at - timedelta(seconds=30)
@@ -236,8 +240,15 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert self._kinds(self._evaluate()) == {}
 
         self.freshness.return_value = self.due_at - timedelta(seconds=30)
+        resolved = self._evaluate()
 
-        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+        assert self._kinds(resolved) == {"a": AlertEventKind.RESOLVED}
+
+        self._next_check(resolved)
+        self.snuffle.return_value = _response(200, _vector(({"group": "c"}, "10")))
+        self.freshness.return_value = self.due_at - timedelta(seconds=30)
+
+        assert self._kinds(self._evaluate()) == {}
 
     @override_settings(ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES=1)
     def test_a_batch_over_the_pool_limit_stays_due_for_a_later_tick(self) -> None:
