@@ -1,4 +1,4 @@
-"""Pick the watched insights that the next anomaly scoring tick scores.
+"""Pick the active insights that the next anomaly scoring tick scores.
 
 One query per team reads the newest scored bucket of each series back from the `$anomaly_score`
 events. `selection.pick_order` then orders the due insights, and the tick picks from that order the
@@ -15,7 +15,9 @@ the score pass scores it with the old model, so the train budget does not decide
 import datetime
 import itertools
 import dataclasses
+from collections import Counter
 from collections.abc import Callable, Collection
+from enum import StrEnum
 from typing import Any, cast
 
 from django.core.cache import cache
@@ -40,10 +42,14 @@ from posthog.interval_specs import interval_spec
 from posthog.models import Team
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES
 
+from products.alerts.backend.facade.api import enabled_alert_insight_ids
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
+from products.dashboards.backend.facade.api import insight_ids_on_dashboards_accessed_since
 from products.product_analytics.backend.facade.api import (
+    insight_ids_modified_since,
+    insight_ids_viewed_since,
     insights_including_soft_deleted_for_team,
-    watched_trends_insights,
+    saved_trends_insights,
 )
 from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun
 from products.signals.backend.anomaly_scores.scoring import bucket_end
@@ -57,6 +63,8 @@ from products.signals.backend.anomaly_scores.selection import (
     score_order,
 )
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
+from products.signals.backend.models import SignalTeamConfig
+from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
@@ -64,9 +72,7 @@ logger = structlog.get_logger(__name__)
 
 SCORE_EVENT = "$anomaly_score"
 SOURCE_INSIGHT = "insight"
-# An insight counts as watched when it is on a dashboard or someone viewed it in this window.
-VIEW_WINDOW = datetime.timedelta(days=30)
-# One row is one series. Far more than the series of every watched insight of one team.
+# One row is one series. Far more than the series of every active insight of one team.
 _MAX_SCORED_SERIES = 50_000
 # An insight is not picked again in this time after an attempt. Events take a moment to reach
 # ClickHouse, and an insight that writes nothing would otherwise stay at the head of the queue.
@@ -111,11 +117,22 @@ LIMIT {limit}
 """
 
 
+class ActivityReason(StrEnum):
+    """Why an insight is active. An insight with no reason in the window is not scored."""
+
+    VIEWED = "viewed"
+    DASHBOARD_ACCESSED = "dashboard_accessed"
+    ENABLED_ALERT = "enabled_alert"
+    ACTIVE_SUBSCRIPTION = "active_subscription"
+    EDITED = "edited"
+
+
 @frozen
-class WatchedInsight:
+class ActiveInsight:
     team_id: int
     insight_id: int
     interval: IntervalType
+    reasons: frozenset[ActivityReason] = frozenset()
 
 
 @frozen
@@ -133,6 +150,16 @@ class InsightPick:
 
 
 @frozen
+class TeamCensus:
+    """The active insights of one eligible team, for the daily per-team census event."""
+
+    team_id: int
+    active: int
+    active_reasons: dict[str, int]
+    active_intervals: dict[str, int]
+
+
+@frozen
 class Selection:
     picks: list[InsightPick]
     # Due insights, picked or not. More than the picks means the tick cap or a budget cut the queue.
@@ -147,6 +174,11 @@ class Selection:
     # Due train candidates that the train pass did not pick: soft ones still score with a stale model, hard ones do not.
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
+    # Active insights of the eligible teams, and how many of them have each reason. One insight can have several.
+    active: int = 0
+    active_reasons: dict[str, int] = dataclasses.field(default_factory=dict)
+    # One entry for each eligible team, also a team with no active insight.
+    census: list[TeamCensus] = dataclasses.field(default_factory=list)
 
 
 @frozen
@@ -155,7 +187,7 @@ class ScorePassOrder:
     order: list[int]
     # Due insights with a model past a soft retrain trigger, longest overdue first.
     stale_order: list[int]
-    # Every watched insight with a current model, due or not.
+    # Every active insight with a current model, due or not.
     ready: set[int]
 
 
@@ -170,7 +202,11 @@ class QueryBudget:
 def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
     if not config.enabled or not config.organization_ids:
         return []
-    teams = Team.objects.filter(organization_id__in=config.organization_ids).exclude(id__in=config.skip_team_ids)
+    teams = (
+        Team.objects.filter(organization_id__in=config.organization_ids)
+        .exclude(id__in=config.skip_team_ids)
+        .exclude(id__in=SignalTeamConfig.objects.filter(anomaly_scoring_enabled=False).values("team_id"))
+    )
     if config.allow_team_ids:
         teams = teams.filter(id__in=config.allow_team_ids)
     # Capture drops every event of a project over its event quota, so scoring it wastes the query.
@@ -178,18 +214,66 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
     return [team for team in teams if team.api_token not in limited]
 
 
-def watched_insights(
-    team_ids: list[int], intervals: tuple[IntervalType, ...], now: datetime.datetime
-) -> list[WatchedInsight]:
-    """Saved trends insights with a scored interval that are on a dashboard or were viewed lately."""
+def turned_off_in_settings(team: Team) -> bool:
+    """Whether the project turned anomaly scoring off in its self-driving settings. A team without a config row is on."""
+    return SignalTeamConfig.objects.filter(team_id=team.id, anomaly_scoring_enabled=False).exists()
+
+
+def active_insights(
+    team_ids: list[int], intervals: tuple[IntervalType, ...], now: datetime.datetime, window_days: int
+) -> list[ActiveInsight]:
+    """Saved trends insights with a scored interval and at least one activity reason in the last ``window_days``.
+
+    Computed fresh on each call, so an insight drops out once its last reason ages out, and comes back with a new one.
+    Its stored state stays, so a later train step picks up where the model left off.
+    """
+    if not team_ids:
+        return []
+    since = now - datetime.timedelta(days=window_days)
+    reasons_by_id: dict[int, set[ActivityReason]] = {}
+    for reason, insight_ids in (
+        (ActivityReason.VIEWED, insight_ids_viewed_since(team_ids=team_ids, since=since)),
+        (ActivityReason.DASHBOARD_ACCESSED, insight_ids_on_dashboards_accessed_since(team_ids=team_ids, since=since)),
+        (ActivityReason.ENABLED_ALERT, enabled_alert_insight_ids(team_ids=team_ids)),
+        (ActivityReason.ACTIVE_SUBSCRIPTION, insight_ids_with_active_subscriptions(team_ids=team_ids)),
+        (ActivityReason.EDITED, insight_ids_modified_since(team_ids=team_ids, since=since)),
+    ):
+        for insight_id in insight_ids:
+            reasons_by_id.setdefault(insight_id, set()).add(reason)
     return [
-        WatchedInsight(team_id=watched.team_id, insight_id=watched.insight_id, interval=IntervalType(watched.interval))
-        for watched in watched_trends_insights(
+        ActiveInsight(
+            team_id=insight.team_id,
+            insight_id=insight.insight_id,
+            interval=IntervalType(insight.interval),
+            reasons=frozenset(reasons_by_id[insight.insight_id]),
+        )
+        for insight in saved_trends_insights(
             team_ids=team_ids,
+            insight_ids=list(reasons_by_id),
             intervals=[interval.value for interval in intervals],
             excluded_displays=_UNSCORED_DISPLAYS,
-            viewed_since=now - VIEW_WINDOW,
         )
+    ]
+
+
+def reason_counts(insights: Collection[ActiveInsight]) -> dict[str, int]:
+    """How many of the insights have each reason, with a zero for a reason none of them has."""
+    counts = Counter(reason for insight in insights for reason in insight.reasons)
+    return {reason.value: counts[reason] for reason in ActivityReason}
+
+
+def team_census(team_ids: Collection[int], insights: Collection[ActiveInsight]) -> list[TeamCensus]:
+    by_team: dict[int, list[ActiveInsight]] = {team_id: [] for team_id in team_ids}
+    for insight in insights:
+        by_team.setdefault(insight.team_id, []).append(insight)
+    return [
+        TeamCensus(
+            team_id=team_id,
+            active=len(team_insights),
+            active_reasons=reason_counts(team_insights),
+            active_intervals=dict(Counter(insight.interval.value for insight in team_insights)),
+        )
+        for team_id, team_insights in sorted(by_team.items())
     ]
 
 
@@ -239,7 +323,7 @@ def scored_buckets(
 
 
 def is_due(
-    insight: WatchedInsight, newest_bucket: datetime.datetime | None, timezone: datetime.tzinfo, now: datetime.datetime
+    insight: ActiveInsight, newest_bucket: datetime.datetime | None, timezone: datetime.tzinfo, now: datetime.datetime
 ) -> bool:
     """The bucket after the newest scored one is complete, and this insight's slot after its end has passed."""
     if newest_bucket is None:
@@ -413,7 +497,10 @@ def select_insights(
 ) -> Selection:
     """The picks of the tick. ``limit`` replaces the pick cap of each pass, for a manual run."""
     teams = {team.id: team for team in eligible_teams(config)}
-    insights = watched_insights(list(teams), config.intervals, now)
+    insights = active_insights(list(teams), config.intervals, now, config.active_window_days)
+    active = len(insights)
+    active_reasons = reason_counts(insights)
+    census = team_census(teams, insights)
     state: dict[int, dict[str, datetime.datetime]] = {}
     failed_teams: set[int] = set()
     # One query per team and interval, so a day or week insight does not read the months a month insight needs.
@@ -441,8 +528,8 @@ def select_insights(
         for insight in insights
     }
     cooling = _cooling_down([insight.insight_id for insight in insights])
-    watched_by_id = {insight.insight_id: insight for insight in insights if insight.insight_id not in cooling}
-    team_ids = {insight_id: insight.team_id for insight_id, insight in watched_by_id.items()}
+    active_by_id = {insight.insight_id: insight for insight in insights if insight.insight_id not in cooling}
+    team_ids = {insight_id: insight.team_id for insight_id, insight in active_by_id.items()}
 
     # Both passes share the plans, so an insight that the score pass planned is not planned again.
     planned: dict[int, RunPlan] = {}
@@ -477,7 +564,7 @@ def select_insights(
     score_skipped = 0
     score_cap = config.max_score_insights_per_tick if limit is None else limit
     if config.train_score_split:
-        score_pass = _score_order(watched_by_id, teams, config, now)
+        score_pass = _score_order(active_by_id, teams, config, now)
         score_order_ids, stale_order_ids, score_ready = score_pass.order, score_pass.stale_order, score_pass.ready
         score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap)
         # A spent score budget makes the walk load no plan. Plan the head of the order anyway, so that an
@@ -495,7 +582,7 @@ def select_insights(
 
     due_by_id = {
         insight_id: insight
-        for insight_id, insight in watched_by_id.items()
+        for insight_id, insight in active_by_id.items()
         if insight_id not in score_picked
         and insight_id not in score_only
         and is_due(insight, newest_buckets[insight_id], teams[insight.team_id].timezone_info, now)
@@ -557,7 +644,7 @@ def select_insights(
             team_id=team_ids[insight_id],
             insight_id=insight_id,
             scored_through=state.get(insight_id, {}),
-            interval=watched_by_id[insight_id].interval,
+            interval=active_by_id[insight_id].interval,
             query_cost=plan.queries,
             run=plan.run,
         )
@@ -572,6 +659,9 @@ def select_insights(
         scored_stale_model=len(stale_picked),
         train_backlog_soft=sum(insight_id in stale_ready for insight_id in backlog),
         train_backlog_hard=sum(insight_id not in stale_ready for insight_id in backlog),
+        active=active,
+        active_reasons=active_reasons,
+        census=census,
     )
 
 
@@ -581,7 +671,7 @@ def _as_score_step(plan: RunPlan) -> RunPlan:
 
 
 def _score_order(
-    watched_by_id: dict[int, WatchedInsight],
+    active_by_id: dict[int, ActiveInsight],
     teams: dict[int, Team],
     config: AnomalyScoringConfig,
     now: datetime.datetime,
@@ -594,9 +684,9 @@ def _score_order(
     team_orders: list[list[int]] = []
     stale_orders: list[list[int]] = []
     ready: set[int] = set()
-    for team_id in sorted({insight.team_id for insight in watched_by_id.values()}):
+    for team_id in sorted({insight.team_id for insight in active_by_id.values()}):
         team = teams[team_id]
-        team_insights = [insight for insight in watched_by_id.values() if insight.team_id == team_id]
+        team_insights = [insight for insight in active_by_id.values() if insight.team_id == team_id]
         scored = score_ready_by_insight(team, [insight.insight_id for insight in team_insights], config, now)
         ready.update(insight_id for insight_id, state in scored.items() if not state.stale_model)
         candidates = [

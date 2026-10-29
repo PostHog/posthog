@@ -128,7 +128,7 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
-    def test_api_sign_up_with_ai_referral_source(self, mock_capture):
+    def test_api_sign_up_with_referral_source_follow_up_answers(self, mock_capture):
         response = self.client.post(
             "/api/signup/",
             {
@@ -139,6 +139,7 @@ class TestSignupAPI(APIBaseTest):
                 "role_at_organization": "product",
                 "referral_source": "ChatGPT recommended it",
                 "referral_source_ai_prompt": "What is the best product analytics tool?",
+                "referral_source_influencer": "The Hedgehog Dev channel",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -148,8 +149,10 @@ class TestSignupAPI(APIBaseTest):
         event_props = signup_calls[0].kwargs["properties"]
         self.assertEqual(event_props["referral_source"], "ChatGPT recommended it")
         self.assertEqual(event_props["referral_source_ai_prompt"], "What is the best product analytics tool?")
+        self.assertEqual(event_props["referral_source_influencer"], "The Hedgehog Dev channel")
         self.assertEqual(event_props["$set"]["referral_source"], "ChatGPT recommended it")
         self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
+        self.assertEqual(event_props["$set"]["referral_source_influencer"], "The Hedgehog Dev channel")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
@@ -394,6 +397,32 @@ class TestSignupAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(User.objects.filter(email="social+alias@posthog.com").exists())
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_social_signup_passes_referral_fields_through(self, mock_capture):
+        session = self.client.session
+        session["backend"] = "google-oauth2"
+        session["email"] = "social.referral@posthog.com"
+        session["user_name"] = "Social User"
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup/",
+            {
+                "first_name": "Social",
+                "organization_name": "Social Org",
+                "referral_source": "a TikTok influencer",
+                "referral_source_influencer": "The Hedgehog Dev channel",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        self.assertEqual(len(signup_calls), 1)
+        event_props = signup_calls[0].kwargs["properties"]
+        self.assertEqual(event_props["referral_source"], "a TikTok influencer")
+        self.assertEqual(event_props["referral_source_influencer"], "The Hedgehog Dev channel")
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_normalizes_email_to_lowercase(self):
@@ -920,7 +949,11 @@ class TestSignupAPI(APIBaseTest):
         use_invite: bool = False,
         expired_invite: bool = False,
         asserted_email: str = "jane@hogflix.posthog.com",
+        newer_member_invite: bool = False,
     ):
+        expected_level = (
+            OrganizationMembership.Level.ADMIN if newer_member_invite else OrganizationMembership.Level.MEMBER
+        )
         # Make sure Google Auth is valid for this test instance
         mock_sso_providers.return_value = {"google-oauth2": True}
 
@@ -939,9 +972,15 @@ class TestSignupAPI(APIBaseTest):
                 target_email="jane@hogflix.posthog.com",
                 organization=new_org,
                 first_name="Jane",
-                level=OrganizationMembership.Level.MEMBER,
+                level=expected_level,
                 private_project_access=[{"id": private_project.id, "level": "admin"}],
             )
+            if newer_member_invite:
+                OrganizationInvite.objects.create(
+                    target_email="jane@hogflix.posthog.com",
+                    organization=new_org,
+                    level=OrganizationMembership.Level.MEMBER,
+                )
             if expired_invite:
                 invite.created_at = timezone.now() - timedelta(days=30)  # Set invite to 30 days old
                 invite.save()
@@ -972,7 +1011,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.organization_memberships.count(), 1)
         self.assertEqual(
             cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
+            expected_level,
         )
         signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
         assert signup_calls, "expected a 'user signed up' capture call"
@@ -1011,16 +1050,27 @@ class TestSignupAPI(APIBaseTest):
     def test_social_signup_with_allowed_domain_on_self_hosted(self, mock_sso_providers, mock_request, mock_capture):
         self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
 
-    @parameterized.expand(["jane@hogflix.posthog.com", "Jane@Hogflix.posthog.com"])
+    @parameterized.expand(
+        [
+            ("jane@hogflix.posthog.com", False),
+            ("Jane@Hogflix.posthog.com", False),
+            ("jane@hogflix.posthog.com", True),
+        ]
+    )
     @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
     def test_social_signup_with_allowed_domain_uses_invite(
-        self, asserted_email, mock_sso_providers, mock_request, mock_capture
+        self, asserted_email, newer_member_invite, mock_sso_providers, mock_request, mock_capture
     ):
         self.run_test_for_allowed_domain(
-            mock_sso_providers, mock_request, mock_capture, use_invite=True, asserted_email=asserted_email
+            mock_sso_providers,
+            mock_request,
+            mock_capture,
+            use_invite=True,
+            asserted_email=asserted_email,
+            newer_member_invite=newer_member_invite,
         )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -1507,6 +1557,20 @@ class TestSignupAPI(APIBaseTest):
         # The invite is left unconsumed and no account is created.
         self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
         self.assertFalse(User.objects.filter(email="outsider@gmail.com").exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_invite_for_another_email_redirects_to_login(self, mock_sso_providers, mock_request):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        org = Organization.objects.create(name="Test org")
+        invite = OrganizationInvite.objects.create(organization=org, target_email="invited@example.com")
+
+        response = self._complete_sso_with_invite_id(mock_request, str(invite.id), "someone-else@example.com")
+
+        self.assertRedirects(response, "/login?error_code=invite_email_mismatch")
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+        self.assertFalse(User.objects.filter(email="someone-else@example.com").exists())
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -3627,17 +3691,40 @@ class TestSAMLInviteLookup(APIBaseTest):
         assert config.saml_relay_state is not None
         return config.saml_relay_state
 
-    @parameterized.expand(["joiner@saml-invite.example.com", "Joiner@SAML-Invite.example.com"])
-    def test_finds_the_invite_for_the_config_that_signed_the_assertion(self, asserted_email):
+    @parameterized.expand(
+        [
+            ("joiner@saml-invite.example.com", False, False),
+            ("Joiner@SAML-Invite.example.com", False, False),
+            ("joiner@saml-invite.example.com", True, False),
+            ("joiner@saml-invite.example.com", True, True),
+        ]
+    )
+    def test_finds_the_invite_for_the_config_that_signed_the_assertion(
+        self, asserted_email, newer_member_invite, admin_invite_expired
+    ):
         identifier = self._saml_identifier_for("saml-invite.example.com")
-        invite = OrganizationInvite.objects.create(
-            organization=self.organization, target_email="joiner@saml-invite.example.com"
+        admin_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="joiner@saml-invite.example.com",
+            level=OrganizationMembership.Level.ADMIN,
         )
+        if admin_invite_expired:
+            admin_invite.created_at = timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 5)
+            admin_invite.save()
+        member_invite = None
+        if newer_member_invite:
+            member_invite = OrganizationInvite.objects.create(
+                organization=self.organization,
+                target_email="joiner@saml-invite.example.com",
+                level=OrganizationMembership.Level.MEMBER,
+            )
 
         found = lookup_invite_for_saml(asserted_email, identifier)
 
+        expected_invite = member_invite if admin_invite_expired else admin_invite
         assert found is not None
-        assert found.id == invite.id
+        assert expected_invite is not None
+        assert found.id == expected_invite.id
 
     def test_finds_it_when_the_identifier_no_longer_matches_a_domain(self):
         # The identifier holds a domain id on configs created before it moved onto the config, and

@@ -1,17 +1,12 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconPause, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-
-import { captureInboxWelcomeCommandCopied } from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
-import { SELF_DRIVING_WIZARD_COMMAND } from '../../utils/selfDrivingWizardCommand'
 
 export function InboxOnboardingBanner(): JSX.Element {
-    const { isTreatment } = useValues(inboxSetupLogic)
     const { openSetup } = useActions(inboxSetupLogic)
     const { dismissBanner } = useActions(inboxOnboardingLogic)
 
@@ -28,32 +23,10 @@ export function InboxOnboardingBanner(): JSX.Element {
                     onClick={dismissBanner}
                 />
             </div>
-            {isTreatment ? (
-                <>
-                    <p className="mb-0.5 text-sm text-tertiary">
-                        Choose signals and scouts to start receiving reports again.
-                    </p>
-                    <LemonButton type="primary" className="w-fit" onClick={openSetup}>
-                        Set up Self-Driving
-                    </LemonButton>
-                </>
-            ) : (
-                <>
-                    <p className="mb-0.5 text-sm text-tertiary">
-                        No scouts or sources are enabled right now.{' '}
-                        <strong>Switch self-driving back on with one command in your product's repo:</strong>
-                    </p>
-                    <CommandBlock
-                        command={SELF_DRIVING_WIZARD_COMMAND}
-                        copyLabel="self-driving setup command"
-                        ariaLabel="Copy self-driving setup command"
-                        decoration="rainbow"
-                        size="sm"
-                        onCopy={() => captureInboxWelcomeCommandCopied({ surface: 'banner' })}
-                        className="!m-0 rounded-md border border-primary bg-surface-secondary hover:border-accent"
-                    />
-                </>
-            )}
+            <p className="mb-0.5 text-sm text-tertiary">Choose sources and scouts to start receiving reports again.</p>
+            <LemonButton type="primary" className="w-fit" onClick={openSetup} data-attr="inbox-paused-set-up">
+                Set up Self-Driving
+            </LemonButton>
         </div>
     )
 }

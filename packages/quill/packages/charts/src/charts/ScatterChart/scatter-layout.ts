@@ -26,6 +26,8 @@ export interface ScatterLayout {
     yScale: D3YScale
     /** Visible, drawable points in ascending x-pixel order, which the hit test binary-searches. */
     positions: ScatterPointPosition[]
+    /** `positions` keyed by point index, so hover finds its marker without a scan. */
+    positionByIndex: (ScatterPointPosition | undefined)[]
     /** Canvas-ready series colors by series index, for per-series chrome (the best-fit line) that has
      *  to match the legend rather than whichever override a marker happens to carry. */
     seriesColors: string[]
@@ -89,7 +91,7 @@ export function createScatterScales({
     const [yLow, yHigh] = domainBounds(yScale)
 
     const positions: ScatterPointPosition[] = []
-    const xByIndex = new Array<number | undefined>(points.length)
+    const positionByIndex = new Array<ScatterPointPosition | undefined>(points.length)
     let maxRadius = 0
     for (let i = 0; i < points.length; i++) {
         const point = points[i]
@@ -104,11 +106,10 @@ export function createScatterScales({
         if (!isFinite(x) || !isFinite(y)) {
             continue
         }
-        xByIndex[i] = x
         const style = seriesStyles[point.seriesIndex]
         const radius = point.radius ?? style?.pointRadius ?? defaultPointRadius
         maxRadius = Math.max(maxRadius, radius)
-        positions.push({
+        const position: ScatterPointPosition = {
             index: i,
             seriesIndex: point.seriesIndex,
             x,
@@ -117,11 +118,13 @@ export function createScatterScales({
             // Canvas can't resolve `var(--…)`, which a consumer color may still be.
             color: resolveCssColor(point.color ?? coloredSeries[point.seriesIndex]?.color ?? fallbackColor),
             shape: style?.shape ?? 'circle',
-        })
+        }
+        positions.push(position)
+        positionByIndex[i] = position
     }
 
     return {
-        x: (label: string) => xByIndex[Number(label)],
+        x: (label: string) => positionByIndex[Number(label)]?.x,
         y: (value: number) => yScale(value),
         yTicks: () => yScale.ticks?.(yTickCount) ?? [],
         _private: {
@@ -129,6 +132,7 @@ export function createScatterScales({
                 xScale,
                 yScale,
                 positions,
+                positionByIndex,
                 seriesColors: coloredSeries.map((series) => resolveCssColor(series.color ?? fallbackColor)),
                 xTicks: resolveXTicks(xScale, xTickCount, xTickFormatter),
                 maxRadius,

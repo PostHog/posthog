@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 
@@ -30,6 +30,12 @@ export interface MessageBlockProps {
 
 export function MessageBlock({ message, defaultOpen }: MessageBlockProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(defaultOpen)
+    // Search results can arrive after the message mounts, and a message that matches them opens.
+    useEffect(() => {
+        if (defaultOpen) {
+            setIsOpen(true)
+        }
+    }, [defaultOpen])
     const preview = isOpen ? null : previewText(message)
 
     return (

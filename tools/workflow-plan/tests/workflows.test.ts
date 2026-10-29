@@ -451,6 +451,27 @@ const pathsFilterJobs = workflowFiles.flatMap((file) =>
 )
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...[
+        { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
+        { name: 'schema cache miss', matched: '', runs: false },
+        { name: 'master snapshot fallback', matched: `posthog-schema-master-${'a'.repeat(40)}`, runs: true },
+    ].map(({ name, matched, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'check-migrations',
+        step: 'validate-master-schema',
+        scenario: {
+            name,
+            github: mergeQueue(),
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                'check-migrations': {
+                    'master-schema-key': { outputs: { key: 'posthog-schema-mig-v2-exact' } },
+                    'master-schema-cache': { outputs: { 'cache-matched-key': matched } },
+                },
+            },
+        },
+        runs,
+    })),
     ...pathsFilterJobs.flatMap(({ file, job }) => [
         {
             file,
