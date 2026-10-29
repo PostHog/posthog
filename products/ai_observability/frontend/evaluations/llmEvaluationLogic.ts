@@ -1030,19 +1030,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                       : state.output_config,
                           }
                         : state,
-                setIncludeMedia: (state, { includeMedia }) => {
-                    if (!state || !isLLMJudgeEvaluation(state)) {
-                        return state
-                    }
-                    // Only an opt-out is stored: a missing field means attachments are on.
-                    const { include_media: _, ...evaluationConfig } = state.evaluation_config
-                    return {
-                        ...state,
-                        evaluation_config: includeMedia
-                            ? evaluationConfig
-                            : { ...evaluationConfig, include_media: false },
-                    }
-                },
+                // Always explicit: a PATCH without the field keeps the saved value.
+                setIncludeMedia: (state, { includeMedia }) =>
+                    state && isLLMJudgeEvaluation(state)
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, include_media: includeMedia } }
+                        : state,
                 setEvaluationType: (state, { evaluationType }) => {
                     if (!state) {
                         return null
