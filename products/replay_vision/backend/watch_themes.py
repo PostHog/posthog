@@ -276,9 +276,7 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
     scanner, samples = context
     prompt = (scanner.scanner_config or {}).get("prompt") if isinstance(scanner.scanner_config, dict) else None
     try:
-        client = await replay_gemini_client(
-            team_id, properties={"ai_product": AI_PRODUCT, "feature": "name_search_theme"}
-        )
+        client = replay_gemini_client(properties={"ai_product": AI_PRODUCT, "feature": "name_search_theme"})
         try:
             response = await client.models.generate_content(
                 model=_THEME_MODEL,
@@ -295,7 +293,6 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
                 posthog_distinct_id=replay_vision_distinct_id(team_id),
                 posthog_trace_id=str(uuid.uuid4()),
                 posthog_properties={"$ai_span_name": "name_search_theme", "team_id": team_id},
-                posthog_groups={"project": str(team_id)},
             )
         finally:
             await client.aclose()
