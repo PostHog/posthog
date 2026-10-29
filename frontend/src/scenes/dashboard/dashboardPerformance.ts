@@ -33,7 +33,7 @@ export interface DashboardPerformanceCaptureOptions {
  */
 export class DashboardPerformanceMonitor {
     // Everything observed is page-wide, so a second monitor would count the same jank twice.
-    private static active: DashboardPerformanceMonitor | null = null
+    private static endActiveView: (() => void) | null = null
 
     private readonly startedAt: number
     private finished = false
@@ -117,18 +117,31 @@ export class DashboardPerformanceMonitor {
 
     start(): (options?: DashboardPerformanceCaptureOptions) => void {
         // Without the long-animation-frame API the jank figures would read as zero, which looks like a perfect view.
-        if (DashboardPerformanceMonitor.active || !supportsLongAnimationFrames()) {
+        if (!supportsLongAnimationFrames()) {
             return () => {}
         }
-        DashboardPerformanceMonitor.active = this
-        const stops: (() => void)[] = [
-            () => {
-                DashboardPerformanceMonitor.active = null
-            },
-        ]
+        // The next dashboard mounts before the previous view cleans up, so the new view ends the old one.
+        DashboardPerformanceMonitor.endActiveView?.()
+
+        const stops: (() => void)[] = []
         const stopAll = (): void => {
             stops.splice(0).forEach((stop) => stop())
         }
+        const report = (options?: DashboardPerformanceCaptureOptions): void => {
+            try {
+                stopAll()
+                const properties = this.finish()
+                if (properties) {
+                    posthog.capture(DASHBOARD_PERFORMANCE_EVENT, properties, options)
+                }
+            } catch {}
+        }
+        DashboardPerformanceMonitor.endActiveView = report
+        stops.push(() => {
+            if (DashboardPerformanceMonitor.endActiveView === report) {
+                DashboardPerformanceMonitor.endActiveView = null
+            }
+        })
 
         // Telemetry must never break the dashboard, so a failure here only drops this view's event.
         try {
@@ -152,15 +165,7 @@ export class DashboardPerformanceMonitor {
             return () => {}
         }
 
-        return (options) => {
-            try {
-                stopAll()
-                const properties = this.finish()
-                if (properties) {
-                    posthog.capture(DASHBOARD_PERFORMANCE_EVENT, properties, options)
-                }
-            } catch {}
-        }
+        return report
     }
 }
 

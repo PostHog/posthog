@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { DashboardPlacement } from '~/types'
 
 import { DashboardPerformanceMonitor } from './dashboardPerformance'
@@ -30,5 +32,34 @@ describe('DashboardPerformanceMonitor', () => {
 
     it('skips views too short to measure', () => {
         expect(new DashboardPerformanceMonitor(context, 0, true).finish(500, undefined)).toBeNull()
+    })
+
+    it('hands monitoring to the next dashboard when it mounts before the previous view cleans up', () => {
+        class FakePerformanceObserver {
+            static supportedEntryTypes = ['long-animation-frame']
+            observe(): void {}
+            disconnect(): void {}
+            takeRecords(): PerformanceEntry[] {
+                return []
+            }
+        }
+        const originalObserver = globalThis.PerformanceObserver
+        globalThis.PerformanceObserver = FakePerformanceObserver as unknown as typeof PerformanceObserver
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        jest.useFakeTimers()
+        try {
+            const reportFirst = new DashboardPerformanceMonitor({ ...context, dashboardId: 1 }).start()
+            jest.advanceTimersByTime(5_000)
+            const reportSecond = new DashboardPerformanceMonitor({ ...context, dashboardId: 2 }).start()
+            jest.advanceTimersByTime(5_000)
+            reportFirst()
+            reportSecond()
+
+            expect(capture.mock.calls.map(([, properties]) => properties?.dashboard_id)).toEqual([1, 2])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+            globalThis.PerformanceObserver = originalObserver
+        }
     })
 })
