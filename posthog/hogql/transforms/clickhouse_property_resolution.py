@@ -39,6 +39,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
@@ -662,31 +663,6 @@ def _is_moved_events_property(field_type: ast.FieldType, key: str, context: HogQ
         and is_temporary_event_property(key)
         and _is_events_properties(field_type, context)
     )
-
-
-# JSON functions that take a key path and that nothing earlier rewrites to read one property. The printer passes them
-# the serialized `properties` document, which never holds a key the native cleaner moves to `temporary_properties`.
-_TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
-    {
-        "JSONExtractArrayRaw",
-        "JSONExtractKeys",
-        "JSONExtractKeysAndValues",
-        "JSONExtractKeysAndValuesRaw",
-        "JSONLength",
-        "JSONType",
-    }
-)
-
-_JSON_KEY_PATH_FUNCTIONS = _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS | {
-    "JSONExtract",
-    "JSONExtractBool",
-    "JSONExtractFloat",
-    "JSONExtractInt",
-    "JSONExtractRaw",
-    "JSONExtractString",
-    "JSONExtractUInt",
-    "JSONHas",
-}
 
 
 def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
@@ -1336,6 +1312,140 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     # --- comparison / call rewrites ---
 
+    @staticmethod
+    def _json_integer_conversion(value: ast.Expr, value_type: ast.Expr, target: str) -> ast.Expr:
+        floating = _call("toFloat64OrNull", [_call("toString", [clone_expr(value)])])
+        parsed = _call(
+            "coalesce",
+            [
+                _call(f"_to{target}OrNull", [_call("toString", [clone_expr(value)])]),
+                _call("accurateCastOrNull", [_call("trunc", [clone_expr(floating)]), _const(target)]),
+                _call(
+                    "if",
+                    [
+                        _call("isNaN", [floating]),
+                        _call("accurateCast", [_const(0), _const(f"Nullable({target})")]),
+                        _const(None),
+                    ],
+                ),
+            ],
+        )
+        converted = _call(
+            "coalesce",
+            [
+                _call("accurateCastOrNull", [clone_expr(value), _const(target)]),
+                _call(
+                    "accurateCastOrNull",
+                    [
+                        _call("trunc", [_call("accurateCastOrNull", [value, _const("Float64")])]),
+                        _const(target),
+                    ],
+                ),
+            ],
+        )
+        # JSON numeric strings accept a fractional/exponent form and truncate it; numeric values reject overflow.
+        return _call("if", [_call("equals", [value_type, _const("String")]), parsed, converted])
+
+    def _rewrite_scalar_json_extract(self, node: ast.Call) -> ast.Expr | None:
+        scalar_types = {
+            "JSONExtractString": "String",
+            "JSONExtractInt": "Int64",
+            "JSONExtractUInt": "UInt64",
+            "JSONExtractFloat": "Float64",
+            "JSONExtractBool": "Bool",
+        }
+        target = scalar_types.get(node.name)
+        nullable = False
+        path_args = node.args[1:]
+        if node.name == "JSONExtract" and len(node.args) >= 2:
+            type_arg = node.args[-1]
+            if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+                return None
+            target = type_arg.value
+            nullable = target.startswith("Nullable(") and target.endswith(")")
+            if nullable:
+                target = target[len("Nullable(") : -1]
+            if target not in ("String", "Int64", "UInt64", "Float64", "Bool"):
+                return None
+            path_args = node.args[1:-1]
+        if target is None or not node.args:
+            return None
+        document = node.args[0]
+        if not (
+            isinstance(document, ast.Call)
+            and document.name == "ifNull"
+            and len(document.args) == 2
+            and isinstance(document.args[1], ast.Constant)
+            and document.args[1].value == ""
+            and isinstance(document.args[0], ast.Call)
+            and document.args[0].name == "toJSONString"
+            and len(document.args[0].args) == 1
+        ):
+            return None
+        access = self._lowered_property_operand(document.args[0].args[0])
+        if access is None or not all(isinstance(key, str) for key in access.keys):
+            return None
+        if not all(isinstance(arg, ast.Constant) and isinstance(arg.value, str) for arg in path_args):
+            return None
+        field_type = _blob_field_type_of(access)
+        assert field_type is not None
+        keys = cast(list[str], access.keys) + [cast(ast.Constant, arg).value for arg in path_args]
+        if self._is_virtual_feature_flag_property(field_type, keys[0]):
+            return None
+        source = resolve_materialized_property_source(field_type, keys[0], self.context)
+        if source is None or source.kind != "json_subcolumn":
+            return None
+        value = _call(
+            "accurateCast",
+            [_json_subcolumn_access(field_type, keys, source=source, is_nullable=True), _const("Dynamic")],
+        )
+        value_type = _call("dynamicType", [clone_expr(value)])
+        if target == "String":
+            result = _json_subcolumn_value_expr(field_type, keys, source=source)
+        else:
+            if node.name == "JSONExtractBool":
+                result = _call(
+                    "and",
+                    [
+                        _call("in", [value_type, ast.Tuple(exprs=[_const(t) for t in ("Bool", "Int64", "UInt64")])]),
+                        _call("notIn", [_call("toString", [value]), ast.Tuple(exprs=[_const("0"), _const("false")])]),
+                    ],
+                )
+            elif target == "Float64":
+                result = _call("toFloat64OrNull", [_call("toString", [clone_expr(value)])])
+                if node.name == "JSONExtract":
+                    result = _call(
+                        "if",
+                        [
+                            _call("equals", [value_type, _const("Bool")]),
+                            _call("accurateCastOrNull", [value, _const(target)]),
+                            result,
+                        ],
+                    )
+            else:
+                result = self._json_integer_conversion(value, value_type, "UInt8" if target == "Bool" else target)
+                if node.name != "JSONExtract":
+                    result = _call(
+                        "if", [_call("equals", [clone_expr(value_type), _const("Bool")]), _const(None), result]
+                    )
+                if target == "Bool":
+                    result = _call("accurateCastOrNull", [_call("sign", [result]), _const("Bool")])
+        if target == "String" or node.name == "JSONExtractBool":
+            # Float serialization can become an integer token or overflow JSON's integer parser. Keep its defaults.
+            float_extract = replace(
+                node,
+                args=[
+                    _call("toJSONString", [clone_expr(value)]),
+                    *([node.args[-1]] if node.name == "JSONExtract" else []),
+                ],
+            )
+            result = _call("if", [_call("equals", [value_type, _const("Float64")]), float_extract, result])
+        if not nullable:
+            default = _const("") if target == "String" else _call("accurateCast", [_const(0), _const(target)])
+            result = _call("ifNull", [result, default])
+        result.type = node.type
+        return result
+
     def visit_call(self, node: ast.Call) -> ast.Expr:
         if node.name == "toJSONString" and len(node.args) == 1:
             exported_json_text = _exported_json_text_read(node.args[0])
@@ -1379,13 +1489,13 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         if boolean_conversion is not None:
             return boolean_conversion
 
+        scalar_json_extract = self._rewrite_scalar_json_extract(node)
+        if scalar_json_extract is not None:
+            return scalar_json_extract
+
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:
             return json_string_on_events_json
-
-        temporary_property_json_function = self._rewrite_json_function_on_temporary_property(node)
-        if temporary_property_json_function is not None:
-            return temporary_property_json_function
 
         runtime_key_json_function = self._rewrite_json_function_with_runtime_key(node)
         if runtime_key_json_function is not None:
@@ -1512,50 +1622,6 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             args=[ast.Call(name="ifNull", args=[value, _sentinel("")]), *[self.visit(arg) for arg in node.args[2:]]],
         )
 
-    def _rewrite_json_function_on_temporary_property(self, node: ast.Call) -> ast.Expr | None:
-        """`f(properties, '$set', ...)` on native events, applied to the JSON of `$set` from `temporary_properties`."""
-        if (
-            not self.context.uses_new_events_schema()
-            or node.name not in _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS
-            or len(node.args) < 2
-        ):
-            return None
-        field_type = resolve_field_type(node.args[0])
-        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
-            return None
-        if not isinstance(node.args[1], ast.Constant):
-            return None
-        first_key = node.args[1].value
-        if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
-            return None
-        source = resolve_json_subcolumn_source(
-            field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", first_key, self.context
-        )
-        if source is None:
-            # A restriction on the key or on one of its children leaves no source.
-            args: list[ast.Expr] = [
-                _temporary_properties_document(field_type),
-                *[self.visit(arg) for arg in node.args[1:]],
-            ]
-        else:
-            json_value = _json_subcolumn_value_expr(field_type, [first_key], source=source, as_json=True)
-            args = [
-                ast.Call(name="ifNull", args=[json_value, _sentinel("")], type=ast.StringType(nullable=False)),
-                *[self.visit(arg) for arg in node.args[2:]],
-            ]
-        return ast.Call(
-            start=node.start,
-            end=node.end,
-            type=node.type,
-            name=node.name,
-            args=args,
-            params=node.params,
-            distinct=node.distinct,
-            within_group=node.within_group,
-            order_by=node.order_by,
-            filter_expr=node.filter_expr,
-        )
-
     def _rewrite_json_function_with_runtime_key(self, node: ast.Call) -> ast.Expr | None:
         """`f(properties, <key computed per row>, ...)` on native events, reading the document that holds the key.
 
@@ -1565,7 +1631,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         """
         if (
             not self.context.uses_new_events_schema()
-            or node.name not in _JSON_KEY_PATH_FUNCTIONS
+            or node.name not in JSON_KEY_PATH_FUNCTIONS
             or len(node.args) < 2
             or isinstance(node.args[1], ast.Constant)
         ):

@@ -177,3 +177,6 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "JSON_VALUE": HogQLFunctionMeta("JSON_VALUE", 2, 2, signatures=[((StringType(), StringType()), StringType())]),
 }
+
+JSON_KEY_PATH_FUNCTIONS = frozenset(JSON_FUNCTIONS) - {"isValidJSON", "JSONArrayLength", "JSON_VALUE"}
+JSON_TYPED_PATH_FUNCTIONS = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})

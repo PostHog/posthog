@@ -191,6 +191,10 @@ DateTime property definitions keep their conversions when compared with strings,
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
 Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
+JSON functions with a constant property key read that property instead of rebuilding the whole native properties document, including calls through `toString(properties)`.
+Scalar JSON extraction uses native values with the function's conversion and missing-value rules, independently of property-definition types.
+Floating-point string and Boolean extraction retains ClickHouse's JSON parser because JSON number formatting can change its interpretation.
+Container functions serialize only the requested value; runtime keys and whole-document operations still need document reconstruction.
 Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
 This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
 When a join constraint needs a lazy join of the joined events table, HogQL wraps that table in a subquery and the outer query reads the subquery's columns.
