@@ -1,3 +1,5 @@
+import { useActions } from 'kea'
+
 import { IconEllipsis } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, toast } from '@posthog/quill'
 
@@ -5,6 +7,7 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 
 import { NotificationPaneEntry } from './notificationPaneEntries'
+import { notificationsPaneLogic } from './notificationsPaneLogic'
 
 const MORE_LABEL = 'More actions'
 
@@ -28,7 +31,9 @@ export function NotificationPaneRowMenu({
     entry: NotificationPaneEntry
     focusable: boolean
 }): JSX.Element | null {
-    if (!entry.to) {
+    const { muteKind } = useActions(notificationsPaneLogic)
+    const canMute = entry.notification.team_id !== null
+    if (!entry.to && !canMute) {
         return null
     }
     return (
@@ -47,9 +52,16 @@ export function NotificationPaneRowMenu({
                 }
             />
             <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => void copyLink(entry)} data-attr="notification-pane-copy-link">
-                    Copy link
-                </DropdownMenuItem>
+                {canMute && (
+                    <DropdownMenuItem onClick={() => muteKind(entry)} data-attr="notification-pane-mute">
+                        Mute this kind in {entry.projectName ?? 'this project'}
+                    </DropdownMenuItem>
+                )}
+                {entry.to && (
+                    <DropdownMenuItem onClick={() => void copyLink(entry)} data-attr="notification-pane-copy-link">
+                        Copy link
+                    </DropdownMenuItem>
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )
