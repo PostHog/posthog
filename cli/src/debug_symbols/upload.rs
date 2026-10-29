@@ -36,6 +36,10 @@ pub struct Args {
     /// Implies --force unless --skip-on-conflict is set.
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
+
+    /// Limit uploaded source files to this directory. Requires --include-source.
+    #[arg(long, requires = "include_source")]
+    pub source_root: Option<PathBuf>,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -44,8 +48,24 @@ pub fn upload(args: &Args) -> Result<()> {
         release,
         conflict,
         include_source,
+        source_root,
     } = args;
     let release_args = release.resolve_info_plist()?;
+    let source_root = source_root
+        .as_ref()
+        .map(|root| -> Result<PathBuf> {
+            let root = root.canonicalize().map_err(|e| {
+                anyhow!(
+                    "Source root {} canonicalization failed: {e}",
+                    root.display()
+                )
+            })?;
+            if !root.is_dir() {
+                anyhow::bail!("Source root {} is not a directory", root.display());
+            }
+            Ok(root)
+        })
+        .transpose()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -80,12 +100,16 @@ pub fn upload(args: &Args) -> Result<()> {
             file.path.display(),
             file.debug_id
         );
-        native_uploads.push(file.into_upload(None, *include_source)?);
+        native_uploads.push(file.into_upload(None, *include_source, source_root.as_deref())?);
     }
 
     // A failed or oversized dSYM leaves a matching standalone Mach-O as the
     // fallback. Successfully packaged, uploadable dSYMs take priority.
-    let dsym_uploads = package_dsym_bundles(&report.dsym_bundles, *include_source);
+    let dsym_uploads = package_dsym_bundles(
+        &report.dsym_bundles,
+        *include_source,
+        source_root.as_deref(),
+    );
     let mut uploads = merge_uploads_prefer_dsym(dsym_uploads, native_uploads, MAX_FILE_SIZE);
 
     if uploads.is_empty() {

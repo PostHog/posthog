@@ -19,6 +19,9 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'evalsChip'
+    | 'evalOutcomesByNode'
+    | 'gitBranch'
     | 'summaryState'
     | 'summaryRequesting'
     | 'summaryRequestError'
@@ -32,6 +35,7 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    showFailingEvals: () => void
     summarize: () => void
     regenerateSummary: () => void
     loadSummary: () => void
@@ -44,7 +48,11 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
     return {
         header: values.header,
-        summary: values.summary,
+        summary: {
+            ...values.summary,
+            evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
+            git: values.gitBranch,
+        },
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
@@ -63,6 +71,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        evalOutcomes: values.evalOutcomesByNode,
         summaryMode: {
             state: values.summaryState,
             requesting: values.summaryRequesting,
@@ -95,6 +104,9 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        evalsChip,
+        evalOutcomesByNode,
+        gitBranch,
         summaryState,
         summaryRequesting,
         summaryRequestError,
@@ -117,6 +129,9 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      evalsChip,
+                      evalOutcomesByNode,
+                      gitBranch,
                       summaryState,
                       summaryRequesting,
                       summaryRequestError,

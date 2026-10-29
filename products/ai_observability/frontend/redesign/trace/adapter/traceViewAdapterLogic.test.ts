@@ -10,9 +10,9 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
-import type { TraceApi } from '../../../generated/api.schemas'
+import type { TraceApi, TraceEvaluationResultsApi } from '../../../generated/api.schemas'
 import { traceSummaryLogic } from '../traceSummaryLogic'
-import { decodeIdSegment, makeNodeDetail, makeTraceResource } from './testFixtures'
+import { decodeIdSegment, makeEvaluationResults, makeNodeDetail, makeTraceResource } from './testFixtures'
 import { traceViewAdapterLogic } from './traceViewAdapterLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
@@ -38,6 +38,7 @@ describe('traceViewAdapterLogic', () => {
     let nodeRequests: string[]
     let failingNodeId: string | null
     let summaryRequests: number
+    let evaluations: TraceEvaluationResultsApi
 
     function mountAt(params: Record<string, string> = {}): void {
         router.actions.push(urls.aiObservabilityTrace('trace-1', params))
@@ -51,6 +52,7 @@ describe('traceViewAdapterLogic', () => {
         nodeRequests = []
         failingNodeId = null
         summaryRequests = 0
+        evaluations = makeEvaluationResults()
         useMocks({
             post: {
                 [SUMMARY_URL]: () => {
@@ -64,7 +66,7 @@ describe('traceViewAdapterLogic', () => {
                     await traceGate
                     return [200, traceResource]
                 },
-                [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [EVALUATIONS_URL]: () => [200, evaluations],
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -217,6 +219,36 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic, () => logic.actions.selectAndShowSpans('gen-1')).toMatchValues({
             mode: 'spans',
             selectedNodeId: 'gen-1',
+        })
+    })
+
+    it('has no evals chip and no step markers when the evaluations read fails', async () => {
+        useMocks({ get: { [EVALUATIONS_URL]: () => [500, { detail: 'Server error.' }] } })
+        mountAt()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ evalsChip: null, evalOutcomesByNode: {} })
+    })
+
+    it.each([
+        ['the first failing step in the tree', [{ nodeId: 'gen-1', outcome: 'fail' }], 'gen-1'],
+        [
+            'the root when no step in the tree fails',
+            [
+                { nodeId: 'gen-1', outcome: 'pass' },
+                { nodeId: 'ghost', outcome: 'fail' },
+            ],
+            'trace-1',
+        ],
+    ] as const)('showFailingEvals opens the Evals tab of %s, in spans', async (_name, nodes, expected) => {
+        evaluations = makeEvaluationResults({ summary: { passed: 1, failed: 1, unrated: 0, nodes: [...nodes] } })
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setMode('thread')
+
+        await expectLogic(logic, () => logic.actions.showFailingEvals()).toMatchValues({
+            selectedNodeId: expected,
+            mode: 'spans',
+            detailTab: 'evals',
         })
     })
 

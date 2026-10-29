@@ -1,7 +1,7 @@
-import { fireEvent } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 
 import type { ChartTheme, Series, TooltipContext } from '../../core/types'
-import { getChart, renderChart } from '../../testing'
+import { ensureJsdom, getChart, renderChart } from '../../testing'
 import { sortSlopeTooltipRows, type SlopeSeriesMeta } from './slope-data'
 import { SlopeChart } from './SlopeChart'
 
@@ -335,5 +335,28 @@ describe('SlopeChart', () => {
             <SlopeChart series={SERIES} labels={LABELS} theme={THEME} dataAttr="slope-instance" />
         )
         expect(chart.element.getAttribute('data-attr')).toBe('slope-instance')
+    })
+
+    describe('errors', () => {
+        beforeEach(() => {
+            jest.spyOn(console, 'error').mockImplementation(() => {})
+        })
+        afterEach(() => {
+            jest.mocked(console.error).mockRestore()
+        })
+
+        it('reports an error from its inner chart through onError', () => {
+            // Only the base `Chart` reads `axisColor`, so the error starts inside the inner chart's own boundary.
+            const theme = {
+                ...THEME,
+                get axisColor(): string {
+                    throw new Error('boom')
+                },
+            } as ChartTheme
+            const onError = jest.fn()
+            ensureJsdom()
+            render(<SlopeChart series={SERIES} labels={LABELS} theme={theme} onError={onError} />)
+            expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' }), expect.anything())
+        })
     })
 })

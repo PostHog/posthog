@@ -12,6 +12,7 @@ import {
 import { defaultResolveValue } from '../types'
 import type {
     AreaSelectData,
+    BandSlot,
     ChartDimensions,
     ChartScales,
     DateRangeZoomData,
@@ -252,13 +253,20 @@ export function useChartInteraction<Meta = unknown>({
         [scales, dimensions, interactionAxis, labelPositions, resolveHoverIndex]
     )
 
-    const buildCtxAt = useCallback(
-        (index: number, position: { x: number; y: number }): TooltipContext<Meta> | null => {
+    // Rows depend only on the index and the bar slot, so a move inside one band reuses them
+    // instead of walking every series. The memo deps drop the cache when the rows go stale.
+    const buildCtxAt = useMemo(() => {
+        let last: { ctx: TooltipContext<Meta>; slot: BandSlot | undefined } | null = null
+        return (index: number, position: { x: number; y: number }): TooltipContext<Meta> | null => {
             if (!scales) {
                 return null
             }
             const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-            return buildTooltipContext(
+            const slot = scales.bandSlotAtCursor?.(labels[index], position)
+            if (last && last.ctx.dataIndex === index && last.slot?.x === slot?.x && last.slot?.width === slot?.width) {
+                return { ...last.ctx, hoverPosition: position, canvasBounds }
+            }
+            const ctx = buildTooltipContext(
                 index,
                 series,
                 labels,
@@ -272,21 +280,22 @@ export function useChartInteraction<Meta = unknown>({
                 effectivePositionResolve,
                 resolveBottomValue,
                 scales.extent?.(labels[index]),
-                scales.bandSlotAtCursor?.(labels[index], position)
+                slot
             )
-        },
-        [
-            scales,
-            series,
-            labels,
-            labelToCoord,
-            canvasRef,
-            resolveValue,
-            interactionAxis,
-            effectivePositionResolve,
-            resolveBottomValue,
-        ]
-    )
+            last = ctx ? { ctx, slot } : null
+            return ctx
+        }
+    }, [
+        scales,
+        series,
+        labels,
+        labelToCoord,
+        canvasRef,
+        resolveValue,
+        interactionAxis,
+        effectivePositionResolve,
+        resolveBottomValue,
+    ])
 
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {

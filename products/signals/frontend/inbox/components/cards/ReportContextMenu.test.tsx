@@ -70,7 +70,11 @@ describe('ReportContextMenu', () => {
     })
 
     // The menu content renders in a portal, so cleanup keeps one case's rows out of the next.
-    afterEach(cleanup)
+    // The verdict dialogs mount a separate React root on document.body. cleanup does not remove it.
+    afterEach(() => {
+        cleanup()
+        document.body.innerHTML = ''
+    })
 
     // The menu must mirror the detail pane's eligibility rules; a drifted guard silently offers a
     // dead-end action (a 409 transition, a duplicate PR) or hides a legitimate one. Every menu

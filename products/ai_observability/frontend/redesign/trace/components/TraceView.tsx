@@ -1,5 +1,5 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
-import { ConversationState, LabeledLink, TraceMode } from '../types'
+import { ConversationState, EvalRollupOutcome, LabeledLink, TraceMode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
 import { SummaryModeView, SummaryModeViewProps } from './SummaryModeView'
 import { Thread } from './Thread'
@@ -24,6 +24,7 @@ export interface TraceViewReadyProps {
     detail: Omit<NodeDetailProps, 'onSelectNode'> | null
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
+    evalOutcomes: Record<string, EvalRollupOutcome>
     summaryMode: SummaryModeViewProps
 }
 
@@ -51,6 +52,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     onSelectNode={props.onSelectNode}
                     onPrefetchNode={props.onPrefetchNode}
                     detail={props.detail}
+                    evalOutcomes={props.evalOutcomes}
                 />
             ) : props.mode === 'thread' ? (
                 <Thread conversation={props.thread} onSelectMessage={props.onSelectFromView} />

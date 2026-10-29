@@ -10,13 +10,21 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetButton'
-import type { TraceEvaluationResultApi, TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
+import type {
+    TraceApi,
+    TraceEvaluationResultsApi,
+    TraceNodeApi,
+    TraceTimelineRowApi,
+} from '../../../generated/api.schemas'
+import { GitBranchChipProps } from '../components/GitBranchChip'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
 import { traceSummaryLogic } from '../traceSummaryLogic'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
 import {
     ConversationState,
+    EvalRollupOutcome,
+    EvalsChipData,
     LabeledLink,
     NodeDetailTab,
     NodeLoad,
@@ -26,6 +34,7 @@ import {
     TraceMode,
 } from '../types'
 import { toDatasetItemSource } from './toDatasetItemSource'
+import { firstFailingNodeId, toEvalOutcomesByNode, toEvalsChip } from './toEvalSummary'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
 import { toThread } from './toThread'
@@ -54,7 +63,7 @@ export interface traceViewAdapterLogicValues {
     createdAt: string | null // traceViewLogic
     defaultNodeId: string // traceViewLogic
     errorMessage: string // traceViewLogic
-    evaluationResults: TraceEvaluationResultApi[] | null // traceViewLogic
+    evaluationResults: TraceEvaluationResultsApi | null // traceViewLogic
     evaluationResultsFailed: boolean // traceViewLogic
     nodeIdsByAlias: Record<string, string> // traceViewLogic
     nodes: Record<string, NodeLoad> // traceViewLogic
@@ -67,6 +76,7 @@ export interface traceViewAdapterLogicValues {
         rows: TraceTimelineRowApi[]
         totalMs: number
     } // traceViewLogic
+    trace: TraceApi | null // traceViewLogic
     traceHasError: boolean // traceViewLogic
     traceName: string // traceViewLogic
     tree: TraceNodeApi[] // traceViewLogic
@@ -75,6 +85,9 @@ export interface traceViewAdapterLogicValues {
     datasetItemSource: SaveToDatasetButtonProps | null
     detailData: NodeDetailData | null
     detailTab: NodeDetailTab
+    evalOutcomesByNode: Record<string, EvalRollupOutcome>
+    evalsChip: EvalsChipData | null
+    gitBranch: GitBranchChipProps | null
     header: TraceHeaderProps
     mode: TraceMode
     selectedNodeId: string
@@ -114,11 +127,11 @@ export interface traceViewAdapterLogicActions {
         trigger: import('../types').NodeLoadTrigger
     } // traceViewLogic
     loadTraceSuccess: (
-        trace: import('../../../generated/api.schemas').TraceApi,
+        trace: TraceApi,
         payload?: any
     ) => {
         payload?: any
-        trace: import('../../../generated/api.schemas').TraceApi
+        trace: TraceApi
     } // traceViewLogic
     openSummaryFromLink: () => {
         value: true
@@ -140,6 +153,9 @@ export interface traceViewAdapterLogicActions {
     }
     setMode: (mode: TraceMode) => {
         mode: TraceMode
+    }
+    showFailingEvals: () => {
+        value: true
     }
     summarize: () => {
         value: true
@@ -186,7 +202,7 @@ export interface traceViewAdapterLogicMeta {
             selectedTreeNode: TraceNodeApi | null,
             selectedNodeLoad: NodeLoad,
             tree: TraceNodeApi[],
-            evaluationResults: TraceEvaluationResultApi[] | null,
+            evaluationResults: TraceEvaluationResultsApi | null,
             evaluationResultsFailed: boolean,
             currentTeamId: number | null,
             personLabel: string | null,
@@ -206,6 +222,9 @@ export interface traceViewAdapterLogicMeta {
             currentTeamId: number | null,
             traceId: string
         ) => ConversationState
+        evalsChip: (evaluationResults: TraceEvaluationResultsApi | null) => EvalsChipData | null
+        evalOutcomesByNode: (evaluationResults: TraceEvaluationResultsApi | null) => Record<string, EvalRollupOutcome>
+        gitBranch: (trace: TraceApi | null) => GitBranchChipProps | null
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
     }
 }
@@ -245,6 +264,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 'nodeIdsByAlias',
                 'evaluationResults',
                 'evaluationResultsFailed',
+                'trace',
             ],
             aiObservabilityTraceLogic,
             ['eventId', 'initialTab', 'olderTraceId', 'olderTimestamp', 'newerTraceId', 'newerTimestamp'],
@@ -275,6 +295,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
         selectAndShowSpans: (id: string) => ({ id }),
         viewInThread: true,
         prefetchNode: (id: string) => ({ id }),
+        showFailingEvals: true,
         openSummaryFromLink: true,
         summarize: true,
         regenerateSummary: true,
@@ -376,7 +397,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 node: TraceNodeApi | null,
                 load: NodeLoad,
                 tree: TraceNodeApi[],
-                evaluationResults: TraceEvaluationResultApi[] | null,
+                evaluationResults: TraceEvaluationResultsApi | null,
                 evaluationResultsFailed: boolean,
                 teamId: number | null,
                 person: string | null,
@@ -388,7 +409,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                           node,
                           load,
                           tree,
-                          evaluationResults,
+                          evaluationResults: evaluationResults?.results ?? null,
                           evaluationResultsFailed,
                           teamId,
                           person,
@@ -423,6 +444,17 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 return toThread({ traceId, createdAt, load, teamId })
             },
         ],
+        evalsChip: [
+            (s) => [s.evaluationResults],
+            (evaluationResults: TraceEvaluationResultsApi | null): EvalsChipData | null =>
+                evaluationResults ? toEvalsChip(evaluationResults.summary) : null,
+        ],
+        evalOutcomesByNode: [
+            (s) => [s.evaluationResults],
+            (evaluationResults: TraceEvaluationResultsApi | null): Record<string, EvalRollupOutcome> =>
+                evaluationResults ? toEvalOutcomesByNode(evaluationResults.summary) : {},
+        ],
+        gitBranch: [(s) => [s.trace], (trace: TraceApi | null): GitBranchChipProps | null => trace?.git ?? null],
         canViewInThread: [
             (s, p) => [s.selectedNodeId, s.threadNodeIds, p.traceId],
             (selectedNodeId: string, threadNodeIds: string[], traceId: string): boolean =>
@@ -473,6 +505,10 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             summaryStepClicked: ({ nodeId, kind }) => {
                 posthog.capture('llma trace view summary step clicked', { kind })
                 actions.selectAndShowSpans(nodeId)
+            },
+            showFailingEvals: () => {
+                actions.selectAndShowSpans(firstFailingNodeId(values.tree, values.evalOutcomesByNode) ?? props.traceId)
+                actions.setDetailTab('evals')
             },
         }
     }),

@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 
-import { ElementRect } from '~/toolbar/types'
-import { elementToQuery, getRectForElement } from '~/toolbar/utils'
+import { ElementRect } from '~/toolbar/shared/types'
+import { elementToQuery, getRectForElement } from '~/toolbar/shared/utils'
 
 import { internalFeedbackCreate } from 'products/platform_features/frontend/generated/api'
 
