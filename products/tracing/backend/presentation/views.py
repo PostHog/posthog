@@ -1740,6 +1740,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             filter_group = None
 
         compare_filter = self._parse_compare_filter(query_data)
+        include_health = self._parse_bool(query_data.get("includeHealth"))
 
         # Bound the payload: default to a conservative page so agent/MCP callers don't pull the
         # full high-cardinality tail. Callers opt into more via `limit`/`offset`.
@@ -1758,7 +1759,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             offset=offset,
             include_impact=bool(query_data.get("includeImpact")),
             group_by_endpoint=self._parse_bool(query_data.get("groupByEndpoint")),
-            include_health=self._parse_bool(query_data.get("includeHealth")),
+            include_health=include_health,
         )
 
         results = list(response.results)
@@ -1767,6 +1768,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # `None` when no comparison was requested, `[]` when it ran but matched no spans — keep them
         # distinct so an empty baseline isn't reported as "comparison ignored".
         compare_rows = list(response.compare)[:limit] if response.compare is not None else None
+        if include_health and response.compare is not None:
+            # Health baselines follow the result keys, not their own ranking, so match them by key.
+            visible = {(row.service_name, row.name) for row in results}
+            compare_rows = [row for row in response.compare if (row.service_name, row.name) in visible]
 
         self._report_usage(
             request,

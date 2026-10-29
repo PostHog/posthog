@@ -366,6 +366,26 @@ class TestTraceSpansAggregationHealth(_TraceSpansTestBase):
         )
         self.assertIsNone(response.compare)
 
+    def test_api_compare_rows_follow_the_visible_page(self):
+        # The view over-fetches one row for has_more, so the baseline also holds the row it drops.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/aggregate/",
+            {
+                "query": {
+                    "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                    "compareFilter": {"compare": True},
+                    "includeHealth": True,
+                    "limit": 1,
+                    "offset": 2,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        data = response.json()
+        self.assertEqual([row["name"] for row in data["results"]], ["GET /new"])
+        self.assertEqual(data["compare"], [])
+
     @parameterized.expand(
         [("previous_period", None, None), ("compare_filter", CompareFilter(compare=True), ["GET /legacy"])]
     )

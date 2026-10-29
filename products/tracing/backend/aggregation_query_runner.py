@@ -324,7 +324,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             group_name = _endpoint_name_expr()
         limit, offset = self._limit, self._offset
         if self._baseline_keys is not None and query_date_range is not self.query_date_range:
-            keys = ast.Array(
+            keys = ast.Tuple(
                 exprs=[
                     ast.Tuple(exprs=[ast.Constant(value=service), ast.Constant(value=name)])
                     for service, name in self._baseline_keys
@@ -334,7 +334,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 exprs=[
                     where,
                     parse_expr(
-                        "has({keys}, tuple(service_name, {group_name}))",
+                        "tuple(service_name, {group_name}) IN {keys}",
                         placeholders={"keys": keys, "group_name": group_name},
                     ),
                 ]
