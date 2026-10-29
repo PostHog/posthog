@@ -151,7 +151,10 @@ describe('tracingSceneLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [flag]: true })
         mountAt({ view })
         expect(logic.values.activeTracingTab).toBe(view)
-        expect(aggregate).toHaveBeenLastCalledWith(expect.objectContaining({ groupByEndpoint }), expect.anything())
+        expect(aggregate).toHaveBeenLastCalledWith(
+            expect.objectContaining({ groupByEndpoint, includeHealth: groupByEndpoint }),
+            expect.anything()
+        )
     })
 
     it.each(['operations', 'endpoints'])('ignores ?view=%s when its flag is off', (view) => {

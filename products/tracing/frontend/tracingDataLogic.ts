@@ -1172,6 +1172,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             // the aggregates read attribute maps the rest of the query never touches.
                             includeImpact: fullRange && !!values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP],
                             groupByEndpoint: options?.groupByEndpoint || undefined,
+                            includeHealth: options?.groupByEndpoint || undefined,
                         },
                         controller.signal
                     )

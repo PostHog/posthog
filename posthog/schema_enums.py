@@ -3019,6 +3019,16 @@ class SnapchatAdsDefaultSources(StrEnum):
     SNAPCHAT = "snapchat"
 
 
+class SpanHealthStatus(StrEnum):
+    SILENT = "silent"
+    REGRESSED = "regressed"
+    DEGRADED = "degraded"
+    NEW = "new"
+    RECOVERED = "recovered"
+    IMPROVED = "improved"
+    OK = "ok"
+
+
 class SpanPropertyFilterType(StrEnum):
     SPAN = "span"
     SPAN_ATTRIBUTE = "span_attribute"

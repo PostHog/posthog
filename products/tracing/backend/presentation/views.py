@@ -68,6 +68,7 @@ from ..facade.api import (
     run_symbol_stats_query,
     service_health_byte_cap_message,
 )
+from ..facade.enums import ServiceHealthStatus
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     _ROW_LIMIT,
@@ -627,6 +628,15 @@ class _TracingAggregationQueryBodySerializer(serializers.Serializer):
             "that are not HTTP server spans are left out."
         ),
     )
+    includeHealth = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also return `health_status` and `health_reason` per row, comparing each row with the same row in the "
+            "comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and "
+            "thresholds as the service health check. Costs a second window query."
+        ),
+    )
 
 
 class _TracingAggregationRequestSerializer(serializers.Serializer):
@@ -671,6 +681,19 @@ class _AggregatedSpanRowSerializer(serializers.Serializer):
             "How many of this group's spans carry a person distinct ID under the team's configured or conventional "
             "attribute keys. Null unless the query set `includeImpact`."
         ),
+    )
+    health_status = serializers.ChoiceField(
+        choices=ServiceHealthStatus.choices,
+        allow_null=True,
+        help_text=(
+            "How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error "
+            "rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set "
+            "`includeHealth`."
+        ),
+    )
+    health_reason = serializers.CharField(
+        allow_null=True,
+        help_text="Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.",
     )
 
 
@@ -1721,6 +1744,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             offset=offset,
             include_impact=bool(query_data.get("includeImpact")),
             group_by_endpoint=bool(query_data.get("groupByEndpoint")),
+            include_health=bool(query_data.get("includeHealth")),
         )
 
         results = list(response.results)
@@ -1743,6 +1767,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "service_names_count": len(query_data.get("serviceNames") or []),
                 "include_impact": bool(query_data.get("includeImpact")),
                 "group_by_endpoint": bool(query_data.get("groupByEndpoint")),
+                "include_health": bool(query_data.get("includeHealth")),
             },
         )
 

@@ -30,6 +30,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PropertyGroupsMode,
+    SpanHealthStatus,
     SpanPropertyFilter,
     SpanPropertyFilterType,
     SpanTreeNode,
@@ -63,6 +64,7 @@ from .logic import (
     with_span_attribute_type_suffix,
 )
 from .models import TracingIdentityAttributeKeys
+from .service_health_query_runner import ServiceWindowStats, classify_service
 from .span_identity import identity_value_expr, str_attr_field
 
 if TYPE_CHECKING:
@@ -271,9 +273,44 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         # Runner arguments, not query fields, so the base payload cannot see them.
         return {**super().get_cache_payload(), "limit": self._limit, "offset": self._offset}
 
+    def _compare_query_date_range(self) -> QueryDateRange | None:
+        compare_range = super()._compare_query_date_range()
+        if compare_range is None and self.query.includeHealth:
+            # Health needs a baseline, so without a comparison it uses the previous period.
+            return QueryPreviousPeriodDateRange(
+                date_range=self.query.dateRange,
+                team=self.team,
+                interval=IntervalType.MINUTE,
+                timezone_info=ZoneInfo("UTC"),
+                now=dt.datetime.now(),
+            )
+        return compare_range
+
     def _calculate(self) -> TraceSpansAggregationQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
+        if self.query.includeHealth:
+            self._classify(current_rows, previous_rows or [])
+            if not (self.query.compareFilter and self.query.compareFilter.compare):
+                previous_rows = None
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
+
+    def _classify(self, current_rows: list[AggregatedSpanRow], baseline_rows: list[AggregatedSpanRow]) -> None:
+        # shortcut: rows carry no last-seen time, so silent never fires, and a baseline cut off by the
+        # row limit reads as new. Add a last_seen column if per-endpoint silence detection is needed.
+        baseline = {(row.service_name, row.name): row for row in baseline_rows}
+        window_from = self.query_date_range.date_from()
+        window_to = min(self.query_date_range.date_to(), dt.datetime.now(tz=ZoneInfo("UTC")))
+        for row in current_rows:
+            before = baseline.get((row.service_name, row.name))
+            status, reason = classify_service(
+                current=_window_stats(row, window_to),
+                baseline=_window_stats(before, window_to) if before else None,
+                has_baseline=True,
+                window_from=window_from,
+                window_to=window_to,
+            )
+            row.health_status = SpanHealthStatus(status.value)
+            row.health_reason = reason
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         # Single table scan plus hash aggregate. Cheap enough to run unscoped.
@@ -357,6 +394,17 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         response = super().run(*args, **kwargs)
         assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
         return response
+
+
+def _window_stats(row: AggregatedSpanRow, last_seen: dt.datetime) -> ServiceWindowStats:
+    return ServiceWindowStats(
+        requests=row.count,
+        errors=row.error_count,
+        p50_ms=row.p50_duration_nano / 1e6,
+        p95_ms=row.p95_duration_nano / 1e6,
+        p99_ms=row.p99_duration_nano / 1e6,
+        last_seen=last_seen,
+    )
 
 
 def _http_method_expr() -> ast.Expr:

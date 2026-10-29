@@ -314,3 +314,51 @@ class TestTraceSpansAggregationGroupByEndpoint(_TraceSpansTestBase):
             group_by_endpoint=group_by_endpoint,
         )
         self.assertEqual({(row.name, row.count) for row in response.results}, expected)
+
+
+class TestTraceSpansAggregationHealth(_TraceSpansTestBase):
+    SERVICE = "api"
+    # (name, hour inside the query window or its previous period, span count, error count)
+    GROUPS = [
+        ("GET /orders", 6, 100, 0),
+        ("GET /orders", 8, 100, 10),
+        ("GET /items", 6, 100, 0),
+        ("GET /items", 8, 100, 0),
+        ("GET /new", 8, 5, 0),
+    ]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        values: list[str] = []
+        for name, hour, count, errors in cls.GROUPS:
+            for j in range(count):
+                i = len(values)
+                ts = dt.datetime(2026, 6, 2, hour, 0, 0) + dt.timedelta(seconds=j)
+                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+                end_str = (ts + dt.timedelta(milliseconds=10)).strftime("%Y-%m-%d %H:%M:%S.%f")
+                # The last `errors` spans of each group fail.
+                status = 2 if j >= count - errors else 0
+                values.append(
+                    f"('019e8763-0000-0000-0000-{i:012d}', {cls.team.id}, '{_b64(i.to_bytes(16, 'big'))}', "
+                    f"'{_b64((1000 + i).to_bytes(8, 'big'))}', '', '{name}', 2, '{ts_str}', '{end_str}', "
+                    f"'{ts_str}', {status}, '{cls.SERVICE}')"
+                )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(values)
+        )
+
+    def test_classifies_each_row_against_the_previous_period(self):
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            include_health=True,
+        )
+        self.assertEqual(
+            {row.name: row.health_status for row in response.results},
+            {"GET /orders": "regressed", "GET /items": "ok", "GET /new": "new"},
+        )
+        self.assertIsNone(response.compare)

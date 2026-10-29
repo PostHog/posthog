@@ -1432,7 +1432,6 @@
         },
         "AggregatedSpanRow": {
             "additionalProperties": false,
-            "description": "One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view.",
             "properties": {
                 "avg_duration_nano": {
                     "type": "number"
@@ -1442,6 +1441,14 @@
                 },
                 "error_count": {
                     "$ref": "#/definitions/integer"
+                },
+                "health_reason": {
+                    "description": "Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`.",
+                    "type": "string"
+                },
+                "health_status": {
+                    "$ref": "#/definitions/SpanHealthStatus",
+                    "description": "Set only when the query asked for `includeHealth`. Same statuses as the service health check."
                 },
                 "name": {
                     "type": "string"
@@ -53395,6 +53402,11 @@
             "required": ["startLine", "endLine"],
             "type": "object"
         },
+        "SpanHealthStatus": {
+            "description": "One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view.",
+            "enum": ["silent", "regressed", "degraded", "new", "recovered", "improved", "ok"],
+            "type": "string"
+        },
         "SpanPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -55224,6 +55236,10 @@
                 },
                 "groupByEndpoint": {
                     "description": "Group HTTP server spans by `METHOD route` in place of the span name. Spans without a route keep their name. Spans that are not HTTP server spans are left out.",
+                    "type": "boolean"
+                },
+                "includeHealth": {
+                    "description": "Classify each row against the comparison window, or the previous period when `compareFilter` is off. Fills `health_status` and `health_reason`. Runs a second window query.",
                     "type": "boolean"
                 },
                 "includeImpact": {
