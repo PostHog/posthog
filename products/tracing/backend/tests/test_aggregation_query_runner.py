@@ -256,3 +256,61 @@ class TestTraceSpansTreePercentiles(_TraceSpansTestBase):
         )
         edge = next(n for n in response.results if n.name == self.CHILD_NAME)
         self.assertAlmostEqual(getattr(edge, field), expected_nano, delta=MS_TO_NANO)
+
+
+class TestTraceSpansAggregationGroupByEndpoint(_TraceSpansTestBase):
+    SERVICE = "api"
+    SERVER, CLIENT = 2, 3
+    SPANS = [
+        ("/users/1", SERVER, {"http.method": "GET", "http.route": "/users/{id}"}),
+        ("/users/2", SERVER, {"http.request.method": "GET", "http.route": "/users/{id}"}),
+        ("GET", SERVER, {"http.method": "GET", "http.route": "/orders"}),
+        ("GET", SERVER, {"http.method": "GET", "http.route": "/items"}),
+        ("GET /health", SERVER, {"http.method": "GET"}),
+        ("RunActivity:sync", SERVER, {}),
+        ("GET", CLIENT, {"http.method": "GET", "http.route": "/upstream"}),
+    ]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        base = dt.datetime(2026, 6, 2, 8, 0, 0)
+        ts_str = base.strftime("%Y-%m-%d %H:%M:%S.%f")
+        end_str = (base + dt.timedelta(milliseconds=10)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        rows: list[str] = []
+        for i, (name, kind, attributes) in enumerate(cls.SPANS):
+            attribute_map = "map(" + ", ".join(f"'{key}__str', '{value}'" for key, value in attributes.items()) + ")"
+            rows.append(
+                f"('019e8762-0000-0000-0000-{i:012d}', {cls.team.id}, '{_b64(i.to_bytes(16, 'big'))}', "
+                f"'{_b64((100 + i).to_bytes(8, 'big'))}', '', '{name}', {kind}, '{ts_str}', '{end_str}', "
+                f"'{ts_str}', 0, '{cls.SERVICE}', {attribute_map})"
+            )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str) VALUES "
+            + ",".join(rows)
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "by_span_name",
+                False,
+                {("/users/1", 1), ("/users/2", 1), ("GET", 3), ("GET /health", 1), ("RunActivity:sync", 1)},
+            ),
+            (
+                "by_endpoint",
+                True,
+                {("GET /users/{id}", 2), ("GET /orders", 1), ("GET /items", 1), ("GET /health", 1)},
+            ),
+        ]
+    )
+    def test_rows(self, _name, group_by_endpoint, expected):
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            group_by_endpoint=group_by_endpoint,
+        )
+        self.assertEqual({(row.name, row.count) for row in response.results}, expected)
