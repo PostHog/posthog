@@ -15,8 +15,8 @@ export function PlayerSidebarOverviewDeviceTab(): JSX.Element {
 
     // Pixel sizes instead of CSS aspect-ratio, so unknown or extreme resolutions still draw as a screen.
     const aspect = resolution && resolution.width > 0 ? resolution.height / resolution.width : 10 / 16
-    const frameWidth = aspect > 1 ? Math.round(56 / aspect) : 80
-    const frameHeight = aspect > 1 ? 56 : Math.round(80 * Math.min(Math.max(aspect, 0.45), 0.8))
+    const frameWidth = aspect > 1 ? Math.round(34 / aspect) : 68
+    const frameHeight = aspect > 1 ? 34 : Math.round(68 * Math.min(Math.max(aspect, 0.35), 0.56))
     const visiblePercent = Math.round(Math.min(Math.max(scale, 0), 1) * 80)
 
     return (
@@ -46,7 +46,7 @@ export function PlayerSidebarOverviewDeviceTab(): JSX.Element {
                                         style={{ width: `${visiblePercent}%`, height: `${visiblePercent}%` }}
                                     />
                                 </div>
-                                <div className="h-1.5 w-8 rounded-b-sm bg-muted" />
+                                <div className="h-1.5 w-7 rounded-b-sm bg-muted" />
                             </div>
                         </Tooltip>
                         <div className="flex flex-col min-w-0 text-xs">

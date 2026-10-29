@@ -28,6 +28,7 @@ import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
+import { useResolvedChartTheme } from './theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -63,7 +64,8 @@ export interface ChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: ChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     createScales: CreateScalesFn
     /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
     drawStatic: (args: ChartDrawArgs) => void
@@ -128,7 +130,7 @@ export function Chart<Meta = unknown>({
     series,
     labels,
     config,
-    theme,
+    theme: themeProp,
     createScales: createScalesFn,
     drawStatic,
     drawHover,
@@ -149,6 +151,7 @@ export function Chart<Meta = unknown>({
     wrapClickData,
     resolveHoverIndex,
 }: ChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xTickFormatter,
         xTickLabelRotation = 0,
@@ -188,39 +191,12 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip = false,
         resolveClickToNearestSeries = false,
         placement: tooltipPlacement = 'follow-data',
-        valueFormatter: tooltipValueFormatter,
-        labelFormatter: tooltipLabelFormatter,
-        showTotal: tooltipShowTotal,
-        totalLabel: tooltipTotalLabel,
-        totalFormatter: tooltipTotalFormatter,
-        sortedByValue: tooltipSortedByValue,
+        ...defaultTooltipOptions
     } = tooltipConfig ?? {}
 
-    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
-    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
-        () =>
-            renderTooltipProp ??
-            ((ctx: TooltipContext<Meta>) => (
-                <DefaultTooltip
-                    {...ctx}
-                    valueFormatter={tooltipValueFormatter}
-                    labelFormatter={tooltipLabelFormatter}
-                    showTotal={tooltipShowTotal}
-                    totalLabel={tooltipTotalLabel}
-                    totalFormatter={tooltipTotalFormatter}
-                    sortedByValue={tooltipSortedByValue}
-                />
-            )),
-        [
-            renderTooltipProp,
-            tooltipValueFormatter,
-            tooltipLabelFormatter,
-            tooltipShowTotal,
-            tooltipTotalLabel,
-            tooltipTotalFormatter,
-            tooltipSortedByValue,
-        ]
-    )
+    // No render prop: render DefaultTooltip with config.tooltip's content options.
+    const renderTooltip =
+        renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} {...defaultTooltipOptions} />)
 
     const margins = useChartMargins({
         series,

@@ -215,6 +215,7 @@ class TestScoutInactivitySweep(BaseTest):
             # counts as consumption even when the merge never touched the app.
             ("resolved_status", None, SignalReport.Status.RESOLVED, None),
             ("monitoring_status", None, SignalReport.Status.MONITORING, None),
+            ("closed_status", None, SignalReport.Status.CLOSED, None),
             # Reading is consumption: a report someone opens (or rates) is not a report nobody
             # wanted, even when they never resolve or dismiss it.
             ("view_action", None, None, SignalReportAction.ActionType.VIEW),
