@@ -1247,6 +1247,23 @@ export function captureScoutCreatePathSwitched(params: {
     })
 }
 
+/** Which link opened the scratchpad, so each entry point's pull reads separately. */
+export type ScratchpadEntryPoint = 'told_tab' | 'learned_tab' | 'roster_stats' | 'roster_footer'
+
+/** A person followed a link to the scratchpad. The panel view itself is captured on open. */
+export function captureScratchpadLinkClicked(params: {
+    entryPoint: ScratchpadEntryPoint
+    surface: ScoutSurface
+    skillName?: string | null
+}): void {
+    captureScoutAction({
+        actionType: 'open_memory',
+        surface: params.surface,
+        skillName: params.skillName,
+        extra: { entry_point: params.entryPoint },
+    })
+}
+
 /** Where a suggestion card was rendered: the strip above the roster, or the empty state's body. */
 export type ScoutSuggestionSurface = 'strip' | 'empty_state' | 'onboarding'
 

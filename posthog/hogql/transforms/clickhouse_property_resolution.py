@@ -2056,19 +2056,23 @@ class ClickHousePropertyResolver(CloningVisitor):
             source=source,
         )
 
-    def _numeric_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
-        """A Numeric JSON property compared to non-numeric text, read as text the way the legacy table compares it.
+    def _typed_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
+        """A Numeric or Boolean JSON property compared to text it cannot be read as, read as text the way the legacy
+        table compares it.
 
         A property definition keeps the type of the first value seen, so a Numeric key can still hold text that a
-        Float64 read never matches.
+        Float64 read never matches, and a Boolean key can hold text that the Bool read turns into NULL. Comparing that
+        NULL Bool to the text fails in ClickHouse ("Cannot parse a boolean"), or counts nothing inside an aggregate.
         """
+        if self._is_boolean_conversion(expr) and not self._is_swapper_boolean_conversion(expr):
+            return None
         single = self._single_key_property(expr)
         if single is None:
             return None
         field_type, property_name = single
         property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
         semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
-        if semantic_type.family != "float":
+        if semantic_type.family not in ("float", "boolean"):
             return None
         if all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
             return None
@@ -2449,11 +2453,13 @@ class ClickHousePropertyResolver(CloningVisitor):
             values = self._extract_string_constants(node.right)
         if not values or any(not value or value.startswith(("[", "{")) for value in values):
             return None
-        if self._is_boolean_conversion(property_expr):
-            return None
-        prop = self._materialized_string_property(
-            property_expr, allow_dynamic_json=True
-        ) or self._numeric_property_to_compare_as_text(property_expr, values)
+        # A user-written `toBool(properties.x)` over a String property keeps its cast and is handled by
+        # `_optimize_materialized_equals`. The swapper's Boolean cast over a Boolean-typed property is the one looked
+        # through here, so that text the property cannot be read as compares as text.
+        prop = None
+        if not self._is_boolean_conversion(property_expr):
+            prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
+        prop = prop or self._typed_property_to_compare_as_text(property_expr, values)
         if prop is None or prop.source.kind != "json_subcolumn":
             return None
 
@@ -2645,6 +2651,32 @@ class ClickHousePropertyResolver(CloningVisitor):
         while isinstance(expr, ast.Alias):
             expr = expr.expr
         return isinstance(expr, ast.Call) and expr.name.lower() == "tobool"
+
+    @staticmethod
+    def _is_swapper_boolean_conversion(expr: ast.Expr) -> bool:
+        """True for the property swapper's own Boolean cast, `toBool(transform(toString(x), ['true', 'false'], [1, 0], NULL))`.
+
+        A user-written `toBool(toString(properties.x))` unwraps to the same property but is the user's cast to keep.
+        """
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        match expr:
+            case ast.Call(
+                name="toBool",
+                args=[
+                    ast.Call(
+                        name="transform",
+                        args=[
+                            ast.Call(name="toString", args=[_]),
+                            ast.Constant(value=["true", "false"]),
+                            ast.Constant(value=[1, 0]),
+                            ast.Constant(value=None),
+                        ],
+                    )
+                ],
+            ):
+                return True
+        return False
 
     def _optimize_materialized_ilike(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):

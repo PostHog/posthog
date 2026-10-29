@@ -109,7 +109,7 @@ export interface scoutNotesLogicMeta {
         scoutNotes: (activeNotes: ScoutNoteApi[], arg: any) => ScoutNoteApi[]
         fleetWideNotes: (activeNotes: ScoutNoteApi[]) => ScoutNoteApi[]
         directNotes: (activeNotes: ScoutNoteApi[]) => ScoutNoteApi[]
-        toldCount: (scoutNotes: ScoutNoteApi[], fleetWideNotes: ScoutNoteApi[], arg: any) => number
+        toldCount: (scoutNotes: ScoutNoteApi[]) => number
     }
 }
 
@@ -232,13 +232,10 @@ export const scoutNotesLogic = kea<scoutNotesLogicType>([
             (s) => [s.activeNotes],
             (activeNotes: ScoutNoteApi[]): ScoutNoteApi[] => activeNotes.filter(isDirectScoutNote),
         ],
-        // Every note this scout reads on its next run: its own plus the fleet-wide ones. The Told
-        // tab and the health strip both show this number, so it matches what the panel lists.
-        toldCount: [
-            (s) => [s.scoutNotes, s.fleetWideNotes, (_, props) => props],
-            (scoutNotes: ScoutNoteApi[], fleetWideNotes: ScoutNoteApi[], props: ScoutNotesLogicProps): number =>
-                props.skillName ? scoutNotes.length + fleetWideNotes.length : scoutNotes.length,
-        ],
+        // Only the notes addressed to this scout. Inbox activity on a report no scout wrote leaves a
+        // note for every scout, so counting those would give every scout the same large number.
+        // The Told tab and the health strip both show this count.
+        toldCount: [(s) => [s.scoutNotes], (scoutNotes: ScoutNoteApi[]): number => scoutNotes.length],
     }),
 
     listeners(({ actions, props }) => ({
