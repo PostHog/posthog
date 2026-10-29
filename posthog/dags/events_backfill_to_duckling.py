@@ -40,7 +40,7 @@ import calendar
 import functools
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Protocol
@@ -2557,9 +2557,11 @@ def list_exported_files(client: Client, target: DucklingTarget, s3_glob: str, se
         raise ValueError(f"Export glob {s3_glob} is outside the bucket {target.bucket}")
     directory, _, pattern = s3_glob.removeprefix(bucket_prefix).rpartition("/")
     url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, f"{directory}/{pattern}")
-    # The One format reads no file contents, so the query only lists the objects.
+    # The One format reads no file contents, so the query only lists the objects. An export of no rows writes no
+    # files, so its glob must list none, whatever a profile or a Launchpad override sets.
     rows = client.execute(
-        f"SELECT _file FROM s3({escape_clickhouse_string(url)}, 'One') ORDER BY _file", settings=settings
+        f"SELECT _file FROM s3({escape_clickhouse_string(url)}, 'One') ORDER BY _file",
+        settings={**settings, "s3_throw_on_zero_files_match": 0},
     )
     return [f"{bucket_prefix}{directory}/{row[0]}" for row in rows]
 
@@ -2599,7 +2601,8 @@ def backfill_through_trino(
     """Export each item from ClickHouse and register its files through Trino, for a warehouse without duckgres.
 
     One add_files call adds the files of an export and removes the rows they replace in the same snapshot. A retried
-    call with the same import id is a no-op, so this path needs no delete-then-register replay.
+    call with the same import id is a no-op, so this path needs no delete-then-register replay. A run that skips
+    registration still writes the Trino types, because add_files can register only those files later.
     """
     run_id = context.run.run_id[:16]
     cluster = _get_cluster()
@@ -2607,14 +2610,16 @@ def backfill_through_trino(
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
     partitions_exported = 0
     files_registered = 0
-    with connect_backfill_catalog(target.organization_id) as catalog:
-        catalog.ensure_table(
-            table,
-            column_types,
-            drop_first=config.delete_tables,
-            create_if_missing=config.create_tables_if_missing,
-            validate=not config.skip_schema_validation,
-        )
+    register = not (config.dry_run or config.skip_ducklake_registration)
+    with connect_backfill_catalog(target.organization_id) if register else nullcontext() as catalog:
+        if catalog is not None:
+            catalog.ensure_table(
+                table,
+                column_types,
+                drop_first=config.delete_tables,
+                create_if_missing=config.create_tables_if_missing,
+                validate=not config.skip_schema_validation,
+            )
         for item in exports:
             # A new prefix for every export, because an export under an earlier prefix would overwrite files that
             # DuckLake already registered with their row counts and statistics.
@@ -2629,6 +2634,9 @@ def backfill_through_trino(
             if files is None:
                 continue
             partitions_exported += 1
+            if catalog is None:
+                context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
+                continue
             replacement = item.replacement if config.cleanup_existing_partition_data else None
             if files:
                 catalog.register_files(table, files, import_id=prefix, replacement=replacement)
@@ -2809,10 +2817,11 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    should_register = not (config.dry_run or config.skip_ducklake_registration)
-    if should_register and backfills_through_trino(target.organization_id):
+    if backfills_through_trino(target.organization_id):
         _backfill_events_through_trino(context, config, target, dates)
         return
+
+    should_register = not (config.dry_run or config.skip_ducklake_registration)
 
     # Open one duckgres connection for all metadata operations, but skip it
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
@@ -3130,10 +3139,11 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    should_register = not (config.dry_run or config.skip_ducklake_registration)
-    if should_register and backfills_through_trino(target.organization_id):
+    if backfills_through_trino(target.organization_id):
         _backfill_persons_through_trino(context, config, target, None if is_full else dates)
         return
+
+    should_register = not (config.dry_run or config.skip_ducklake_registration)
 
     # Open one duckgres connection for all metadata operations, but skip it
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).

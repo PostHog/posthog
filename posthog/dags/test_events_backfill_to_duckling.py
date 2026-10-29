@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, call, patch
 
 import duckdb
 import psycopg
+from clickhouse_driver.errors import Error as ClickHouseError
 from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import get_client_from_pool
@@ -2668,7 +2669,10 @@ class _FakeExportClickHouse:
         if "'One'" in query:
             pattern = re.search(r"s3\('([^']+)'", query)
             assert pattern is not None
-            return [(url.rsplit("/", 1)[1],) for url in sorted(self.objects) if fnmatch(url, pattern[1])]
+            matched = [(url.rsplit("/", 1)[1],) for url in sorted(self.objects) if fnmatch(url, pattern[1])]
+            if not matched and (settings or {}).get("s3_throw_on_zero_files_match"):
+                raise ClickHouseError(f"Can not match any files with path {pattern[1]}")
+            return matched
         return [(10,)]
 
 
@@ -2695,13 +2699,13 @@ class TestBackfillThroughTrino:
             patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
             patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
             patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
+            patch("tenacity.nap.time.sleep"),
         ):
             connect_catalog.return_value.__enter__.return_value = catalog
             run(context, config)
             run(context, config)
         duckgres.assert_not_called()
-        connect_catalog.assert_called_with("org-1")
-        return catalog
+        return catalog, connect_catalog
 
     @parameterized.expand(
         [
@@ -2740,8 +2744,9 @@ class TestBackfillThroughTrino:
     ):
         clickhouse = _FakeExportClickHouse(files_per_export=2)
 
-        catalog = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
+        catalog, connect_catalog = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
 
+        connect_catalog.assert_called_with("org-1")
         assert catalog.tables == [(table, column_types)] * 2
         assert [(t, r) for t, _, _, r in catalog.registered] == [(table, replacement)] * 2
         first, second = catalog.registered
@@ -2764,15 +2769,51 @@ class TestBackfillThroughTrino:
         clickhouse = _FakeExportClickHouse(files_per_export=files_per_export)
         day = DuckLakeDayReplacement(column="timestamp", day=date(2026, 6, 17))
 
-        catalog = self._run(
+        catalog, _ = self._run(
             _run_duckling_events_backfill,
             "2_2026-06-17",
             clickhouse,
-            DucklingBackfillConfig(cleanup_existing_partition_data=cleanup),
+            # A server profile or a Launchpad override can make ClickHouse throw for a glob that matches no files.
+            DucklingBackfillConfig(
+                cleanup_existing_partition_data=cleanup, clickhouse_settings={"s3_throw_on_zero_files_match": 1}
+            ),
         )
 
         assert catalog.deleted == ([("events_team_2", day)] * 2 if cleanup and not files_per_export else [])
         assert [r for _, _, _, r in catalog.registered] == ([None] * 2 if files_per_export else [])
+
+    @parameterized.expand(
+        [
+            ("events_day", _run_duckling_events_backfill, "2_2026-06-17", "toString(person_mode) as person_mode"),
+            ("persons_day", _run_duckling_persons_backfill, "2_2026-06-17", "toInt64(p.version) AS person_version"),
+            ("persons_full", _run_duckling_persons_backfill, "2", "toInt64(p.version) AS person_version"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_export_only_runs_write_the_trino_types_without_registering(self, _name, run, partition_key, cast_column):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+
+        catalog, connect_catalog = self._run(
+            run, partition_key, clickhouse, DucklingBackfillConfig(skip_ducklake_registration=True)
+        )
+
+        connect_catalog.assert_not_called()
+        assert catalog.registered == []
+        assert len(clickhouse.inserts) == 2
+        for insert, settings in clickhouse.inserts:
+            assert cast_column in insert
+            assert settings["output_format_parquet_string_as_string"] == 1
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_dry_runs_neither_export_nor_open_the_catalog(self):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+
+        _, connect_catalog = self._run(
+            _run_duckling_events_backfill, "2_2026-06-17", clickhouse, DucklingBackfillConfig(dry_run=True)
+        )
+
+        connect_catalog.assert_not_called()
+        assert clickhouse.inserts == []
 
 
 # The Trino column type that DuckLake reads back from the Parquet type ClickHouse writes for a ClickHouse type.

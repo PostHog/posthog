@@ -261,8 +261,7 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
     target = _resolve_duckling_target(team_id)
     table_name = resolve_groups_table(team_id)
     tags = dagster_tags(context)
-    should_register = not (config.dry_run or config.skip_ducklake_registration)
-    if should_register and backfills_through_trino(target.organization_id):
+    if backfills_through_trino(target.organization_id):
         result = backfill_through_trino(
             context,
             config,
@@ -300,6 +299,7 @@ def run_groups_backfill(context: AssetExecutionContext, config: DucklingBackfill
             partitions_exported=result.partitions_exported,
         )
         return
+    should_register = not (config.dry_run or config.skip_ducklake_registration)
     session = _DuckgresSession(context, target) if should_register else None
     files_registered = 0
     partitions_exported = 0

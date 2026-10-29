@@ -14,6 +14,8 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_exponential
+from trino.exceptions import Http502Error, Http503Error, Http504Error, TrinoConnectionError
 
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 
@@ -23,6 +25,7 @@ from posthog.ph_client import feature_enabled_or_false
 from products.managed_warehouse.backend.facade.contracts import DuckLakeDayReplacement, DuckLakeTableReplacement
 from products.managed_warehouse.backend.facade.feature_flags import DUCKLAKE_TRINO_REGISTRATION_FLAG
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
+from products.managed_warehouse.backend.trino_execution import is_transient_trino_error
 
 if TYPE_CHECKING:
     from trino.dbapi import Connection
@@ -37,6 +40,12 @@ ADD_FILES_MAX_FILES = 2_000
 # A replacement removes rows by time or by table, never by team. In a table that several teams share, it would also
 # remove the rows of the other teams.
 SHARED_TABLES = frozenset({"events", "persons", "groups"})
+# DuckLake asks for the statement to be run again when another writer changed the table while it was planned or
+# committed.
+TRANSIENT_DUCKLAKE_ERROR_NAMES = frozenset(
+    {"DUCKLAKE_COMMIT_CONFLICT", "DUCKLAKE_CONCURRENT_MODIFICATION", "DUCKLAKE_COMMIT_FAILED"}
+)
+STATEMENT_ATTEMPTS = 4
 
 
 Replacement = DuckLakeDayReplacement | DuckLakeTableReplacement
@@ -63,12 +72,29 @@ def _timestamp_bound(day: date) -> str:
     return f"{day.isoformat()} 00:00:00+00"
 
 
-def _refuse_shared_table(table: str) -> None:
+def _refuse_shared_table(table: str, change: str) -> None:
     if table in SHARED_TABLES:
         raise ValueError(
-            f"Refusing to replace rows in the shared table '{table}' through Trino, because the replacement "
-            "would also remove the rows of other teams"
+            f"Refusing to {change} the shared table '{table}' through Trino, because that would also remove the rows "
+            "of other teams"
         )
+
+
+def _is_transient(error: BaseException) -> bool:
+    # The client already retried each HTTP request, so these mean that the coordinator or the gateway went away.
+    if isinstance(error, TrinoConnectionError | Http502Error | Http503Error | Http504Error):
+        return True
+    return is_transient_trino_error(error) or getattr(error, "error_name", None) in TRANSIENT_DUCKLAKE_ERROR_NAMES
+
+
+def _log_retry(state: RetryCallState) -> None:
+    error = state.outcome.exception() if state.outcome is not None else None
+    LOGGER.warning(
+        "A DuckLake backfill statement failed for a transient reason, retrying it",
+        attempt=state.attempt_number,
+        error_name=getattr(error, "error_name", None),
+        error=str(error),
+    )
 
 
 class TrinoBackfillCatalog:
@@ -87,7 +113,16 @@ class TrinoBackfillCatalog:
     def _table(self, table: str) -> str:
         return f"{self._catalog}.{escape_trino_identifier(BACKFILL_SCHEMA)}.{escape_trino_identifier(table)}"
 
+    @retry(
+        retry=retry_if_exception(_is_transient),
+        stop=stop_after_attempt(STATEMENT_ATTEMPTS),
+        wait=wait_exponential(multiplier=1, min=4, max=60),
+        before_sleep=_log_retry,
+        reraise=True,
+    )
     def _run(self, statement: str) -> list[list[Any]]:
+        # Every statement here can run again. DDL has IF [NOT] EXISTS, deleting a range twice deletes nothing more,
+        # and add_files records its import_id, so a repeat of an applied import adds nothing.
         cursor = self._connection.cursor()
         try:
             cursor.execute(statement)
@@ -99,6 +134,7 @@ class TrinoBackfillCatalog:
         self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None:
         if drop_first:
+            _refuse_shared_table(table, "drop")
             self._run(f"DROP TABLE IF EXISTS {self._table(table)}")
         if create_if_missing:
             self._run(f"CREATE SCHEMA IF NOT EXISTS {self._catalog}.{escape_trino_identifier(BACKFILL_SCHEMA)}")
@@ -134,7 +170,7 @@ class TrinoBackfillCatalog:
         repeated.
         """
         if replacement is not None:
-            _refuse_shared_table(table)
+            _refuse_shared_table(table, "replace rows in")
         if len(files) > ADD_FILES_MAX_FILES:
             raise ValueError(
                 f"The export wrote {len(files)} files, but one add_files call registers at most "
@@ -159,7 +195,7 @@ class TrinoBackfillCatalog:
 
     def delete_rows(self, table: str, replacement: Replacement) -> None:
         """Remove the rows an export replaces when the export wrote no files."""
-        _refuse_shared_table(table)
+        _refuse_shared_table(table, "replace rows in")
         statement = f"DELETE FROM {self._table(table)}"
         if isinstance(replacement, DuckLakeDayReplacement):
             column = escape_trino_identifier(replacement.column)

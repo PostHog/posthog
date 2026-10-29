@@ -338,6 +338,40 @@ class _FakeGroupsCatalog:
 def test_groups_backfill_registers_through_trino_without_duckgres(
     partition_key: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement
 ) -> None:
+    inserts, catalog, connect_catalog, context = _run_groups_through_trino(partition_key, DucklingBackfillConfig())
+
+    connect_catalog.assert_called_once_with("org")
+    assert catalog.tables == [("groups_team_7", GROUPS_TRINO_COLUMN_TYPES)]
+    [(table, files, registered_replacement)] = catalog.registered
+    assert (table, registered_replacement) == ("groups_team_7", replacement)
+    [insert] = inserts
+    export_path = re.search(r"s3\('([^']+)'", insert)
+    assert export_path is not None
+    assert files == [
+        export_path[1].replace("https://bkt.s3.us-east-1.amazonaws.com/", "s3://bkt/").replace("{_partition_id}", "0")
+    ]
+    assert "toInt16(group_type_index) AS group_type_index" in insert
+    assert "toDateTime64(created_at, 6, 'UTC') AS created_at" in insert
+    assert context.add_output_metadata.call_args.args[0]["files_registered"] == 1
+
+
+@pytest.mark.parametrize("partition_key", ["7", "7_2025-12-31"])
+@time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
+def test_groups_export_only_writes_the_trino_types_without_registering(partition_key: str) -> None:
+    inserts, catalog, connect_catalog, _ = _run_groups_through_trino(
+        partition_key, DucklingBackfillConfig(skip_ducklake_registration=True)
+    )
+
+    connect_catalog.assert_not_called()
+    assert catalog.registered == []
+    [insert] = inserts
+    assert "toInt16(group_type_index) AS group_type_index" in insert
+    assert "toDateTime64(created_at, 6, 'UTC') AS created_at" in insert
+
+
+def _run_groups_through_trino(
+    partition_key: str, config: DucklingBackfillConfig
+) -> tuple[list[str], _FakeGroupsCatalog, MagicMock, MagicMock]:
     target = DucklingTarget(team_id=7, organization_id="org", bucket="bkt", bucket_region="us-east-1")
     inserts: list[str] = []
 
@@ -367,21 +401,10 @@ def test_groups_backfill_registers_through_trino_without_duckgres(
         patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
     ):
         connect_catalog.return_value.__enter__.return_value = catalog
-        run_groups_backfill(context, DucklingBackfillConfig())
+        run_groups_backfill(context, config)
 
     duckgres.assert_not_called()
-    assert catalog.tables == [("groups_team_7", GROUPS_TRINO_COLUMN_TYPES)]
-    [(table, files, registered_replacement)] = catalog.registered
-    assert (table, registered_replacement) == ("groups_team_7", replacement)
-    [insert] = inserts
-    export_path = re.search(r"s3\('([^']+)'", insert)
-    assert export_path is not None
-    assert files == [
-        export_path[1].replace("https://bkt.s3.us-east-1.amazonaws.com/", "s3://bkt/").replace("{_partition_id}", "0")
-    ]
-    assert "toInt16(group_type_index) AS group_type_index" in insert
-    assert "toDateTime64(created_at, 6, 'UTC') AS created_at" in insert
-    assert context.add_output_metadata.call_args.args[0]["files_registered"] == 1
+    return inserts, catalog, connect_catalog, context
 
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
