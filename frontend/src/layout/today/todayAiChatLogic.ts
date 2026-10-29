@@ -100,6 +100,9 @@ export interface todayAiChatLogicActions {
     setFloatingTab: (tab: SidePanelTab) => {
         tab: SidePanelTab
     } // todayContextPanelLogic
+    queuePreviousChatsHint: () => {
+        value: true
+    } // todayPanelChatSessionLogic
     markSessionRead: (
         marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi,
         activityIds: string[]
@@ -107,9 +110,6 @@ export interface todayAiChatLogicActions {
         activityIds: string[]
         marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi
     } // todaySpacesLogic
-    queuePreviousChatsHint: () => {
-        value: true
-    } // todayPanelChatSessionLogic
     carryContextToFullScreen: () => {
         value: true
     }

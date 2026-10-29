@@ -90,9 +90,12 @@ describe('useMaxTool', () => {
         ])
     })
 
-    it('replaces an open Today panel task chat with a new chat and queues the previous chats hint', () => {
+    it.each([
+        { nav: 'Today', todayRailNav: true, hintQueued: true },
+        { nav: 'classic', todayRailNav: false, hintQueued: false },
+    ])('replaces an open $nav panel task chat with a new chat', ({ todayRailNav, hintQueued }) => {
         featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
             [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
         })
         const panelChat = todayPanelChatSessionLogic()
@@ -105,7 +108,7 @@ describe('useMaxTool', () => {
         act(() => openMax?.())
 
         expect(runner.values.activeCreation).toBeNull()
-        expect(panelChat.values.previousChatsHintQueued).toBe(true)
+        expect(panelChat.values.previousChatsHintQueued).toBe(hintQueued)
         expect(sidePanelStateLogic.values.selectedTab).toEqual(SidePanelTab.Max)
         panelChat.unmount()
     })

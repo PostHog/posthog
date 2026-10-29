@@ -10,6 +10,9 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { todayAiChatLogic } from '~/layout/today/todayAiChatLogic'
 import { SidePanelTab } from '~/types'
 
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+
+import { MAX_SIDE_PANEL_ID } from './components/PhaiSidePanelChat'
 import { ToolDefinition, ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { sidePanelMaxLogic } from './maxLogic'
@@ -119,6 +122,12 @@ export function useMaxTool({
                       // The Today panel can show a task chat too, so its own logic starts the new chat.
                       const unmount = todayAiChatLogic.mount()
                       todayAiChatLogic.actions.startNewChatForTool()
+                      unmount()
+                  } else if (maxGlobalLogic.values.effectivePhaiView === 'new') {
+                      const runner = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+                      const unmount = runner.mount()
+                      runner.actions.clearActiveCreation()
+                      runner.actions.setHistoryExpanded(false)
                       unmount()
                   } else {
                       startNewConversation()
