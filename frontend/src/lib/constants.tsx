@@ -550,6 +550,7 @@ export const FEATURE_FLAGS = {
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRACING_AI_EVENTS: 'tracing-ai-events', // owner: #team-apm — shows a trace's LLM analytics events inline in the trace drawer waterfall
+    TRACING_ENDPOINTS_VIEW: 'tracing-endpoints-view', // owner: #team-apm — gates the Endpoints (per-route health) view in tracing
     TRACING_FACET_RAIL: 'tracing-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in tracing
     TRACING_IMPACT_STRIP: 'tracing-impact-strip', // owner: #team-apm — gates the sessions/users impact strip and the Operations table's impact columns
     TRACING_LATENCY_HEATMAP: 'tracing-latency-heatmap', // owner: #team-apm — gates the latency-over-time heatmap chart in tracing
@@ -573,6 +574,7 @@ export const FEATURE_FLAGS = {
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_ENTRYPOINT_REPLAY_FILTERS: 'vision-entrypoint-replay-filters', // owner: #team-replay, cross-sell entry point from the replay filters panel
     VISION_EXPERIMENT_SCANNER: 'experiment-scanner', // owner: #team-replay, experiment scanners overall: the type in the scanner editor, creating one from experiments, and the variants tab
+    VISION_SCANNER_WIZARD_RECORDINGS_FIRST: 'vision-scanner-wizard-recordings-first', // owner: #team-replay multivariate=control,test, new scanner wizard and goal overview ask which recordings to watch before the prompt; gate on === 'test'
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)

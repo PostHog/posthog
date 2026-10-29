@@ -299,6 +299,7 @@ from posthog.schema_enums import (
     SnapshotSource as SnapshotSource,
     SortDirection as SortDirection,
     SourceType as SourceType,
+    SpanHealthStatus as SpanHealthStatus,
     SpanPropertyFilterType as SpanPropertyFilterType,
     StartHandling as StartHandling,
     Status as Status,
@@ -3787,6 +3788,16 @@ class AggregatedSpanRow(BaseModel):
     avg_duration_nano: float
     count: int
     error_count: int
+    health_reason: str | None = Field(
+        default=None,
+        description=(
+            "Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`."
+        ),
+    )
+    health_status: SpanHealthStatus | None = Field(
+        default=None,
+        description=("Set only when the query asked for `includeHealth`. Same statuses as the service health check."),
+    )
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
@@ -31584,6 +31595,22 @@ class TraceSpansAggregationQuery(BaseModel):
     )
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
+    groupByEndpoint: bool | None = Field(
+        default=None,
+        description=(
+            "Group HTTP server spans by `METHOD route` in place of the span name. Spans"
+            " without a route keep their name. Spans that are not HTTP server spans are"
+            " left out."
+        ),
+    )
+    includeHealth: bool | None = Field(
+        default=None,
+        description=(
+            "Classify each row against the comparison window, or the previous period"
+            " when `compareFilter` is off. Fills `health_status` and `health_reason`."
+            " Runs a second window query."
+        ),
+    )
     includeImpact: bool | None = Field(
         default=None,
         description=("Also aggregate sessions and people per operation. Off by default: it reads the attribute maps."),
