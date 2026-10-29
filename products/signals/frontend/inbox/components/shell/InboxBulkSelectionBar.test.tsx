@@ -114,17 +114,26 @@ describe('InboxBulkSelectionBar', () => {
 
     // A bulk claim must skip reports a person already holds. A report that changed after the list loaded
     // comes back 409, and its row must then show the current holder and section, not offer the claim again.
+    // When the report cannot be read again, every list reconciles with the server instead.
     it.each([
-        { conflict: 'a teammate claimed it', holder: teammateClaim, status: SignalReportStatus.READY, moved: false },
-        { conflict: 'it was resolved', holder: null, status: SignalReportStatus.RESOLVED, moved: true },
-    ])('claims only the unclaimed reports and reconciles one that $conflict', async ({ holder, status, moved }) => {
+        {
+            conflict: 'a teammate claimed it',
+            read: [200, { id: 'c', assignee: teammateClaim, status: SignalReportStatus.READY }],
+            holders: { a: myClaim, c: teammateClaim },
+            reconciles: false,
+        },
+        {
+            conflict: 'it was resolved',
+            read: [200, { id: 'c', assignee: null, status: SignalReportStatus.RESOLVED }],
+            holders: { a: myClaim, c: null },
+            reconciles: true,
+        },
+        { conflict: 'it cannot be read again', read: [500, {}], holders: { a: myClaim }, reconciles: true },
+    ])('claims only the unclaimed reports and reconciles one that $conflict', async ({ read, holders, reconciles }) => {
         const claimed: string[] = []
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/:id/': ({ params }) => [
-                    200,
-                    { id: params.id, assignee: holder, status },
-                ],
+                '/api/projects/:team_id/signals/reports/:id/': () => read as [number, Record<string, unknown>],
             },
             post: {
                 '/api/projects/:team_id/signals/reports/:id/claim/': ({ params }) => {
@@ -146,17 +155,18 @@ describe('InboxBulkSelectionBar', () => {
             fireEvent.click(screen.getByText('Claim'))
         })
             .toDispatchActions([
-                logic.actionCreators.reportClaimsChanged([
-                    { reportId: 'a', assignee: myClaim },
-                    { reportId: 'c', assignee: holder },
-                ]),
-                ...(moved ? ['reportStateChanged'] : []),
+                'reportClaimsChanged',
+                ...(reconciles ? ['reportStateChanged'] : []),
                 'bulkClaimSuccess',
             ])
             .toMatchValues({ selectedReportIds: [] })
-        if (!moved) {
+        if (!reconciles) {
             await expectLogic(logic).toNotHaveDispatchedActions(['reportStateChanged'])
         }
+        const shownHolders = Object.fromEntries(
+            Object.entries(logic.values.claimOverrides).map(([id, override]) => [id, override.assignee])
+        )
+        expect(shownHolders).toEqual(holders)
         expect(claimed.sort()).toEqual(['a', 'c'])
     })
 })

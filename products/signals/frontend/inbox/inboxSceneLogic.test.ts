@@ -405,18 +405,29 @@ describe('inboxSceneLogic routing', () => {
     // A rank read at open time is null on a cold load, and joins to no impression row. The event is
     // then captured after the wait, so it also has to carry the moment the report opened: a scroll
     // or an action taken during the wait would otherwise read earlier than the open.
-    // The detail pane reads the selected report, so a claim made from a list row must reach it. Otherwise
-    // the open report keeps offering a claim the user already holds.
-    it('shows a claim made from the list on the open report', async () => {
+    // The detail pane reads the selected report, so a claim made from a list row must reach it. A fetch
+    // that started before the claim finished can still answer with the old assignee, and must not win.
+    it('keeps a list claim on the open report when an older fetch lands after it', async () => {
         const report = { id: 'r1', title: 'Crash on login', assignee: null } as SignalReport
-        useMocks({ get: { '/api/projects/:team_id/signals/reports/r1/': { ...report, assignee: myClaim } } })
+        let release: () => void = () => {}
+        const fetchHeld = new Promise<void>((resolve) => (release = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/r1/': async () => {
+                    await fetchHeld
+                    return [200, report]
+                },
+            },
+        })
         mountLogic()
-        logic.actions.loadSelectedReportSuccess(report)
+        logic.actions.loadSelectedReport({ id: 'r1' })
 
-        inboxBulkActionsLogic.actions.reportClaimsChanged([{ reportId: 'r1', assignee: myClaim }])
+        inboxBulkActionsLogic.actions.reportClaimsChanged([
+            { reportId: 'r1', assignee: myClaim, startedAt: Date.now() },
+        ])
+        release()
+        await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
 
-        expect(logic.values.selectedReport?.assignee).toEqual(myClaim)
-        await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.selectedReport?.assignee).toEqual(myClaim)
     })
 

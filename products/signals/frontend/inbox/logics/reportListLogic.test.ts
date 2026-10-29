@@ -123,7 +123,11 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        afterEach(() => logic.unmount())
+        afterEach(() => {
+            logic.unmount()
+            // The list scope persists to localStorage, so a test that changes it would leak into the next.
+            localStorage.clear()
+        })
 
         it('appends the next server page from the loaded offset, then stops', async () => {
             logic.actions.loadMore()
@@ -167,7 +171,7 @@ describe('reportListLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
                 const countBefore = logic.values.totalCount ?? 0
 
-                bulkLogic.actions.reportClaimChanged(FIRST_PAGE[0].id, assignee)
+                bulkLogic.actions.reportClaimChanged(FIRST_PAGE[0].id, assignee, Date.now())
                 await expectLogic(logic).toFinishAllListeners()
 
                 const row = logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)
@@ -190,8 +194,8 @@ describe('reportListLogic', () => {
             requestedOffsets = []
 
             bulkLogic.actions.reportClaimsChanged([
-                { reportId: 'claimed-elsewhere-1', assignee: myClaim },
-                { reportId: 'claimed-elsewhere-2', assignee: myClaim },
+                { reportId: 'claimed-elsewhere-1', assignee: myClaim, startedAt: Date.now() },
+                { reportId: 'claimed-elsewhere-2', assignee: myClaim, startedAt: Date.now() },
             ])
             await expectLogic(logic).toFinishAllListeners()
 
@@ -199,21 +203,28 @@ describe('reportListLogic', () => {
             bulkLogic.unmount()
         })
 
-        // The page that lands extends the rows it read before the request, which predate a claim made meanwhile.
-        it('keeps a claim that lands while the next page loads', async () => {
+        // A page request that started before a claim finished answers with the old assignee. Whatever
+        // page lands, and whichever row the claim is for, the row must keep the claim.
+        it.each([
+            { name: 'a loaded row while the next page loads', load: 'loadMore', rowId: FIRST_PAGE[0].id },
+            { name: 'a row in the page that is loading', load: 'loadMore', rowId: SECOND_PAGE[0].id },
+            { name: 'a loaded row while the first page reloads', load: 'refresh', rowId: FIRST_PAGE[0].id },
+        ] as const)('keeps a claim on $name', async ({ load, rowId }) => {
             let release: () => void = () => {}
             const pageHeld = new Promise<void>((resolve) => (release = resolve))
             useMocks({
                 get: {
-                    [REPORTS_URL]: async () => {
+                    [REPORTS_URL]: async ({ request }) => {
                         await pageHeld
+                        const offset = new URL(request.url).searchParams.get('offset')
+                        const firstPage = offset === '0' || offset === null
                         return [
                             200,
                             {
                                 count: FIRST_PAGE.length + SECOND_PAGE.length,
                                 next: null,
                                 previous: null,
-                                results: SECOND_PAGE,
+                                results: firstPage ? FIRST_PAGE : SECOND_PAGE,
                             },
                         ]
                     },
@@ -222,13 +233,12 @@ describe('reportListLogic', () => {
             const bulkLogic = inboxBulkActionsLogic()
             bulkLogic.mount()
 
-            logic.actions.loadMore()
-            bulkLogic.actions.reportClaimsChanged([{ reportId: FIRST_PAGE[0].id, assignee: myClaim }])
+            logic.actions[load]()
+            bulkLogic.actions.reportClaimsChanged([{ reportId: rowId, assignee: myClaim, startedAt: Date.now() }])
             release()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
-            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)?.assignee).toEqual(myClaim)
+            expect(logic.values.reports.find((r) => r.id === rowId)?.assignee).toEqual(myClaim)
             bulkLogic.unmount()
         })
 

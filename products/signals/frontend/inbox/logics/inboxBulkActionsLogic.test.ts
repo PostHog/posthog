@@ -7,6 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { myClaim } from '../__mocks__/inboxMocks'
 import { SignalReport, SignalReportStatus } from '../types'
 import { BULK_CLAIM_CONCURRENCY, inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
@@ -120,6 +121,15 @@ describe('inboxBulkActionsLogic', () => {
         await expectLogic(logic, () => logic.actions.bulkClaim(reports)).toDispatchActions(['bulkClaimSuccess'])
 
         expect(mostInFlight).toBe(BULK_CLAIM_CONCURRENCY)
+    })
+
+    // A bulk claim can finish after the user released one of its reports. The late result started first,
+    // so it must not bring the released claim back.
+    it('keeps the newer claim when a result from an older request lands later', () => {
+        logic.actions.reportClaimsChanged([{ reportId: 'r', assignee: null, startedAt: 2000 }])
+        logic.actions.reportClaimsChanged([{ reportId: 'r', assignee: myClaim, startedAt: 1000 }])
+
+        expect(logic.values.claimOverrides.r.assignee).toBeNull()
     })
 
     it('clears the anchor when the anchor row leaves the list', async () => {

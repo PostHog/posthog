@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { objectsEqual, reconcileById } from 'lib/utils/objects'
+import { reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,7 +40,7 @@ import {
     InboxReportOpenMethod,
     parseInboxReportLinkSource,
 } from './inboxAnalytics'
-import { inboxBulkActionsLogic, type ReportClaimChange } from './logics/inboxBulkActionsLogic'
+import { type ClaimOverride, inboxBulkActionsLogic, withClaimOverride } from './logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
@@ -478,6 +478,7 @@ export interface inboxSceneLogicValues {
     scoutDetailTab: ScoutDetailTab | null
     scoutTemplateDraft: ScoutCreateInitialValues | null
     selectedReport: SignalReport | null
+    selectedReportFetchedAt: number
     selectedReportId: string | null
     selectedReportLoading: boolean
     selectedReportResponse: SignalReport | null
@@ -559,6 +560,9 @@ export interface inboxSceneLogicActions {
     setScratchpadOpen: (open: boolean) => {
         open: boolean
     }
+    setSelectedReportFetchedAt: (fetchedAt: number) => {
+        fetchedAt: number
+    }
     setSelectedReportId: (
         id: string | null,
         openMethod?: InboxReportOpenMethod,
@@ -589,7 +593,11 @@ export interface inboxSceneLogicMeta {
         isStaff: (user: UserType | null) => boolean
         signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
         signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
-        selectedReport: (selectedReportResponse: SignalReport | null) => SignalReport | null
+        selectedReport: (
+            selectedReportResponse: SignalReport | null,
+            selectedReportFetchedAt: number,
+            claimOverrides: Record<string, ClaimOverride>
+        ) => SignalReport | null
         selectedReportLoading: (selectedReportResponseLoading: boolean) => boolean
     }
 }
@@ -634,6 +642,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // Seed (or clear) the selected report synchronously from an already-loaded list row, so the
         // detail renders without a spinner while the authoritative fetch runs in the background.
         seedSelectedReport: (report: SignalReport | null) => ({ report }),
+        setSelectedReportFetchedAt: (fetchedAt: number) => ({ fetchedAt }),
         // Ask the server for the newest snapshot of the open report's metrics. Best effort: a failure
         // leaves the saved snapshot in place, and the detail shows the live query result anyway.
         refreshSelectedReportMetrics: (id: string) => ({ id }),
@@ -673,7 +682,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         // Runs panel: a newest-first list of scout + signals-pipeline runs, composed from two existing
         // endpoints, scout runs (clean `skill_name`) and signal-pipeline tasks (whose title is the
         // originating report's title). Merged client-side; there is no unified backend "runs" resource
@@ -720,9 +729,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as SignalReport | null,
             {
                 loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
+                    const fetchedAt = Date.now()
                     try {
                         const report = await api.signalReports.get(id)
                         breakpoint()
+                        actions.setSelectedReportFetchedAt(fetchedAt)
                         return report
                     } catch (error) {
                         // Discard a superseded load so a slow response for a report the user already
@@ -752,6 +763,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             applySelectedReportMetricSnapshots: (state, { snapshots }) =>
                 state ? mergeReportMetricSnapshots(state, snapshots) : state,
         },
+        // When the request behind the selected report started. A seeded row comes from a list, which
+        // applies the claim overlay itself, so it counts as older than any claim.
+        selectedReportFetchedAt: [
+            0,
+            {
+                setSelectedReportFetchedAt: (_, { fetchedAt }) => fetchedAt,
+                seedSelectedReport: () => 0,
+            },
+        ],
         selectedReportId: [
             null as string | null,
             {
@@ -876,9 +896,26 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean): boolean =>
                 signalRunsResponse === null && signalRunsResponseLoading,
         ],
+        // The detail pane reads this, so a claim from a list row or the bulk bar reaches the open report,
+        // and a fetch that started before the claim cannot bring back the old assignee.
         selectedReport: [
-            (s) => [s.selectedReportResponse],
-            (selectedReportResponse: SignalReport | null): SignalReport | null => selectedReportResponse,
+            (s) => [
+                s.selectedReportResponse,
+                s.selectedReportFetchedAt,
+                inboxBulkActionsLogic.selectors.claimOverrides,
+            ],
+            (
+                selectedReportResponse: SignalReport | null,
+                selectedReportFetchedAt: number,
+                claimOverrides: Record<string, ClaimOverride>
+            ): SignalReport | null =>
+                selectedReportResponse
+                    ? withClaimOverride(
+                          selectedReportResponse,
+                          claimOverrides[selectedReportResponse.id],
+                          selectedReportFetchedAt
+                      )
+                    : null,
         ],
         selectedReportLoading: [
             (s) => [s.selectedReportResponseLoading],
@@ -887,18 +924,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     listeners(({ actions, values, cache, selectors }) => ({
-        // A claim from a list row or the bulk bar can land while its report is open. The detail pane
-        // reads the selected report, so patch it, then reload it: a fetch that started before the
-        // claim landed can still return the old assignee.
-        [inboxBulkActionsLogic.actionTypes.reportClaimsChanged]: ({ changes }: { changes: ReportClaimChange[] }) => {
-            const report = values.selectedReport
-            const change = report ? changes.find((c) => c.reportId === report.id) : undefined
-            if (!report || !change || objectsEqual(report.assignee ?? null, change.assignee ?? null)) {
-                return
-            }
-            actions.seedSelectedReport({ ...report, assignee: change.assignee })
-            actions.loadSelectedReport({ id: report.id })
-        },
         setRunsOpen: ({ open }) => {
             // While the Runs panel is open, refetch on a slow poll so live runs update in place. The
             // keyed disposable replaces any prior poll and is torn down on close / unmount, and
