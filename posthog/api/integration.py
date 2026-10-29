@@ -794,7 +794,8 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     # A string, not an enum: a list can hold rows of kinds that a product registers, such as the kind of a
     # warehouse source's typed-in credentials. `validate_kind` limits a create to the public kinds.
-    kind = serializers.CharField(
+    # Typed as a plain field, because the create request schema below swaps in a choice field.
+    kind: serializers.Field = serializers.CharField(
         max_length=32,
         help_text=(
             "The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds "
