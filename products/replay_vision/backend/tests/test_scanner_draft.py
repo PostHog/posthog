@@ -661,6 +661,29 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         assert resp.json()["scanner_config"]["variants"] == ["control"]
         assert "experiment_exposure" not in resp.json()["query"]
 
+    # An empty name must be checked as a variant, or the scanner would widen to every variant.
+    @parameterized.expand([("unknown name", "holdout"), ("empty name", "")])
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_variant_the_experiment_lacks_is_refused(self, _name, variant, mock_generate):
+        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        mock_generate.return_value = _draft(filter_experiment="Billing upgrade prompt")
+
+        resp = self.client.post(
+            self.draft_url,
+            data={
+                "goal": "find rage clicks",
+                "free_only": True,
+                "query": {
+                    "kind": "RecordingsQuery",
+                    "experiment_exposure": {"experiment_id": experiment.id, "variant": variant},
+                },
+            },
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert resp.json()["detail"] == f"The experiment has no variant named {variant!r}."
+
     @parameterized.expand(
         [
             ("free name kept", [], "User intent"),

@@ -146,8 +146,9 @@ class _HogQLReferences(TraversingVisitor):
     """The actions and cohorts a HogQL filter names, through `matchesAction(id)` and `IN COHORT id`.
 
     Refuses what it cannot read: a subquery or a HogQLX tag, which can select from cohort tables
-    directly or expand into a query after this check, and a reference that is not a constant id. A name is refused too, since resolving it here would tell the
-    caller which id it belongs to before any access check.
+    directly or expand into a query after this check, and a reference that is not a constant id. A
+    name is refused too, since resolving it here would tell the caller which id it belongs to before
+    any access check.
     """
 
     def __init__(self) -> None:
