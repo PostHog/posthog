@@ -521,11 +521,12 @@ describe("SessionLogWriter", () => {
     });
 
     it.each([
-      ["without a leading empty chunk", false, "boot-3"],
-      ["with a leading empty chunk", true, "boot-2"],
+      ["without a leading empty chunk", false, false, "boot-3"],
+      ["with a leading empty chunk", true, false, "boot-2"],
+      ["with a control response after the empty chunk", true, true, "boot-2"],
     ])(
       "stamps the coalesced entry with the covered chunk id range %s",
-      async (_case, leadingEmpty, firstEventId) => {
+      async (_case, leadingEmpty, controlResponse, firstEventId) => {
         const sessionId = "s1";
         logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
@@ -536,6 +537,16 @@ describe("SessionLogWriter", () => {
               content: { type: "text", text: "" },
             }),
             "boot-2",
+          );
+        }
+        if (controlResponse) {
+          logWriter.appendRawLine(
+            sessionId,
+            JSON.stringify({ jsonrpc: "2.0", id: 9, method: "_posthog/ping" }),
+          );
+          logWriter.appendRawLine(
+            sessionId,
+            JSON.stringify({ jsonrpc: "2.0", id: 9, result: {} }),
           );
         }
         logWriter.appendRawLine(
@@ -561,10 +572,11 @@ describe("SessionLogWriter", () => {
         await logWriter.flush(sessionId);
 
         const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
-        expect(entries[0].first_event_id).toBe(firstEventId);
-        expect(entries[0].event_id).toBe("boot-4");
-        expect(entries[1].event_id).toBe("boot-5");
-        expect(entries[1].first_event_id).toBeUndefined();
+        const [message, toolCall] = entries.filter((entry) => entry.event_id);
+        expect(message.first_event_id).toBe(firstEventId);
+        expect(message.event_id).toBe("boot-4");
+        expect(toolCall.event_id).toBe("boot-5");
+        expect(toolCall.first_event_id).toBeUndefined();
       },
     );
 

@@ -279,14 +279,15 @@ export class SessionLogWriter {
       // Non-chunk event: flush any buffered chunks first.
       // If this is a direct agent_message AND there are buffered chunks,
       // the direct message supersedes the partial chunks
+      const isNeutral = session.transcriptBoundaries.isNeutral(message);
       let supersededChunks: ChunkBuffer | undefined;
       if (this.isDirectAgentMessage(message) && session.chunkBuffer) {
         supersededChunks = session.chunkBuffer;
         session.chunkBuffer = undefined;
-      } else if (!session.transcriptBoundaries.isNeutral(message)) {
+      } else if (!isNeutral) {
         this.emitCoalescedMessage(sessionId, session);
       }
-      if (!session.transcriptBoundaries.isNeutral(message)) {
+      if (!isNeutral) {
         session.leadingEmptyChunkEventId = undefined;
       }
 
