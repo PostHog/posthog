@@ -231,6 +231,10 @@ FREEZE_EXPOSURE_RESOLVE_CONCURRENCY = 4
 # Shared by snapshot creation and cleanup: cleanup only touches cohorts carrying this prefix, so a
 # cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
 FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
+FREEZE_EXPOSURE_NOBODY_EXPOSED_MESSAGE = (
+    "No users have been exposed to this experiment yet, so freezing would stop it for everyone. "
+    "Wait until the experiment has recorded exposures."
+)
 
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
@@ -353,14 +357,33 @@ def _restrict_filters_to_frozen_cohort(filters: dict, cohort_id: int) -> dict:
     )
 
 
-def _strip_frozen_exposure(filters: dict) -> tuple[dict, list[int]]:
+def _strip_frozen_exposure(filters: dict, team_id: int) -> tuple[dict, list[int]]:
     """Inverse of _restrict_filters_to_frozen_cohort: strip the freeze marker and its cohort
-    conditions, returning the stripped filters plus the snapshot cohort ids for cleanup."""
+    conditions, returning the stripped filters plus the snapshot cohort ids for cleanup.
+
+    Only a condition on a verifiable freeze snapshot is removed, by the same test as
+    `_delete_orphaned_snapshot_cohorts`, because the stamps are user-editable. Otherwise a stamp
+    naming a targeting cohort would have the unfreeze or reset remove that targeting.
+    """
+    stamped_cohort_ids = [
+        group.get(EXPOSURE_FROZEN_COHORT_KEY)
+        for group in filters.get("groups", [])
+        if isinstance(group, dict) and group.get(EXPOSURE_FROZEN_GROUP_KEY) is True
+    ]
+    snapshot_cohort_ids = set(
+        Cohort.objects.filter(
+            team_id=team_id,
+            pk__in=[cohort_id for cohort_id in stamped_cohort_ids if isinstance(cohort_id, int)],
+            is_static=True,
+            name__startswith=FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX,
+        ).values_list("pk", flat=True)
+    )
     return strip_group_cohort_restriction(
         filters,
         marker_key=EXPOSURE_FROZEN_GROUP_KEY,
         cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
         marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+        removable_cohort_ids=snapshot_cohort_ids,
     )
 
 
@@ -2232,10 +2255,7 @@ class ExperimentService:
         scan_done_at = time.monotonic()
         if not exposed_person_uuids:
             # An empty snapshot cohort ANDed into every release group would un-enroll every user.
-            raise ValidationError(
-                "No users have been exposed to this experiment yet, so freezing would stop it for everyone. "
-                "Wait until the experiment has recorded exposures."
-            )
+            raise ValidationError(FREEZE_EXPOSURE_NOBODY_EXPOSED_MESSAGE)
 
         # 2. Resolve the exposed set to person ids, failing closed if a material share has no
         # person profile: cohort membership is person-keyed, so those users would silently lose
@@ -2351,9 +2371,36 @@ class ExperimentService:
         if blocker is not None:
             raise ValidationError(_FREEZE_EXPOSURE_BLOCKER_MESSAGES[blocker])
 
-    def _fetch_exposed_person_uuids(
-        self, experiment: Experiment, *, limit: int = FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1
-    ) -> list[str]:
+    def check_freeze_exposure(self, experiment: Experiment) -> None:
+        """Run every check `freeze_exposure` makes before it builds the snapshot, without building it.
+
+        A freeze that needs approval runs this when it is requested, so a request that could only
+        fail at approval is refused with the error the freeze gives now.
+        """
+        self._assert_flag_access(experiment.feature_flag)
+        self._validate_freeze_exposure_state(experiment)
+        exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
+        if not exposed_person_uuids:
+            raise ValidationError(FREEZE_EXPOSURE_NOBODY_EXPOSED_MESSAGE)
+        self._resolve_exposed_persons(exposed_person_uuids)
+
+    def check_unfreeze_exposure(self, experiment: Experiment) -> None:
+        """Run the access check `unfreeze_exposure` makes, for an unfreeze that needs approval."""
+        self._assert_flag_access(experiment.feature_flag)
+
+    def check_reset_experiment(self, experiment: Experiment) -> None:
+        """Run the access check `reset_experiment` makes, for a reset that needs approval.
+
+        A reset writes the flag only to remove a frozen exposure, so only then does it need flag access.
+        """
+        flag = experiment.feature_flag
+        if flag is None or flag.deleted:
+            return
+        stripped_filters, _ = _strip_frozen_exposure(flag.filters or {}, self.team.pk)
+        if stripped_filters != (flag.filters or {}):
+            self._assert_flag_access(flag)
+
+    def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
 
         Runs a synchronous scan of the experiment's exposure events, honoring
@@ -2407,7 +2454,7 @@ class ExperimentService:
             distinct=True,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=conditions),
-            limit=ast.Constant(value=limit),
+            limit=ast.Constant(value=FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1),
         )
         try:
             with tags_context(
@@ -2446,10 +2493,6 @@ class ExperimentService:
             )
 
         return [str(row[0]) for row in response.results]
-
-    def has_exposed_users(self, experiment: Experiment) -> bool:
-        """Whether anyone has been exposed to the running experiment, by the same rules a freeze snapshots with."""
-        return bool(self._fetch_exposed_person_uuids(experiment, limit=1))
 
     def _resolve_exposed_persons(self, person_uuids: list[str]) -> list[tuple[int, str]]:
         """Resolve exposed person UUIDs to (person_id, uuid) pairs, failing closed when a
@@ -2575,7 +2618,7 @@ class ExperimentService:
 
         flag = experiment.feature_flag
         self._assert_flag_access(flag)
-        new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
+        new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {}, self.team.pk)
 
         flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         update_flag(
@@ -3022,7 +3065,7 @@ class ExperimentService:
         )
         if flag is None or flag.deleted:
             return
-        stripped_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
+        stripped_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {}, self.team.pk)
         if stripped_filters == (flag.filters or {}):
             return
 
@@ -3104,7 +3147,7 @@ class ExperimentService:
         # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
         # write: preserved, it would lock the shipped variant to the stale snapshot forever in the
         # default mode, and linger as dead weight below the catch-all in release_to_everyone mode.
-        base_filters, frozen_cohort_ids = _strip_frozen_exposure(flag.filters)
+        base_filters, frozen_cohort_ids = _strip_frozen_exposure(flag.filters, self.team.pk)
 
         # Update the flag through the gated write to preserve the approval
         # workflow. If change-request approval is required, this raises
@@ -3976,13 +4019,6 @@ class ExperimentService:
         feature_flag_config: dict | None = None,
     ) -> None:
         """Validate update payload before any database mutations occur."""
-        # A reset clears the start date with the end date, conclusion and freeze, behind its own approval.
-        if not experiment.is_draft and "start_date" in update_data and update_data["start_date"] is None:
-            raise ValidationError(
-                "To return a launched experiment to draft, reset it on its own: "
-                f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/reset/"
-            )
-
         # Prevent restoring a deleted experiment if the linked feature flag is also deleted
         if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
             raise ValidationError(

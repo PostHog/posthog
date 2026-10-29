@@ -256,8 +256,8 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
         action = get_action(value)
         if action is not None and not action.accepts_own_policy:
             raise serializers.ValidationError(
-                "This action has no policy of its own. "
-                f"Edit the policy for {', '.join(action.fallback_policy_action_keys)} instead."
+                "This action can't have a policy of its own. It follows the policy of: "
+                f"{', '.join(action.fallback_policy_action_keys)}."
             )
         return value
 

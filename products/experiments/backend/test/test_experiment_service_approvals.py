@@ -495,82 +495,61 @@ class TestExperimentOperationsUnderTheUpdatePolicy(APIBaseTest):
         assert response.status_code == 409, response.json()
         return ChangeRequest.objects.get(id=response.json()["change_request_id"])
 
-    @parameterized.expand([("running", False), ("frozen", True)])
-    def test_clearing_the_start_date_is_held_as_a_reset(self, _mock_enabled, _name: str, frozen: bool) -> None:
+    @parameterized.expand(
+        [
+            ("held_then_applied", True, False, {}),
+            ("held_with_a_rename_then_applied", True, True, {"name": "renamed"}),
+            ("before_rollout", False, True, {"name": "renamed"}),
+        ]
+    )
+    def test_clearing_the_start_date_changes_only_what_the_update_names(
+        self, _mock_enabled, name: str, rolled_out: bool, frozen: bool, other_fields: dict[str, Any]
+    ) -> None:
         with _stub_exposure_snapshot():
-            experiment = self._running_experiment(f"clear-start-{_name}", frozen=frozen)
-            status_before = self._status(experiment)
+            experiment = self._running_experiment(f"clear-start-{name}", frozen=frozen)
             self._policy("experiment.update", conditions={})
 
-            with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True):
+            with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=rolled_out):
                 response = self.client.patch(
-                    f"/api/projects/{self.team.id}/experiments/{experiment.id}/", {"start_date": None}, format="json"
+                    f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+                    {"start_date": None, **other_fields},
+                    format="json",
                 )
-                assert response.status_code == 409, response.json()
-                change_request = ChangeRequest.objects.get(id=response.json()["change_request_id"])
-                assert change_request.action_key == "experiment.reset"
-                assert self._status(experiment) == status_before
-
-                apply_change_request(change_request)
+                if rolled_out:
+                    assert response.status_code == 409, response.json()
+                    change_request = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+                    assert change_request.action_key == "experiment.reset"
+                    assert Experiment.objects.get(id=experiment.id).start_date is not None
+                    apply_change_request(change_request)
+                else:
+                    assert response.status_code == 200, response.json()
 
         experiment = Experiment.objects.get(id=experiment.id)
-        assert experiment.status_label == "draft"
-        assert not experiment.flag_carries_exposure_freeze
-
-    def test_clearing_the_start_date_before_rollout_runs_the_whole_reset(self, _mock_enabled) -> None:
-        with _stub_exposure_snapshot():
-            experiment = self._running_experiment("clear-start-open", frozen=True)
-            self._policy("experiment.update", conditions={})
-
-            with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=False):
-                response = self.client.patch(
-                    f"/api/projects/{self.team.id}/experiments/{experiment.id}/", {"start_date": None}, format="json"
-                )
-
-        assert response.status_code == 200, response.json()
-        experiment = Experiment.objects.get(id=experiment.id)
-        assert experiment.status_label == "draft"
-        assert not experiment.flag_carries_exposure_freeze
-
-    def test_clearing_the_start_date_alongside_other_changes_is_refused(self, _mock_enabled) -> None:
-        experiment = self._running_experiment("clear-start-mixed", frozen=False)
-        self._policy("experiment.update", conditions={})
-
-        with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
-                {"start_date": None, "name": "renamed"},
-                format="json",
-            )
-
-        assert response.status_code == 400, response.json()
-        experiment = Experiment.objects.get(id=experiment.id)
-        assert (experiment.status_label, experiment.name) == ("running", "clear-start-mixed")
-        assert not ChangeRequest.objects.filter(team=self.team).exists()
-
-    def test_the_service_refuses_to_clear_a_launched_experiments_start_date(self, _mock_enabled) -> None:
-        experiment = self._running_experiment("clear-start-service", frozen=False)
-
-        with self.assertRaises(ValidationError):
-            ExperimentService(team=self.team, user=self.user).update_experiment(experiment, {"start_date": None})
-
-        assert self._status(experiment) == "running"
+        assert experiment.start_date is None
+        assert experiment.name == other_fields.get("name", f"clear-start-{name}")
+        assert experiment.flag_carries_exposure_freeze is frozen
 
     @parameterized.expand(
         [
-            ("freeze", "freeze_exposure", False),
-            ("unfreeze", "unfreeze_exposure", True),
-            ("reset", "reset", False),
+            ("freeze_after_a_relaunch", "freeze_exposure", False, "start_date"),
+            ("unfreeze_after_a_relaunch", "unfreeze_exposure", True, "start_date"),
+            ("reset_after_a_relaunch", "reset", False, "start_date"),
+            ("reset_after_the_end", "reset", False, "end_date"),
         ]
     )
-    def test_a_request_from_an_earlier_run_does_not_apply(
-        self, _mock_enabled, _name: str, endpoint: str, frozen: bool
+    def test_a_request_from_an_earlier_run_neither_applies_nor_blocks_a_new_one(
+        self, _mock_enabled, _name: str, endpoint: str, frozen: bool, changed_date: str
     ) -> None:
         with _stub_exposure_snapshot():
-            experiment = self._running_experiment(f"earlier-run-{endpoint}", frozen=frozen)
+            experiment = self._running_experiment(f"earlier-run-{_name}", frozen=frozen)
             change_request = self._held_operation(experiment, endpoint)
-            Experiment.objects.filter(id=experiment.id).update(start_date=datetime(2026, 2, 1, tzinfo=UTC))
+            Experiment.objects.filter(id=experiment.id).update(**{changed_date: datetime(2026, 2, 1, tzinfo=UTC)})
             status_before = self._status(experiment)
+
+            with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True):
+                response = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment.id}/{endpoint}/")
+            assert response.status_code == 409, response.json()
+            assert response.json()["change_request_id"] != str(change_request.id)
 
             with self.assertRaises(PreconditionFailed):
                 apply_change_request(change_request)
@@ -601,19 +580,37 @@ class TestExperimentOperationsUnderTheUpdatePolicy(APIBaseTest):
         assert change_request.state == ChangeRequestState.FAILED
         assert Experiment.objects.get(id=experiment.id).flag_carries_exposure_freeze is frozen
 
-    def test_an_unfreeze_approved_while_paused_does_not_count_as_applied(self, _mock_enabled) -> None:
+    @parameterized.expand(
+        [
+            ("unfreeze_while_paused", "unfreeze_exposure", True, "paused"),
+            ("unfreeze_after_an_unstamped_group", "unfreeze_exposure", True, "unstamped_group"),
+            ("freeze_after_a_direct_freeze", "freeze_exposure", False, "direct_freeze"),
+        ]
+    )
+    def test_an_operation_the_experiment_moved_past_fails_instead_of_counting_as_applied(
+        self, _mock_enabled, _name: str, endpoint: str, frozen: bool, change: str
+    ) -> None:
         with _stub_exposure_snapshot():
-            experiment = self._running_experiment("unfreeze-paused", frozen=True)
-            change_request = self._held_operation(experiment, "unfreeze_exposure")
-            FeatureFlag.objects.filter(id=experiment.feature_flag_id).update(active=False)
+            experiment = self._running_experiment(f"moved-past-{_name}", frozen=frozen)
+            change_request = self._held_operation(experiment, endpoint)
+            flag = FeatureFlag.objects.get(id=experiment.feature_flag_id)
+            if change == "paused":
+                FeatureFlag.objects.filter(id=flag.id).update(active=False)
+            elif change == "unstamped_group":
+                groups = [*flag.filters["groups"], {"properties": [], "rollout_percentage": 5}]
+                FeatureFlag.objects.filter(id=flag.id).update(filters={**flag.filters, "groups": groups})
+            else:
+                request = APIRequestFactory().post("/fake")
+                request.user = self.user
+                ExperimentService(team=self.team, user=self.user).freeze_exposure(experiment, request=request)
+            filters_before = FeatureFlag.objects.get(id=flag.id).filters
 
             with self.assertRaises(PreconditionFailed):
                 apply_change_request(change_request)
 
         change_request.refresh_from_db()
         assert change_request.state == ChangeRequestState.FAILED
-        FeatureFlag.objects.filter(id=experiment.feature_flag_id).update(active=True)
-        assert self._status(experiment) == "exposure_frozen"
+        assert FeatureFlag.objects.get(id=flag.id).filters == filters_before
 
     @parameterized.expand([("missing",), ("deleted",)])
     def test_an_operation_on_an_experiment_the_project_does_not_have_is_not_found(
@@ -629,18 +626,46 @@ class TestExperimentOperationsUnderTheUpdatePolicy(APIBaseTest):
 
         assert response.status_code == 404, response.json()
 
-    def test_freezing_with_nobody_exposed_fails_at_once(self, _mock_enabled) -> None:
-        experiment = self._running_experiment("freeze-unexposed", frozen=False)
+    @parameterized.expand(
+        [
+            ("nobody_exposed", [], True, 400, "No users have been exposed"),
+            (
+                "too_many_exposed",
+                ValidationError("This experiment has too many exposed users"),
+                True,
+                400,
+                "too many exposed users",
+            ),
+            ("no_flag_access", ["00000000-0000-0000-0000-000000000001"], False, 403, None),
+        ]
+    )
+    def test_a_freeze_that_could_only_fail_is_refused_at_once(
+        self,
+        _mock_enabled,
+        _name: str,
+        exposed: list[str] | Exception,
+        can_edit_flag: bool,
+        expected_status: int,
+        expected_detail: str | None,
+    ) -> None:
+        experiment = self._running_experiment(f"freeze-refused-{_name}", frozen=False)
         self._policy("experiment.update", conditions={})
 
         with (
-            patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=[]),
+            _stub_exposure_snapshot(),
+            patch.object(
+                ExperimentService,
+                "_fetch_exposed_person_uuids",
+                **({"side_effect": exposed} if isinstance(exposed, Exception) else {"return_value": exposed}),
+            ),
+            patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=can_edit_flag),
             patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True),
         ):
             response = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment.id}/freeze_exposure/")
 
-        assert response.status_code == 400, response.json()
-        assert "No users have been exposed" in response.json()["detail"]
+        assert response.status_code == expected_status, response.json()
+        if expected_detail is not None:
+            assert expected_detail in response.json()["detail"]
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
     def test_a_failed_operation_records_a_readable_error(self, _mock_enabled) -> None:

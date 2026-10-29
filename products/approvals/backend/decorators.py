@@ -121,7 +121,10 @@ def _check_for_duplicate(
     action_class, team, resource_id: Optional[str], intent_data: dict[str, Any]
 ) -> Optional[ChangeRequest]:
     """Check if there's already a pending/approved change request."""
-    target_filter = action_class.get_target_filter(intent_data) if resource_id is None else {}
+    target_filter = {
+        **(action_class.get_target_filter(intent_data) if resource_id is None else {}),
+        **action_class.get_duplicate_filter(intent_data),
+    }
 
     return ChangeRequest.objects.filter(
         action_key=action_class.key,

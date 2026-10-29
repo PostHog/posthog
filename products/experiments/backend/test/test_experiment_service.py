@@ -4825,6 +4825,35 @@ class TestExperimentService(APIBaseTest):
         assert groups[0]["properties"] == [user_condition]
         assert EXPOSURE_FROZEN_GROUP_KEY not in groups[0]
 
+    @parameterized.expand([("unfreeze",), ("reset",)])
+    def test_a_freeze_stamp_on_a_targeting_cohort_keeps_that_targeting(self, operation: str) -> None:
+        experiment = self._create_running_experiment(name=f"Forged {operation}", feature_flag_key=f"forged-{operation}")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        flag = frozen.feature_flag
+        flag.refresh_from_db()
+        targeting = Cohort.objects.create(
+            team=self.team, name="Paying customers", groups=[{"properties": [{"key": "plan", "value": "paid"}]}]
+        )
+        targeting_condition = {"key": "id", "type": "cohort", "value": targeting.pk}
+        stamped_targeting_group = {
+            "properties": [targeting_condition],
+            "rollout_percentage": 100,
+            EXPOSURE_FROZEN_GROUP_KEY: True,
+            "exposure_frozen_cohort": targeting.pk,
+        }
+        self._update_flag_filters(flag, {**flag.filters, "groups": [*flag.filters["groups"], stamped_targeting_group]})
+
+        if operation == "unfreeze":
+            self._service().unfreeze_exposure(frozen, request=self._make_request())
+        else:
+            self._service().reset_experiment(frozen, request=self._make_request())
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][1]["properties"] == [targeting_condition]
+        targeting.refresh_from_db()
+        assert targeting.deleted is False
+
     def test_unfreeze_exposure_when_not_frozen_raises(self) -> None:
         experiment = self._create_running_experiment(name="UF Not Frozen", feature_flag_key="uf-not-frozen-flag")
 

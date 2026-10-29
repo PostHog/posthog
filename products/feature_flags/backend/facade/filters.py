@@ -142,13 +142,18 @@ def strip_group_cohort_restriction(
     marker_key: str,
     cohort_key: str,
     marker_note: str,
+    removable_cohort_ids: Collection[int] | None = None,
 ) -> tuple[dict, list[int]]:
     """Inverse of restrict_groups_to_cohort: remove the restriction stamps from every
     release group — the AND'd cohort condition (identified via the per-group
     ``cohort_key``, so user-added cohort conditions survive), the two structured keys,
     and the description note. Groups without the marker key pass through untouched.
 
-    Returns the stripped filters plus the cohort ids that were referenced, so callers
+    The stamps round-trip through the flag API, so the cohort a stamp names is a claim. When
+    ``removable_cohort_ids`` is given, only a condition on one of those cohorts is removed; a
+    stamp naming any other cohort loses its stamps and keeps its condition.
+
+    Returns the stripped filters plus the cohort ids whose condition was removed, so callers
     can clean up the then-orphaned cohorts once the stripped filters are persisted — and only
     then: deleting earlier would yank the cohort from under a still-restricted flag if the
     save fails.
@@ -163,7 +168,7 @@ def strip_group_cohort_restriction(
             continue
         new_group.pop(marker_key, None)
         cohort_id = new_group.pop(cohort_key, None)
-        if cohort_id is not None:
+        if cohort_id is not None and (removable_cohort_ids is None or cohort_id in removable_cohort_ids):
             cohort_ids.append(cohort_id)
             new_group["properties"] = [
                 condition

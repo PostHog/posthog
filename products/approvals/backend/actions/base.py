@@ -30,10 +30,15 @@ class BaseAction(ABC):
     # The fallback policy's conditions name the other action's fields, so they are not evaluated.
     fallback_policy_action_keys: tuple[str, ...] = ()
 
-    # Whether only a fallback policy with no conditions counts. A conditioned policy limits review
-    # to some changes of its own action, and this action carries none of the fields it names, so
-    # borrowing it would review this action whatever the admin limited it to.
+    # Whether a conditioned fallback policy is skipped. A condition limits review to some changes of
+    # the policy's own action, and this action carries none of the fields it names, so borrowing it
+    # would review this action whatever the admin limited it to. A condition the engine cannot read
+    # gates every change, so that policy still counts.
     fallback_policy_must_be_unconditioned: bool = False
+
+    # Fields of the borrowed action that this action changes. A fallback policy whose only condition
+    # is any change to one of them still covers this action.
+    fallback_policy_gated_fields: tuple[str, ...] = ()
 
     # A policy of its own would win over the borrowed one and could take the action out of review.
     accepts_own_policy: bool = True
@@ -99,6 +104,11 @@ class BaseAction(ABC):
         Every such change request stores resource_id as NULL, so without these filters the
         duplicate check matches every other one for the same action.
         """
+        return {}
+
+    @classmethod
+    def get_duplicate_filter(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
+        """Return ChangeRequest filters that an open request must also match to block this one as a duplicate."""
         return {}
 
     @classmethod

@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.models.organization import OrganizationMembership
 
+from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.actions.experiment_holdouts import UpdateExperimentHoldoutAction
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.policies import PolicyEngine
@@ -429,3 +430,71 @@ class TestHoldoutFallbackPolicySelection(APIBaseTest):
             policy = PolicyEngine().get_policy_for_action(UpdateExperimentHoldoutAction, self.team, self.organization)
 
         assert policy is None
+
+
+class _BorrowingAction(BaseAction):
+    key = "test.borrowing_operation"
+    fallback_policy_action_keys = ("experiment.update",)
+    fallback_policy_must_be_unconditioned = True
+    fallback_policy_gated_fields = ("release_conditions",)
+    accepts_own_policy = False
+
+    @classmethod
+    def detect(cls, request, view, *args, **kwargs) -> bool:
+        return True
+
+    @classmethod
+    def extract_intent(cls, request, view, *args, **kwargs) -> dict:
+        return {}
+
+    @classmethod
+    def apply(cls, validated_intent, user, context=None):
+        return None
+
+
+class TestBorrowedPolicyConditions(APIBaseTest):
+    def _policy(self, action_key: str, conditions: object) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions=conditions,
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [
+            ("no_conditions", {}, True),
+            ("any_release_condition_change", {"type": "any_change", "field": "release_conditions"}, True),
+            ("threshold_without_operator", {"type": "before_after", "field": "rollout_percentage", "value": 50}, True),
+            ("unknown_type", {"type": "rollout_widens", "field": "rollout_percentage"}, True),
+            ("any_change_without_field", {"type": "any_change"}, True),
+            ("not_an_object", "rollout over 50", True),
+            (
+                "rollout_threshold",
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50},
+                False,
+            ),
+            ("any_rollout_change", {"type": "any_change", "field": "rollout_percentage"}, False),
+        ]
+    )
+    def test_a_borrowed_policy_counts_when_it_reviews_every_change_the_way_the_engine_reads_it(
+        self, _name: str, conditions: object, borrowed: bool
+    ) -> None:
+        self._policy("experiment.update", conditions)
+
+        policy = PolicyEngine().get_policy_for_action(_BorrowingAction, self.team, self.organization)
+
+        assert (policy is not None) is borrowed
+        # A condition that gates every change of its own action must also do so when the engine evaluates it.
+        assert PolicyEngine().conditions_match(conditions, {}) is borrowed
+
+    def test_a_stored_policy_of_an_action_that_refuses_one_is_not_read(self) -> None:
+        self._policy("experiment.update", {})
+        self._policy(_BorrowingAction.key, {"type": "any_change", "field": "rollout_percentage"})
+
+        policy = PolicyEngine().get_policy_for_action(_BorrowingAction, self.team, self.organization)
+
+        assert policy is not None
+        assert policy.action_key == "experiment.update"

@@ -314,14 +314,24 @@ def _canonical_bucketing(bucketing_identifier: Any) -> str:
     return "device_id" if bucketing_identifier == "device_id" else "distinct_id"
 
 
-def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[str]) -> list[dict[str, Any]]:
+# The experiment freeze stamps a condition set carries (see `exposure_frozen` in filters_schema.py).
+# They decide which cohort an unfreeze or reset removes, so a client edit to them changes targeting.
+_FREEZE_STAMP_KEYS = ("exposure_frozen", "exposure_frozen_cohort")
+
+
+def _release_conditions(
+    filters: dict[str, Any], bucketing_identifier: Optional[str], *, owned: bool = False
+) -> list[dict[str, Any]]:
     """Return what decides who gets the flag, as path and value pairs.
 
     These are the settings the flag editor shows under "Release conditions": "match by", each
     condition set's properties and variant override, and early exit. Rollout percentages are not
-    here, because the rollout paths already compare them. `feature_enrollment` is not here either:
-    the early access lifecycle sets it, and linking an existing flag to an early access feature sets
-    it while the flag is still standalone.
+    here, because the rollout paths already compare them.
+
+    `feature_enrollment` and the freeze stamps are compared only for a flag a product owns (`owned`).
+    For a standalone flag the early access lifecycle sets `feature_enrollment`, and linking an
+    existing flag to an early access feature sets it while the flag is still standalone. On a flag a
+    product owns it lets people in before every condition, so it decides who gets the flag.
 
     The flag-level `aggregation_group_type_index` is not compared. The serializer derives it from the
     condition sets, and each set's own value below already carries it.
@@ -330,6 +340,8 @@ def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[
         {"path": "bucketing_identifier", "value": _canonical_bucketing(bucketing_identifier)},
         {"path": "early_exit", "value": filters.get("early_exit") is True},
     ]
+    if owned:
+        results.append({"path": "feature_enrollment", "value": filters.get("feature_enrollment") is True})
 
     groups = filters.get("groups")
     if not isinstance(groups, list):
@@ -357,6 +369,11 @@ def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[
                     "aggregation_group_type_index": group.get("aggregation_group_type_index", flag_aggregation),
                     # An empty override serves the normal variant split, the same as no override.
                     "variant": group.get("variant") or None,
+                    **(
+                        {key: group.get(key) for key in _FREEZE_STAMP_KEYS if group.get(key) is not None}
+                        if owned
+                        else {}
+                    ),
                 },
             }
         )
@@ -787,8 +804,11 @@ class UpdateFeatureFlagAction(BaseAction):
         if flag is None or owner_rewrite:
             return _GatedValues(before=before, after=after)
 
-        old_release = _release_conditions(old_filters, flag.bucketing_identifier)
-        new_release = _release_conditions(new_filters, change.get("bucketing_identifier", flag.bucketing_identifier))
+        owned = cls.owner_scope is not None
+        old_release = _release_conditions(old_filters, flag.bucketing_identifier, owned=owned)
+        new_release = _release_conditions(
+            new_filters, change.get("bucketing_identifier", flag.bucketing_identifier), owned=owned
+        )
         # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
         if cls._changed_paths(old_release, new_release, strict=True) and _cached_owner_kind(flag) == cls.owner_scope:
             before["release_conditions"] = old_release

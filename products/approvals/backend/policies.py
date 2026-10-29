@@ -88,18 +88,53 @@ class PolicyEngine:
 
     def get_policy_for_action(self, action_class, team, organization):
         """Get the active policy for an action, falling back to its fallback action keys in order."""
-        for action_key in (action_class.key, *action_class.fallback_policy_action_keys_for(organization)):
+        fallback_keys = action_class.fallback_policy_action_keys_for(organization)
+        # A stored row for an action that refuses its own policy predates the refusal, and is not read.
+        action_keys = (action_class.key, *fallback_keys) if action_class.accepts_own_policy else fallback_keys
+        for action_key in action_keys:
             policy = self.get_policy(action_key, team, organization)
             if not policy:
                 continue
             if (
                 action_key != action_class.key
                 and action_class.fallback_policy_must_be_unconditioned
-                and policy.conditions
+                and not self._covers_borrowing_action(policy.conditions, action_class.fallback_policy_gated_fields)
             ):
                 continue
             return policy
         return None
+
+    def gates_every_change(self, conditions: Any) -> bool:
+        """Whether a policy with these conditions requires approval for every change of its action.
+
+        Mirrors `_evaluate_conditions`: no conditions gate every change, and so does a condition it
+        cannot read (not an object, an unknown type, or one missing the field, operator or value it
+        needs).
+        """
+        if not conditions or not isinstance(conditions, dict):
+            return True
+        condition_type = conditions.get("type")
+        if condition_type in ("before_after", "change_amount"):
+            operator = conditions.get("operator")
+            return (
+                not conditions.get("field")
+                or not isinstance(operator, str)
+                or operator not in self.COMPARISON_OPERATORS
+                or conditions.get("value") is None
+            )
+        if condition_type == "any_change":
+            return not conditions.get("field")
+        return True
+
+    def _covers_borrowing_action(self, conditions: Any, gated_fields: tuple[str, ...]) -> bool:
+        """Whether a borrowed policy covers an action that carries none of the policy's own fields.
+
+        It does when the policy gates every change, or when its only condition is any change to a
+        field the borrowing action changes.
+        """
+        if self.gates_every_change(conditions):
+            return True
+        return conditions.get("type") == "any_change" and conditions.get("field") in gated_fields
 
     def get_all_matching_policies(self, action_key: str, team, organization, intent: dict):
         """
@@ -183,10 +218,10 @@ class PolicyEngine:
             },
         )
 
-    def conditions_match(self, conditions: dict[str, Any], intent: dict) -> bool:
+    def conditions_match(self, conditions: Any, intent: dict) -> bool:
         return self._evaluate_conditions(conditions, intent)
 
-    def _evaluate_conditions(self, conditions: dict[str, Any], intent: dict) -> bool:
+    def _evaluate_conditions(self, conditions: Any, intent: dict) -> bool:
         """
         Evaluate policy conditions against the intent.
 
@@ -198,7 +233,8 @@ class PolicyEngine:
         - change_amount: Compare delta between before/after values
         - any_change: Gate if the field changes at all
         """
-        if not conditions:
+        if not conditions or not isinstance(conditions, dict):
+            # A condition that is not an object cannot be read, so it gates every change.
             return True
 
         condition_type = conditions.get("type")

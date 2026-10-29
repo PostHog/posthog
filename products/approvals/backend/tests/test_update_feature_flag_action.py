@@ -1079,6 +1079,42 @@ class TestReleaseConditionGating(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("a_freeze_stamp_on_a_targeting_cohort", {"exposure_frozen": True}, {}),
+            ("enrollment_before_every_condition", {}, {"feature_enrollment": True}),
+        ]
+    )
+    def test_an_experiment_flags_owner_settings_are_reviewed_as_release_conditions(
+        self,
+        _mock_enabled: MagicMock,
+        _name: str,
+        group_fields: dict[str, Any],
+        filters_fields: dict[str, Any],
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="Paying customers", groups=[])
+        cohort_condition = {"key": "id", "type": "cohort", "value": cohort.pk}
+        group = {"properties": [cohort_condition], "rollout_percentage": 100}
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="experiment-flag",
+            filters={"groups": [group]},
+            created_by=self.user,
+        )
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, start_date=timezone.now())
+        self._create_policies([("experiment.update", {})])
+        if group_fields:
+            group_fields = {**group_fields, "exposure_frozen_cohort": cohort.pk}
+        body = {"filters": {"groups": [{**group, **group_fields}], **filters_fields}}
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+
+        assert response.status_code == 409, response.json()
+        assert self._change_request_keys() == ["experiment.update"]
+        flag.refresh_from_db()
+        assert flag.filters == {"groups": [group]}
+
+    @parameterized.expand(
+        [
             ("unchanged", False, 200, []),
             ("enabled_with_unchanged_targeting", True, 409, ["feature_flag.enable"]),
         ]
