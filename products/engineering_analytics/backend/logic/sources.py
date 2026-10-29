@@ -36,7 +36,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
     GitHubSourceNotConnectedError,
 )
-from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs
+from products.engineering_analytics.backend.logic.views import depot_ci, trunk_quarantined_tests, workflow_jobs
 from products.engineering_analytics.backend.logic.views.source_schema import OPTIONAL_WORKFLOW_RUNS_COLUMNS
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
@@ -352,6 +352,8 @@ class TrunkQuarantineSource:
 
     table: str
     org_url_slug: str | None
+    # False until a source moved to the v2 API resyncs, so the board keeps reading the v1 columns.
+    v2_shape: bool
 
 
 def resolve_trunk_quarantined_tests_source(
@@ -377,7 +379,11 @@ def resolve_trunk_quarantined_tests_source(
                 inputs = SourceInputsStore.load(source)
             except UnreadableSourceInputsError:
                 inputs = {}
-            resolved = TrunkQuarantineSource(table=table.name, org_url_slug=inputs.get("org_url_slug") or None)
+            resolved = TrunkQuarantineSource(
+                table=table.name,
+                org_url_slug=inputs.get("org_url_slug") or None,
+                v2_shape=trunk_quarantined_tests.V2_SHAPE_COLUMN in (table.columns or {}),
+            )
             owner, name = inputs.get("repo_owner") or "", inputs.get("repo_name") or ""
             if f"{owner}/{name}".lower() == repository.lower():
                 return resolved

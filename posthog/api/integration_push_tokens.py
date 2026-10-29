@@ -6,7 +6,7 @@ from rest_framework import serializers
 from posthog.api.capture import capture_batch_internal
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import EncryptedFieldMixin
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationRecord
 
 DEVICE_SUBSCRIPTION_PREFIX = "$device_push_subscription_"
 MAX_SUBSCRIPTIONS_PER_REQUEST = 1000
@@ -48,7 +48,7 @@ class _TokenCipher(EncryptedFieldMixin):
     pass
 
 
-def push_channel_app_id(integration: Integration) -> str | None:
+def push_channel_app_id(integration: IntegrationRecord) -> str | None:
     if integration.kind == "apns":
         return integration.config.get("bundle_id") or None
     if integration.kind == "firebase":
@@ -62,7 +62,9 @@ def device_subscription_key(app_id: str, device_token: str) -> str:
     return f"{DEVICE_SUBSCRIPTION_PREFIX}{app_id}:{digest}"
 
 
-def import_push_tokens(integration: Integration, subscriptions: list[dict[str, str]]) -> PushTokenImportResult:
+def import_push_tokens(
+    integration: IntegrationRecord, subscriptions: list[dict[str, str]], team_api_token: str
+) -> PushTokenImportResult:
     app_id = push_channel_app_id(integration)
     if not app_id:
         raise ValueError("This integration is not a push channel.")
@@ -91,7 +93,7 @@ def import_push_tokens(integration: Integration, subscriptions: list[dict[str, s
 
     result = capture_batch_internal(
         events=events,
-        token=integration.team.api_token,
+        token=team_api_token,
         event_source=EVENT_SOURCE,
         process_person_profile=True,
     )

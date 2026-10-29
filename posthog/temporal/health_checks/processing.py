@@ -78,10 +78,11 @@ def _process_batch_detection(
     result.issues_resolved = len(newly_resolved)
     result.resolve_duration = time.monotonic() - start
 
-    for issue in newly_active:
-        emit_health_check_alert(issue, status="firing")
+    if check_cls is None or check_cls.emits_alerts:
+        for issue in newly_active:
+            emit_health_check_alert(issue, status="firing")
+        for issue in newly_resolved:
+            emit_health_check_alert(issue, status="resolved")
     emit_health_check_signals(newly_active)
-    for issue in newly_resolved:
-        emit_health_check_alert(issue, status="resolved")
 
     return result

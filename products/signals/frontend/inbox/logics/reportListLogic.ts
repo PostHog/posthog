@@ -15,10 +15,14 @@ import type { UserType } from '~/types'
 
 import {
     signalsReportsRefreshMetricsCreate,
+    signalsReportsReviewersMeCreate,
     signalsReportsReviewersMeDestroy,
     signalsReportsSourceMetadataCreate,
 } from 'products/signals/frontend/generated/api'
-import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ReviewerRemovalReasonEnumApi,
+    SignalReportMetricSnapshotsApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { createdAfterForWindow } from '../filterOptions'
@@ -34,6 +38,7 @@ import {
 } from '../types'
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
+import { requestReportClaim } from '../utils/reportClaim'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -172,6 +177,7 @@ export interface reportListLogicValues {
     sourceProductFilter: string[] // inboxFiltersLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    claimSavingReportIds: string[]
     count: number | null
     countLoading: boolean
     hasMore: boolean
@@ -345,6 +351,18 @@ export interface reportListLogicActions {
         assignee: SignalReportAssigneeApi | null | undefined
         reportId: string
     }
+    setReportClaimed: (
+        report: SignalReport,
+        claimed: boolean,
+        surface: InboxReportActionSurface
+    ) => {
+        claimed: boolean
+        report: SignalReport
+        surface: InboxReportActionSurface
+    }
+    setReportClaimedFinished: (reportId: string) => {
+        reportId: string
+    }
     setSuggestedToMe: (
         reportIds: string[],
         isSuggested: boolean
@@ -354,8 +372,10 @@ export interface reportListLogicActions {
     }
     unassignMe: (
         reportId: string,
-        surface: InboxReportActionSurface
+        surface: InboxReportActionSurface,
+        reason?: ReviewerRemovalReasonEnumApi
     ) => {
+        reason: ReviewerRemovalReasonEnumApi | undefined
         reportId: string
         surface: InboxReportActionSurface
     }
@@ -470,8 +490,18 @@ export const reportListLogic = kea<reportListLogicType>([
         dismissReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
         resolveReport: (reportId: string, reason: ResolveReasonValue, note: string) => ({ reportId, reason, note }),
         restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
-        unassignMe: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
+        unassignMe: (reportId: string, surface: InboxReportActionSurface, reason?: ReviewerRemovalReasonEnumApi) => ({
+            reportId,
+            surface,
+            reason,
+        }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
+        setReportClaimed: (report: SignalReport, claimed: boolean, surface: InboxReportActionSurface) => ({
+            report,
+            claimed,
+            surface,
+        }),
+        setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
         setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
         removeReport: (reportId: string) => ({ reportId }),
@@ -563,6 +593,13 @@ export const reportListLogic = kea<reportListLogicType>([
             {
                 unassignMe: (state, { reportId }) => (state.includes(reportId) ? state : [...state, reportId]),
                 unassignMeFinished: (state, { reportId }) => state.filter((id) => id !== reportId),
+            },
+        ],
+        claimSavingReportIds: [
+            [] as string[],
+            {
+                setReportClaimed: (state, { report }) => (state.includes(report.id) ? state : [...state, report.id]),
+                setReportClaimedFinished: (state, { reportId }) => state.filter((id) => id !== reportId),
             },
         ],
         // Kept apart from `reportsResponse` so a refresh that replaces the rows does not blank the
@@ -999,11 +1036,20 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.setSuggestedToMe(reportIds, false)
             }
         },
-        unassignMe: async ({ reportId, surface }) => {
+        unassignMe: async ({ reportId, surface, reason }) => {
             const report = values.reports.find((r) => r.id === reportId)
-            captureInboxReportAction({ report, actionType: 'remove_suggested_reviewer', surface })
+            captureInboxReportAction({
+                report,
+                actionType: 'remove_suggested_reviewer',
+                surface,
+                // pinned: analytics property names — renaming breaks dashboards
+                extra: reason ? { removal_reason: reason } : undefined,
+            })
+            const teamId = String(values.currentTeamId)
             try {
-                await signalsReportsReviewersMeDestroy(String(values.currentTeamId), reportId)
+                await (reason
+                    ? signalsReportsReviewersMeCreate(teamId, reportId, { removal_reason: reason })
+                    : signalsReportsReviewersMeDestroy(teamId, reportId))
             } catch (error: any) {
                 lemonToast.error(error?.detail || "Couldn't unassign you from the report. Try again.")
                 return
@@ -1013,6 +1059,25 @@ export const reportListLogic = kea<reportListLogicType>([
             lemonToast.success('Unassigned you from the report')
             // The list that started the request can unmount while it runs, for example when triage closes.
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
+        },
+        setReportClaimed: async ({ report, claimed, surface }) => {
+            captureInboxReportAction({ report, actionType: claimed ? 'claim' : 'unclaim', surface })
+            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed)
+            actions.setReportClaimedFinished(report.id)
+            if (!outcome.ok) {
+                lemonToast.error(outcome.message)
+                // Reload so the row shows who holds the claim now. A request that failed without an answer
+                // may still have saved the claim.
+                actions.refresh()
+                return
+            }
+            // Every mounted list updates the row, and the Claimed by you list gains or drops it.
+            const bulkActions = inboxBulkActionsLogic.findMounted()
+            if (bulkActions) {
+                bulkActions.actions.reportClaimChanged(report.id, outcome.updated.assignee)
+            } else {
+                actions.setReportAssignee(report.id, outcome.updated.assignee)
+            }
         },
     })),
 

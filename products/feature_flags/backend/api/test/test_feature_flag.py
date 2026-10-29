@@ -531,6 +531,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], f"cohort-feature-{operator}")
 
+    def test_cant_create_flag_with_unsupported_operator_for_cohort_properties(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="test cohort", created_by=self.user)
+        count = FeatureFlag.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Cohort feature exact",
+                "key": "cohort-feature-exact",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort.pk,
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "cross_field.cohort_requires_in_or_not_in",
+                "detail": "groups[0].properties[0].operator: Cohort properties must use the 'in' or 'not_in' operator, not 'exact'.",
+                "attr": "filters",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
     def test_saving_flag_strips_legacy_holdout_groups(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -4857,6 +4895,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # shouldn't add to local eval requests
         self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+        self.assertIsNone(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)))
 
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
@@ -4870,6 +4909,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response = self.client.get(f"/api/feature_flag/")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+            self.assertIsNone(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)))
 
             response = self.client.get(
                 f"/api/feature_flag/?token={self.team.api_token}",
@@ -4880,6 +4920,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"1"},
             )
+            self.assertEqual(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)), b"1")
 
             for _ in range(4):
                 response = self.client.get(
@@ -4892,6 +4933,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
                 {b"165192618": b"5"},
             )
+            self.assertEqual(client.hget("posthog:django_local_evaluation_usage", str(self.team.pk)), b"5")
 
     @parameterized.expand(
         [

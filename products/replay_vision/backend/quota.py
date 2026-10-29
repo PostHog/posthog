@@ -5,6 +5,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 from django.db.models import Count, IntegerField, QuerySet, Sum, Value
@@ -379,7 +380,8 @@ def compute_scanner_budgets(
         # is then counted by both (a transient over-count that fails toward capped), never by neither.
         in_flight = _scanner_in_flight_credits(organization_id, capped_ids, period)
         settled = {
-            row["scanner_id"]: row["total_credits"] or 0
+            # The scanner_id__in filter excludes rows without a scanner.
+            cast(UUID, row["scanner_id"]): row["total_credits"] or 0
             for row in scanner_period_receipts(organization_id, period)
             .filter(scanner_id__in=capped_ids)
             .values("scanner_id")

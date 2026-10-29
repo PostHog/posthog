@@ -169,11 +169,13 @@ const ReportRow = memo(function ReportRow({
     sectionKey,
     rankingSortField,
     timestampField,
+    hideOwnClaim,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
     timestampField: 'created_at' | 'updated_at'
+    hideOwnClaim: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -182,6 +184,7 @@ const ReportRow = memo(function ReportRow({
                 selectable
                 rankingSortField={rankingSortField}
                 timestampField={timestampField}
+                hideOwnClaim={hideOwnClaim}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -361,7 +364,7 @@ export function ReportsTab(): JSX.Element {
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
-            {showActivation && firstReportProgress && (
+            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
                 <div className="min-w-0" data-attr="inbox-first-report-progress">
                     <FirstReportProgress
                         result={firstReportProgress}
@@ -409,6 +412,7 @@ export function ReportsTab(): JSX.Element {
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
                                 timestampField={timestampField}
+                                hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />
                         </Fragment>
                     ))}

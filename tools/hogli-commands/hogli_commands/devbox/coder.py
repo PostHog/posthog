@@ -22,6 +22,7 @@ import threading
 import subprocess
 import webbrowser
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
@@ -338,6 +339,20 @@ def _run_with_param_retry(
         dropped = match.group(1)
         click.echo(click.style(f"Template doesn't accept '{dropped}', retrying without it.", fg="yellow"))
         del remaining[dropped]
+
+
+# AWS error code when an availability zone has no free capacity for the requested instance type.
+_CAPACITY_ERROR = "InsufficientInstanceCapacity"
+
+
+class CapacityShortage(SystemExit):
+    """A build failed because AWS had no capacity for the box's instance type in its zone."""
+
+
+def _exit_for_failed_build(returncode: int, output: str) -> NoReturn:
+    if _CAPACITY_ERROR in output:
+        raise CapacityShortage(returncode or 1)
+    raise SystemExit(returncode or 1)
 
 
 def _resolve_tailscale() -> str | None:
@@ -1138,19 +1153,23 @@ def get_default_workspace_prefix() -> str:
 
 def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
+    return _fetch_workspaces(timeout=timeout) or []
+
+
+def _fetch_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]] | None:
     try:
         result = _run(["coder", "list", "--output", "json"], capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return []
+        return None
     if result.returncode != 0:
-        return []
+        return None
 
     try:
         workspaces = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return []
+        return None
 
-    return workspaces if isinstance(workspaces, list) else []
+    return workspaces if isinstance(workspaces, list) else None
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
@@ -1193,8 +1212,16 @@ def region_from_workspace_name(workspace_name: str) -> str:
 
 def list_user_workspaces() -> list[dict[str, Any]]:
     """Return all workspaces belonging to the current user with the devbox prefix."""
+    return fetch_user_workspaces() or []
+
+
+def fetch_user_workspaces() -> list[dict[str, Any]] | None:
+    """Like ``list_user_workspaces``, but ``None`` when Coder could not list workspaces."""
+    workspaces = _fetch_workspaces()
+    if workspaces is None:
+        return None
     prefix = get_default_workspace_prefix()
-    return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
+    return [ws for ws in workspaces if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
 def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -1375,7 +1402,7 @@ def create_workspace(
     ]
     result = _run_with_param_retry(base_args, parameters, verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 # A metadata read over ssh is near-instant; keep the ceiling tight so a wedged
@@ -1494,7 +1521,7 @@ def start_workspace(name: str, *, verbose: bool = False) -> None:
     """Start a stopped workspace."""
     result = _run_build(["coder", "start", name, "--yes"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 # Must exceed the longest blocking startup script timeout in the posthog-linux
@@ -1566,7 +1593,7 @@ def restart_workspace(name: str, *, verbose: bool = False) -> None:
     """
     result = _run_build(["coder", "restart", name, "--use-parameter-defaults", "--yes"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
 
 
 def update_workspace(name: str, *, verbose: bool = False) -> None:
@@ -1577,14 +1604,154 @@ def update_workspace(name: str, *, verbose: bool = False) -> None:
     """
     result = _run_build(["coder", "update", name, "--use-parameter-defaults"], verbose=verbose)
     if result.returncode != 0:
-        raise SystemExit(result.returncode)
+        _exit_for_failed_build(result.returncode, result.stdout)
     # `coder update` only streams the build logs, so it exits 0 when the build fails.
     workspace = get_workspace(name)
     if workspace is not None and get_workspace_status(workspace) == "failed":
         if not verbose:
             click.echo(click.style("Build failed. Full output:", fg="red"))
             click.echo(result.stdout, nl=False)
+        _exit_for_failed_build(1, result.stdout)
+
+
+# Mutable template parameter. A change to it changes the type of the same EC2
+# instance, so the box keeps its disk.
+INSTANCE_TYPE_PARAMETER = "instance_type"
+BUILD_WAIT_TIMEOUT = 3600
+BUILD_POLL_INTERVAL = 3
+_BUILD_DONE_JOB_STATUSES = frozenset({"succeeded", "failed", "canceled"})
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _FinishedBuild:
+    job_status: str
+    log_output: str
+
+
+class _CoderApi:
+    """The Coder REST API, called as the user and on the deployment the Coder CLI is logged into.
+
+    The Coder CLI cannot change a mutable parameter on an existing workspace,
+    because it resolves the value to the last build's after any ``--parameter``
+    flag (cli/parameterresolver.go). The build API takes a provided value
+    first, as the Coder dashboard does.
+    """
+
+    def __init__(self) -> None:
+        whoami = _run(["coder", "whoami", "-o", "json"], capture_output=True)
+        if whoami.returncode != 0:
+            _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
+        self._base_url = f"{json.loads(whoami.stdout)[0]['url'].rstrip('/')}/api/v2"
+        self._headers = {"Coder-Session-Token": self._session_token()}
+
+    @staticmethod
+    def _session_token() -> str:
+        # The CLI authenticates with CODER_SESSION_TOKEN when it is set, but
+        # `coder login token` prints only the stored login (cli/login.go).
+        if token := os.environ.get("CODER_SESSION_TOKEN"):
+            return token
+        stored = _run(["coder", "login", "token"], capture_output=True)
+        if stored.returncode != 0:
+            _fail(f"Could not read your Coder login. {RUNTIME_SETUP_HINT}", cause="coder_login_unreadable")
+        return stored.stdout.strip()
+
+    def request(self, method: str, path: str, *, body: dict[str, Any] | None = None) -> Any:
+        try:
+            response = requests.request(method, f"{self._base_url}{path}", headers=self._headers, json=body, timeout=30)
+        except requests.RequestException as error:
+            _fail(f"Could not reach Coder: {error}", cause="coder_api_unreachable")
+        if not response.ok:
+            _fail(f"Coder rejected {method} {path}: {response.text}", cause="coder_api_rejected")
+        return response.json()
+
+    def poll(self, path: str) -> Any | None:
+        """GET ``path``, returning None on a network error or a 5xx so the caller polls again."""
+        try:
+            response = requests.request("GET", f"{self._base_url}{path}", headers=self._headers, json=None, timeout=30)
+        except requests.RequestException:
+            return None
+        if response.status_code >= 500:
+            return None
+        if not response.ok:
+            _fail(f"Coder rejected GET {path}: {response.text}", cause="coder_api_rejected")
+        return response.json()
+
+    def instance_type(self, build_id: str) -> str | None:
+        parameters = self.request("GET", f"/workspacebuilds/{build_id}/parameters")
+        return next((p["value"] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), None)
+
+    def instance_type_options(self, template_version_id: str) -> list[str]:
+        parameters = self.request("GET", f"/templateversions/{template_version_id}/rich-parameters")
+        return next(
+            ([o["value"] for o in p["options"]] for p in parameters if p["name"] == INSTANCE_TYPE_PARAMETER), []
+        )
+
+    def start_on_instance_type(self, workspace_id: str, instance_type: str) -> _FinishedBuild:
+        """Start the workspace on ``instance_type`` and wait for the build to finish."""
+        build = self.request(
+            "POST",
+            f"/workspaces/{workspace_id}/builds",
+            body={
+                "transition": "start",
+                "rich_parameter_values": [{"name": INSTANCE_TYPE_PARAMETER, "value": instance_type}],
+            },
+        )
+        deadline = time.monotonic() + BUILD_WAIT_TIMEOUT
+        while (status := build["job"]["status"]) not in _BUILD_DONE_JOB_STATUSES:
+            if time.monotonic() >= deadline:
+                _fail(f"The devbox build did not finish within {BUILD_WAIT_TIMEOUT}s.", cause="build_wait_timeout")
+            time.sleep(BUILD_POLL_INTERVAL)
+            build = self.poll(f"/workspacebuilds/{build['id']}") or build
+        if status == "succeeded":
+            return _FinishedBuild(job_status=status, log_output="")
+        logs = self.request("GET", f"/workspacebuilds/{build['id']}/logs")
+        # A job that fails outside Terraform, such as a lost provisioner, has its cause only in job.error.
+        output = "".join(f"{log['output']}\n" for log in logs) + (build["job"].get("error") or "")
+        return _FinishedBuild(job_status=status, log_output=output)
+
+
+def run_with_capacity_fallback(name: str, build: Callable[[], None]) -> None:
+    """Run a start build, and on a capacity shortage start the box on the template's other instance types.
+
+    EC2 capacity runs out per availability zone and instance type, so another
+    type in the same zone usually has room. The box stays on the type that
+    started, and a later shortage on it moves the box on again.
+    """
+    try:
+        build()
+        return
+    except CapacityShortage:
+        pass
+
+    workspace = get_workspace(name)
+    if workspace is None:
         raise SystemExit(1)
+    api = _CoderApi()
+    failed_build = workspace["latest_build"]
+    failed_type = api.instance_type(failed_build["id"])
+    options = api.instance_type_options(failed_build["template_version_id"])
+    if failed_type is None or not options:
+        raise SystemExit(1)
+
+    for instance_type in [option for option in options if option != failed_type]:
+        click.echo(
+            click.style(
+                f"AWS has no {failed_type} capacity in the devbox's availability zone. Starting it on {instance_type}...",
+                fg="yellow",
+            )
+        )
+        attempt = api.start_on_instance_type(workspace["id"], instance_type)
+        if attempt.job_status == "succeeded":
+            return
+        if _CAPACITY_ERROR not in attempt.log_output:
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(attempt.log_output, nl=False)
+            raise SystemExit(1)
+        failed_type = instance_type
+    _fail(
+        f"AWS has no capacity in the devbox's availability zone for any of {', '.join(options)}. Try again later.",
+        cause="capacity_exhausted",
+    )
 
 
 def delete_workspace(name: str, *, verbose: bool = False) -> None:
@@ -1679,6 +1846,20 @@ def exec_replace(name: str, command: list[str]) -> None:
     which would split a token like ``"uname -sm"`` back into two.
     """
     _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+
+
+def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Run one command in the workspace like :func:`exec_replace`, but capture its result.
+
+    For callers that must act on the remote exit code and output instead of
+    handing the terminal over to the command.
+    """
+    return subprocess.run(
+        ["ssh", _ssh_host_alias(name), shlex.join(command)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
 
 
 def coder_ssh_alias_configured(name: str) -> bool:

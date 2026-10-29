@@ -2,6 +2,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog import settings
 from posthog.models.integration import Integration
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -94,3 +96,30 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             "channel": "",
             "ts": "",
         }
+
+    @parameterized.expand([("second_workspace_of_the_team", "T99999", True), ("unknown_workspace", "T00000", False)])
+    def test_unfurl_uses_the_integration_of_the_event_workspace(
+        self,
+        MockSlackIntegration: MagicMock,
+        mock_render_shared_insight_image: MagicMock,
+        _name: str,
+        slack_team_id: str,
+        expect_unfurl: bool,
+    ) -> None:
+        second_workspace = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T99999", config={"team": {"id": "T99999"}}
+        )
+        mock_render_shared_insight_image.return_value = SharedInsightImage(
+            title="My Test subscription", image_url="https://example.com/insight.png", alt_text="My Test subscription"
+        )
+
+        handle_slack_event(
+            create_mock_unfurl_event(slack_team_id, [f"{settings.SITE_URL}/shared/{self.sharingconfig.access_token}"])
+        )
+
+        if expect_unfurl:
+            MockSlackIntegration.assert_called_once()
+            assert MockSlackIntegration.call_args.args[0].pk == second_workspace.pk
+            MockSlackIntegration.return_value.client.chat_unfurl.assert_called_once()
+        else:
+            MockSlackIntegration.assert_not_called()

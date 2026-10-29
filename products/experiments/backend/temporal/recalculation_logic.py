@@ -71,7 +71,7 @@ _MAX_ERROR_MESSAGE_LENGTH = 2000
 
 _OUT_OF_TIME_MESSAGE = "The calculation ran out of time."
 
-# Calculations can fill the event loop's default executor, so a query kill there waits behind the query it kills.
+# A query kill on the pool that runs the calculations would wait behind the query it kills.
 _CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="experiment-recalc-cancel")
 
 # ---------------------------------------------------------------------------
@@ -608,7 +608,6 @@ def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: 
         cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
 
 
-@database_sync_to_async_pool
 def _calculate_experiment_metric_for_recalculation_sync(
     experiment_id: int,
     metric_uuid: str,
@@ -736,7 +735,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
                 as_of=query_to_dt,
-                workload=Workload.ONLINE,
+                workload=Workload.OFFLINE,
                 # Userless background recompute. Warehouse access is enforced when the metric is authored,
                 # so resolve warehouse tables here instead of failing closed.
                 bypass_warehouse_access_control=True,
