@@ -85,16 +85,9 @@ class RenovateVerification:
 
 
 def is_renovate_pr(pr: Mapping[str, Any], repo: str) -> bool:
-    """Whether GitHub attests this PR as Renovate's, from the webhook or API payload alone.
-
-    The numeric user id is the anchor: an App's bot login cannot be registered by anyone else, and
-    the id survives a rename. The head must live in the base repo, because a fork's branch name is
-    whatever the fork's owner chose.
-    """
+    """Whether GitHub attests this PR as Renovate's. A fork's branch name is whatever its owner chose."""
     user = pr.get("user") or {}
-    if user.get("type") != "Bot" or user.get("id") != RENOVATE_BOT_USER_ID:
-        return False
-    if (user.get("login") or "") != RENOVATE_BOT_LOGIN:
+    if user.get("type") != "Bot" or user.get("id") != RENOVATE_BOT_USER_ID or user.get("login") != RENOVATE_BOT_LOGIN:
         return False
     head = pr.get("head") or {}
     head_repo = ((head.get("repo") or {}).get("full_name") or "").lower()
@@ -104,9 +97,8 @@ def is_renovate_pr(pr: Mapping[str, Any], repo: str) -> bool:
 def commit_problems(commits: list[dict[str, Any]], head_sha: str) -> list[str]:
     """The PR must be one commit, the reviewed head, authored by Renovate and committed and signed by GitHub.
 
-    Renovate rebuilds its branch as a single new commit on the base branch every time it updates
-    it, so a second commit came from somebody else. The commit author alone proves little, because
-    GitHub maps it from an email address that any committer can set.
+    Renovate rebuilds its branch as one new commit on every update, so a second commit came from
+    somebody else. GitHub maps the author from an email address that any committer can set.
     """
     if len(commits) != 1:
         return ["The PR is not exactly one commit, so someone other than Renovate added to it."]
@@ -176,10 +168,7 @@ def _excluded_name_pattern(entry: str) -> str:
 def pnpm_policy_problems(workspace_path: str, base_text: str | None, changes: Iterable[VersionChange]) -> list[str]:
     """The workspace settings that make pnpm check each new version, read at the merge base.
 
-    ``minimumReleaseAgeStrict: false`` lets pnpm resolve a version below the release age, and
-    ``dangerouslyAllowAllBuilds`` runs the install scripts of every dependency. A package on
-    ``minimumReleaseAgeExclude`` or ``trustPolicyExclude`` skips that check, so its update is refused.
-    ``pnpm_workspace_problems`` refuses a PR that changes any of these settings.
+    A package on ``minimumReleaseAgeExclude`` or ``trustPolicyExclude`` skips that check, so its update is refused.
     """
     settings = yaml.safe_load(base_text) if base_text is not None else None
     if not (
@@ -315,12 +304,10 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
 
 
 def _pnpm_reference_target(name: str, reference: Any, *, alias: bool) -> LockedPackage | None:
-    """The package and version that a lockfile reference to ``name`` selects, or None.
+    """The package and version that a lockfile reference to ``name`` selects, or None for ``link:`` or ``file:``.
 
     A reference is a version with an optional peer suffix, ``1.2.0(react@18.3.1)``. With ``alias``,
-    it may also name another locked package, ``web-vitals@6.2.1``, which is how a published package
-    that depends on ``npm:web-vitals@...`` is locked. Anything else is ``link:`` or ``file:``, which
-    installs code the checks never saw.
+    it may also name another locked package, ``web-vitals@6.2.1``, as an ``npm:`` dependency locks.
     """
     if not isinstance(reference, str):
         return None
@@ -446,12 +433,6 @@ def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[s
     return problems
 
 
-def _manifest_problems(path: str, base_text: str, head_text: str) -> list[str]:
-    if PurePosixPath(path).name == PNPM_WORKSPACE:
-        return pnpm_workspace_problems(path, base_text, head_text)
-    return package_json_problems(path, base_text, head_text)
-
-
 def verify_renovate_update(
     *,
     pr: Mapping[str, Any],
@@ -486,7 +467,10 @@ def verify_renovate_update(
                 problems.extend(pnpm_policy_problems(workspace_path, read_file(workspace_path, merge_base_sha), found))
                 cleared.append(path)
                 continue
-            problems.extend(_manifest_problems(path, base_text, head_text))
+            manifest_check = (
+                pnpm_workspace_problems if PurePosixPath(path).name == PNPM_WORKSPACE else package_json_problems
+            )
+            problems.extend(manifest_check(path, base_text, head_text))
         except (ValueError, yaml.YAMLError, TypeError, AttributeError):
             problems.append(f"{path} does not parse.")
 
