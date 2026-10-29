@@ -419,6 +419,8 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
+                              |SignalTrialReportReservation
                               |LegacySignalSpend
 
                               |AnomalyScoringState
@@ -908,6 +910,8 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
+                        |SignalTrialReportReservation
                         |LegacySignalSpend
 
                         |AnomalyScoringState
