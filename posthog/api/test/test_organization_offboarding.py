@@ -149,12 +149,13 @@ class TestOrganizationOffboarding(APIBaseTest):
     @parameterized.expand([("dashboard",), ("insight",), ("notebook",)])
     @patch("posthog.api.sharing.export_asset_for_opengraph")
     def test_publishers_survive_rotation_without_activity_history(self, kind: str, _export: object) -> None:
-        resource = {
+        model: type[Dashboard] | type[Insight] | type[Notebook] = {
             "dashboard": Dashboard,
             "insight": Insight,
             "notebook": Notebook,
-        }[kind].objects.create(team=self.team, created_by=self.user)
-        lookup_id = resource.short_id if kind == "notebook" else resource.pk
+        }[kind]
+        resource = model.objects.create(team=self.team, created_by=self.user)
+        lookup_id = resource.short_id if isinstance(resource, Notebook) else resource.pk
         route = "notebooks" if kind == "notebook" else f"{kind}s"
         self.client.force_login(self.departing)
         response = self.client.patch(
@@ -344,7 +345,12 @@ class TestOrganizationOffboarding(APIBaseTest):
 
     @parameterized.expand([("dashboard",), ("insight",), ("notebook",), ("recording",)])
     def test_removal_revokes_hidden_soft_deleted_resources(self, kind: str) -> None:
-        model = {"dashboard": Dashboard, "insight": Insight, "notebook": Notebook, "recording": SessionRecording}[kind]
+        model: type[Dashboard] | type[Insight] | type[Notebook] | type[SessionRecording] = {
+            "dashboard": Dashboard,
+            "insight": Insight,
+            "notebook": Notebook,
+            "recording": SessionRecording,
+        }[kind]
         resource = model.objects.create(
             team=self.team, deleted=True, **({"session_id": "deleted-recording"} if kind == "recording" else {})
         )
@@ -365,13 +371,14 @@ class TestOrganizationOffboarding(APIBaseTest):
         }[kind]
         item_id = (
             resource.short_id
-            if kind == "notebook"
+            if isinstance(resource, Notebook)
             else resource.session_id
-            if kind == "recording"
+            if isinstance(resource, SessionRecording)
             else str(resource.pk)
         )
         log = ActivityLog.objects.get(team_id=self.team.pk, scope=scope, item_id=item_id, activity="sharing disabled")
         assert log.user_id == self.user.pk
+        assert log.detail is not None
         assert log.detail["changes"][0]["after"] is False
 
     def test_self_review_hides_inaccessible_projects_but_removal_cleans_them_up(self) -> None:
