@@ -236,6 +236,44 @@ class TestStripeGetRowsIncrementalCursor:
         assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
         assert len(tables) > 1
 
+    @pytest.mark.parametrize(
+        "skip_full_listing,last_value,expected_ids",
+        [
+            (True, None, []),
+            (True, "1700000050", ["ch_2"]),
+            (False, None, ["ch_2", "ch_1"]),
+        ],
+    )
+    def test_skip_full_listing_keeps_the_incremental_poll(self, skip_full_listing, last_value, expected_ids):
+        objects = [
+            {"id": "ch_2", "created": 1700000100},
+            {"id": "ch_1", "created": 1700000040},
+        ]
+        method = MagicMock(side_effect=lambda params: _FakeStripeList(objects))
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with mock.patch.object(
+            stripe_module, "_build_resources", return_value={"charge": StripeResource(method=method)}
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=last_value,
+                    db_incremental_field_earliest_value=None,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                    should_use_incremental_field=True,
+                    skip_full_listing=skip_full_listing,
+                )
+            )
+
+        assert [row["id"] for table in tables for row in table.to_pylist()] == expected_ids
+        assert method.called is bool(expected_ids)
+
 
 NOW = 1_800_000_000
 
@@ -1444,6 +1482,7 @@ class TestWebhookOnlyResponseWiring:
     def _make_manager(self, enabled: bool) -> MagicMock:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return manager
 
     def _source(self, endpoint: str, manager: MagicMock) -> Any:
@@ -1473,6 +1512,18 @@ class TestWebhookOnlyResponseWiring:
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
 
+    @parameterized.expand(
+        [("unregistered_webhook_skips_full_poll", True, []), ("no_webhook_schema_polls", False, ["cus_1"])]
+    )
+    def test_unregistered_webhook_poll(self, _name: str, unregistered: bool, expected_ids: list[str]) -> None:
+        manager = self._make_manager(enabled=False)
+        manager.webhook_unregistered = mock.AsyncMock(return_value=unregistered)
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList([{"id": "cus_1"}])))
+        with mock.patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
+            response = self._source(CUSTOMER_RESOURCE_NAME, manager)
+            tables = list(response.items())
+        assert [row["id"] for table in tables for row in table.to_pylist()] == expected_ids
+
     def test_discount_partitions_on_start_not_created(self) -> None:
         # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is
         # dropped the partition key falls back to "created" and the Delta partitioner KeyErrors on
@@ -1495,6 +1546,7 @@ class TestCustomerPaymentMethodHistory:
     def _make_manager(self, enabled: bool) -> MagicMock:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return manager
 
     def _source(self, endpoint: str, manager: MagicMock) -> Any:
@@ -1911,6 +1963,7 @@ class TestWebhookRefetch:
         )
         webhooks = MagicMock(spec=WebhookSourceManager)
         webhooks.webhook_enabled = mock.AsyncMock(return_value=True)
+        webhooks.webhook_unregistered = mock.AsyncMock(return_value=False)
         events = table_from_py_list([_event_row("evt_1", "invoice.paid", 1700000100, _INCOMPLETE_INVOICE)])
 
         with scripted_network(lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path))):
@@ -1963,6 +2016,7 @@ class TestPartitioningAndColumnHints:
     def _source(self, endpoint: str) -> Any:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=False)
+        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return stripe_module.stripe_source(
             api_key="sk_test_123",
             account_id=None,

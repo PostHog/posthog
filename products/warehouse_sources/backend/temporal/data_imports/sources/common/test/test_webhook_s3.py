@@ -171,6 +171,32 @@ class TestWebhookSourceManager:
         ):
             assert await manager.webhook_enabled(webhook_only) is expected
 
+    @parameterized.expand(
+        [
+            ("no_hog_function", False, True, True, False, True),
+            ("has_hog_function", True, True, True, False, False),
+            ("initial_sync_not_complete", False, True, False, False, False),
+            ("reset_pipeline", False, True, True, True, False),
+            ("not_webhook", False, False, True, False, False),
+        ]
+    )
+    async def test_webhook_unregistered_conditions(
+        self, _name, has_webhook_function, is_webhook, initial_sync_complete, reset_pipeline, expected
+    ):
+        manager = _make_manager(reset_pipeline=reset_pipeline)
+
+        mock_schema = MagicMock()
+        mock_schema.is_webhook = is_webhook
+        mock_schema.initial_sync_complete = initial_sync_complete
+
+        results = iter([mock_schema, has_webhook_function])
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
+            side_effect=lambda fn: AsyncMock(return_value=next(results)),
+        ):
+            assert await manager.webhook_unregistered() is expected
+
     async def test_list_parquet_files_filters_correctly(self):
         manager = _make_manager()
 

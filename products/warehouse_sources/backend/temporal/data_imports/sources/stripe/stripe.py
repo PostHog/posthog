@@ -978,6 +978,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
+    skip_full_listing: bool = False,
 ):
     new_client = _client_factory(api_key, account_id, api_version)
     client = new_client(None)
@@ -1016,6 +1017,14 @@ def get_rows(
         or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
         or isinstance(resource, StripeNestedResource)
     ):
+        if skip_full_listing:
+            logger.warning(
+                f"Stripe: skipped the {endpoint} sync. This table uses webhook sync, but the source has no "
+                "active webhook. Set up the webhook on the source's Webhook tab, or change the table to a "
+                "different sync method."
+            )
+            return
+
         logger.debug(f"Stripe: iterating all objects from resource")
         # Set only on the nested warehouse path; the final flush below is shared with flat
         # resources, which have no parent sweep to checkpoint.
@@ -1528,6 +1537,11 @@ def stripe_source(
     # re-enable — a poll could never rebuild the table.
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
+    # A webhook table with no webhook falls back to a poll. Only a poll that lists the whole table
+    # is skipped: a table that kept its `created` cursor still polls cheaply with `created[gt]`.
+    webhook_unregistered = (
+        not webhook_enabled and not webhook_only and async_to_sync(webhook_source_manager.webhook_unregistered)()
+    )
     warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
 
     def items():
@@ -1569,6 +1583,7 @@ def stripe_source(
             api_version=api_version,
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,
+            skip_full_listing=webhook_unregistered,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the

@@ -40,7 +40,6 @@ class WebhookSourceManager:
         return s3_path.replace("s3://", "")
 
     async def webhook_enabled(self, webhook_only: bool = False) -> bool:
-        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         schema = await database_sync_to_async_pool(db_read_with_retry)(
@@ -62,7 +61,28 @@ class WebhookSourceManager:
             )
             return False
 
-        has_webhook_function = await database_sync_to_async_pool(db_read_with_retry)(
+        return await self._has_enabled_webhook_function()
+
+    async def webhook_unregistered(self) -> bool:
+        """Whether a webhook schema is past its initial sync but its source has no enabled webhook.
+
+        Such a schema falls back to a poll. A schema created with webhook sync has no stored cursor,
+        so that poll re-reads the whole table on every run. The caller decides whether to skip it.
+        """
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        schema = await database_sync_to_async_pool(db_read_with_retry)(
+            lambda: ExternalDataSchema.objects.get(id=self._inputs.schema_id, team_id=self._inputs.team_id)
+        )
+        if not schema.is_webhook or not schema.initial_sync_complete or self._inputs.reset_pipeline:
+            return False
+
+        return not await self._has_enabled_webhook_function()
+
+    async def _has_enabled_webhook_function(self) -> bool:
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        return await database_sync_to_async_pool(db_read_with_retry)(
             lambda: HogFunction.objects.filter(
                 inputs__source_id__value=self._inputs.source_id,
                 team_id=self._inputs.team_id,
@@ -71,8 +91,6 @@ class WebhookSourceManager:
                 deleted=False,
             ).exists()
         )
-
-        return has_webhook_function
 
     async def schema_is_webhook(self) -> bool:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
