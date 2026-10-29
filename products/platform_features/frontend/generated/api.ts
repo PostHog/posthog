@@ -27,6 +27,8 @@ import type {
     InternalFeedbackCreateBody,
     InternalFeedbackResponseApi,
     ListParams,
+    MemberOffboardingRequestApi,
+    MemberOffboardingResourceApi,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
@@ -355,6 +357,39 @@ export const membersGithubLoginRetrieve = async (
     options?: RequestInit
 ): Promise<OrganizationMemberGithubLoginApi> => {
     return apiMutator<OrganizationMemberGithubLoginApi>(getMembersGithubLoginRetrieveUrl(organizationId, userUuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMembersOffboardCreateUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboard/`
+}
+
+export const membersOffboardCreate = async (
+    organizationId: string,
+    userUuid: string,
+    memberOffboardingRequestApi?: MemberOffboardingRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMembersOffboardCreateUrl(organizationId, userUuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(memberOffboardingRequestApi),
+    })
+}
+
+export const getMembersOffboardingRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/offboarding/`
+}
+
+export const membersOffboardingRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<MemberOffboardingResourceApi[]> => {
+    return apiMutator<MemberOffboardingResourceApi[]>(getMembersOffboardingRetrieveUrl(organizationId, userUuid), {
         ...options,
         method: 'GET',
     })

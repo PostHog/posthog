@@ -5,6 +5,7 @@ from urllib.parse import urlparse, urlunparse
 
 from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import Model, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
@@ -569,7 +570,10 @@ class SharingConfigurationViewSet(
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            serializer.save()
+            if serializer.validated_data.get("enabled"):
+                instance.shared_by.add(request.user)
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name

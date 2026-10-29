@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { createPortal } from 'react-dom'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 
 import { BulkSelectionConfig, BulkSelectionContext, BulkSelectionKey } from './useBulkSelection'
 
@@ -19,9 +20,10 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
     const isOpen = context.selectedCount > 0
     const [singular, plural] = noun
     const word = context.selectedCount === 1 ? singular : plural
+    const selectionLabel = config.getSelectionLabel?.(context) ?? `${context.selectedCount} ${word} selected`
     const summary = (
-        <span className="text-secondary text-sm">
-            {context.selectedCount} {word} selected
+        <span className="text-secondary text-sm" title={selectionLabel}>
+            {selectionLabel}
         </span>
     )
     const clearButton = (
@@ -32,7 +34,7 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
 
     const bar = (
         <div
-            className={clsx(
+            className={cn(
                 'flex items-center justify-end gap-2 min-h-9 px-1 LemonTable__bulk-selection-bar',
                 config.barClassName
             )}

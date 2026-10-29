@@ -301,6 +301,20 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
 })
 
+export const membersOffboardCreateBodyKeepItemMax = 200
+
+export const membersOffboardCreateBodyKeepMax = 10000
+
+export const MembersOffboardCreateBody = /* @__PURE__ */ zod.object({
+    keep: zod
+        .array(zod.string().max(membersOffboardCreateBodyKeepItemMax))
+        .max(membersOffboardCreateBodyKeepMax)
+        .optional()
+        .describe(
+            'Resource identifiers explicitly retained by an organization admin. All other resources are disabled.'
+        ),
+})
+
 /**
  * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
  */

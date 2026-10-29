@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import F, Model, Prefetch, QuerySet
+from django.db.models import F, Model, Prefetch, QuerySet, TextChoices
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -38,6 +38,7 @@ from posthog.helpers.verified_domain_enforcement import verified_domain_email_q
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.organization_offboarding import OrganizationOffboarding
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 from posthog.utils import posthoganalytics
 
@@ -149,6 +150,35 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
             "The member's GitHub username (login), resolved from their linked GitHub integration or OAuth "
             "identity. Null when the member has no GitHub identity linked."
         ),
+    )
+
+
+class MemberOffboardingResourceKind(TextChoices):
+    DASHBOARD = "dashboard", "Dashboard"
+    INSIGHT = "insight", "Insight"
+    NOTEBOOK = "notebook", "Notebook"
+    RECORDING = "recording", "Session recording"
+
+
+class MemberOffboardingResourceSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Opaque identifier used to keep this resource during offboarding.")
+    kind = serializers.ChoiceField(
+        choices=MemberOffboardingResourceKind.choices,
+        help_text="The kind of public object or automated delivery.",
+    )
+    name = serializers.CharField(help_text="The resource's display name.")
+    team_id = serializers.IntegerField(help_text="Project containing the resource.")
+    project_name = serializers.CharField(help_text="Name of the project containing the resource.")
+    password_required = serializers.BooleanField(help_text="Whether all active public links require a password.")
+    url = serializers.CharField(allow_null=True, help_text="Project-scoped path to open the resource in PostHog.")
+
+
+class MemberOffboardingRequestSerializer(serializers.Serializer):
+    keep = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        default=list,
+        max_length=10000,
+        help_text="Resource identifiers explicitly retained by an organization admin. All other resources are disabled.",
     )
 
 
@@ -312,6 +342,20 @@ class OrganizationMemberViewSet(
 
         is_self_removal = requesting_user.id == removed_user.id
 
+        keep: set[str] = set()
+        if self.action == "offboard":
+            serializer = MemberOffboardingRequestSerializer(data=self.request.data)
+            serializer.is_valid(raise_exception=True)
+            keep = set(serializer.validated_data["keep"])
+            if keep and is_self_removal:
+                raise exceptions.PermissionDenied(
+                    "Only an organization admin can keep resources when removing a member."
+                )
+        offboarding = OrganizationOffboarding(instance)
+        if keep and keep - {resource.id for resource in offboarding.resources()}:
+            raise serializers.ValidationError({"keep": "Some resources have changed. Reload the review and try again."})
+        offboarding.remove(keep)
+
         posthoganalytics.capture(
             distinct_id=str(requesting_user.distinct_id),
             event="organization member removed",
@@ -327,7 +371,25 @@ class OrganizationMemberViewSet(
             groups=groups(instance.organization),
         )
 
-        instance.user.leave(organization=instance.organization)
+    @extend_schema(
+        operation_id="members_offboarding_retrieve", responses=MemberOffboardingResourceSerializer(many=True)
+    )
+    @action(detail=True, methods=["get"], required_scopes=["organization_member:write"], pagination_class=None)
+    def offboarding(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = cast(OrganizationMembership, self.get_object())
+        requesting_membership = OrganizationMembership.objects.get(
+            user_id=cast(User, request.user).id,
+            organization=instance.organization,
+        )
+        requesting_membership.validate_update(instance)
+        resources = OrganizationOffboarding(instance).resources()
+        return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
+
+    @extend_schema(request=MemberOffboardingRequestSerializer, responses={204: None})
+    @action(detail=True, methods=["post"], required_scopes=["organization_member:write"])
+    def offboard(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self.perform_destroy(self.get_object())
+        return Response(status=204)
 
     @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
     @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])

@@ -72148,6 +72148,56 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    export interface MemberOffboardingRequest {
+      /**
+         * Resource identifiers explicitly retained by an organization admin. All other resources are disabled.
+         * @maxItems 10000
+         * @items.maxLength 200
+         */
+      keep?: string[];
+    }
+
+    /**
+     * * `dashboard` - Dashboard
+     * * `insight` - Insight
+     * * `notebook` - Notebook
+     * * `recording` - Session recording
+     */
+    export type MemberOffboardingResourceKindEnum = typeof MemberOffboardingResourceKindEnum[keyof typeof MemberOffboardingResourceKindEnum];
+
+
+    export const MemberOffboardingResourceKindEnum = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+      Notebook: 'notebook',
+      Recording: 'recording',
+    } as const;
+
+    export interface MemberOffboardingResource {
+      /** Opaque identifier used to keep this resource during offboarding. */
+      id: string;
+      /** The kind of public object or automated delivery.
+       *
+       * * `dashboard` - Dashboard
+       * * `insight` - Insight
+       * * `notebook` - Notebook
+       * * `recording` - Session recording */
+      kind: MemberOffboardingResourceKindEnum;
+      /** The resource's display name. */
+      name: string;
+      /** Project containing the resource. */
+      team_id: number;
+      /** Name of the project containing the resource. */
+      project_name: string;
+      /** Whether all active public links require a password. */
+      password_required: boolean;
+      /**
+         * Project-scoped path to open the resource in PostHog.
+         * @nullable
+         */
+      url: string | null;
+    }
+
     /**
      * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
      */

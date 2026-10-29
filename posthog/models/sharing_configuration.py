@@ -50,6 +50,8 @@ class SharingConfiguration(models.Model):
         blank=True,
     )
 
+    shared_by = models.ManyToManyField("posthog.User", related_name="+", blank=True, db_constraint=False)
+
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
     enabled = models.BooleanField(default=False)
@@ -228,6 +230,8 @@ class SharingConfiguration(models.Model):
                 settings=source.settings,
                 password_required=source.password_required,
             )
+
+            new_config.shared_by.set(source.shared_by.all())
 
             if source.password_required:
                 from posthog.models.share_password import SharePassword

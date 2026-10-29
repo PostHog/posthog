@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { projectDataFreshnessLogic } from 'lib/components/Account/projectDataFreshnessLogic'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -33,55 +33,17 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
+import { memberOffboardingLogic } from './memberOffboardingLogic'
+import { MemberOffboardingModal } from './MemberOffboardingModal'
 import { accessibleProjects, orderByActivity } from './memberProjectAccess'
 import { memberProjectAccessLogic } from './memberProjectAccessLogic'
 import { MemberProjectAccessModal } from './MemberProjectAccessModal'
 
-function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { scopedApiKeys } = useValues(membersLogic)
-
-    return (
-        <div className="max-w-xl">
-            <p>
-                {member.user.uuid === user?.uuid
-                    ? 'Are you sure you want to leave this organization? This cannot be undone. If you leave, you will no longer have access to this organization.'
-                    : 'Are you sure you want to remove this member? This cannot be undone. They will no longer have access to this organization.'}
-            </p>
-            {scopedApiKeys?.keys && scopedApiKeys.keys.length > 0 && (
-                <div className="mt-4">
-                    <LemonBanner type="warning" className="mb-2">
-                        The following personal API keys which belong to{' '}
-                        {member.user.uuid == user?.uuid ? 'you' : 'this member'} will lose access to this organization
-                        and will stop working immediately. Please confirm they will not affect any services that depend
-                        on them before removing {member.user.uuid == user?.uuid ? 'yourself' : 'this member'}.
-                    </LemonBanner>
-                    <LemonTable
-                        dataSource={scopedApiKeys.keys}
-                        columns={[
-                            {
-                                title: 'Name',
-                                dataIndex: 'name',
-                                key: 'name',
-                            },
-                            {
-                                title: 'Last used',
-                                dataIndex: 'last_used_at',
-                                key: 'last_used_at',
-                                render: (last_used_at) => (last_used_at ? <TZLabel time={last_used_at} /> : 'Never'),
-                            },
-                        ]}
-                    />
-                </div>
-            )}
-        </div>
-    )
-}
-
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember, changeMemberAccessLevel, loadMemberScopedApiKeys } = useActions(membersLogic)
+    const { changeMemberAccessLevel } = useActions(membersLogic)
+    const { open: openOffboarding } = useActions(memberOffboardingLogic)
     const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
 
     if (!user) {
@@ -160,28 +122,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                             <LemonButton
                                 status="danger"
                                 data-attr="delete-org-membership"
-                                onClick={() => {
-                                    if (!user) {
-                                        throw Error
-                                    }
-                                    loadMemberScopedApiKeys(member)
-                                    LemonDialog.open({
-                                        title: `${
-                                            member.user.uuid == user.uuid
-                                                ? 'Leave'
-                                                : `Remove ${fullName(member.user)} from`
-                                        } organization ${user.organization?.name}?`,
-                                        primaryButton: {
-                                            children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
-                                            status: 'danger',
-                                            onClick: () => removeMember(member),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                        content: <RemoveMemberModal member={member} />,
-                                    })
-                                }}
+                                onClick={() => openOffboarding(member)}
                                 fullWidth
                             >
                                 {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
@@ -408,6 +349,7 @@ export function Members(): JSX.Element | null {
             </div>
 
             <MemberProjectAccessModal />
+            <MemberOffboardingModal />
             <LemonTable
                 dataSource={filteredMembers ?? []}
                 columns={columns}
