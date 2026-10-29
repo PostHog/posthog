@@ -20,11 +20,11 @@ Where new code goes:
 
 ## Conventions
 
-- **No kea, no PostHog imports.** Theme, colors, and data are passed in as props. The library has no app dependencies — it's used by trends but shouldn't know about them.
+- **No kea, no PostHog imports.** Colors and data are passed in as props. The theme comes from a prop or a `ChartThemeProvider`, resolved with `useResolvedChartTheme`. The library has no app dependencies — it's used by trends but shouldn't know about them.
 - **`ChartScales` must not expose d3 types.** Public interface is `x(label) => px`, `y(value) => px`, `yTicks() => number[]`. d3 stays inside the chart-type's `createScales`.
 - **Canvas functions are stateless.** Pure functions in `canvas-renderer.ts`, no React or side effects. State lives in React; drawing reads it.
 - **Overlays use the granular hooks.** `useChartLayout()` doesn't re-render on hover; `useChartHover()` does. Use `useChart()` only when an overlay genuinely needs both — it re-renders on every mousemove.
-- **Pure logic is tested at the `core/` layer.** Chart-level tests assert on the rendered DOM through the `HogChart` accessor — see [TESTING.md](./TESTING.md).
+- **Pure logic is tested at the `core/` layer.** Chart-level tests assert on the rendered DOM through the `ChartAccessor` — see [TESTING.md](./TESTING.md).
 
 ## Adding a new chart type
 
@@ -38,18 +38,28 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
     return { x, y, yTicks: () => yScale.ticks() }
   }, [])
 
-  const draw = useCallback(({ ctx, dimensions, scales, series, labels, hoverIndex }: ChartDrawArgs) => {
+  const drawStatic = useCallback(({ ctx, dimensions, scales, series, labels, theme }: ChartDrawArgs) => {
+    drawGrid(
+      { ctx, dimensions, yScale: scales.y },
+      { gridColor: theme.gridColor, gridDash: theme.gridDashPattern, frame: false, valueTicks: scales.yTicks() }
+    )
     // Draw bars using canvas-renderer primitives or custom drawing
+    drawAxes({ ctx, dimensions }, { axisColor: resolveAxisLineColor(theme) })
+  }, [])
+
+  const drawHover = useCallback(({ ctx, hoverIndex }: ChartDrawArgs) => {
+    // Highlight the hovered bar; return false when nothing was drawn
   }, [])
 
   return (
     <Chart
       series={series}
       labels={labels}
-      config={config}
+      config={applyChartDefaults(config)}
       theme={theme}
       createScales={createScales}
-      draw={draw}
+      drawStatic={drawStatic}
+      drawHover={drawHover}
       {...props}
     >
       {/* Bar-chart-specific overlays as children */}
@@ -57,3 +67,7 @@ export function BarChart({ series, labels, config, theme, ...props }: BarChartPr
   )
 }
 ```
+
+- `applyChartDefaults` turns on the tick marks and crosshair, as on the built-in charts. The core reads them from `config` and treats a missing switch as off.
+- `drawStatic` draws the grid lines first and the axis lines last, as the built-in charts do. `valueTicks: scales.yTicks()` puts the grid lines on the y-axis labels, and `frame: false` leaves the plot edges to `drawAxes`. Code outside the library imports `drawGrid`, `drawAxes` and `resolveAxisLineColor` from the package.
+- Leave `tooltip` unset for the stock `DefaultTooltip`, configured through `config.tooltip`. For other content, return `DefaultTooltip` with a `labelRenderer` or `valueFormatter`, or compose `TooltipSurface` and `TooltipSwatch`, so the tooltip still matches the built-in charts.

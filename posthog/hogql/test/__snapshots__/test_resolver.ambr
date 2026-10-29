@@ -64,6 +64,10 @@
                             description: None,
                             hidden: False
                           },
+                          $virt_mcp_harness: {
+                            description: "MCP client label computed from this event's client identity signals.",
+                            hidden: False
+                          },
                           $virt_traffic_category: {
                             description: None,
                             hidden: False
@@ -2332,6 +2336,10 @@
                   },
                   $virt_is_bot: {
                     description: None,
+                    hidden: False
+                  },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
                     hidden: False
                   },
                   $virt_traffic_category: {
@@ -5334,6 +5342,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
+                                hidden: False
+                              },
                               $virt_traffic_category: {
                                 description: None,
                                 hidden: False
@@ -6363,6 +6375,10 @@
                               },
                               $virt_is_bot: {
                                 description: None,
+                                hidden: False
+                              },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
                                 hidden: False
                               },
                               $virt_traffic_category: {
@@ -9521,6 +9537,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -11201,6 +11221,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -12887,6 +12911,10 @@
                         description: None,
                         hidden: False
                       },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
+                        hidden: False
+                      },
                       $virt_traffic_category: {
                         description: None,
                         hidden: False
@@ -13186,6 +13214,10 @@
                       },
                       $virt_is_bot: {
                         description: None,
+                        hidden: False
+                      },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
                         hidden: False
                       },
                       $virt_traffic_category: {
@@ -13837,6 +13869,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -14172,6 +14208,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -14513,6 +14553,10 @@
                       },
                       $virt_is_bot: {
                         description: None,
+                        hidden: False
+                      },
+                      $virt_mcp_harness: {
+                        description: "MCP client label computed from this event's client identity signals.",
                         hidden: False
                       },
                       $virt_traffic_category: {
@@ -14894,6 +14938,10 @@
                               },
                               $virt_is_bot: {
                                 description: None,
+                                hidden: False
+                              },
+                              $virt_mcp_harness: {
+                                description: "MCP client label computed from this event's client identity signals.",
                                 hidden: False
                               },
                               $virt_traffic_category: {
@@ -15283,6 +15331,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -15638,6 +15690,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -15998,6 +16054,10 @@
                     description: None,
                     hidden: False
                   },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
+                    hidden: False
+                  },
                   $virt_traffic_category: {
                     description: None,
                     hidden: False
@@ -16338,6 +16398,10 @@
                     },
                     $virt_is_bot: {
                       description: None,
+                      hidden: False
+                    },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
                       hidden: False
                     },
                     $virt_traffic_category: {
@@ -16795,6 +16859,10 @@
                       description: None,
                       hidden: False
                     },
+                    $virt_mcp_harness: {
+                      description: "MCP client label computed from this event's client identity signals.",
+                      hidden: False
+                    },
                     $virt_traffic_category: {
                       description: None,
                       hidden: False
@@ -17091,6 +17159,10 @@
                         },
                         $virt_is_bot: {
                           description: None,
+                          hidden: False
+                        },
+                        $virt_mcp_harness: {
+                          description: "MCP client label computed from this event's client identity signals.",
                           hidden: False
                         },
                         $virt_traffic_category: {
@@ -17411,6 +17483,10 @@
                   },
                   $virt_is_bot: {
                     description: None,
+                    hidden: False
+                  },
+                  $virt_mcp_harness: {
+                    description: "MCP client label computed from this event's client identity signals.",
                     hidden: False
                   },
                   $virt_traffic_category: {

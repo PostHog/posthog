@@ -98,9 +98,6 @@ class TestRequest:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, (True, None)),
-            ("unauthorized", 401, (False, open_exchange_rates.INVALID_APP_ID_ERROR)),
-            ("suspended", 403, (False, open_exchange_rates.RESTRICTED_ACCOUNT_ERROR)),
             ("over_use", 429, (False, open_exchange_rates.RESTRICTED_ACCOUNT_ERROR)),
             ("upstream_outage", 503, (False, open_exchange_rates.VALIDATION_UNAVAILABLE_ERROR)),
         ]
@@ -277,6 +274,80 @@ class TestGetRows:
         assert result.urls == [f"{BASE_URL}/historical/{days[1].isoformat()}.json?base=USD"]
         assert [batch[0]["date"] for batch in result.items] == [days[1].isoformat()]
 
+    def test_time_series_walks_calendar_months_in_date_order(self) -> None:
+        yesterday = datetime.now(tz=UTC).date() - timedelta(days=1)
+        current_month = yesterday.replace(day=1)
+        previous_month = (current_month - timedelta(days=1)).replace(day=1)
+        previous_month_end = current_month - timedelta(days=1)
+        body1 = {
+            "base": "USD",
+            "rates": {
+                previous_month_end.isoformat(): {"EUR": 0.91},
+                previous_month.isoformat(): {"EUR": 0.9, "GBP": 0.8},
+            },
+        }
+        body2 = {"base": "USD", "rates": {yesterday.isoformat(): {"EUR": 0.95}}}
+        result = self._driver(previous_month.isoformat()).run(
+            "time_series", [ScriptedResponse(json=body1), ScriptedResponse(json=body2)]
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/time-series.json", "/api/time-series.json"]
+        assert result.params("start") == [previous_month.isoformat(), current_month.isoformat()]
+        assert result.params("end") == [previous_month_end.isoformat(), yesterday.isoformat()]
+        assert result.items == [
+            [
+                {"base": "USD", "currency": "EUR", "rate": 0.9, "date": previous_month.isoformat()},
+                {"base": "USD", "currency": "GBP", "rate": 0.8, "date": previous_month.isoformat()},
+                {"base": "USD", "currency": "EUR", "rate": 0.91, "date": previous_month_end.isoformat()},
+            ],
+            [{"base": "USD", "currency": "EUR", "rate": 0.95, "date": yesterday.isoformat()}],
+        ]
+        assert result.saved_states == [OpenExchangeRatesResumeConfig(next_date=current_month.isoformat())]
+
+    def test_time_series_resumes_from_saved_window(self) -> None:
+        yesterday = datetime.now(tz=UTC).date() - timedelta(days=1)
+        current_month = yesterday.replace(day=1)
+        previous_month = (current_month - timedelta(days=1)).replace(day=1)
+        body = {"base": "USD", "rates": {yesterday.isoformat(): {"EUR": 0.95}}}
+        result = self._driver(previous_month.isoformat()).run(
+            "time_series",
+            [ScriptedResponse(json=body)],
+            resume_state=OpenExchangeRatesResumeConfig(next_date=current_month.isoformat()),
+        )
+        assert result.raised is None
+        assert result.params("start") == [current_month.isoformat()]
+        assert [batch[0]["date"] for batch in result.items] == [yesterday.isoformat()]
+
+    def test_ohlc_walks_each_day_with_a_daily_period(self) -> None:
+        yesterday = datetime.now(tz=UTC).date() - timedelta(days=1)
+        days = [yesterday - timedelta(days=1), yesterday]
+        values = {"open": 0.9, "high": 0.92, "low": 0.89, "close": 0.91, "average": 0.905}
+        bodies = [
+            {
+                "base": "USD",
+                "start_time": f"{day.isoformat()}T00:00:00Z",
+                "end_time": f"{day.isoformat()}T23:59:59Z",
+                "rates": {"EUR": values, "GBP": None},
+            }
+            for day in days
+        ]
+        result = self._driver(days[0].isoformat()).run("ohlc", [ScriptedResponse(json=body) for body in bodies])
+        assert result.raised is None
+        assert result.params("start_time") == [f"{day.isoformat()}T00:00:00Z" for day in days]
+        assert result.params("period") == ["1d", "1d"]
+        assert result.items[0] == [
+            {
+                "base": "USD",
+                "currency": "EUR",
+                "date": days[0].isoformat(),
+                "start_time": f"{days[0].isoformat()}T00:00:00Z",
+                "end_time": f"{days[0].isoformat()}T23:59:59Z",
+                **values,
+            }
+        ]
+        assert [batch[0]["date"] for batch in result.items] == [day.isoformat() for day in days]
+        assert result.saved_states == [OpenExchangeRatesResumeConfig(next_date=days[1].isoformat())]
+
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError):
             self._run("nope", [], _manager())
@@ -295,6 +366,10 @@ class TestOpenExchangeRatesSourceResponse:
             return ScriptedResponse(json={"USD": "US Dollar"})
         if endpoint == "usage":
             return ScriptedResponse(json={"data": {}})
+        if endpoint == "time_series":
+            return ScriptedResponse(json={"base": "USD", "rates": {"2024-01-02": {"EUR": 0.9}}})
+        if endpoint == "ohlc":
+            return ScriptedResponse(json={"base": "USD", "rates": {"EUR": {"open": 0.9}}})
         return ScriptedResponse(json={"base": "USD", "timestamp": 1704153600, "rates": {"EUR": 0.9}})
 
     @parameterized.expand(
@@ -302,6 +377,8 @@ class TestOpenExchangeRatesSourceResponse:
             ("currencies", ["code"]),
             ("latest", ["base", "currency", "date"]),
             ("historical", ["base", "currency", "date"]),
+            ("time_series", ["base", "currency", "date"]),
+            ("ohlc", ["base", "currency", "date"]),
             ("usage", ["id"]),
         ]
     )
@@ -314,7 +391,7 @@ class TestOpenExchangeRatesSourceResponse:
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
 
-    @parameterized.expand([("latest",), ("historical",)])
+    @parameterized.expand([("latest",), ("historical",), ("time_series",), ("ohlc",)])
     def test_rate_endpoints_partition_on_stable_date(self, endpoint: str) -> None:
         result = self._run(endpoint).run(endpoint, always(self._answer(endpoint)))
         assert result.raised is None

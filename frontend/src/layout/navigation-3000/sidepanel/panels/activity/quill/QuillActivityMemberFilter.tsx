@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     Button,
@@ -13,12 +13,11 @@ import {
     Spinner,
 } from '@posthog/quill'
 
+import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
-
-import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 
 const ANY_USER = 'any'
 
@@ -35,12 +34,15 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     // The trigger opens the picker through the controlled prop, which never calls onOpenChange, so both paths load.
-    const setPickerOpen = (next: boolean): void => {
-        setOpen(next)
-        if (next) {
-            ensureAllMembersLoaded()
-        }
-    }
+    const setPickerOpen = useCallback(
+        (next: boolean): void => {
+            setOpen(next)
+            if (next) {
+                ensureAllMembersLoaded()
+            }
+        },
+        [ensureAllMembersLoaded]
+    )
 
     // A value set from the URL needs the member list to show a name rather than "Any user".
     useEffect(() => {
@@ -51,10 +53,29 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
 
     // You come first, then everyone else, as in the other member pickers. The unfiltered list, because the shared
     // member search from settings would otherwise hide members here.
-    const members = meFirstMembers
-    const usersById = Object.fromEntries(members.map((member) => [String(member.user.id), member.user]))
+    const { usersById, items } = useMemo(() => {
+        const usersById: Record<string, UserBasicType> = {}
+        const items = [ANY_USER]
+        for (const { user } of meFirstMembers) {
+            const id = String(user.id)
+            usersById[id] = user
+            items.push(id)
+        }
+        return { usersById, items }
+    }, [meFirstMembers])
     const selected = value ? usersById[String(value)] : null
-    const items = [ANY_USER, ...members.map((member) => String(member.user.id))]
+    const itemToStringLabel = useCallback(
+        (key: string): string =>
+            key === ANY_USER ? 'Any user' : `${fullName(usersById[key])} ${usersById[key]?.email ?? ''}`,
+        [usersById]
+    )
+    const onValueChange = useCallback(
+        (next: string | null): void => {
+            onChange(!next || next === ANY_USER ? null : (usersById[next] ?? null))
+            setOpen(false)
+        },
+        [onChange, usersById]
+    )
 
     return (
         <Combobox<string>
@@ -62,13 +83,8 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
             open={open}
             onOpenChange={setPickerOpen}
             value={value ? String(value) : ANY_USER}
-            onValueChange={(next) => {
-                onChange(!next || next === ANY_USER ? null : (usersById[next] ?? null))
-                setOpen(false)
-            }}
-            itemToStringLabel={(key: string) =>
-                key === ANY_USER ? 'Any user' : `${fullName(usersById[key])} ${usersById[key]?.email ?? ''}`
-            }
+            onValueChange={onValueChange}
+            itemToStringLabel={itemToStringLabel}
         >
             <Button
                 ref={triggerRef}

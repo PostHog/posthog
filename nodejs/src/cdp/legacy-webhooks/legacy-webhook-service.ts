@@ -9,7 +9,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawKafkaEvent, Team } from '../../types'
-import { counterParseError } from '../consumers/metrics'
+import { assertTeamId, skipIfMalformed } from '../consumers/message-parsing'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { cdpTrackedFetch } from '../utils/cdp-fetch'
@@ -94,29 +94,39 @@ export class LegacyWebhookService {
         )
     }
 
-    public async processBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
+    public async parseBatch(messages: Message[]): Promise<PostIngestionEvent[]> {
         const events: PostIngestionEvent[] = []
 
         await Promise.all(
             messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                const clickHouseEvent = skipIfMalformed('Error parsing message', () =>
+                    assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent)
+                )
+                if (!clickHouseEvent) {
+                    return
+                }
 
-                    if (
-                        !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
-                        !(await this.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
-                    ) {
-                        return
-                    }
+                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
+                if (
+                    !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
+                    !(await this.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
+                ) {
+                    return
+                }
 
-                    events.push(convertToPostIngestionEvent(clickHouseEvent))
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+                const event = skipIfMalformed('Error parsing message', () =>
+                    convertToPostIngestionEvent(clickHouseEvent)
+                )
+                if (event) {
+                    events.push(event)
                 }
             })
         )
 
+        return events
+    }
+
+    public processEvents(events: PostIngestionEvent[]): { backgroundTask: Promise<any> } {
         return { backgroundTask: Promise.all(events.map((event) => this.processEvent(event))) }
     }
 

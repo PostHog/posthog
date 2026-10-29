@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BillingAPIErrorCodes, billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -18,7 +19,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BillingProductV2Type, BillingProvider, BillingType } from '~/types'
+import { BillingProductV2Type, BillingProvider, BillingType, StartupProgramLabel } from '~/types'
 
 const creditOverviewResponse = {
     eligible: false,
@@ -272,6 +273,92 @@ describe('billingLogic', () => {
         }).toFinishAllListeners()
 
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(false)
+    })
+
+    it.each([
+        {
+            name: 'YC credits left that renew',
+            label: StartupProgramLabel.YC,
+            credits: '100.00',
+            renew: true,
+            expected: 'renewing',
+        },
+        {
+            name: 'YC credits used that renew',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: true,
+            expected: 'used_until_renewal',
+        },
+        {
+            name: 'YC credits left that do not renew',
+            label: StartupProgramLabel.YC,
+            credits: '100.00',
+            renew: false,
+            expected: 'ending',
+        },
+        {
+            name: 'YC credits used that do not renew',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: false,
+            expected: 'ended',
+        },
+        {
+            name: 'a YC response without the renewal field',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: undefined,
+            expected: 'used_until_renewal',
+        },
+        {
+            name: 'Startup credits used',
+            label: StartupProgramLabel.Startup,
+            credits: undefined,
+            renew: false,
+            expected: null,
+        },
+    ])('derives the YC credits state for $name', async ({ label, credits, renew, expected }) => {
+        billingState = {
+            ...billingWithProducts([productWithUsage(0.5)]),
+            startup_program_label: label,
+            discount_amount_usd: credits,
+            startup_program_credits_renew: renew,
+        }
+        billingLogic.mount()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.ycCreditsState).toBe(expected)
+    })
+
+    it.each([
+        { name: 'keeps the date for YC credits', label: StartupProgramLabel.YC, expected: '2024-03-15T12:00:00Z' },
+        {
+            name: 'moves the date to the period end for other credits',
+            label: StartupProgramLabel.Startup,
+            expected: '2024-03-31T00:00:00Z',
+        },
+    ])('$name that expire mid-period', async ({ label, expected }) => {
+        billingState = {
+            ...billingWithProducts([productWithUsage(0.5)]),
+            startup_program_label: label,
+            amount_off_expires_at: dayjs('2024-03-15T12:00:00Z'),
+            billing_period: {
+                current_period_start: dayjs('2024-03-01T00:00:00Z'),
+                current_period_end: dayjs('2024-03-31T00:00:00Z'),
+                interval: 'month',
+            },
+        }
+        billingLogic.mount()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billing?.amount_off_expires_at?.toISOString()).toBe(new Date(expected).toISOString())
     })
 
     it.each([

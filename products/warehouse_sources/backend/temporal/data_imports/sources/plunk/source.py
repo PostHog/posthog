@@ -109,7 +109,7 @@ class PlunkSource(ResumableSource[PlunkSourceConfig, PlunkResumeConfig]):
             name=ExternalDataSourceType.PLUNK,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Plunk",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["useplunk", "email marketing"],
             caption="""Enter your Plunk secret API key to pull your contacts, campaigns, templates, and segments into the PostHog Data warehouse.
 

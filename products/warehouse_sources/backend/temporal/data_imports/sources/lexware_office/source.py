@@ -118,5 +118,5 @@ class LexwareOfficeSource(ResumableSource[LexwareOfficeSourceConfig, LexwareOffi
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

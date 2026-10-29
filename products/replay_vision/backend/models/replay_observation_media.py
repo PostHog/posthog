@@ -15,9 +15,22 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
         # One frame per summary chapter, at the chapter's index in `position`.
         CHAPTER = "chapter", "Chapter"
 
+    class Size(models.TextChoices):
+        LARGE = "large", "Large"
+        SMALL = "small", "Small"
+
     observation = models.ForeignKey("replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="media")
     # CASCADE so the expiry sweep's asset delete takes this row with it, leaving no link to a gone object.
     asset = models.ForeignKey("exports.ExportedAsset", on_delete=models.CASCADE, related_name="+")
+    small_asset = models.ForeignKey(
+        "exports.ExportedAsset",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        # Indexed concurrently in its own migration, which a plain AddField index would not be.
+        db_index=False,
+    )
     # db_constraint=False: the migration policy blocks real FK constraints to the hot posthog_team table.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
 
@@ -27,8 +40,6 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
 
     # Analysis-video time, for seeking the player the person is looking at.
     video_start_ms = models.PositiveIntegerField()
-    # Recording time, which is what the rasterizer was asked to render.
-    rec_start_ms = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -45,11 +56,13 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
                 f"ReplayObservationMedia.team_id ({self.team_id}) must match observation.team_id "
                 f"({observation_team_id})"
             )
-        if self.asset.team_id != observation_team_id:
-            raise ValueError(
-                f"ReplayObservationMedia.asset.team_id ({self.asset.team_id}) must match "
-                f"observation.team_id ({observation_team_id})"
-            )
+        for field in ("asset", "small_asset"):
+            asset = getattr(self, field)
+            if asset is not None and asset.team_id != observation_team_id:
+                raise ValueError(
+                    f"ReplayObservationMedia.{field}.team_id ({asset.team_id}) must match "
+                    f"observation.team_id ({observation_team_id})"
+                )
         super().save(*args, **kwargs)
 
     class Meta:
@@ -59,3 +72,4 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
                 fields=["observation", "kind", "position"], name="unique_replay_observation_media_slot"
             ),
         ]
+        indexes = [models.Index(fields=["small_asset"], name="rom_small_asset_idx")]

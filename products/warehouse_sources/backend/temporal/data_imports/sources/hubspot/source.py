@@ -174,6 +174,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="custom_properties",
+                        sync_setting=True,
                         label="Customize synced properties",
                         caption="Specify which properties to sync for each schema. Leave empty to use defaults. Changing properties requires a full resync.",
                         default=False,
@@ -259,6 +260,16 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             # above) while HubSpot migrates a portal between data centers; the portal becomes
             # reachable again once the migration finishes, so it's self-recovering rather than a bug.
             "Migration in progress",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # HubSpot's own wording says "portal", which is its internal name for the account the customer
+        # connected, and does not say that the sync recovers by itself once the move finishes.
+        return {
+            "Migration in progress": (
+                "HubSpot is moving your account to another data center, so PostHog can't reach it right now. "
+                "This usually clears on its own and the next sync runs on schedule."
+            ),
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options

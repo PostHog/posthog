@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
@@ -19,7 +20,9 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.observation_formatting import format_line, read_output
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
+    can_read_observation,
     can_read_targeted_experiment,
+    is_uuid,
     readable_observation_scanner_ids,
 )
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
@@ -139,7 +142,15 @@ def fetch_page_session_observations(
             ),
         )
         .select_related("scanner")
-        .only("id", "session_id", "scanner_result", "created_at", "scanner__name", "scanner__scanner_type")
+        .only(
+            "id",
+            "session_id",
+            "scanner_result",
+            "created_at",
+            "session_started_at",
+            "scanner__name",
+            "scanner__scanner_type",
+        )
     )
     if prefer_summarizer:
         queryset = queryset.order_by(
@@ -173,6 +184,11 @@ def has_signal_emitting_scanner(team_id: int) -> bool:
     signals tables alone. See `SignalSourceConfig.is_source_enabled`.
     """
     return ReplayScanner.objects.filter(team_id=team_id, enabled=True, emits_signals=True).exists()
+
+
+def team_ids_with_signal_emitting_scanner() -> set[int]:
+    """Every team that `has_signal_emitting_scanner` is true for, in one query."""
+    return set(ReplayScanner.objects.filter(enabled=True, emits_signals=True).values_list("team_id", flat=True))
 
 
 def start_workflow_observation_request(
@@ -285,6 +301,73 @@ def start_workflow_observation_request(
     )
 
 
+def can_view_observation(access: UserAccessControl, team_id: int, observation_id: str) -> bool:
+    """Whether the caller may read one observation, with the gates the observations API applies.
+
+    Those are session recording access, the scanner's RBAC, the scanner's current experiment and the
+    experiment in the observation's own snapshot. A malformed or unknown id reads as not viewable.
+    """
+    observation = _observation_for_access_check(team_id, observation_id)
+    return observation is not None and _can_view_loaded_observation(access, team_id, observation)
+
+
+NoteWriteRejection = Literal["forbidden", "not_finished"]
+
+
+def observation_note_write_rejection(
+    access: UserAccessControl, team_id: int, observation_id: str
+) -> NoteWriteRejection | None:
+    """Why the caller may not write a note on the observation, or None.
+
+    Notes need read access, and a succeeded scan: a retry deletes a failed or ineligible row and the new
+    scan gets a new id, which would strand the notes on the old one.
+    """
+    observation = _observation_for_access_check(team_id, observation_id)
+    if observation is None or not _can_view_loaded_observation(access, team_id, observation):
+        return "forbidden"
+    if observation.status != ObservationStatus.SUCCEEDED:
+        return "not_finished"
+    return None
+
+
+def observation_viewer_user_ids(*, team_id: int, observation_id: str, user_ids: Iterable[int]) -> set[int]:
+    """The users among `user_ids` who may read the observation, so a note's mentions reach only them.
+
+    The observation and the memberships load once for all users. Each user still needs their own access
+    resolution, because access control is per member.
+    """
+    observation = _observation_for_access_check(team_id, observation_id)
+    if observation is None:
+        return set()
+    team = TeamModel.objects.get(id=team_id)
+    member_ids = OrganizationMembership.objects.filter(
+        organization_id=team.organization_id, user_id__in=list(user_ids), user__is_active=True
+    ).values_list("user_id", flat=True)
+    viewer_ids: set[int] = set()
+    for user in User.objects.filter(id__in=list(member_ids)):
+        access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+        if access.has_project_access and _can_view_loaded_observation(access, team_id, observation):
+            viewer_ids.add(user.id)
+    return viewer_ids
+
+
+def _observation_for_access_check(team_id: int, observation_id: str) -> ReplayObservation | None:
+    if not is_uuid(observation_id):
+        return None
+    return ReplayObservation.objects.filter(team_id=team_id, id=observation_id).select_related("scanner").first()
+
+
+def _can_view_loaded_observation(access: UserAccessControl, team_id: int, observation: ReplayObservation) -> bool:
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        return False
+    scanner = observation.scanner
+    return (
+        bool(access.check_access_level_for_object(scanner, "viewer"))
+        and can_read_targeted_experiment(access, team_id, scanner)
+        and can_read_observation(access, team_id, observation)
+    )
+
+
 def _can_scan_with(access: UserAccessControl, team_id: int, scanner: ReplayScanner) -> bool:
     return bool(access.check_access_level_for_object(scanner, "editor")) and can_read_targeted_experiment(
         access, team_id, scanner
@@ -335,3 +418,12 @@ def _workflow_owner(team: TeamModel, owner_id: int | None) -> User:
     ):
         raise ObservationRequestRejected("The workflow has no owner who can run scans.", "forbidden")
     return owner
+
+
+def signal_emitting_scanner_ids(team_id: int, scanner_ids: list[str]) -> set[str]:
+    return {
+        str(scanner_id)
+        for scanner_id in ReplayScanner.objects.filter(
+            team_id=team_id, id__in=scanner_ids, enabled=True, emits_signals=True
+        ).values_list("id", flat=True)
+    }

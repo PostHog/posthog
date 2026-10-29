@@ -4,7 +4,7 @@
 
 use std::time::Instant;
 
-use personhog_stateright::model::{ClaimDetection, HandoffModel, WarmOrder};
+use personhog_stateright::model::{ClaimDetection, HandoffModel, SealRule, WarmOrder, WarmReplay};
 use stateright::{Checker, HasDiscoveries, Model};
 
 /// Every checker explores in parallel: stateright defaults to a single
@@ -109,6 +109,17 @@ fn base() -> HandoffModel {
         cancels: 0,
         chunked_plans: false,
         probes: false,
+        migrations: 0,
+        migrate_to: 1,
+        keys: 1,
+        seal_rule: SealRule::Assignment,
+        warm_replay: WarmReplay::Sources,
+        seal_breaks: 0,
+        seal_grace: true,
+        plan_basis_guard: true,
+        quiet_start: true,
+        freeze_checks_strays: true,
+        park_behind_key: true,
     }
 }
 
@@ -745,6 +756,184 @@ fn chunked_plan_application_is_safe_and_live() {
     .assert_properties();
 }
 
+/// A migration: one router, two pods, two keys, writes and a read racing every phase.
+fn migration(partitions: u8, migrate_to: u8) -> HandoffModel {
+    HandoffModel {
+        routers: 1,
+        partitions,
+        migrate_to,
+        migrations: 1,
+        keys: 2,
+        writes: 2,
+        reads: 1,
+        ..base()
+    }
+}
+
+/// A grow holds, seals, flips and restarts with every safety property intact;
+/// a cancel at any point before the seal unwinds in place.
+#[test]
+fn a_grow_migration_is_safe_and_live() {
+    migration(1, 2)
+        .explore("a_grow_migration_is_safe_and_live")
+        .assert_properties();
+}
+
+/// The rejected bucket rule: a request that parks only when its partition
+/// is stashing overtakes a request for its key parked under the old count.
+#[test]
+fn without_parking_behind_its_key_a_request_overtakes() {
+    let checker = HandoffModel {
+        park_behind_key: false,
+        ..migration(1, 2)
+    }
+    .explore_until(
+        "without_parking_behind_its_key_a_request_overtakes",
+        &["no_overtaken_request"],
+    );
+    assert!(
+        checker.discovery("no_overtaken_request").is_some(),
+        "the bucket rule must let a later request overtake its key's parked one"
+    );
+}
+
+/// A shrink dissolves the partition past the new space and still converges.
+#[test]
+fn a_shrink_migration_is_safe_and_live() {
+    migration(2, 1)
+        .explore("a_shrink_migration_is_safe_and_live")
+        .assert_properties();
+}
+
+/// Two routers adopt the flip independently, so one hashes with the old
+/// modulus while the other already drains under the new one.
+#[test]
+fn a_grow_migration_with_a_stale_router_is_safe_and_live() {
+    HandoffModel {
+        routers: 2,
+        writes: 1,
+        ..migration(1, 2)
+    }
+    .explore("a_grow_migration_with_a_stale_router_is_safe_and_live")
+    .assert_properties();
+}
+
+/// A doubling where each new partition inherits one old one and keys split.
+#[test]
+fn a_two_to_four_grow_is_safe_and_live() {
+    HandoffModel {
+        writes: 1,
+        keys: 4,
+        ..migration(2, 4)
+    }
+    .explore("a_two_to_four_grow_is_safe_and_live")
+    .assert_properties();
+}
+
+/// A holder that crash-restarts under its own name seals the partitions it
+/// never reloaded, so the saga still completes.
+#[test]
+fn a_holder_restarted_mid_sealing_still_seals_and_the_saga_completes() {
+    let checker = HandoffModel {
+        crashes: 1,
+        probes: true,
+        writes: 1,
+        ..migration(1, 2)
+    }
+    .explore("a_holder_restarted_mid_sealing_still_seals_and_the_saga_completes");
+    checker.assert_properties();
+    assert!(
+        checker.discovery("sealed_without_warm").is_some(),
+        "the restarted holder must seal a partition it never loaded"
+    );
+}
+
+/// The rejected seal rule: targets drawn from what a pod has loaded leave a
+/// restarted holder's partitions to nobody, and the saga never finishes.
+#[test]
+fn seal_targets_by_residency_wedge_a_restarted_holder() {
+    let checker = HandoffModel {
+        crashes: 1,
+        writes: 1,
+        seal_rule: SealRule::Residency,
+        seal_grace: false,
+        ..migration(1, 2)
+    }
+    .explore_until(
+        "seal_targets_by_residency_wedge_a_restarted_holder",
+        &["converges_to_stable"],
+    );
+    assert!(
+        checker.discovery("converges_to_stable").is_some(),
+        "residency-based seal targets must leave a run that never converges"
+    );
+}
+
+/// The rejected rule: a registered holder whose seal never succeeds holds Sealing forever.
+#[test]
+fn a_broken_seal_without_the_grace_wedges_sealing() {
+    let checker = HandoffModel {
+        writes: 1,
+        seal_breaks: 1,
+        seal_grace: false,
+        ..migration(1, 2)
+    }
+    .explore_until(
+        "a_broken_seal_without_the_grace_wedges_sealing",
+        &["converges_to_stable"],
+    );
+    assert!(
+        checker.discovery("converges_to_stable").is_some(),
+        "a broken seal with no grace must leave a run that never converges"
+    );
+}
+
+/// Past the grace, peers seal what a broken holder could not, and the saga completes safely.
+#[test]
+fn a_broken_seal_is_healed_by_peers_after_the_grace() {
+    let checker = HandoffModel {
+        writes: 1,
+        seal_breaks: 1,
+        ..migration(1, 2)
+    }
+    .explore("a_broken_seal_is_healed_by_peers_after_the_grace");
+    checker.assert_properties();
+}
+
+/// The rejected warm: a restart that reads the live partition alone misses
+/// the old tail and serves a stale strong read.
+#[test]
+fn a_live_only_warm_loses_the_old_tail() {
+    let checker = HandoffModel {
+        warm_replay: WarmReplay::LiveOnly,
+        ..migration(1, 2)
+    }
+    .explore_until(
+        "a_live_only_warm_loses_the_old_tail",
+        &["strong_reads_complete"],
+    );
+    assert!(
+        checker.discovery("strong_reads_complete").is_some(),
+        "a live-only warm must leave a stale strong read reachable"
+    );
+}
+
+/// A write for a partition born in the flip parks before its handoff exists
+/// and is delivered once it lands.
+#[test]
+fn probe_a_born_partition_write_parks_and_drains() {
+    let checker = HandoffModel {
+        probes: true,
+        ..migration(1, 2)
+    }
+    .explore("probe_a_born_partition_write_parks_and_drains");
+    checker.assert_properties();
+    assert!(
+        checker.discovery("born_partition_write_parked").is_some(),
+        "a write must be able to park for a partition born in the flip"
+    );
+}
+
 /// Both fates of a pending unit are genuinely reachable — applied after
 /// other actions interleaved, and dropped by a failed plan-time guard —
 /// and no interleaving that reaches them loses an acked write or
@@ -775,5 +964,78 @@ fn probe_chunked_pending_units_reach_both_fates_safely() {
             checker.discovery(safety).is_none(),
             "{safety} must hold across chunked application"
         );
+    }
+}
+
+/// A chunked bootstrap plan racing a migration: later units land only on
+/// the basis they were planned on, so every property holds.
+#[test]
+fn a_chunked_plan_across_a_migration_is_safe_and_live() {
+    HandoffModel {
+        chunked_plans: true,
+        writes: 1,
+        reads: 0,
+        ..migration(2, 4)
+    }
+    .explore("a_chunked_plan_across_a_migration_is_safe_and_live")
+    .assert_properties();
+}
+
+/// A planner that ignores the plan basis serves the old generation past the flip. The quiet
+/// start is off, since this small config reaches a mid-plan start only without it.
+#[test]
+fn an_unguarded_plan_across_a_migration_serves_the_old_generation() {
+    let checker = HandoffModel {
+        chunked_plans: true,
+        writes: 1,
+        reads: 0,
+        plan_basis_guard: false,
+        quiet_start: false,
+        ..migration(2, 4)
+    }
+    .explore_until(
+        "an_unguarded_plan_across_a_migration_serves_the_old_generation",
+        &[
+            "old_generation_quiet_after_flip",
+            "no_mixed_modulus_acceptance",
+        ],
+    );
+    assert!(checker
+        .discovery("old_generation_quiet_after_flip")
+        .is_some());
+    assert!(checker.discovery("no_mixed_modulus_acceptance").is_some());
+}
+
+/// The rejected design: a saga that begins mid-handoff, with a freeze that
+/// does not notice, freezes a fleet with a partition in motion and loses an acked write.
+#[test]
+fn starting_mid_handoff_loses_acked_writes() {
+    let checker = HandoffModel {
+        quiet_start: false,
+        freeze_checks_strays: false,
+        ..migration(1, 2)
+    }
+    .explore_until(
+        "starting_mid_handoff_loses_acked_writes",
+        &["no_lost_acked_write"],
+    );
+    assert!(checker.discovery("no_lost_acked_write").is_some());
+}
+
+/// The quiet start and the freeze's stray check are independent layers: each
+/// alone keeps every property, the stray check by cancelling instead.
+#[test]
+fn either_layer_alone_keeps_a_mid_handoff_start_safe() {
+    for (name, quiet_start, freeze_checks_strays) in [
+        ("only_the_stray_check", false, true),
+        ("only_the_quiet_start", true, false),
+    ] {
+        HandoffModel {
+            quiet_start,
+            freeze_checks_strays,
+            ..migration(1, 2)
+        }
+        .explore(name)
+        .assert_properties();
     }
 }

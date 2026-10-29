@@ -1,10 +1,11 @@
+from datetime import timedelta
 from typing import Optional, cast
-
-from django.conf import settings
 
 import gspread
 import structlog
 from google.auth import exceptions as google_auth_exceptions
+
+from posthog.cache_utils import cache_for
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -15,6 +16,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -28,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     GOOGLE_SHEETS_API_VERSION_V4,
+    GoogleSheetsServiceAccountKeyInvalidError,
     discover_worksheet_schemas,
     google_sheets_client,
     google_sheets_source,
@@ -35,6 +38,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_she
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+
+# The source config is built on many web requests, and this address is display text, not a secret.
+@cache_for(timedelta(minutes=5))
+def _service_account_email() -> str:
+    return credentials_service.get_secret("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 
 
 @SourceRegistry.register
@@ -163,9 +172,8 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     ) -> tuple[bool, str | None]:
         try:
             client = google_sheets_client()
-        except ValueError:
-            # google-auth raises ValueError when this instance's service account key is malformed,
-            # for example not valid PEM. The user can't fix that, so return a clear message, not a 500.
+        except GoogleSheetsServiceAccountKeyInvalidError:
+            # The user can't fix this instance's service account key, so return a clear message, not a 500.
             logger.exception("google_sheets_service_account_key_invalid", team_id=team_id)
             return (
                 False,
@@ -187,16 +195,18 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         except gspread.SpreadsheetNotFound:
             # The Sheets API answers an unshared sheet with a 404, the same as a deleted one, so
             # sharing is at least as likely as a wrong URL. Mirror the sync-time message.
+            service_account_email = credentials_service.get_secret("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
             return (
                 False,
                 "PostHog couldn't find a sheet at that URL. Check the URL, and share the sheet with our service "
-                f"account ({settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}) as a Viewer.",
+                f"account ({service_account_email}) as a Viewer.",
             )
         except PermissionError:
+            service_account_email = credentials_service.get_secret("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
             return (
                 False,
                 "PostHog does not have access to this spreadsheet. Share it with our service account "
-                f"({settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}) as a Viewer, then try again. "
+                f"({service_account_email}) as a Viewer, then try again. "
                 "See https://posthog.com/docs/cdp/sources/google-sheets for more.",
             )
         except gspread.exceptions.APIError as e:
@@ -237,6 +247,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
 
     @property
     def get_source_config(self) -> SourceConfig:
+        service_account_email = _service_account_email()
         return SourceConfig(
             name=ExternalDataSourceType.GOOGLESHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
@@ -255,7 +266,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
-                        caption=f'Share the sheet with our service account by entering **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
+                        caption=f'Share the sheet with our service account by entering **{service_account_email}** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
                         secret=False,
                     )
                 ],

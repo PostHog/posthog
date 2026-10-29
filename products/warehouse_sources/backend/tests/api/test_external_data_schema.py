@@ -17,6 +17,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
@@ -42,7 +43,13 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
+from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    UNREADABLE_SOURCE_CONFIG_ERROR,
+    schema_display_status,
+)
+from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
+    INVALID_CREDENTIALS_FALLBACK_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import _repair_lock_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
@@ -166,6 +173,28 @@ class TestExternalDataSchema(APIBaseTest):
             "primary_key_detection_supported": False,
         }
 
+    def test_incremental_fields_handles_a_probe_that_raises(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        with mock.patch.object(StripeSource, "validate_credentials", side_effect=RuntimeError("probe exploded")):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == INVALID_CREDENTIALS_FALLBACK_MESSAGE
+
     @parameterized.expand(
         [
             ("non_retryable_source_error", Exception("Invalid API Key provided"), False),
@@ -283,6 +312,28 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         assert response.status_code == 400
+
+    def test_incremental_fields_returns_400_when_stored_config_is_still_encrypted(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "gAAAAAfake-undecrypted-token"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"message": UNREADABLE_SOURCE_CONFIG_ERROR}
 
     def test_incremental_fields_missing_table_name(self):
         source = ExternalDataSource.objects.create(
@@ -801,6 +852,11 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=initial_sync_type,
             sync_type_config={
                 **({"primary_key_columns": persisted_keys} if persisted_keys else {}),
+                **(
+                    {"incremental_field": "created_at", "incremental_field_type": "datetime"}
+                    if initial_sync_type == "incremental"
+                    else {}
+                ),
                 "schema_metadata": {"columns": columns},
             },
         )
@@ -1010,6 +1066,85 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type_config.get("primary_key_columns") == ["id"]
 
+    @parameterized.expand(
+        [
+            ("switch_to_incremental_without_field", "full_refresh", None, True, {"sync_type": "incremental"}, 400),
+            (
+                "switch_to_append_with_null_field",
+                "full_refresh",
+                None,
+                True,
+                {"sync_type": "append", "incremental_field": None},
+                400,
+            ),
+            ("clear_field_on_incremental", "incremental", "created", True, {"incremental_field": None}, 400),
+            ("enable_schema_without_field", "incremental", None, False, {"should_sync": True}, 400),
+            (
+                "unrelated_edit_on_schema_without_field",
+                "incremental",
+                None,
+                True,
+                {"sync_type": "incremental", "incremental_field": None, "should_sync": False},
+                200,
+            ),
+            (
+                "switch_to_incremental_with_field",
+                "full_refresh",
+                None,
+                True,
+                {"sync_type": "incremental", "incremental_field": "created", "incremental_field_type": "integer"},
+                200,
+            ),
+        ]
+    )
+    def test_update_schema_requires_incremental_field_for_cursor_sync_types(
+        self,
+        _name: str,
+        stored_sync_type: str,
+        stored_field: str | None,
+        stored_should_sync: bool,
+        request_data: dict[str, Any],
+        expected_status: int,
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=stored_should_sync,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=stored_sync_type,
+            sync_type_config={"incremental_field": stored_field, "incremental_field_type": "integer"}
+            if stored_field
+            else {},
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data=request_data,
+            )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        if expected_status == 400:
+            assert "needs an incremental field" in response.json()["detail"]
+            assert schema.should_sync == stored_should_sync
+            assert schema.sync_type == stored_sync_type
+            assert schema.sync_type_config.get("incremental_field") == stored_field
+
     def test_incremental_field_lookback_seconds_survives_reset(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1205,6 +1340,30 @@ class TestExternalDataSchema(APIBaseTest):
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
                 "_ph_cdc_seq",
+            ),
+            (
+                "rejects_a_history_table_for_a_source_column_named_like_a_validity_column",
+                {
+                    "primary_key_columns": ["id"],
+                    "cdc_table_mode": "both",
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "valid_from"}]},
+                },
+                None,
+                status.HTTP_400_BAD_REQUEST,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                "valid_from",
+            ),
+            (
+                "accepts_a_validity_column_name_without_a_history_table",
+                {
+                    "primary_key_columns": ["id"],
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "valid_from"}]},
+                },
+                None,
+                status.HTTP_200_OK,
+                ExternalDataSchema.SyncType.CDC,
+                ["id"],
             ),
         ]
     )
@@ -1952,7 +2111,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
         table = DataWarehouseTable.objects.create(team=self.team)
         schema = ExternalDataSchema.objects.create(
-            name="BalanceTransaction",
+            name="Charge",
             team=self.team,
             source=source,
             should_sync=True,
@@ -2459,7 +2618,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 200
         mock_get_or_create.assert_not_called()
 
-    def test_update_schema_to_webhook_non_webhook_source_no_webhook_result(self):
+    def test_update_schema_to_webhook_non_webhook_source_rejected(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -2496,15 +2655,86 @@ class TestExternalDataSchema(APIBaseTest):
                 data={"sync_type": "webhook", "incremental_field": "id", "incremental_field_type": "integer"},
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
         mock_get_or_create.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_to_webhook_non_webhook_schema_no_webhook_result(self):
+    @parameterized.expand(
+        [
+            (
+                "no_webhook_support",
+                "BalanceTransaction",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                400,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+            ),
+            (
+                "no_webhook_support_already_webhook",
+                "BalanceTransaction",
+                ExternalDataSchema.SyncType.WEBHOOK,
+                200,
+                ExternalDataSchema.SyncType.WEBHOOK,
+            ),
+            (
+                "webhook_support",
+                "Charge",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                200,
+                ExternalDataSchema.SyncType.WEBHOOK,
+            ),
+        ]
+    )
+    def test_update_schema_to_webhook_requires_webhook_support(
+        self, _name, schema_name, from_sync_type, expected_status, expected_sync_type
+    ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
-            name="CustomerBalanceTransaction",
+            name=schema_name,
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=from_sync_type,
+        )
+
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function_id=str(uuid.uuid4()),
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type == expected_sync_type
+
+    def test_update_schema_to_webhook_reports_failed_lookup(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
             team=self.team,
             source=source,
             should_sync=True,
@@ -2512,32 +2742,16 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_non_webhook_schemas = [
-            SourceSchema(
-                name="CustomerBalanceTransaction",
-                supports_incremental=False,
-                supports_append=False,
-                supports_webhooks=False,
-            ),
-        ]
-
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
-                return_value=False,
-            ),
-            mock.patch.object(StripeSource, "get_schemas", return_value=mock_non_webhook_schemas),
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
-            ) as mock_get_or_create,
-        ):
+        with mock.patch.object(StripeSource, "get_schemas", side_effect=TimeoutError("Read timed out")):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
             )
 
-        assert response.status_code == 200
-        mock_get_or_create.assert_not_called()
+        assert response.status_code == 400
+        assert "Couldn't check whether Charge supports webhook sync" in str(response.json())
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
 
 class TestUpdateExternalDataSchema:
@@ -3258,6 +3472,47 @@ class TestUpdateExternalDataSchema:
         schema.refresh_from_db()
         assert schema.should_sync is False
         assert schema.table_id == table.id
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
+
+    def test_delete_data_turns_off_sync_and_pauses_schedule(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="stripe_customer",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            external_data_source=source,
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="Customer",
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            table=table,
+        )
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            mock.patch(f"{views}.external_data_workflow_exists", return_value=True),
+            mock.patch(f"{views}.pause_external_data_schedule") as mock_pause,
+            mock.patch("products.data_warehouse.backend.facade.api.get_s3_client"),
+        ):
+            response = client.delete(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/delete_data")
+
+        assert response.status_code == 200
+        mock_pause.assert_called_once_with(str(schema.id))
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert schema.table_id is None
         assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
 
     def test_update_schema_change_sync_type_with_invalid_type(self, team, user, client: HttpClient, temporal):
@@ -4328,6 +4583,74 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert self.schema.cdc_table_mode == "both"
         assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
 
+    @parameterized.expand(
+        [
+            (
+                "turning_history_on_over_a_synced_column_is_refused",
+                "consolidated",
+                None,
+                {"cdc_table_mode": "both"},
+                True,
+            ),
+            (
+                "turning_history_on_over_a_column_left_out_is_allowed",
+                "consolidated",
+                ["id"],
+                {"cdc_table_mode": "both"},
+                False,
+            ),
+            (
+                "adding_the_column_to_enabled_columns_is_refused",
+                "both",
+                ["id"],
+                {"enabled_columns": ["id", "valid_to"]},
+                True,
+            ),
+            ("editing_a_table_that_already_syncs_it_is_allowed", "both", None, {"enabled_columns": None}, False),
+        ]
+    )
+    def test_patch_checks_the_validity_columns_the_history_table_receives(
+        self,
+        _name: str,
+        initial_mode: str,
+        initial_enabled_columns: list[str] | None,
+        request_body: dict,
+        refused: bool,
+    ):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        self.schema.sync_type_config["cdc_table_mode"] = initial_mode
+        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": "valid_to"}]}
+        self.schema.enabled_columns = initial_enabled_columns
+        self.schema.save()
+
+        serializer = ExternalDataSchemaSerializer(
+            self.schema,
+            data=request_body,
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            if refused:
+                with pytest.raises(ValidationError, match="valid_to"):
+                    serializer.save()
+            else:
+                serializer.save()
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == (
+            initial_mode if refused else request_body.get("cdc_table_mode", initial_mode)
+        )
+        assert self.schema.enabled_columns == (
+            initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
+        )
+
     def test_patch_does_not_revert_a_concurrent_delete_data(self):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
@@ -4668,6 +4991,27 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         assert response.status_code == 200, response.json()
         schema.refresh_from_db()
         assert schema.row_filters == filters
+
+    @parameterized.expand(
+        [
+            ("enabled_columns", ["id", "name"]),
+            ("row_filters", [{"column": "id", "operator": ">", "value": 10}]),
+        ]
+    )
+    def test_selection_change_is_written_to_the_activity_log(self, field: str, value: Any):
+        schema = self._create()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={field: value}
+        )
+        assert response.status_code == 200, response.json()
+
+        log = ActivityLog.objects.get(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert [c for c in log.detail["changes"] if c["field"] == field] == [
+            {"type": "ExternalDataSchema", "field": field, "action": "created", "before": None, "after": value}
+        ]
 
     def test_null_clears_row_filters(self):
         schema = self._create()

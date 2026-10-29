@@ -3,10 +3,15 @@
     "description": "Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.",
     "properties": {
         "experiment_id": {
-            "description": "Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.",
+            "description": "A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.",
             "maximum": 2147483647,
             "minimum": 1,
             "type": "number"
+        },
+        "free_only": {
+            "default": false,
+            "description": "Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`.",
+            "type": "boolean"
         },
         "goal": {
             "description": "What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
@@ -14,7 +19,7 @@
             "type": "string"
         },
         "monthly_credit_budget": {
-            "description": "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.",
+            "description": "Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.",
             "maximum": 100000000,
             "minimum": 1,
             "type": "number"

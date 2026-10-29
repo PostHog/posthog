@@ -55,7 +55,7 @@ class HumanitixSource(ResumableSource[HumanitixSourceConfig, HumanitixResumeConf
             name=ExternalDataSourceType.HUMANITIX,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Humanitix",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Humanitix API key to pull your Humanitix data into the PostHog Data warehouse.
 
 You can generate an API key under **Account → Advanced → Public API key** in the Humanitix dashboard. This single key grants read access to your events, tags, orders, and tickets.

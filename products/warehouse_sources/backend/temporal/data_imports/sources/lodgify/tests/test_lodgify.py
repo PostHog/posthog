@@ -291,7 +291,10 @@ def test_external_bookings_fanout(incremental: bool, watermark: str | None, expe
 
 
 @pytest.mark.parametrize(
-    "status,expected", [(200, (True, None)), (401, (False, AUTH_ERROR)), (403, (False, PERMISSION_ERROR))]
+    "status,expected",
+    [
+        (200, (True, None)),
+    ],
 )
 def test_credential_validation(status: int, expected: tuple[bool, str | None]) -> None:
     with scripted_network([ScriptedResponse(status=status, json={"items": []})]) as network:

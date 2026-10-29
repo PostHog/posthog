@@ -90,7 +90,11 @@ impl Harness {
                 total_size: None,
             })
             .collect();
-        let job_state = JobState { parts, trial: None };
+        let job_state = JobState {
+            parts,
+            trial: None,
+            events_emitted: 0,
+        };
 
         let model = JobModel {
             id: job_id,
@@ -107,6 +111,7 @@ impl Harness {
             secrets: JobSecrets::empty(),
             backoff_attempt: 0,
             backoff_until: None,
+            pending_commit: None,
             was_leased: false,
         };
 

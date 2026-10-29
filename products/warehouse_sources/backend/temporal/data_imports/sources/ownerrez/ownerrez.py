@@ -1,5 +1,5 @@
 import base64
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from posthog.dataclasses import frozen
@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -26,6 +27,11 @@ BASE_URL = "https://api.ownerrez.com"
 OWNERREZ_API_HOST = "api.ownerrez.com"
 # Required per the vendor's auth guide: "Use a user-agent header to identify yourself on all calls."
 USER_AGENT = "PostHog Data Warehouse (+https://posthog.com)"
+
+# OwnerRez versions by URL path only. "v1" is the framework's legacy unversioned label, not the
+# vendor's v1.1 API: this client has always called /v2 paths, so both labels send identical requests.
+OWNERREZ_API_VERSION_V1 = "v1"
+OWNERREZ_API_VERSION_V2 = "v2"
 
 
 @frozen
@@ -54,6 +60,10 @@ def _build_params(
     db_incremental_field_last_value: Optional[Any],
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"limit": PAGE_LIMIT}
+    if config.date_window_days:
+        today = datetime.now(UTC).date()
+        params["from"] = today.isoformat()
+        params["to"] = (today + timedelta(days=config.date_window_days - 1)).isoformat()
     if not config.since_param:
         return params
 
@@ -63,6 +73,11 @@ def _build_params(
         params[config.since_param] = EPOCH
 
     return params
+
+
+def _explode_nested_rows(item: dict[str, Any], explode_field: str) -> list[dict[str, Any]]:
+    parent_fields = {key: value for key, value in item.items() if key != explode_field}
+    return [{**parent_fields, **child} for child in item.get(explode_field) or []]
 
 
 def ownerrez_source(
@@ -78,6 +93,19 @@ def ownerrez_source(
     endpoint_config = OWNERREZ_ENDPOINTS[endpoint]
     params = _build_params(endpoint_config, should_use_incremental_field, db_incremental_field_last_value)
     is_incremental = bool(endpoint_config.incremental_fields) and should_use_incremental_field
+
+    resource_config: EndpointResource = {
+        "name": endpoint_config.name,
+        "endpoint": {
+            "data_selector": "items",
+            "path": endpoint_config.path,
+            "params": params,
+        },
+        "table_format": "delta",
+    }
+    explode_field = endpoint_config.explode_field
+    if explode_field:
+        resource_config["data_map"] = lambda item: _explode_nested_rows(item, explode_field)
 
     config: RESTAPIConfig = {
         "client": {
@@ -108,17 +136,7 @@ def ownerrez_source(
             if is_incremental
             else "replace",
         },
-        "resources": [
-            {
-                "name": endpoint_config.name,
-                "endpoint": {
-                    "data_selector": "items",
-                    "path": endpoint_config.path,
-                    "params": params,
-                },
-                "table_format": "delta",
-            }
-        ],
+        "resources": [resource_config],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

@@ -1,4 +1,5 @@
 import json
+import hashlib
 from typing import Any
 
 from structlog import get_logger
@@ -7,8 +8,6 @@ from products.signals.backend.emission.fetchers.data_warehouse import data_wareh
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig, redacted_record
 
 logger = get_logger(__name__)
-
-GITHUB_IGNORED_STATES = ("closed",)
 
 GITHUB_SUMMARIZATION_PROMPT = """Summarize this GitHub issue for semantic search.
 Output exactly two parts separated by a newline:
@@ -86,21 +85,34 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         msg = f"GitHub issue record has empty required field: id={issue_id!r}, title={title!r}"
         logger.exception(msg, record=_loggable(record), team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
-    if not body:
-        logger.info(
-            "Ignoring GitHub issue without a body",
-            record=_loggable(record),
-            team_id=team_id,
-            signals_type="data-import-signals",
-        )
-        return None
+    body = body or ""
+    extra = _build_extra(record)
+    labels = sorted(extra["labels"])
+    material_version = hashlib.sha256(
+        json.dumps(
+            {
+                "title": title,
+                "body": body,
+                "labels": labels,
+                "state": extra.get("state"),
+                "locked": extra.get("locked"),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    metadata = [f"State: {extra.get('state') or 'unknown'}"]
+    if labels:
+        metadata.append(f"Labels: {', '.join(labels)}")
     return SignalEmitterOutput(
         source_product="github",
         source_type="issue",
         source_id=str(issue_id),
-        description=f"{title}\n{body}",
+        description=f"{title}\n{body}\n\n" + "\n".join(metadata),
         weight=1.0,
-        extra=_build_extra(record),
+        extra=extra,
+        idempotency_key=f"{issue_id}:{material_version}",
+        existing_source_only=not body or extra.get("state") == "closed",
     )
 
 
@@ -159,10 +171,10 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     source_type="issue",
     emitter=github_issue_emitter,
     record_fetcher=data_warehouse_record_fetcher,
-    partition_field="created_at",
+    sync_with_source=True,
+    partition_field="updated_at",
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + PASSTHROUGH_FIELDS + AUTHOR_FIELDS,
-    where_clause=f"state NOT IN ({', '.join(repr(s) for s in GITHUB_IGNORED_STATES)})",
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=GITHUB_ACTIONABILITY_PROMPT,

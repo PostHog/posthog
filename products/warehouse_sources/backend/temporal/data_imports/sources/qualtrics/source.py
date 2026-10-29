@@ -83,13 +83,13 @@ class QualtricsSource(ResumableSource[QualtricsSourceConfig, QualtricsResumeConf
             name=ExternalDataSourceType.QUALTRICS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Qualtrics",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["surveys", "xm", "experience management"],
             caption="""Enter your Qualtrics datacenter ID and credentials to pull surveys, responses and account metadata into the PostHog Data warehouse.
 
 Find your datacenter ID under **Account settings > Qualtrics IDs**. It looks like `iad1` or `fra1`. If your brand uses a custom domain, paste the full hostname instead.
 
-The quickest way to connect is an API token from **Account settings > Qualtrics IDs**. The Qualtrics user needs the "Access API" permission plus read access to the surveys, users, groups, divisions and distributions you want to sync.
+The quickest way to connect is an API token from **Account settings > Qualtrics IDs**. The Qualtrics user needs the "Access API" permission plus read access to the surveys, users, groups, divisions and distributions you want to sync. The directories, directory contacts, mailing lists and distribution history tables need XM Directory.
 
 You can also connect with an OAuth client: create one under **Account settings > Qualtrics IDs**, pick the client credentials grant, and give it read access to surveys, survey responses, survey definitions, users, groups, divisions and distributions.
 

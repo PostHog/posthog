@@ -50,14 +50,19 @@ import { TraceSpanListView, TraceSpanView, type TraceSpanData, type TraceSpanLis
 import {
     EmailTemplateView,
     WorkflowListView,
+    WorkflowSendingRulesView,
+    WorkflowSetupStatusView,
     WorkflowView,
     type EmailTemplateData,
     type WorkflowData,
     type WorkflowListData,
+    type WorkflowSendingRulesData,
+    type WorkflowSetupStatusData,
 } from 'products/workflows/mcp/apps'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
 import { Component } from '../components/Component'
+import { ExplainChart, type ExplainChartData } from '../components/ExplainChart'
 
 export interface RenderDispatchProps {
     data: unknown
@@ -425,6 +430,9 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     experiment: ({ data }) => <ExperimentView experiment={data as ExperimentData} />,
     'experiment-list': ({ data, app }) => <ExperimentListContent data={data as ExperimentListData} app={app} />,
     'experiment-results': ({ data }) => <ExperimentResultsView data={data as ExperimentResultsData} />,
+    'explain-chart': ({ data, openLink, app }) => (
+        <ExplainChart data={data as ExplainChartData} openLink={openLink} app={app} />
+    ),
     'feature-flag': ({ data }) => <FeatureFlagView flag={data as FeatureFlagData} />,
     'feature-flag-list': ({ data, app }) => <FeatureFlagListContent data={data as FeatureFlagListData} app={app} />,
     'feature-flag-testing': ({ data }) => <FeatureFlagTestingView flag={data as FeatureFlagTestingData} />,
@@ -446,4 +454,8 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     ),
     workflow: ({ data }) => <WorkflowView workflow={data as WorkflowData} />,
     'workflow-list': ({ data, app }) => <WorkflowListContent data={data as WorkflowListData} app={app} />,
+    'workflow-sending-rules': ({ data }) => <WorkflowSendingRulesView data={data as WorkflowSendingRulesData} />,
+    'workflow-setup-status': ({ data, openLink }) => (
+        <WorkflowSetupStatusView data={data as WorkflowSetupStatusData} openLink={openLink} />
+    ),
 }

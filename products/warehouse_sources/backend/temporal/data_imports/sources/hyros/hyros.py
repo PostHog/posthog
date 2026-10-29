@@ -42,11 +42,16 @@ def _format_hyros_date(value: Any) -> Optional[str]:
     return str(value)
 
 
+def _lift_ad_source_keys(item: dict[str, Any]) -> dict[str, Any]:
+    ad_source = item.get("adSource") or {}
+    return {**item, "platform": ad_source.get("platform"), "adSourceId": ad_source.get("adSourceId")}
+
+
 def _resource_for(endpoint: str, should_use_incremental_field: bool) -> EndpointResource:
     config = HYROS_ENDPOINTS[endpoint]
     is_incremental = should_use_incremental_field and config.incremental_query_param is not None
 
-    params: dict[str, Any] = {"pageSize": PAGE_SIZE}
+    params: dict[str, Any] = {**config.params, "pageSize": PAGE_SIZE}
     if config.incremental_query_param is not None:
         params[config.incremental_query_param] = (
             {
@@ -59,7 +64,7 @@ def _resource_for(endpoint: str, should_use_incremental_field: bool) -> Endpoint
             else None
         )
 
-    return {
+    resource: EndpointResource = {
         "name": endpoint,
         "table_name": endpoint.lower(),
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace",
@@ -70,6 +75,9 @@ def _resource_for(endpoint: str, should_use_incremental_field: bool) -> Endpoint
         },
         "table_format": "delta",
     }
+    if endpoint == "Ads":
+        resource["data_map"] = _lift_ad_source_keys
+    return resource
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -132,10 +140,7 @@ def hyros_source(
         partition_mode="datetime" if has_partition else None,
         partition_format="month" if has_partition else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Hyros doesn't document the order `pageId` cursoring returns rows in. Ascending is the
-        # conservative default the framework and every other cursor-paginated source here assume;
-        # flag it explicitly since it's unverified rather than confirmed against the live API.
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         column_hints=resource.column_hints,
     )
 

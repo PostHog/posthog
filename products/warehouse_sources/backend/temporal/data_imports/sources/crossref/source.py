@@ -57,10 +57,10 @@ class CrossrefSource(ResumableSource[CrossrefSourceConfig, CrossrefResumeConfig]
             name=ExternalDataSourceType.CROSSREF,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Crossref",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Crossref's API is free and public — no API key needed. Add a contact email to get routed to Crossref's faster "polite pool".
 
-The Works table covers Crossref's full DOI registry (160 million+ records), so set a member ID, funder ID, or journal ISSN below to scope which works sync. The Members, Funders, Types, and Licenses tables always sync in full.
+The Works table covers Crossref's full DOI registry (160 million+ records), so set a member ID, funder ID, or journal ISSN below to scope which works sync. The Members, Funders, Types, Licenses, and Journals tables always sync in full.
 """,
             iconPath="/static/services/crossref.png",
             docsUrl="https://posthog.com/docs/cdp/sources/crossref",
@@ -77,6 +77,7 @@ The Works table covers Crossref's full DOI registry (160 million+ records), so s
                     ),
                     SourceFieldInputConfig(
                         name="member_id",
+                        sync_setting=True,
                         label="Crossref member ID (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -86,6 +87,7 @@ The Works table covers Crossref's full DOI registry (160 million+ records), so s
                     ),
                     SourceFieldInputConfig(
                         name="funder_id",
+                        sync_setting=True,
                         label="Funder ID (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -95,6 +97,7 @@ The Works table covers Crossref's full DOI registry (160 million+ records), so s
                     ),
                     SourceFieldInputConfig(
                         name="issn",
+                        sync_setting=True,
                         label="Journal ISSN (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

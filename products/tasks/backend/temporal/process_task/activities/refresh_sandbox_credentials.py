@@ -69,20 +69,16 @@ def _probe_sandbox_wedge(sandbox: SandboxBase) -> tuple[str, dict[str, str]]:
     return _sandbox_wedge_verdict(probe), probe
 
 
-def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContext:
-    """Re-read the run's PR authorship, which `ctx.state` can no longer be trusted for.
+def _with_live_credential_state(ctx: TaskProcessingContext) -> TaskProcessingContext:
+    """Re-read the run state keys that name whose credentials this refresh should mint.
 
-    The context is captured once at workflow start, but a run is promoted from bot to user
-    authorship mid-run when its creator connects GitHub. Reading the stale value here resolves
-    the run as bot-authored and re-applies the team installation token over the personal one —
-    handing the creator every repo that installation covers. Only this key is overlaid: the rest
-    of the snapshot (sandbox id, actor) is what the sandbox being refreshed was built against.
+    Both move while the run is alive — authorship when its creator connects GitHub, the actor
+    on every Slack turn — while `ctx.state` is a snapshot from workflow start, so reading
+    either from there mints the wrong person's credentials.
     """
-    persisted = TaskRun.objects.filter(id=ctx.run_id).values_list("state", flat=True).first()
-    mode = (persisted or {}).get("pr_authorship_mode")
-    if not mode or mode == (ctx.state or {}).get("pr_authorship_mode"):
-        return ctx
-    return dataclasses.replace(ctx, state={**(ctx.state or {}), "pr_authorship_mode": mode})
+    persisted = TaskRun.objects.filter(id=ctx.run_id).values_list("state", flat=True).first() or {}
+    live = {key: persisted[key] for key in ("pr_authorship_mode", "slack_actor_user_id") if key in persisted}
+    return dataclasses.replace(ctx, state={**(ctx.state or {}), **live})
 
 
 @dataclass
@@ -151,7 +147,7 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                     refreshed_kinds=[],
                     no_credentials_left=True,
                 )
-            ctx = _with_current_authorship(ctx)
+            ctx = _with_live_credential_state(ctx)
         except Task.DoesNotExist:
             logger.info(
                 "sandbox_credentials_refresh_stopped_task_gone",

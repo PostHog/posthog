@@ -275,6 +275,22 @@ describe('ui-apps', () => {
             if (!queryResultsConfig.render_ui) {
                 throw new Error('Expected query results to configure render-ui dispatch')
             }
+            const storyConfig = resolveCustomApp({
+                type: 'custom',
+                app_name: 'Chart Explanation',
+                description: 'An explanation of a chart',
+                render_ui: {
+                    component_import: '../components/ExplainChart',
+                    view_component: 'ExplainChart',
+                    view_prop: 'data',
+                    data_type: 'ExplainChartData',
+                    link_prop: 'openLink',
+                    app_prop: 'app',
+                },
+            })
+            if (!storyConfig.render_ui) {
+                throw new Error('Expected the explanation to configure render-ui dispatch')
+            }
 
             const code = generateDispatchModule([
                 {
@@ -292,6 +308,11 @@ describe('ui-apps', () => {
                     config: { ...queryResultsConfig, render_ui: queryResultsConfig.render_ui },
                 },
                 {
+                    appKey: 'explain-chart',
+                    type: 'custom',
+                    config: { ...storyConfig, render_ui: storyConfig.render_ui },
+                },
+                {
                     appKey: 'survey-list',
                     type: 'list',
                     config: resolveListApp(
@@ -305,6 +326,9 @@ describe('ui-apps', () => {
             expect(code).toContain("'survey': ({ data }) => <SurveyView survey={data as SurveyData} />")
             expect(code).toContain("import { Component } from '../components/Component'")
             expect(code).toContain("'query-results': ({ data }) => <Component data={data} />")
+            expect(code).toContain(
+                "'explain-chart': ({ data, openLink, app }) => <ExplainChart data={data as ExplainChartData} openLink={openLink} app={app} />"
+            )
             expect(code).toContain(
                 "'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />"
             )

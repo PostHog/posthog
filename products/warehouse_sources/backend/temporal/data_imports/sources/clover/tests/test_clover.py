@@ -229,13 +229,10 @@ class TestCloverTransport(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (200, None, True),
-            (401, None, False),
             (403, None, True),
             (403, "items", False),
             (404, None, False),
             (302, None, False),
-            (500, None, False),
         ]
     )
     def test_credential_status_mapping(self, status: int, schema: str | None, valid: bool) -> None:

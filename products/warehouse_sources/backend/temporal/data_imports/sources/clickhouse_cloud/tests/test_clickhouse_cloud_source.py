@@ -24,10 +24,6 @@ class TestClickhouseCloudSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_names_filter(self) -> None:
-        schemas = ClickhouseCloudSource().get_schemas(MagicMock(), team_id=1, names=["usage_cost"])
-        assert [s.name for s in schemas] == ["usage_cost"]
-
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])

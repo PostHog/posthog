@@ -9,10 +9,17 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
     PROBE_ENDPOINT_BY_VERSION,
+    HistoryWindow,
     OpenWeatherEndpointConfig,
     endpoints_for_version,
 )
@@ -25,6 +32,9 @@ MAX_RETRY_ATTEMPTS = 5
 # Each location costs one request per enabled endpoint on every sync, so cap the config to bound
 # worker time and outbound fan-out — a malformed/abusive config can't tie up the pipeline.
 MAX_LOCATIONS = 100
+
+# A history backfill makes many calls per location, and the free tier allows 60 calls a minute.
+HISTORY_REQUEST_INTERVAL_SECONDS = 1.0
 
 
 class OpenWeatherRetryableError(Exception):
@@ -83,8 +93,37 @@ def parse_locations(raw: str | None) -> list[Location]:
     return locations
 
 
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    return f"{OPENWEATHER_BASE_URL}{path}?{urlencode(params)}"
+def _build_url(path: str, params: dict[str, Any], base_url: str | None = None) -> str:
+    return f"{base_url or OPENWEATHER_BASE_URL}{path}?{urlencode(params)}"
+
+
+@frozen
+class TimeWindow:
+    start: int
+    end: int
+
+
+def history_windows(window: HistoryWindow, start_from: int | None, end: int) -> Iterator[TimeWindow]:
+    """Split ``[start, end]`` into consecutive inclusive Unix ranges of at most ``window.size``.
+
+    ``start_from`` is the incremental watermark. Without one the read starts at the window's
+    ``earliest_start``, or ``lookback`` before ``end``.
+    """
+    if start_from is not None:
+        start = int(start_from)
+    elif window.earliest_start is not None:
+        start = int(window.earliest_start.timestamp())
+    elif window.lookback is not None:
+        start = end - int(window.lookback.total_seconds())
+    else:
+        raise ValueError("A history window needs an earliest_start or a lookback.")
+
+    size = int(window.size.total_seconds())
+    while start <= end:
+        window_end = min(start + size, end)
+        yield TimeWindow(start=start, end=window_end)
+        # Ranges are inclusive, so the next one starts a second later to not read a boundary row twice.
+        start = window_end + 1
 
 
 # The API key is passed as the `appid` query param, so it ends up in `response.url`. `raise_for_status()`
@@ -102,7 +141,7 @@ def _redact_appid(text: str) -> str:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
+def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # 429 (free tier is 60 req/min) and transient 5xx are retryable; back off and try again.
@@ -128,16 +167,17 @@ def _dt_to_iso(dt: Any) -> str | None:
     return datetime.fromtimestamp(int(dt), tz=UTC).isoformat()
 
 
-def _normalize_rows(
-    config: OpenWeatherEndpointConfig, response: dict[str, Any], location: Location
-) -> list[dict[str, Any]]:
+def _normalize_rows(config: OpenWeatherEndpointConfig, response: Any, location: Location) -> list[dict[str, Any]]:
     """Turn an API response into flat rows, stamping each with the requested coordinates.
 
     We inject the *requested* lat/lon (not the response's echoed ``coord``, which can snap to the
     nearest station and drift between syncs) so the ``[lat, lon, dt]`` primary key stays stable.
     """
     if config.data_key is None:
-        items: list[dict[str, Any]] = [dict(response)]
+        if isinstance(response, list):
+            items: list[dict[str, Any]] = [dict(item) for item in response if isinstance(item, dict)]
+        else:
+            items = [dict(response)]
     else:
         section = response.get(config.data_key)
         # A section is either a list of rows (forecast slots, One Call hourly/daily) or a single
@@ -156,12 +196,16 @@ def _normalize_rows(
                 item.setdefault("city", city)
 
     for item in items:
+        if config.has_place_coords:
+            item["place_lat"] = item.pop("lat", None)
+            item["place_lon"] = item.pop("lon", None)
         item["lat"] = location.lat
         item["lon"] = location.lon
         item["location_label"] = location.label
-        # `dt` is part of the primary key, so a row without it is degenerate — read it directly
-        # so a missing field fails loudly rather than flowing a null partition key into the merge.
-        item["dt_iso"] = _dt_to_iso(item["dt"])
+        if config.timestamp_field is not None:
+            # The timestamp is part of the primary key, so a row without it is degenerate — read it
+            # directly so a missing field fails loudly rather than flowing a null partition key into the merge.
+            item[f"{config.timestamp_field}_iso"] = _dt_to_iso(item[config.timestamp_field])
 
     return items
 
@@ -208,17 +252,35 @@ def get_rows(
     locations: list[Location],
     logger: FilteringBoundLogger,
     api_version: str,
+    start_from: int | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = endpoints_for_version(api_version)[endpoint]
     # One session reused across every location so urllib3 keeps the connection alive.
     session = make_tracked_session()
+    window = config.history_window
+    end = int(datetime.now(UTC).timestamp())
 
     for location in locations:
-        url = _build_url(config.path, {"lat": location.lat, "lon": location.lon, "appid": api_key})
-        response = _fetch(session, url, logger)
-        rows = _normalize_rows(config, response, location)
-        if rows:
-            yield rows
+        params = {"lat": location.lat, "lon": location.lon, **config.extra_params, "appid": api_key}
+        if window is None:
+            response = _fetch(session, _build_url(config.path, params, config.base_url), logger)
+            rows = _normalize_rows(config, response, location)
+            if rows:
+                yield rows
+            continue
+
+        for index, time_window in enumerate(history_windows(window, start_from, end)):
+            if index > 0:
+                interruptible_wait(HISTORY_REQUEST_INTERVAL_SECONDS, safe_point=reach_safe_point)
+            url = _build_url(
+                config.path, {**params, "start": time_window.start, "end": time_window.end}, config.base_url
+            )
+            rows = _normalize_rows(config, _fetch(session, url, logger), location)
+            if rows:
+                yield rows
+            else:
+                # Windows before the location's data begins come back empty.
+                reach_safe_point()
 
 
 def openweather_source(
@@ -227,21 +289,32 @@ def openweather_source(
     locations_raw: str | None,
     logger: FilteringBoundLogger,
     api_version: str,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = endpoints_for_version(api_version)[endpoint]
     locations = parse_locations(locations_raw)
+    start_from = int(db_incremental_field_last_value) if db_incremental_field_last_value is not None else None
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        return get_rows(
+            api_key=api_key,
+            endpoint=endpoint,
+            locations=locations,
+            logger=logger,
+            api_version=api_version,
+            start_from=start_from,
+        )
+
+    if config.partition_key is None:
+        return SourceResponse(name=endpoint, items=items, primary_keys=config.primary_keys)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key, endpoint=endpoint, locations=locations, logger=logger, api_version=api_version
-        ),
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[config.partition_key],
-        # Forecast rows arrive in ascending `dt` order; single-snapshot endpoints have one row.
-        sort_mode="asc",
     )

@@ -13,6 +13,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from gspread.utils import numericise_all
 
+from posthog.credentials_service.errors import CredentialsSecretError
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -44,6 +45,20 @@ _REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
 GOOGLE_SHEETS_API_VERSION_V4 = "v4"
 
 
+class GoogleSheetsServiceAccountKeyInvalidError(CredentialsSecretError):
+    """PostHog's own Google Sheets service account key does not parse, for example it is not valid PEM.
+
+    Not reportable: the key is PostHog's, so the customer can't fix it, and a bad read clears when
+    the key is good again. The sync activities log it as a warning and Temporal retries them.
+    """
+
+    reportable = False
+
+    def __init__(self) -> None:
+        key = "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"
+        super().__init__(key, f"{key} is not a valid service account key")
+
+
 def google_sheets_client() -> gspread.Client:
     resolved = credentials_service.get_secrets(
         [
@@ -53,15 +68,19 @@ def google_sheets_client() -> gspread.Client:
             "GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL",
         ]
     )
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"],
-            "private_key_id": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID"],
-            "token_uri": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI"],
-            "client_email": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL"],
-        },
-        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
-    )
+    try:
+        credentials = service_account.Credentials.from_service_account_info(
+            {
+                "private_key": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"],
+                "private_key_id": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID"],
+                "token_uri": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI"],
+                "client_email": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL"],
+            },
+            scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
+        )
+    except ValueError as e:
+        # google-auth raises a bare ValueError for a malformed key, for example not valid PEM.
+        raise GoogleSheetsServiceAccountKeyInvalidError() from e
     # gspread skips wrapping any session you pass in with `AuthorizedSession`, so a plain
     # `requests.Session` would send unauthenticated requests and Google returns 403. Build the
     # `AuthorizedSession` ourselves and mount the tracked adapter to keep request metering.

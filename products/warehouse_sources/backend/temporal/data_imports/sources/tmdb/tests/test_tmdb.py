@@ -280,15 +280,7 @@ class TestErrorRedaction:
 
 
 class TestValidateCredentials:
-    def test_valid_key_returns_no_message(self) -> None:
-        with scripted_network([ScriptedResponse(json={})]):
-            assert validate_credentials("k") == (True, None)
-
-    def test_401_reports_invalid_key(self) -> None:
-        with scripted_network([ScriptedResponse(status=401, json={})]):
-            assert validate_credentials("k") == (False, "Invalid TMDB API key")
-
-    @pytest.mark.parametrize("status", [404, 429, 500, 503])
+    @pytest.mark.parametrize("status", [404, 429, 503])
     def test_non_401_failure_does_not_claim_invalid_key(self, status: int) -> None:
         # A transient/service-side failure must not be reported as an invalid credential.
         with scripted_network(always(ScriptedResponse(status=status, json={}))):

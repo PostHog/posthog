@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -15,6 +16,7 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TagSelect } from 'lib/components/TagSelect'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -24,6 +26,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
@@ -714,6 +717,7 @@ export function ExperimentsScene(): JSX.Element {
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
     const [surveyModalExperiment, setSurveyModalExperiment] = useState<Experiment | null>(null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Register feature flag creation tool so that it's always available on experiments page
     useMaxTool({
@@ -781,15 +785,26 @@ export function ExperimentsScene(): JSX.Element {
                                             interaction="click"
                                             scope={Scene.Experiments}
                                         >
-                                            <LemonButton
-                                                size="small"
-                                                type="primary"
-                                                data-attr="create-experiment"
-                                                to={urls.experiment('new')}
-                                                tooltip="New experiment"
-                                            >
-                                                <span className="pr-3">New experiment</span>
-                                            </LemonButton>
+                                            {todayRailNav ? (
+                                                <Button
+                                                    variant="primary"
+                                                    data-attr="create-experiment"
+                                                    render={<LinkPrimitive to={urls.experiment('new')} />}
+                                                    tooltip="New experiment"
+                                                >
+                                                    <span className="pr-3">New experiment</span>
+                                                </Button>
+                                            ) : (
+                                                <LemonButton
+                                                    size="small"
+                                                    type="primary"
+                                                    data-attr="create-experiment"
+                                                    to={urls.experiment('new')}
+                                                    tooltip="New experiment"
+                                                >
+                                                    <span className="pr-3">New experiment</span>
+                                                </LemonButton>
+                                            )}
                                         </Shortcut>
                                     </MaxTool>
                                 </div>

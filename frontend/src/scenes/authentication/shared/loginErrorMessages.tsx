@@ -1,4 +1,7 @@
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+
+import { SSOProvider } from '~/types'
 
 // Login error copy shared by the auth login variants and the exporter login screen.
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
@@ -39,7 +42,20 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
         "You signed in with a different account. Please try again with the account you're logged in as.",
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
+    invite_email_mismatch:
+        'This invite was sent to a different email address. Log in with that address, or ask your administrator for a new invite.',
+    invite_already_member: "You're already a member of this organization. Log in to continue.",
+    invite_email_taken:
+        'An account with this email address already belongs to this organization. Log in with that account to continue.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
     access_blocked:
         "We couldn't sign you in. If you think this is a mistake, contact support and quote the code access_blocked.",
+}
+
+// The server detail for `sso_enforced` holds the internal provider key, so the login form uses this copy instead
+export function ssoEnforcedMessage(provider: SSOProvider | string | null | undefined): string {
+    const providerName = provider ? SSO_PROVIDER_NAMES[provider as SSOProvider] : undefined
+    return providerName
+        ? `Your organization requires you to log in with ${providerName}.`
+        : "Please log in with your organization's required SSO method."
 }

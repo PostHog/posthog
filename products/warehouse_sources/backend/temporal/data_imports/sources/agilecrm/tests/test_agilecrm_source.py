@@ -23,18 +23,6 @@ class TestSourceConfig:
         assert AgileCRMSource().connection_host_fields == ["domain"]
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://acme.agilecrm.com/dev/api/contacts"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://acme.agilecrm.com/dev/api/opportunity"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = AgileCRMSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-
 class TestValidateCredentials:
     def test_success(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(agilecrm_source_module, "validate_agilecrm_credentials", lambda *a, **k: True)

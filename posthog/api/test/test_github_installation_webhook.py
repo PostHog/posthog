@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.integrations import IntegrationReader
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
@@ -145,7 +146,7 @@ class TestGitHubInstallationWebhook(TestCase):
             user=self.user, kind="github", integration_id=installation_id, config={}, sensitive_config={}
         )
 
-    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_deleted_removes_all_rows_and_does_not_call_github(self, mock_client_request, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -166,7 +167,39 @@ class TestGitHubInstallationWebhook(TestCase):
         # Inbound side must never call out to GitHub (loop prevention).
         mock_client_request.assert_not_called()
 
-    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @parameterized.expand([("row_added_after_listing",), ("row_removed_after_listing",)])
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
+    def test_deleted_audits_exactly_the_rows_it_deleted(self, case, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        listed = self._team_integration("12345")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        racing = Integration.objects.create(
+            team=other_team, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+        real_list = IntegrationReader.list_by_external_id
+
+        def list_then_race(reader, external_id, **kwargs):
+            rows = real_list(reader, external_id, **kwargs)
+            if case == "row_added_after_listing":
+                return [row for row in rows if row.id != racing.pk]
+            Integration.objects.filter(pk=racing.pk).delete()
+            return rows
+
+        with (
+            patch.object(IntegrationReader, "list_by_external_id", autospec=True, side_effect=list_then_race),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._post({"action": "deleted", "installation": {"id": 12345}})
+
+        self.assertEqual(response.status_code, 202)
+        audited = set(
+            ActivityLog.objects.filter(scope="Integration", activity="deleted").values_list("item_id", flat=True)
+        )
+        self.assertEqual(audited, {str(listed.pk)})
+        self.assertFalse(Integration.objects.filter(pk=listed.pk).exists())
+        self.assertEqual(Integration.objects.filter(pk=racing.pk).exists(), case == "row_added_after_listing")
+
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     def test_deleted_with_no_matching_rows_is_idempotent(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
 
@@ -175,7 +208,7 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(response.status_code, 202)
 
     @parameterized.expand([("suspend",), ("unsuspend",)])
-    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     def test_reversible_action_does_not_delete_rows(self, action, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         self._team_integration("12345")
@@ -185,7 +218,7 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertTrue(Integration.objects.filter(kind="github", integration_id="12345").exists())
 
-    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     def test_missing_installation_id_is_accepted(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
 
@@ -193,7 +226,7 @@ class TestGitHubInstallationWebhook(TestCase):
 
         self.assertEqual(response.status_code, 202)
 
-    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     def test_created_approves_the_requesters_pending_request_by_github_user_id(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         other_user = User.objects.create(email="other-requester@example.com", distinct_id="other-requester-1")
@@ -232,7 +265,7 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(someone_else.status, GitHubInstallRequest.Status.PENDING)
         self.assertIsNone(someone_else.installation_id)
 
-    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     def test_created_without_a_requester_is_a_noop(self, mock_get_secret):
         # An owner installing for themselves sends no requester, and must not sweep up pending rows.
         mock_get_secret.return_value = self.webhook_secret
@@ -249,7 +282,7 @@ class TestGitHubInstallationWebhook(TestCase):
         pending.refresh_from_db()
         self.assertEqual(pending.status, GitHubInstallRequest.Status.PENDING)
 
-    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     def test_installation_repositories_updates_selection_and_invalidates_caches(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         team_row = self._team_integration("12345")
@@ -259,19 +292,31 @@ class TestGitHubInstallationWebhook(TestCase):
             row.config = {**row.config, "repository_selection": "selected"}
             row.repository_cache_updated_at = timezone.now()
             row.save()
-
-        response = self._post(
-            {
-                "action": "added",
-                "installation": {"id": 12345},
-                "repository_selection": "all",
-                "repositories_added": [{"full_name": "posthog/posthog"}],
-                "repositories_removed": [],
-            },
-            event_type="installation_repositories",
+        already_all = Integration.objects.create(
+            team=Team.objects.create(organization=self.organization, name="Other Team"),
+            kind="github",
+            integration_id="12345",
+            config={"repository_selection": "all"},
+            sensitive_config={},
         )
 
+        with patch("posthog.api.github_callback.installation_events.logger") as mock_logger:
+            response = self._post(
+                {
+                    "action": "added",
+                    "installation": {"id": 12345},
+                    "repository_selection": "all",
+                    "repositories_added": [{"full_name": "posthog/posthog"}],
+                    "repositories_removed": [],
+                },
+                event_type="installation_repositories",
+            )
+
         self.assertEqual(response.status_code, 202)
+        mock_logger.info.assert_called_once()
+        self.assertEqual(mock_logger.info.call_args.kwargs["rows_updated"], 2)
+        already_all.refresh_from_db()
+        self.assertEqual(already_all.config["repository_selection"], "all")
         team_row.refresh_from_db()
         user_row.refresh_from_db()
         untouched.refresh_from_db()
@@ -282,7 +327,7 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(untouched.config["repository_selection"], "selected")
         self.assertIsNotNone(untouched.repository_cache_updated_at)
 
-    @patch("posthog.ingress.github.provider.get_instance_setting")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     def test_invalid_signature_returns_403_and_keeps_rows(self, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
         self._team_integration("12345")

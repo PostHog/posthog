@@ -62,15 +62,15 @@ logger = logging.getLogger(__name__)
 # instead of minting an immortal box.
 HOGLAND_TASKS_BOX_KIND = "agent"
 
-# Every template hogland supports maps to a global snapshot alias baked in CI
-# (the tasks golden-snapshot workflow). Only the plain default-template run is routed
+# Every template hogland supports maps to a global snapshot alias. No CI job bakes
+# these any more; the alias must already exist. Only the plain default-template run is routed
 # to hogland; anything else stays on Modal (see get_task_processing_context).
 TEMPLATE_TO_SNAPSHOT_ALIAS: dict[SandboxTemplate, str] = {
     SandboxTemplate.DEFAULT_BASE: "alias:posthog-tasks-default",
 }
 
-# The pluggable-memory golden (baked by the tasks golden-snapshot workflow with a
-# BOX_MEM_BOOT_MIB below the cap). A box restored from it boots small and hot-adds guest
+# The pluggable-memory golden (boot memory below the cap). A box restored from it
+# boots small and hot-adds guest
 # RAM up to the cap on demand. Selected per run by the tasks-hogland-hotplug-golden flag
 # (config.use_hotplug_golden); only the default template has a pluggable variant. The
 # alias must exist before the flag is enabled for a team.
@@ -250,12 +250,16 @@ class HoglandSandbox(AgentServerLaunchMixin):
                 "Hogland run provisioning from the pluggable-memory golden",
                 extra={"config_name": config.name, "snapshot_alias": snapshot_alias},
             )
-        if config.snapshot_id or config.snapshot_external_id:
+        if config.snapshot_id or config.snapshot_external_id or config.resume_snapshot_external_id:
             # Backend resolution forces resume snapshots off for hogland runs; if an id
             # slips through anyway, cold-boot loudly rather than restoring the wrong thing.
             logger.warning(
                 "Hogland backend ignores resume snapshot; cold-booting from the golden image",
-                extra={"snapshot_id": config.snapshot_id, "snapshot_external_id": config.snapshot_external_id},
+                extra={
+                    "snapshot_id": config.snapshot_id,
+                    "snapshot_external_id": config.snapshot_external_id,
+                    "resume_snapshot_external_id": config.resume_snapshot_external_id,
+                },
             )
         config.snapshot_restored = False
         config.image_fallback = None

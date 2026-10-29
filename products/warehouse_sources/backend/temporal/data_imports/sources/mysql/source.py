@@ -32,6 +32,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
+    TLS_CONFIGURATION_ERRORS,
+    TLSConfigurationError,
+    ca_certificate_field,
+    client_certificate_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
@@ -54,6 +61,7 @@ _MYSQL_IMPLEMENTATION = MySQLImplementation()
 # get_non_retryable_errors — which the sync path also consults for retry
 # classification — so connection-error retry behaviour is unchanged.
 _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
+    *CERTIFICATE_ERRORS.items(),
     (
         "Name or service not known",
         "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
@@ -80,6 +88,32 @@ _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
     ),
     ("Unknown database", "Database does not exist. Check the database name is correct."),
 ]
+
+_CANT_CONNECT_ERROR = "Can't connect to MySQL server on"
+
+# The OS details of a 2003 error that do not change between attempts: the server refused the port,
+# no route reaches it, or its name does not exist.
+_UNREACHABLE_HOST_CONNECT_DETAILS = (
+    "Connection refused",
+    "No route to host",
+    "Network is unreachable",
+    "Name or service not known",
+    "nodename nor servname provided",
+)
+
+_UNREACHABLE_HOST_ERROR = (
+    "PostHog couldn't connect to your MySQL server. Check that the host and port are "
+    "correct and that the database is reachable from the public internet, with PostHog's "
+    "egress IP addresses allowed through your firewall. For a database that can't be "
+    "exposed publicly, use the SSH tunnel option, then re-enable the sync."
+)
+
+_CANT_CONNECT_EXHAUSTED_MESSAGE = (
+    "PostHog couldn't connect to your MySQL server, and it kept failing on every retry. Check that "
+    "the server is running and reachable from the public internet, and that PostHog's egress IP "
+    "addresses are allowed through your firewall. For a database that can't be exposed publicly, "
+    "use the SSH tunnel option. This sync is still enabled and will run again on its next schedule."
+)
 
 # Error 1045 is the same failure the Postgres, Supabase, and Neon sources already word this
 # way. Keeping one wording means a wrong password reads the same whichever database it is.
@@ -190,6 +224,10 @@ class MySQLSource(
         return ExternalDataSourceType.MYSQL
 
     @property
+    def credential_kind(self) -> str | None:
+        return "mysql"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.MYSQL,
@@ -250,6 +288,7 @@ class MySQLSource(
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -275,8 +314,8 @@ class MySQLSource(
                         converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
                         caption=(
                             "Check that your database's TLS certificate comes from a trusted authority. "
-                            "A self-signed certificate or a private authority does not pass, so leave this off "
-                            "if you use one. Through an SSH tunnel we check the certificate chain but not the "
+                            "A self-signed certificate or a private authority passes only when you add its "
+                            "certificate authority below. Through an SSH tunnel we check the certificate chain but not the "
                             "hostname, because the tunnel presents your database on a local address."
                         ),
                         options=[
@@ -284,6 +323,8 @@ class MySQLSource(
                             SourceFieldSelectConfigOption(label="No", value="false"),
                         ],
                     ),
+                    ca_certificate_field(),
+                    *client_certificate_fields(),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
@@ -291,19 +332,16 @@ class MySQLSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # pymysql collapses every connect-level failure (wrong host/port, closed firewall,
-            # unreachable host, a connect timeout that outlasts the in-process retry budget) into
-            # error 2003, "Can't connect to MySQL server on '<host>' (<os detail>)". Non-retryable
-            # for the same reason as the Postgres source's connect-timeout entry: a persistently
-            # unreachable host won't recover on retry. Give the actionable reachability guidance the
-            # raw driver tuple lacks; the volatile host/os-detail are excluded from the match. The
-            # create-time `_VALIDATE_CONNECTION_HINTS` above stay more granular.
-            "Can't connect to MySQL server on": (
-                "PostHog couldn't connect to your MySQL server. Check that the host and port are "
-                "correct and that the database is reachable from the public internet, with PostHog's "
-                "egress IP addresses allowed through your firewall. For a database that can't be "
-                "exposed publicly, use the SSH tunnel option, then re-enable the sync."
-            ),
+            # pymysql wraps a TLS failure in the generic 2003 error below, so these must come first.
+            **CERTIFICATE_ERRORS,
+            **TLS_CONFIGURATION_ERRORS,
+            # pymysql collapses every connect-level failure into error 2003, "Can't connect to MySQL
+            # server on '<host>' (<os detail>)". Only the OS details that name a wrong host, port or
+            # route stop the sync. A timeout, reset or temporary DNS failure is in the same error
+            # code, but the next run often succeeds with no change, so those stay retryable through
+            # `_CANT_CONNECT_ERROR` in `get_retryable_errors`. The create-time
+            # `_VALIDATE_CONNECTION_HINTS` above stay more granular.
+            **dict.fromkeys(_UNREACHABLE_HOST_CONNECT_DETAILS, _UNREACHABLE_HOST_ERROR),
             "No primary key defined for table": (
                 "This table needs a primary key to sync incrementally, but none is set. Choose a primary "
                 "key for the table in its sync settings, or switch it to full table replication, then "
@@ -568,6 +606,7 @@ class MySQLSource(
         # stable phrase here as a backstop — Temporal's own activity retry lands on the newly promoted
         # primary once the reparent completes.
         return {
+            _CANT_CONNECT_ERROR,
             "Lost connection to MySQL server during query",
             "Too many connections",
             "Can't create a new thread",
@@ -584,6 +623,13 @@ class MySQLSource(
             # already retries it in-process (see `_is_transient_no_available_tidb_instances` in
             # mysql.py); this is the backstop for the rare case where it exhausts that budget.
             "No available TiDB instances, please make sure TiDB is available",
+            # A Vitess/PlanetScale vtgate found zero serving tablet endpoints for the target
+            # keyspace/shard/tablet-type — the same gRPC `Unavailable` status as `code =
+            # Unavailable` above, phrased differently. Both `_connect_with_transient_retry` and
+            # `_retry_on_transient_tablet_unavailable` already retry it in-process (see
+            # `_is_transient_vitess_no_endpoints` in mysql.py); this is the backstop for the rare
+            # case where it exhausts that budget.
+            "vtgate connection error: no endpoints",
             # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
             # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
             # swap during a failover, reparent, or health-check-triggered pool recycle) when the
@@ -594,6 +640,10 @@ class MySQLSource(
             # keyspace/shard/tablet-type target prefix that precedes it.
             "grpc: the client connection is closing",
         }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without this, the job stores pymysql's raw tuple, which repeats the customer's host.
+        return {_CANT_CONNECT_ERROR: _CANT_CONNECT_EXHAUSTED_MESSAGE}
 
     def reconcile_schema_metadata(
         self,
@@ -642,9 +692,10 @@ class MySQLSource(
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
-        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
-            # The host policy refused the host, or its lookup never answered. Both carry their own
-            # user-facing wording and neither is a PostHog defect, so they are not captured.
+        except (HostNotAllowedError, TemporaryHostResolutionError, TLSConfigurationError) as e:
+            # The host policy refused the host, its lookup never answered, or the TLS fields contradict
+            # each other. Each carries its own user-facing wording and none is a PostHog defect, so they
+            # are not captured.
             return False, str(e)
         except BaseSSHTunnelForwarderError as e:
             # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH

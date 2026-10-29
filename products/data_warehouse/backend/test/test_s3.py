@@ -84,3 +84,19 @@ class TestSharedAsyncClientPerLoop:
 
         assert len(s3_module._LOOP_S3_CLIENTS) == 0
         fresh._s3creator.__aexit__.assert_awaited_once()
+
+
+class TestChecksumConfig:
+    # botocore's default flexible-checksum validation checks a GetObject response against the
+    # full-object checksum we wrote on upload, even when fsspec only requested a byte range (as a
+    # parquet footer read always does) — a correct read then raises FlexibleChecksumError because
+    # the range bytes don't match a checksum computed over the whole object.
+    @patch(f"{_S3}.boto_proxy_config_kwargs", return_value={})
+    @override_settings(USE_LOCAL_SETUP=False)
+    def test_get_s3_client_disables_flexible_checksum_validation(self, _proxy: MagicMock) -> None:
+        with patch(f"{_S3}.s3fs.S3FileSystem", _filesystem_factory()) as filesystem:
+            s3_module.get_s3_client()
+
+        config_kwargs = filesystem.call_args.kwargs["config_kwargs"]
+        assert config_kwargs["response_checksum_validation"] == "when_required"
+        assert config_kwargs["request_checksum_calculation"] == "when_required"

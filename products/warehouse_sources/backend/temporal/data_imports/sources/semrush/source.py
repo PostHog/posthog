@@ -123,5 +123,5 @@ class SemrushSource(SimpleSource[SemrushSourceConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

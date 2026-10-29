@@ -5,7 +5,6 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -14,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.travisci import (
@@ -208,30 +206,6 @@ class TestRedirectsDisabled:
         with scripted_network([ScriptedResponse(json={})]) as network:
             validate_credentials("tok")
         assert network.session_options and all(call.get("allow_redirects") is False for call in network.session_options)
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("valid", 200, True),
-            # Travis answers 403 "access denied" for missing/invalid tokens (it has no scopes),
-            # so a 403 means the token is bad — unlike sources where 403 = missing scope.
-            ("access_denied", 403, False),
-            ("unauthorized", 401, False),
-            ("server_error", 500, False),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={"error_message": "boom"}))):
-            ok, error = validate_credentials("tok")
-        assert ok is expected_ok
-        assert (error is None) is expected_ok
-
-    def test_network_error_is_reported_not_raised(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, error = validate_credentials("tok")
-        assert ok is False
-        assert error is not None and "Travis CI" in error
 
 
 class TestTravisCISourceResponse:

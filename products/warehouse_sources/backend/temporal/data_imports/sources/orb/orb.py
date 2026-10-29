@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -9,10 +10,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.settings import (
@@ -22,9 +29,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.orb.settin
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OrbResumeConfig:
-    next_cursor: str
+    next_cursor: Optional[str] = None
+    # Per-customer resume state of a fan-out endpoint, as built by the rest_source framework.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _format_incremental_value(value: Any) -> Optional[str]:
@@ -121,48 +130,72 @@ def orb_source(
 ) -> SourceResponse:
     cfg = ORB_ENDPOINTS[endpoint]
 
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": ORB_API_BASE_URL,
-            "auth": {
-                "type": "bearer",
-                "token": api_key,
-            },
-            "paginator": OrbCursorPaginator(),
+    client_config: ClientConfig = {
+        "base_url": ORB_API_BASE_URL,
+        "auth": {
+            "type": "bearer",
+            "token": api_key,
         },
-        "resource_defaults": None,
-        "resources": [get_resource(endpoint, should_use_incremental_field)],
+        "paginator": OrbCursorPaginator(),
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"next_cursor": resume_config.next_cursor}
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page exists; the Redis TTL cleans up on completion. Saving
-        # after each yielded batch means a crash re-yields the last page (merge dedupes on the
-        # primary key) rather than skipping it.
-        if state and state.get("next_cursor"):
-            resumable_source_manager.save_state(OrbResumeConfig(next_cursor=str(state["next_cursor"])))
+    resource: Iterable[Any]
+    if cfg.fanout is not None:
 
-    resource = rest_api_resource(
-        config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(OrbResumeConfig(fanout_state=state))
+
+        resource = build_dependent_resource(
+            endpoint_configs=ORB_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=cfg.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra={"data_selector": "data"}
+            if cfg.paginated
+            else {"data_selector": "data", "paginator": "single_page"},
+            page_size_param="limit" if cfg.paginated else None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        )
+    else:
+        config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": None,
+            "resources": [get_resource(endpoint, should_use_incremental_field)],
+        }
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page exists; the Redis TTL cleans up on completion. Saving
+            # after each yielded batch means a crash re-yields the last page (merge dedupes on the
+            # primary key) rather than skipping it.
+            if state and state.get("next_cursor"):
+                resumable_source_manager.save_state(OrbResumeConfig(next_cursor=str(state["next_cursor"])))
+
+        resource = rest_api_resource(
+            config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state={"next_cursor": resume.next_cursor} if resume and resume.next_cursor else None,
+        )
 
     return SourceResponse(
-        name=resource.name,
+        name=endpoint,
         items=lambda: resource,
         primary_keys=cfg.primary_keys,
-        column_hints=resource.column_hints,
-        # Orb has no sort param — list endpoints always return newest-created first.
-        sort_mode="desc",
+        column_hints=getattr(resource, "column_hints", None),
+        # Orb has no sort param — list endpoints always return newest-created first. A fan-out
+        # restarts that order for every customer, so its rows are not one ordered series.
+        sort_mode=None if cfg.fanout is not None else "desc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if cfg.partition_key else None,

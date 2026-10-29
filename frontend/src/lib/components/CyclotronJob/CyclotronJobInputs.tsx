@@ -47,6 +47,15 @@ import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton, useTemplateEditorCursor } from './CyclotronJobTemplateSuggestions'
 import { insertTemplateReference, templateReferenceForOption } from './cyclotronJobTemplateSuggestionsLogic'
+import {
+    SecretDictionaryRow,
+    canAddSecretRow,
+    findSecretRowsCompanion,
+    isSecretRowsCompanion,
+    secretEntries,
+    secretRowsFromInput,
+    secretRowsToValue,
+} from './dictionarySecretRows'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
@@ -119,6 +128,8 @@ function isValidNonFailureStatusCode(entry: string): boolean {
 
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
+    // Applies changes to several inputs in one update, for a host that builds each update from a snapshot
+    onInputsChange?: (inputs: Record<string, CyclotronJobInputType>) => void
     configuration: CyclotronJobInputConfiguration
     errors?: Record<string, string>
     warnings?: Record<string, string>
@@ -143,6 +154,7 @@ export function CyclotronJobInputs({
     parentConfiguration,
     onInputSchemaChange,
     onInputChange,
+    onInputsChange,
     errors,
     warnings,
     emailFieldErrors,
@@ -185,6 +197,7 @@ export function CyclotronJobInputs({
                                         parentConfiguration={parentConfiguration}
                                         onInputSchemaChange={onInputSchemaChange}
                                         onInputChange={onInputChange}
+                                        onInputsChange={onInputsChange}
                                         showSource={showSource}
                                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                         errors={errors}
@@ -374,14 +387,21 @@ function CyclotronJobTemplateInput(props: {
     )
 }
 
+const isFilledEntry = ([key, val]: [string, any]): boolean =>
+    key.trim() !== '' || typeof val !== 'string' || val.trim() !== ''
+
 function DictionaryField({
     input,
     onChange,
+    onMakeSecret,
+    secretLabel,
     templating,
     sampleGlobalsWithInputs,
 }: {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
+    onMakeSecret?: (key: string, value: any, remaining: Record<string, any>) => void
+    secretLabel?: string
     templating: boolean
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
@@ -391,9 +411,7 @@ function DictionaryField({
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const filteredEntries = entries.filter(
-            ([key, val]) => key.trim() !== '' || typeof val !== 'string' || val.trim() !== ''
-        )
+        const filteredEntries = entries.filter(isFilledEntry)
 
         // Compare with previous filtered entries to avoid unnecessary updates
         if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
@@ -407,8 +425,27 @@ function DictionaryField({
         onChange?.({ ...input, value: val }) // oxlint-disable-line react-hooks/exhaustive-deps
     }, [entries, onChange])
 
+    // Clear changes or a save response replaces the value. Rebuild the rows from it, but not from an echo of our own update.
+    useEffect(() => {
+        const incoming = Object.entries(input.value ?? {})
+        // Duplicate keys collapse in the emitted value, so compare against that rather than the raw rows.
+        if (!objectsEqual(incoming, Object.entries(Object.fromEntries(prevFilteredEntriesRef.current)))) {
+            prevFilteredEntriesRef.current = incoming
+            setEntries(incoming)
+        }
+    }, [input.value])
+
     const handleEnableIncludeObject = (): void => {
         setEntries((prev) => [[EXTEND_OBJECT_KEY, '{event.properties}'], ...prev])
+    }
+
+    const makeSecret = (index: number): void => {
+        const [key, val] = entries[index]
+        const remaining = entries.filter((_, i) => i !== index)
+        // onMakeSecret writes both inputs in one change, so the effect above must not write the plain one again.
+        prevFilteredEntriesRef.current = remaining.filter(isFilledEntry)
+        setEntries(remaining)
+        onMakeSecret?.(key, val, Object.fromEntries(prevFilteredEntriesRef.current))
     }
 
     return (
@@ -424,7 +461,7 @@ function DictionaryField({
                         <LemonInput
                             value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
                             disabled={key === EXTEND_OBJECT_KEY}
-                            className="flex-1 min-w-60"
+                            className="flex-1 min-w-0"
                             onChange={(key) => {
                                 setEntries((prev) => {
                                     const newEntries = [...prev]
@@ -455,6 +492,17 @@ function DictionaryField({
                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     />
 
+                    {onMakeSecret && key !== EXTEND_OBJECT_KEY ? (
+                        <LemonButton
+                            icon={<IconLock />}
+                            size="small"
+                            data-attr="dictionary-row-make-secret"
+                            tooltip={`Move to ${secretLabel}. It is stored encrypted and hidden after saving.`}
+                            disabledReason={key.trim() === '' ? 'Enter a key first' : undefined}
+                            onClick={() => makeSecret(index)}
+                        />
+                    ) : null}
+
                     <LemonButton
                         icon={<IconX />}
                         size="small"
@@ -475,6 +523,87 @@ function DictionaryField({
                 onClick={() => {
                     setEntries((prev) => [...prev, ['', '']])
                 }}
+            >
+                Add entry
+            </LemonButton>
+        </div>
+    )
+}
+
+function SecretDictionaryField({
+    input,
+    onChange,
+}: {
+    input: CyclotronJobInputType
+    onChange?: (value: CyclotronJobInputType) => void
+}): JSX.Element {
+    const [rows, setRows] = useState<SecretDictionaryRow[]>(() => secretRowsFromInput(input))
+    const lastValue = useRef<unknown>(secretRowsToValue(rows))
+
+    // A save response or a row made secret in the plain field replaces the stored entries.
+    useEffect(() => {
+        const incoming = secretEntries(input) ?? {}
+        if (!objectsEqual(incoming, lastValue.current)) {
+            lastValue.current = incoming
+            setRows(secretRowsFromInput(input))
+        }
+    }, [input.value]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const updateRows = (next: SecretDictionaryRow[]): void => {
+        setRows(next)
+        const value = secretRowsToValue(next)
+        if (!objectsEqual(value, lastValue.current)) {
+            lastValue.current = value
+            // Save sends a `secret` input as "keep the stored value", so an edited one must drop the flag.
+            onChange?.({ ...input, secret: false, value })
+        }
+    }
+    const updateRow = (index: number, patch: Partial<SecretDictionaryRow>): void =>
+        updateRows(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+
+    return (
+        <div className="deprecated-space-y-2">
+            {rows.map((row, index) => (
+                <div className="flex gap-2 items-center" key={index}>
+                    <LemonInput
+                        value={row.key}
+                        disabled={row.stored}
+                        className="flex-1 min-w-0"
+                        onChange={(key) => updateRow(index, { key })}
+                        placeholder="Key"
+                    />
+                    {row.masked ? (
+                        <div className="flex flex-2 gap-2 items-center px-2 min-w-0 h-10 rounded border border-dashed overflow-hidden">
+                            <span className="flex-1 min-w-0 italic truncate text-secondary">Value is hidden</span>
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={() => updateRow(index, { masked: false })}
+                            >
+                                Replace
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        <LemonInput
+                            type="password"
+                            className="flex-2 min-w-0 ph-no-capture"
+                            value={row.value}
+                            onChange={(value) => updateRow(index, { value })}
+                            placeholder="Secret value"
+                        />
+                    )}
+                    <LemonButton
+                        icon={<IconX />}
+                        size="small"
+                        onClick={() => updateRows(rows.filter((_, i) => i !== index))}
+                    />
+                </div>
+            ))}
+            <LemonButton
+                icon={<IconPlus />}
+                size="small"
+                type="secondary"
+                onClick={() => updateRows([...rows, { key: '', value: '', masked: false, stored: false }])}
             >
                 Add entry
             </LemonButton>
@@ -580,6 +709,7 @@ type CyclotronJobInputProps = {
     input: CyclotronJobInputType
     onChange?: (value: CyclotronJobInputType) => void
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
+    onInputsChange?: (inputs: Record<string, CyclotronJobInputType>) => void
     disabled?: boolean
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
@@ -632,6 +762,7 @@ function NonFailureStatusCodesField({
 function CyclotronJobInputRenderer({
     onChange,
     onInputChange,
+    onInputsChange,
     schema,
     disabled,
     input,
@@ -689,15 +820,45 @@ function CyclotronJobInputRenderer({
                     disabled={disabled}
                 />
             )
-        case 'dictionary':
+        case 'dictionary': {
+            if (isSecretRowsCompanion(schema, configuration.inputs_schema)) {
+                return <SecretDictionaryField input={input} onChange={onChange} />
+            }
+            // A caller with only `onChange` (the schema default editor) cannot write the companion input.
+            const secretSchema =
+                onInputsChange || onInputChange
+                    ? findSecretRowsCompanion(schema, configuration.inputs_schema)
+                    : undefined
+            const secretInput = secretSchema ? configuration.inputs?.[secretSchema.key] : undefined
             return (
                 <DictionaryField
                     input={input}
                     onChange={onChange}
+                    onMakeSecret={
+                        secretSchema && canAddSecretRow(secretInput)
+                            ? (key, value, remaining) => {
+                                  const changes = {
+                                      [schema.key]: { ...input, value: remaining },
+                                      [secretSchema.key]: {
+                                          ...secretInput,
+                                          secret: false,
+                                          value: { ...secretEntries(secretInput), [key]: value },
+                                      },
+                                  }
+                                  if (onInputsChange) {
+                                      onInputsChange(changes)
+                                  } else {
+                                      Object.entries(changes).forEach(([k, change]) => onInputChange?.(k, change))
+                                  }
+                              }
+                            : undefined
+                    }
+                    secretLabel={secretSchema?.label || secretSchema?.key}
                     templating={templating}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
+        }
         case 'boolean':
             return (
                 <BooleanField
@@ -937,6 +1098,7 @@ function CyclotronJobInputWithSchema({
     parentConfiguration,
     onInputSchemaChange,
     onInputChange,
+    onInputsChange,
     showSource,
     sampleGlobalsWithInputs,
     errors,
@@ -947,7 +1109,10 @@ function CyclotronJobInputWithSchema({
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
+    const [replacingSecret, setReplacingSecret] = useState(false)
     const value = configuration.inputs?.[schema.key] ?? { value: null }
+    const hiddenSecret =
+        !!value?.secret && !(isSecretRowsCompanion(schema, configuration.inputs_schema) && secretEntries(value))
     const error = errors?.[schema.key]
     const warning = warnings?.[schema.key]
 
@@ -986,6 +1151,13 @@ function CyclotronJobInputWithSchema({
             setEditing(false)
         }
     }, [showSource])
+
+    // A save masks the new value again, so the field goes back to the hidden state.
+    useEffect(() => {
+        if (value?.secret) {
+            setReplacingSecret(false)
+        }
+    }, [value?.secret])
 
     const onChange = (newValue: CyclotronJobInputType): void => {
         onInputChange?.(schema.key, {
@@ -1079,27 +1251,25 @@ function CyclotronJobInputWithSchema({
                                 />
                             )}
                         </div>
-                        {value?.secret ? (
+                        {hiddenSecret && !replacingSecret ? (
                             <div className="flex gap-2 items-center p-1 rounded border border-dashed">
                                 <span className="flex-1 p-1 italic text-secondary">
                                     This value is secret and is not displayed here.
                                 </span>
-                                <LemonButton
-                                    onClick={() => {
-                                        onChange({ value: '', secret: false })
-                                    }}
-                                    size="small"
-                                    type="secondary"
-                                >
+                                <LemonButton onClick={() => setReplacingSecret(true)} size="small" type="secondary">
                                     Edit
                                 </LemonButton>
                             </div>
                         ) : (
                             <CyclotronJobInputRenderer
                                 schema={schema}
-                                input={value ?? { value: '' }}
-                                onChange={onChange}
+                                input={hiddenSecret ? { value: '' } : (value ?? { value: '' })}
+                                // Save sends a `secret` input as "keep the stored value", so a new value drops the flag.
+                                onChange={
+                                    hiddenSecret ? (newValue) => onChange({ ...newValue, secret: false }) : onChange
+                                }
                                 onInputChange={onInputChange}
+                                onInputsChange={onInputsChange}
                                 configuration={configuration}
                                 parentConfiguration={parentConfiguration}
                                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}

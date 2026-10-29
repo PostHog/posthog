@@ -13,9 +13,11 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -127,7 +129,17 @@ export function NewSourceScene(): JSX.Element {
 // access). Without this the scene keeps rendering a bare skeleton indefinitely, which reads
 // as a permanently stuck loading state.
 export function AvailableSourcesError(): JSX.Element {
+    const { availableSourcesForbidden } = useValues(availableSourcesLogic)
     const { load } = useActions(availableSourcesLogic)
+
+    if (availableSourcesForbidden) {
+        return (
+            <LemonBanner type="info">
+                You don't have permission to connect a data warehouse source. Ask a project admin for editor access to
+                data warehouse sources.
+            </LemonBanner>
+        )
+    }
 
     return (
         <LemonBanner
@@ -140,10 +152,7 @@ export function AvailableSourcesError(): JSX.Element {
             }}
         >
             <p className="font-semibold mb-1">Couldn't load the list of available sources</p>
-            <p className="m-0">
-                This can happen if the request timed out or you don't have permission to manage data sources in this
-                project. Try again, or ask an organization admin to check your access.
-            </p>
+            <p className="m-0">The request may have timed out. Try again, and contact support if it keeps failing.</p>
         </LemonBanner>
     )
 }
@@ -172,6 +181,7 @@ function InternalNewSourceScene({
     sourceWizardLogicProps: SourceWizardLogicProps
 }): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent>
@@ -179,15 +189,21 @@ function InternalNewSourceScene({
                 name="New data warehouse source"
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        center
-                        data-attr="source-form-cancel-button"
-                        onClick={closeWizard}
-                        size="small"
-                    >
-                        Cancel
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" data-attr="source-form-cancel-button" onClick={closeWizard}>
+                            Cancel
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            center
+                            data-attr="source-form-cancel-button"
+                            onClick={closeWizard}
+                            size="small"
+                        >
+                            Cancel
+                        </LemonButton>
+                    )
                 }
             />
             <InternalSourcesWizard sourceWizardLogicProps={sourceWizardLogicProps} />
@@ -546,7 +562,12 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
 // Connectors in the "Databases" category that PostHog reaches over the provider's public HTTPS API
 // with a key the provider issues. The customer has no network path in front of them, so the
 // firewall hint would name a setup step that does not exist.
-const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceTypeEnumApi[] = ['BigQuery', 'DynamoDB', 'Firebase']
+const SOURCES_WITHOUT_NETWORK_ALLOWLIST: ExternalDataSourceTypeEnumApi[] = [
+    'BigQuery',
+    'CloudflareD1',
+    'DynamoDB',
+    'Firebase',
+]
 
 // Firewall allowlisting only applies to self-hosted databases PostHog dials out to, so the hint is
 // scoped to that category rather than shown for OAuth/API connectors.

@@ -56,7 +56,7 @@ class StatuscakeSource(ResumableSource[StatuscakeSourceConfig, StatusCakeResumeC
             ),
             iconPath="/static/services/statuscake.png",
             docsUrl="https://posthog.com/docs/cdp/sources/statuscake",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["uptime", "monitoring", "ssl"],
             fields=cast(
                 list[FieldType],

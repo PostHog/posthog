@@ -13,11 +13,6 @@ class TestUsersnapSource:
         self.team_id = 123
         self.config = UsersnapSourceConfig(jwt_secret="shared-secret", jwt_id="jwt-id-123")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["feedbacks"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "feedbacks"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid",
         [

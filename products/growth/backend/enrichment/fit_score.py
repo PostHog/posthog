@@ -141,3 +141,17 @@ def score_company(
         payload, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk, enrichments=enrichments
     )
     return score_context(inputs, source=lists.rules.source, lists_version=lists.version, input_versions=input_versions)
+
+
+def no_company_fit(
+    *, lists: CuratedLists, role: Optional[str], domain: Optional[str], wizard_ai_sdk: bool
+) -> IcpFitResult:
+    # The editable formula can give a missing company another status, such as the student
+    # disqualification that runs before its company check, so this result does not run it.
+    inputs = build_scoring_inputs(None, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk)
+    return IcpFitResult(
+        status=STATUS_NOT_FOUND,
+        lists_version=lists.version,
+        input_hash=scoring_input_hash(inputs, {}),
+        input_values=inputs,
+    )
