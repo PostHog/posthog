@@ -327,6 +327,7 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
         }
     }),
     afterMount(({ actions }) => {
+        accountsColumnConfigLogic.actions.ensureDefinitionsLoaded()
         actions.loadRelationships()
     }),
 ])

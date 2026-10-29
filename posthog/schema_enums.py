@@ -64,6 +64,18 @@ class AccountsTableAggregation(StrEnum):
     MEDIAN = "median"
 
 
+class AccountsTableCustomPropertyDisplayType(StrEnum):
+    TEXT = "text"
+    LINK = "link"
+    NUMBER = "number"
+    CURRENCY = "currency"
+    PERCENT = "percent"
+    DATE = "date"
+    DATETIME = "datetime"
+    BOOLEAN = "boolean"
+    SELECT = "select"
+
+
 class WindowDays(float, Enum):
     NUMBER_7 = 7
     NUMBER_14 = 14
@@ -87,6 +99,12 @@ class AccountsTableCustomPropertyOperator(StrEnum):
     IS_DATE_EXACT = "is_date_exact"
     IS_DATE_BEFORE = "is_date_before"
     IS_DATE_AFTER = "is_date_after"
+
+
+class AccountsTableLegacyRole(StrEnum):
+    CSM = "csm"
+    ACCOUNT_EXECUTIVE = "account_executive"
+    ACCOUNT_OWNER = "account_owner"
 
 
 class AccountsTableRelationshipOperator(StrEnum):

@@ -235,7 +235,17 @@ describe('accountsLogic', () => {
         logic.mount()
         // Saved-view restoration has its own suite; these tests exercise the settled list.
         logic.actions.applyViewState(logic.values.viewState, { source: 'draft', columns: 'keep' })
-        // Legacy role columns only resolve into the query once definitions load.
+        const config = accountsColumnConfigLogic.findMounted()!
+        config.actions.hydrateTableDefinitions({
+            kind: NodeKind.AccountsTableQuery,
+            results: [],
+            hasMore: false,
+            limit: 100,
+            offset: 0,
+            columns: DEFINITIONS.map((definition) => ({ kind: 'relationship', definitionId: definition.id })),
+            relationshipDefinitions: DEFINITIONS,
+        })
+        config.actions.loadRelationshipDefinitionsSuccess(DEFINITIONS)
         await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
     })
 
@@ -262,14 +272,8 @@ describe('accountsLogic', () => {
     it('runs the list and overview through typed Postgres queries', () => {
         const source = logic.values.accountsQuerySource as AccountsTableQuery
         expect(source.kind).toBe('AccountsTableQuery')
-        expect(source.columns).toEqual([
-            { kind: 'account_field', field: 'name' },
-            { kind: 'tags' },
-            { kind: 'note_count' },
-            { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
-            { kind: 'relationship', definitionId: AE_DEFINITION_ID },
-            { kind: 'relationship', definitionId: OWNER_DEFINITION_ID },
-        ])
+        expect(source.columns).toEqual([])
+        expect(source.useDefaultColumns).toBe(true)
         expect(logic.values.metricsQuery).toMatchObject({
             kind: 'AccountsTableQuery',
             columns: [],
@@ -291,8 +295,8 @@ describe('accountsLogic', () => {
         expect(logic.values.accountsDataTableQuery.columns).not.toContain('arbitrary_hogql()')
     })
 
-    it('removes restored unsupported custom-property filters', () => {
-        logic.actions.loadCustomPropertyDefinitionsSuccess([
+    it('removes unsupported operators while keeping unknown IDs for backend validation', () => {
+        accountsColumnConfigLogic.findMounted()!.actions.loadCustomPropertyDefinitionsSuccess([
             {
                 id: CSM_DEFINITION_ID,
                 name: 'Plan',
@@ -321,7 +325,7 @@ describe('accountsLogic', () => {
         ])
 
         expect(logic.values.accountFilters).toEqual([])
-        expect(logic.values.accountFilterGroups).toEqual([[ACCOUNT_FILTERS[0]]])
+        expect(logic.values.accountFilterGroups[0]).toHaveLength(2)
         expect(logic.values.activeFilterCount).toBe(1)
     })
 
@@ -406,22 +410,35 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('acme')
     })
 
-    it('withholds the list and metrics queries until relationship definitions settle', async () => {
+    it('starts table and overview queries without loading definition catalogs', () => {
         logic.unmount()
-        let resolveDefinitions: (value: { count: number; results: AccountRelationshipDefinitionApi[] }) => void
-        mockDefinitionsList.mockReturnValue(new Promise((resolve) => (resolveDefinitions = resolve)))
         logic = accountsLogic()
         logic.mount()
         logic.actions.setAwaitingSavedView(false)
 
-        expect(logic.values.accountsQuerySource).toBeNull()
-        expect(logic.values.metricsQuery).toBeNull()
-
-        resolveDefinitions!({ count: DEFINITIONS.length, results: DEFINITIONS })
-        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
-
-        expect(logic.values.accountsQuerySource?.kind).toBe('AccountsTableQuery')
+        expect(logic.values.accountsQuerySource?.useDefaultColumns).toBe(true)
         expect(logic.values.metricsQuery).not.toBeNull()
+        expect(mockDefinitionsList).not.toHaveBeenCalled()
+        expect(mockCustomPropertiesList).not.toHaveBeenCalled()
+    })
+
+    it('hydrates defaults without changing the table or overview request', () => {
+        const config = accountsColumnConfigLogic.findMounted()!
+        config.actions.resetColumns()
+        const beforeTable = logic.values.accountsQuerySource
+        const beforeMetrics = logic.values.metricsQuery
+        config.actions.hydrateTableDefinitions({
+            kind: NodeKind.AccountsTableQuery,
+            results: [],
+            hasMore: false,
+            limit: 100,
+            offset: 0,
+            columns: DEFINITIONS.map((definition) => ({ kind: 'relationship', definitionId: definition.id })),
+            relationshipDefinitions: DEFINITIONS,
+        })
+        expect(logic.values.visibleColumnNames).toContain('csm')
+        expect(logic.values.accountsQuerySource).toEqual(beforeTable)
+        expect(logic.values.metricsQuery).toEqual(beforeMetrics)
     })
 
     it.each([
@@ -461,79 +478,71 @@ describe('accountsLogic', () => {
         expect(logic.values.awaitingSavedView).toBe(true)
     })
 
-    it('removes relationship filters when relationship definitions fail to load', async () => {
+    it('keeps active relationship filters when the catalog request fails', async () => {
         logic.unmount()
         silenceKeaLoadersErrors()
         mockDefinitionsList.mockRejectedValueOnce(new Error('network'))
         logic = accountsLogic()
         logic.mount()
-
-        logic.actions.updateAccountFilters([
-            {
-                type: PropertyFilterType.AccountRelationship,
-                key: CSM_DEFINITION_ID,
-                operator: PropertyOperator.Exact,
-                value: [42],
-            },
-        ])
-
-        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
-
-        expect(logic.values.accountFilters).toEqual([])
-        expect(logic.values.accountsQuerySource?.filters).not.toContainEqual(
-            expect.objectContaining({ kind: 'relationship' })
-        )
-        expect(logic.values.activeFilterCount).toBe(0)
-    })
-
-    it('keeps custom-property groups until definitions load after a relationship failure', async () => {
-        logic.unmount()
-        silenceKeaLoadersErrors()
-        let resolveDefinitions!: (result: Awaited<ReturnType<typeof customPropertyDefinitionsList>>) => void
-        mockCustomPropertiesList.mockReturnValueOnce(
-            new Promise<Awaited<ReturnType<typeof customPropertyDefinitionsList>>>((resolve) => {
-                resolveDefinitions = resolve
-            })
-        )
-        mockDefinitionsList.mockRejectedValueOnce(new Error('network'))
-        logic = accountsLogic()
-        logic.mount()
-        const customFilter = {
-            type: PropertyFilterType.AccountCustomProperty as const,
+        logic.actions.setAwaitingSavedView(false)
+        const filter = {
+            type: PropertyFilterType.AccountRelationship as const,
             key: CSM_DEFINITION_ID,
             operator: PropertyOperator.Exact,
-            value: 5,
+            value: [42],
         }
-        logic.actions.setAccountFilterGroups([[customFilter]])
-
-        await expectLogic(accountsColumnConfigLogic.findMounted()!).toDispatchActions([
-            'loadRelationshipDefinitionsFailure',
-        ])
-        expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
-
-        resolveDefinitions({ count: 1, results: [buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID })] })
-        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
-        expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
+        logic.actions.updateAccountFilters([filter])
+        const config = accountsColumnConfigLogic.findMounted()!
+        await expectLogic(config, () => config.actions.ensureDefinitionsLoaded()).toFinishAllListeners()
+        expect(logic.values.accountFilters).toEqual([filter])
+        expect(logic.values.accountsQuerySource?.filters).toContainEqual({
+            kind: 'relationship',
+            definitionId: CSM_DEFINITION_ID,
+            operator: 'exact',
+            userIds: [42],
+        })
     })
 
-    it('resolves custom property aliases from every definitions page', async () => {
+    it('loads each complete catalog once when a picker needs it', async () => {
         logic.unmount()
-        const firstPage = buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID, name: 'Plan' })
-        const secondPage = buildCustomPropertyDefinition({ id: AE_DEFINITION_ID, name: 'Renewal' })
-        mockCustomPropertiesList.mockImplementation(async (_projectId, params) =>
-            (params?.offset ?? 0) > 0
-                ? { count: 2, next: null, results: [secondPage] }
-                : { count: 2, next: 'https://example.com/next-page', results: [firstPage] }
-        )
+        const first = buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID, name: 'Plan' })
+        const last = buildCustomPropertyDefinition({ id: AE_DEFINITION_ID, name: 'Renewal' })
+        mockCustomPropertiesList.mockResolvedValue({ count: 2, next: null, results: [first, last] })
         logic = accountsLogic()
         logic.mount()
-        const columnConfig = accountsColumnConfigLogic.findMounted()!
-        await expectLogic(columnConfig).toFinishAllListeners()
+        const config = accountsColumnConfigLogic.findMounted()!
+        expect(mockCustomPropertiesList).not.toHaveBeenCalled()
+        await expectLogic(config, () => config.actions.showColumnConfigurator()).toFinishAllListeners()
+        await expectLogic(config, () => config.actions.ensureDefinitionsLoaded()).toFinishAllListeners()
+        expect(mockCustomPropertiesList).toHaveBeenCalledTimes(1)
+        expect(mockCustomPropertiesList).toHaveBeenCalledWith(expect.any(String), { pagination: 'none' })
+        expect(mockDefinitionsList).toHaveBeenCalledTimes(1)
+        expect(mockDefinitionsList).toHaveBeenCalledWith(expect.any(String), { pagination: 'none' })
+        expect(config.values.aliasToDefinition[customPropertyAlias(AE_DEFINITION_ID)]).toEqual(last)
+    })
 
-        expect(columnConfig.values.aliasToDefinition).toEqual({
-            [customPropertyAlias(CSM_DEFINITION_ID)]: firstPage,
-            [customPropertyAlias(AE_DEFINITION_ID)]: secondPage,
-        })
+    it('hides a deleted saved column without changing the table request', () => {
+        const config = accountsColumnConfigLogic.findMounted()!
+        config.actions.restoreSelectColumns([
+            'name',
+            `accounts.custom_properties.values.\`${CSM_DEFINITION_ID}\` AS ${customPropertyAlias(CSM_DEFINITION_ID)}`,
+        ])
+        const request = logic.values.accountsQuerySource
+        config.actions.hydrateTableDefinitions(
+            {
+                kind: NodeKind.AccountsTableQuery,
+                results: [],
+                hasMore: false,
+                limit: 100,
+                offset: 0,
+                columns: [{ kind: 'account_field', field: AccountsTableAccountField.Name }],
+                customPropertyDefinitions: [],
+                relationshipDefinitions: [],
+            },
+            config.values.querySelectColumns
+        )
+        expect(logic.values.visibleColumnNames).toEqual(['name'])
+        expect(logic.values.accountsQuerySource).toEqual(request)
     })
 
     it('keeps overview metrics off the list query', () => {
@@ -885,7 +894,7 @@ describe('accountsLogic', () => {
             expect(logic.values.sortOrder).toEqual({ column: 'csm', direction: 'asc' })
             expect(logic.values.serverSortOrder).toEqual({ column: 'csm', direction: 'asc' })
             expect(logic.values.accountsQuerySource?.sort).toEqual({
-                column: { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
+                column: { kind: 'legacy_relationship', role: 'csm' },
                 direction: 'asc',
             })
         })
@@ -943,30 +952,35 @@ describe('accountsLogic', () => {
             expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
         })
 
-        it('translates legacy role columns into typed relationship columns', () => {
+        it('sends saved legacy role columns without waiting for catalogs', () => {
+            const config = accountsColumnConfigLogic.findMounted()!
+            config.actions.restoreSelectColumns(['name', 'csm', 'account_executive', 'account_owner'])
             expect(logic.values.accountsQuerySource?.columns).toEqual([
                 { kind: 'account_field', field: 'name' },
-                { kind: 'tags' },
-                { kind: 'note_count' },
-                { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
-                { kind: 'relationship', definitionId: AE_DEFINITION_ID },
-                { kind: 'relationship', definitionId: OWNER_DEFINITION_ID },
+                { kind: 'legacy_relationship', role: 'csm' },
+                { kind: 'legacy_relationship', role: 'account_executive' },
+                { kind: 'legacy_relationship', role: 'account_owner' },
             ])
         })
 
-        it('drops legacy role columns from the query when no matching definition exists', () => {
-            accountsColumnConfigLogic.findMounted()?.actions.loadRelationshipDefinitionsSuccess([])
-            expect(logic.values.accountsQuerySource?.columns).toEqual([
-                { kind: 'account_field', field: 'name' },
-                { kind: 'tags' },
-                { kind: 'note_count' },
-            ])
+        it('omits missing relationships from resolved default columns', () => {
+            const config = accountsColumnConfigLogic.findMounted()!
+            config.actions.hydrateTableDefinitions({
+                kind: NodeKind.AccountsTableQuery,
+                results: [],
+                hasMore: false,
+                limit: 100,
+                offset: 0,
+                columns: [],
+                relationshipDefinitions: [],
+            })
+            expect(logic.values.accountsQuerySource?.columns).toEqual([])
             expect(logic.values.visibleColumnNames).toEqual([ACCOUNTS_NAME_COLUMN, 'tag_names', 'notebook_count'])
         })
 
-        it('materializes pristine defaults into one column per definition once definitions load', () => {
+        it('materializes pristine defaults from the table response', () => {
             const config = accountsColumnConfigLogic.findMounted()!
-            config.actions.loadRelationshipDefinitionsSuccess([
+            const relationships = [
                 ...DEFINITIONS,
                 {
                     id: 'def-os',
@@ -975,7 +989,16 @@ describe('accountsLogic', () => {
                     is_single_holder: true,
                     is_controlled: false,
                 },
-            ])
+            ]
+            config.actions.hydrateTableDefinitions({
+                kind: NodeKind.AccountsTableQuery,
+                results: [],
+                hasMore: false,
+                limit: 100,
+                offset: 0,
+                columns: relationships.map((definition) => ({ kind: 'relationship', definitionId: definition.id })),
+                relationshipDefinitions: relationships,
+            })
             expect(config.values.selectColumns).toEqual([
                 ...ACCOUNTS_DEFAULT_COLUMNS,
                 'csm',
@@ -1162,7 +1185,7 @@ describe('accountsLogic', () => {
             expect(source.kind).toBe('AccountsTableQuery')
             expect(source.columns).toEqual([
                 { kind: 'account_field', field: 'name' },
-                { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
+                { kind: 'legacy_relationship', role: 'csm' },
             ])
             expect(source.filters).toEqual([
                 { kind: 'search', query: 'acme' },
@@ -1198,9 +1221,11 @@ describe('accountsLogic', () => {
                 count: 1,
                 results: [buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID })],
             })
-            logic.actions.loadCustomPropertyDefinitionsSuccess([
-                buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID }),
-            ])
+            accountsColumnConfigLogic
+                .findMounted()!
+                .actions.loadCustomPropertyDefinitionsSuccess([
+                    buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID }),
+                ])
             const columnConfig = accountsColumnConfigLogic.findMounted()!
             columnConfig.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
             columnConfig.actions.moveColumn(0, 1)

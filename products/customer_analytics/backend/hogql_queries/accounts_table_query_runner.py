@@ -5,6 +5,7 @@ from uuid import UUID
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    AccountsTableAccountField,
     AccountsTableAccountFieldColumn,
     AccountsTableAccountFieldFilter,
     AccountsTableAccountIdFilter,
@@ -14,13 +15,19 @@ from posthog.schema import (
     AccountsTableCountMetric,
     AccountsTableCountThresholdMetric,
     AccountsTableCustomPropertyColumn,
+    AccountsTableCustomPropertyDefinition,
+    AccountsTableCustomPropertyDisplayType,
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
     AccountsTableCustomPropertyHistoryPoint,
+    AccountsTableCustomPropertyOption,
+    AccountsTableCustomPropertySource,
+    AccountsTableLegacyRelationshipColumn,
     AccountsTableNoteCountColumn,
     AccountsTableQuery,
     AccountsTableQueryResponse,
     AccountsTableRelationshipColumn,
+    AccountsTableRelationshipDefinition,
     AccountsTableRelationshipFilter,
     AccountsTableRow,
     AccountsTableSearchFilter,
@@ -57,6 +64,16 @@ AccountsTableQueryFilter = (
     | AccountsTableAccountIdFilter
     | AccountsTableAccountFieldFilter
     | AccountsTableCustomPropertyFilter
+)
+
+
+AccountsTableResolvedQueryColumn = (
+    AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+    | AccountsTableCustomPropertyHistoryColumn
 )
 
 
@@ -97,17 +114,20 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
         include_tags = False
         include_note_count = False
         relationship_definition_ids: set[UUID] = set()
+        legacy_relationship_roles: set[str] = set()
         custom_property_definition_ids: set[UUID] = set()
         custom_property_history_windows: dict[UUID, int] = {}
 
         try:
-            for column in self.query.columns:
+            for column in [] if self.query.useDefaultColumns else self.query.columns:
                 if isinstance(column, AccountsTableAccountFieldColumn):
                     account_fields.add(contracts.AccountTableField(column.field.value))
                 elif isinstance(column, AccountsTableTagsColumn):
                     include_tags = True
                 elif isinstance(column, AccountsTableNoteCountColumn):
                     include_note_count = True
+                elif isinstance(column, AccountsTableLegacyRelationshipColumn):
+                    legacy_relationship_roles.add(column.role.value)
                 elif isinstance(column, AccountsTableRelationshipColumn):
                     relationship_definition_ids.add(UUID(column.definitionId))
                 elif isinstance(column, AccountsTableCustomPropertyColumn):
@@ -123,6 +143,8 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
             raise ValidationError("Account table definition IDs must be valid UUIDs.") from error
 
         return contracts.AccountTableColumnSelection(
+            use_default_columns=bool(self.query.useDefaultColumns),
+            legacy_relationship_roles=frozenset(legacy_relationship_roles),
             account_fields=frozenset(account_fields),
             include_tags=include_tags,
             include_note_count=include_note_count,
@@ -229,6 +251,12 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
 
         column = self.query.sort.column
         direction = contracts.AccountTableSortDirection(self.query.sort.direction.value)
+        if isinstance(column, AccountsTableLegacyRelationshipColumn):
+            return contracts.AccountTableSort(
+                kind=contracts.AccountTableSortKind.RELATIONSHIP,
+                direction=direction,
+                legacy_relationship_role=column.role.value,
+            )
         if isinstance(column, AccountsTableAccountFieldColumn):
             return contracts.AccountTableSort(
                 kind=contracts.AccountTableSortKind.ACCOUNT_FIELD,
@@ -285,6 +313,43 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
             raise ValidationError("Account table metric definition IDs must be valid UUIDs.") from error
         return tuple(metrics)
 
+    def _resolved_columns(self, page: contracts.AccountTablePage) -> list[AccountsTableResolvedQueryColumn]:
+        if self.query.useDefaultColumns:
+            return [
+                AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME),
+                AccountsTableTagsColumn(),
+                AccountsTableNoteCountColumn(),
+                *[
+                    AccountsTableRelationshipColumn(definitionId=str(definition.id))
+                    for definition in page.relationship_definitions
+                ],
+            ]
+        else:
+            resolved_columns: list[AccountsTableResolvedQueryColumn] = []
+            for column in self.query.columns:
+                if isinstance(column, AccountsTableLegacyRelationshipColumn):
+                    definition = next(
+                        (
+                            definition
+                            for definition in page.relationship_definitions
+                            if definition.name == api.LEGACY_ACCOUNT_RELATIONSHIP_NAMES[column.role.value]
+                        ),
+                        None,
+                    )
+                    if definition is not None:
+                        resolved_columns.append(AccountsTableRelationshipColumn(definitionId=str(definition.id)))
+                elif isinstance(column, AccountsTableRelationshipColumn):
+                    if any(str(definition.id) == column.definitionId for definition in page.relationship_definitions):
+                        resolved_columns.append(column)
+                elif isinstance(column, AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn):
+                    if any(
+                        str(definition.id) == column.definitionId for definition in page.custom_property_definitions
+                    ):
+                        resolved_columns.append(column)
+                else:
+                    resolved_columns.append(column)
+            return resolved_columns
+
     def _calculate(self) -> AccountsTableQueryResponse:
         user_access_control = self.user_access_control
         if user_access_control is None:
@@ -309,6 +374,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     metrics=self._metrics(),
                     include_churned=bool(self.query.includeChurned),
                     include_ignored=bool(self.query.includeIgnored),
+                    ignore_missing_definitions=bool(self.query.ignoreMissingDefinitions),
                 )
                 return AccountsTableQueryResponse(
                     results=[],
@@ -328,11 +394,46 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                 limit=limit,
                 include_churned=bool(self.query.includeChurned),
                 include_ignored=bool(self.query.includeIgnored),
+                ignore_missing_definitions=bool(self.query.ignoreMissingDefinitions),
             )
         except api.InvalidAccountTableColumn as error:
             raise ValidationError(str(error)) from error
 
         return AccountsTableQueryResponse(
+            columns=self._resolved_columns(page),
+            relationshipDefinitions=[
+                AccountsTableRelationshipDefinition(
+                    id=str(definition.id),
+                    name=definition.name,
+                    description=definition.description,
+                    is_single_holder=definition.is_single_holder,
+                    is_controlled=definition.is_controlled,
+                )
+                for definition in page.relationship_definitions
+            ],
+            customPropertyDefinitions=[
+                AccountsTableCustomPropertyDefinition(
+                    id=str(definition.id),
+                    name=definition.name,
+                    description=definition.description,
+                    display_type=AccountsTableCustomPropertyDisplayType(definition.display_type),
+                    is_big_number=definition.is_big_number,
+                    is_canonical=definition.is_canonical,
+                    has_workflow_reference=definition.has_workflow_reference,
+                    source=AccountsTableCustomPropertySource(id=str(definition.source_id))
+                    if definition.source_id
+                    else None,
+                    options=[
+                        AccountsTableCustomPropertyOption(
+                            id=option.get("id"), label=option["label"], color=option["color"]
+                        )
+                        for option in definition.options
+                    ]
+                    if definition.options is not None
+                    else None,
+                )
+                for definition in page.custom_property_definitions
+            ],
             results=[
                 AccountsTableRow(
                     id=str(row.id),

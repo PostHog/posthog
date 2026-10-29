@@ -3171,6 +3171,7 @@ export type AccountsTableColumn =
     | AccountsTableTagsColumn
     | AccountsTableNoteCountColumn
     | AccountsTableRelationshipColumn
+    | AccountsTableLegacyRelationshipColumn
     | AccountsTableCustomPropertyColumn
     | AccountsTableCustomPropertyHistoryColumn
 
@@ -3183,6 +3184,7 @@ export type AccountsTableSortableColumn =
     | AccountsTableTagsColumn
     | AccountsTableNoteCountColumn
     | AccountsTableRelationshipColumn
+    | AccountsTableLegacyRelationshipColumn
     | AccountsTableCustomPropertyColumn
 
 export enum AccountsTableSortDirection {
@@ -3378,9 +3380,73 @@ export interface AccountsTableRow {
 
 export type CachedAccountsTableQueryResponse = CachedQueryResponse<AccountsTableQueryResponse>
 
+export type AccountsTableCustomPropertyDisplayType =
+    | 'text'
+    | 'link'
+    | 'number'
+    | 'currency'
+    | 'percent'
+    | 'date'
+    | 'datetime'
+    | 'boolean'
+    | 'select'
+
+export interface AccountsTableCustomPropertySource {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyOption {
+    id?: string | null
+    label: string
+    color: string
+}
+
+export interface AccountsTableCustomPropertyDefinition {
+    id: string
+    name: string
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayType
+    is_big_number?: boolean
+    is_canonical: boolean
+    has_workflow_reference: boolean
+    source?: AccountsTableCustomPropertySource | null
+    options?: AccountsTableCustomPropertyOption[] | null
+}
+
+export interface AccountsTableRelationshipDefinition {
+    id: string
+    name: string
+    description?: string | null
+    is_single_holder?: boolean
+    is_controlled: boolean
+}
+
+/** @discriminator kind */
+export type AccountsTableResolvedColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+    | AccountsTableCustomPropertyHistoryColumn
+
+export enum AccountsTableLegacyRole {
+    Csm = 'csm',
+    AccountExecutive = 'account_executive',
+    AccountOwner = 'account_owner',
+}
+
+export interface AccountsTableLegacyRelationshipColumn {
+    kind: 'legacy_relationship'
+    role: AccountsTableLegacyRole
+}
+
 export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
     kind: NodeKind.AccountsTableQuery
     results: AccountsTableRow[]
+    columns?: AccountsTableResolvedColumn[]
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[]
+    relationshipDefinitions?: AccountsTableRelationshipDefinition[]
     hasMore: boolean
     limit: integer
     offset: integer
@@ -3396,6 +3462,8 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     includeIgnored?: boolean
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
+    useDefaultColumns?: boolean
+    ignoreMissingDefinitions?: boolean
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
     /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */

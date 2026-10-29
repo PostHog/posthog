@@ -16,7 +16,9 @@ from posthog.schema_enums import (
     AccountsTableAccountField as AccountsTableAccountField,
     AccountsTableAccountFieldOperator as AccountsTableAccountFieldOperator,
     AccountsTableAggregation as AccountsTableAggregation,
+    AccountsTableCustomPropertyDisplayType as AccountsTableCustomPropertyDisplayType,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
+    AccountsTableLegacyRole as AccountsTableLegacyRole,
     AccountsTableRelationshipOperator as AccountsTableRelationshipOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
     AccountsTableThresholdOperator as AccountsTableThresholdOperator,
@@ -440,6 +442,22 @@ class AccountsTableCustomPropertyHistoryPoint(BaseModel):
     value: float
 
 
+class AccountsTableCustomPropertyOption(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: str
+    id: str | None = None
+    label: str
+
+
+class AccountsTableCustomPropertySource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+
+
 class AccountsTableNoteCountColumn(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -456,6 +474,17 @@ class AccountsTableRelationshipColumn(BaseModel):
         description="Team-scoped relationship definition to return for each account.",
     )
     kind: Literal["relationship"] = "relationship"
+
+
+class AccountsTableRelationshipDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: str
+    is_controlled: bool
+    is_single_holder: bool | None = None
+    name: str
 
 
 class AccountsTableSearchFilter(BaseModel):
@@ -3712,6 +3741,21 @@ class AccountsTableCountThresholdMetric(BaseModel):
     value: float
 
 
+class AccountsTableCustomPropertyDefinition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    display_type: AccountsTableCustomPropertyDisplayType
+    has_workflow_reference: bool
+    id: str
+    is_big_number: bool | None = None
+    is_canonical: bool
+    name: str
+    options: list[AccountsTableCustomPropertyOption] | None = None
+    source: AccountsTableCustomPropertySource | None = None
+
+
 class AccountsTableCustomPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3723,6 +3767,14 @@ class AccountsTableCustomPropertyFilter(BaseModel):
         default=None,
         description=("Values interpreted according to the custom property definition's display type."),
     )
+
+
+class AccountsTableLegacyRelationshipColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["legacy_relationship"] = "legacy_relationship"
+    role: AccountsTableLegacyRole
 
 
 class AccountsTableRelationshipFilter(BaseModel):
@@ -10098,6 +10150,18 @@ class AccountsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -10118,6 +10182,7 @@ class AccountsTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -10158,6 +10223,7 @@ class AccountsTableSort(BaseModel):
         | AccountsTableTagsColumn
         | AccountsTableNoteCountColumn
         | AccountsTableRelationshipColumn
+        | AccountsTableLegacyRelationshipColumn
         | AccountsTableCustomPropertyColumn
     ) = Field(
         ...,
@@ -11785,6 +11851,18 @@ class CachedAccountsTableQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -11813,6 +11891,7 @@ class CachedAccountsTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -18148,6 +18227,18 @@ class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -18168,6 +18259,7 @@ class Response20(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -23910,6 +24002,18 @@ class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -23930,6 +24034,7 @@ class QueryResponseAlternative59(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -25124,6 +25229,18 @@ class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: (
+        list[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn
+        ]
+        | None
+    ) = None
+    customPropertyDefinitions: list[AccountsTableCustomPropertyDefinition] | None = None
     error: str | None = Field(
         default=None,
         description=(
@@ -25144,6 +25261,7 @@ class QueryResponseAlternative89(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    relationshipDefinitions: list[AccountsTableRelationshipDefinition] | None = None
     resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
         default=None,
         description=("The resolved previous/comparison period date range, when comparing against another period"),
@@ -27184,6 +27302,7 @@ class AccountsTableQuery(BaseModel):
             | AccountsTableTagsColumn
             | AccountsTableNoteCountColumn
             | AccountsTableRelationshipColumn
+            | AccountsTableLegacyRelationshipColumn
             | AccountsTableCustomPropertyColumn
             | AccountsTableCustomPropertyHistoryColumn,
             Field(discriminator="kind"),
@@ -27221,6 +27340,7 @@ class AccountsTableQuery(BaseModel):
         default=None,
         description=("Filters are combined with AND. Values within tag and assignment filters use OR."),
     )
+    ignoreMissingDefinitions: bool | None = None
     includeChurned: bool | None = Field(
         default=None,
         description="Include churned accounts. Churned accounts are hidden by default.",
@@ -27242,6 +27362,7 @@ class AccountsTableQuery(BaseModel):
     response: AccountsTableQueryResponse | None = None
     sort: AccountsTableSort | None = None
     tags: QueryLogTags | None = None
+    useDefaultColumns: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

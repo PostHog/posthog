@@ -27,6 +27,8 @@ from posthog.schema import (
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
     AccountsTableCustomPropertyOperator,
+    AccountsTableLegacyRelationshipColumn,
+    AccountsTableLegacyRole,
     AccountsTableNoteCountColumn,
     AccountsTableQuery,
     AccountsTableQueryResponse,
@@ -75,6 +77,111 @@ from products.notebooks.backend.models import Notebook, ResourceNotebook
 class TestAccountsTableQueryRunner(BaseTest):
     def _run(self, query: AccountsTableQuery) -> AccountsTableQueryResponse:
         return AccountsTableQueryRunner(query=query, team=self.team, user=self.user).calculate()
+
+    def test_resolves_default_columns_and_metadata_without_accounts(self) -> None:
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        AccountRelationshipDefinition.objects.for_team(other_team.id).create(team_id=other_team.id, name="Private role")
+
+        response = self._run(AccountsTableQuery(columns=[], useDefaultColumns=True))
+
+        assert response.results == []
+        assert response.columns == [
+            AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME),
+            AccountsTableTagsColumn(),
+            AccountsTableNoteCountColumn(),
+            AccountsTableRelationshipColumn(definitionId=str(definition.id)),
+        ]
+        assert response.relationshipDefinitions is not None
+        assert [(item.id, item.name) for item in response.relationshipDefinitions] == [(str(definition.id), "CSM")]
+
+    def test_resolves_saved_legacy_roles_and_sorts_their_values(self) -> None:
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
+        )
+        account = create_account(team_id=self.team.id, name="Assigned")
+        AccountRelationship.objects.for_team(self.team.id).create(
+            team_id=self.team.id, account=account, definition=definition, user=self.user
+        )
+        column = AccountsTableLegacyRelationshipColumn(role=AccountsTableLegacyRole.CSM)
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[column], sort=AccountsTableSort(column=column, direction=AccountsTableSortDirection.ASC)
+            )
+        )
+
+        assert response.columns == [AccountsTableRelationshipColumn(definitionId=str(definition.id))]
+        assert response.results[0].relationships[str(definition.id)] == [self.user.id]
+
+    def test_returns_filter_definition_metadata_without_selecting_its_values(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Tier", display_type=DisplayType.SELECT
+        )
+        definition.options = [{"id": "option-1", "label": "Standard", "color": "preset-1"}]
+        definition.save(update_fields=["options"])
+        account = create_account(team_id=self.team.id, name="Unset")
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME)],
+                filters=[
+                    AccountsTableCustomPropertyFilter(
+                        definitionId=str(definition.id), operator=AccountsTableCustomPropertyOperator.IS_NOT_SET
+                    )
+                ],
+            )
+        )
+
+        assert response.results[0].id == str(account.id)
+        assert response.results[0].customProperties == {}
+        assert response.customPropertyDefinitions is not None
+        metadata = response.customPropertyDefinitions[0]
+        assert metadata.id == str(definition.id)
+        assert metadata.name == "Tier"
+        assert metadata.display_type == "select"
+        assert metadata.options is not None
+        assert metadata.options[0].label == "Standard"
+        assert not metadata.is_canonical
+        assert metadata.source is None
+
+    def test_saved_view_omits_deleted_columns_and_sort_without_blocking_rows(self) -> None:
+        account = create_account(team_id=self.team.id, name="Remaining account")
+        deleted = create_custom_property_definition(
+            team_id=self.team.id, name="Removed score", display_type=DisplayType.NUMBER
+        )
+        deleted_id = str(deleted.id)
+        deleted.delete()
+        deleted_relationship = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Removed role"
+        )
+        relationship_id = str(deleted_relationship.id)
+        deleted_relationship.delete()
+        name_column = AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME)
+        deleted_column = AccountsTableCustomPropertyColumn(definitionId=deleted_id)
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[
+                    name_column,
+                    deleted_column,
+                    AccountsTableCustomPropertyHistoryColumn(definitionId=deleted_id, windowDays=7),
+                    AccountsTableRelationshipColumn(definitionId=relationship_id),
+                ],
+                sort=AccountsTableSort(column=deleted_column, direction=AccountsTableSortDirection.ASC),
+                ignoreMissingDefinitions=True,
+            )
+        )
+
+        assert response.columns == [name_column]
+        assert [row.id for row in response.results] == [str(account.id)]
+        assert response.results[0].customProperties == {}
+        assert response.results[0].customPropertyHistory == {}
+        assert response.results[0].relationships == {}
+        assert response.customPropertyDefinitions == []
+        assert response.relationshipDefinitions == []
 
     def test_returns_requested_postgres_cells_with_typed_defaults(self) -> None:
         empty_account = create_account(team_id=self.team.id, name="Empty")
@@ -337,7 +444,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                 value_num=index,
             )
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(9):
             page = api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=UserAccessControl(user=self.user, team=self.team),

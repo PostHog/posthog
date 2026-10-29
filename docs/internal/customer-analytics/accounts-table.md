@@ -11,6 +11,23 @@ Reads resolve the current project defaults without copying them into the user ro
 A personal save stores the complete ordered list and an override marker.
 A saved empty list means the user chose no pinned properties and no longer inherits project changes.
 
+## Table columns and definitions
+
+The first table response contains rows, ordered columns, and the metadata needed to show and edit those columns.
+A default view sends `useDefaultColumns: true`. The backend selects the name, tags, note count, and all project relationships.
+A saved view sends its selected columns. The backend also resolves legacy role names.
+Empty results still include column metadata.
+
+The table and overview queries start without waiting for definition catalogs.
+The backend validates custom-property and relationship filters, including filters for columns outside the table.
+The Accounts UI requests that missing definitions be omitted, so deleted properties do not block saved views.
+The response omits their columns and values. A deleted sort column falls back to the default row order.
+Other API callers retain strict validation by default.
+
+Opening a column, filter, or overview editor loads each definition catalog once with `pagination=none`.
+The API keeps its `results`, `count`, `next`, and `previous` envelope. Other callers keep pagination by default.
+Catalog responses update picker options without changing the table request.
+
 ## Query scheduling
 
 Account row and overview requests use a dedicated frontend queue with two concurrent slots.

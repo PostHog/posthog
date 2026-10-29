@@ -4811,6 +4811,112 @@ export interface Response19Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
+export type AccountsTableAccountFieldApi =
+    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
+
+export const AccountsTableAccountFieldApi = {
+    Name: 'name',
+    ExternalId: 'external_id',
+    CreatedAt: 'created_at',
+    UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
+    StripeCustomerId: 'stripe_customer_id',
+    HubspotDealId: 'hubspot_deal_id',
+    BillingId: 'billing_id',
+    SfdcId: 'sfdc_id',
+    ZendeskId: 'zendesk_id',
+} as const
+
+export interface AccountsTableAccountFieldColumnApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+}
+
+export const AccountsTableTagsColumnApiValue = {
+    kind: 'tags',
+} as const
+export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
+
+export const AccountsTableNoteCountColumnApiValue = {
+    kind: 'note_count',
+} as const
+export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
+
+export interface AccountsTableRelationshipColumnApi {
+    /** Team-scoped relationship definition to return for each account. */
+    definitionId: string
+    kind?: 'relationship'
+}
+
+export interface AccountsTableCustomPropertyColumnApi {
+    /** Team-scoped custom property definition to return for each account. */
+    definitionId: string
+    kind?: 'custom_property'
+}
+
+export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
+
+export const WindowDaysApi = {
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+    Number90: 90,
+} as const
+
+export interface AccountsTableCustomPropertyHistoryColumnApi {
+    /** Team-scoped numeric custom property definition whose write history should be returned. */
+    definitionId: string
+    kind?: 'custom_property_history'
+    /** Number of days of history to return. The current value is included even when it is older. */
+    windowDays: WindowDaysApi
+}
+
+export type AccountsTableCustomPropertyDisplayTypeApi =
+    (typeof AccountsTableCustomPropertyDisplayTypeApi)[keyof typeof AccountsTableCustomPropertyDisplayTypeApi]
+
+export const AccountsTableCustomPropertyDisplayTypeApi = {
+    Text: 'text',
+    Link: 'link',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+    Select: 'select',
+} as const
+
+export interface AccountsTableCustomPropertyOptionApi {
+    color: string
+    id?: string | null
+    label: string
+}
+
+export interface AccountsTableCustomPropertySourceApi {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyDefinitionApi {
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayTypeApi
+    has_workflow_reference: boolean
+    id: string
+    is_big_number?: boolean | null
+    is_canonical: boolean
+    name: string
+    options?: AccountsTableCustomPropertyOptionApi[] | null
+    source?: AccountsTableCustomPropertySourceApi | null
+}
+
+export interface AccountsTableRelationshipDefinitionApi {
+    description?: string | null
+    id: string
+    is_controlled: boolean
+    is_single_holder?: boolean | null
+    name: string
+}
+
 export interface AccountsTableCustomPropertyHistoryPointApi {
     timestamp: string
     value: number
@@ -4857,6 +4963,17 @@ export interface AccountsTableRowApi {
 }
 
 export interface Response20Api {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -4871,6 +4988,7 @@ export interface Response20Api {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
     /** The resolved previous/comparison period date range, when comparing against another period */
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
@@ -7525,65 +7643,17 @@ export interface AccountsQueryApi {
     version?: number | null
 }
 
-export type AccountsTableAccountFieldApi =
-    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
+export type AccountsTableLegacyRoleApi = (typeof AccountsTableLegacyRoleApi)[keyof typeof AccountsTableLegacyRoleApi]
 
-export const AccountsTableAccountFieldApi = {
-    Name: 'name',
-    ExternalId: 'external_id',
-    CreatedAt: 'created_at',
-    UpdatedAt: 'updated_at',
-    ChurnedAt: 'churned_at',
-    IgnoredAt: 'ignored_at',
-    StripeCustomerId: 'stripe_customer_id',
-    HubspotDealId: 'hubspot_deal_id',
-    BillingId: 'billing_id',
-    SfdcId: 'sfdc_id',
-    ZendeskId: 'zendesk_id',
+export const AccountsTableLegacyRoleApi = {
+    Csm: 'csm',
+    AccountExecutive: 'account_executive',
+    AccountOwner: 'account_owner',
 } as const
 
-export interface AccountsTableAccountFieldColumnApi {
-    field: AccountsTableAccountFieldApi
-    kind?: 'account_field'
-}
-
-export const AccountsTableTagsColumnApiValue = {
-    kind: 'tags',
-} as const
-export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
-
-export const AccountsTableNoteCountColumnApiValue = {
-    kind: 'note_count',
-} as const
-export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
-
-export interface AccountsTableRelationshipColumnApi {
-    /** Team-scoped relationship definition to return for each account. */
-    definitionId: string
-    kind?: 'relationship'
-}
-
-export interface AccountsTableCustomPropertyColumnApi {
-    /** Team-scoped custom property definition to return for each account. */
-    definitionId: string
-    kind?: 'custom_property'
-}
-
-export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
-
-export const WindowDaysApi = {
-    Number7: 7,
-    Number14: 14,
-    Number30: 30,
-    Number90: 90,
-} as const
-
-export interface AccountsTableCustomPropertyHistoryColumnApi {
-    /** Team-scoped numeric custom property definition whose write history should be returned. */
-    definitionId: string
-    kind?: 'custom_property_history'
-    /** Number of days of history to return. The current value is included even when it is older. */
-    windowDays: WindowDaysApi
+export interface AccountsTableLegacyRelationshipColumnApi {
+    kind?: 'legacy_relationship'
+    role: AccountsTableLegacyRoleApi
 }
 
 export type AccountsTableAccountFieldOperatorApi =
@@ -7728,6 +7798,17 @@ export interface AccountsTableCountThresholdMetricApi {
 }
 
 export interface AccountsTableQueryResponseApi {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -7742,6 +7823,7 @@ export interface AccountsTableQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
     /** The resolved previous/comparison period date range, when comparing against another period */
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
@@ -7770,6 +7852,7 @@ export interface AccountsTableSortApi {
         | AccountsTableTagsColumnApi
         | AccountsTableNoteCountColumnApi
         | AccountsTableRelationshipColumnApi
+        | AccountsTableLegacyRelationshipColumnApi
         | AccountsTableCustomPropertyColumnApi
     direction: AccountsTableSortDirectionApi
 }
@@ -7781,6 +7864,7 @@ export interface AccountsTableQueryApi {
         | AccountsTableTagsColumnApi
         | AccountsTableNoteCountColumnApi
         | AccountsTableRelationshipColumnApi
+        | AccountsTableLegacyRelationshipColumnApi
         | AccountsTableCustomPropertyColumnApi
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]
@@ -7806,6 +7890,7 @@ export interface AccountsTableQueryApi {
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
+    ignoreMissingDefinitions?: boolean | null
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean | null
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -7822,6 +7907,7 @@ export interface AccountsTableQueryApi {
     response?: AccountsTableQueryResponseApi | null
     sort?: AccountsTableSortApi | null
     tags?: QueryLogTagsApi | null
+    useDefaultColumns?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
