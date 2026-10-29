@@ -120,12 +120,11 @@ def _principal_key(principal: Any) -> PrincipalKey:
 
 
 def _access(session: Session, principal: Any, team_id: int) -> UserAccessControl | None:
-    key = (_principal_key(principal), team_id)
+    key = _principal_key(principal)
     if key in session.access:
-        return session.access[key]
-    if team_id not in session.teams:
-        session.teams[team_id] = Team.objects.filter(pk=team_id).first()
-    team = session.teams[team_id]
+        # v1 keeps one instance per team, sharing the user's membership and roles across them.
+        return session.access[key].for_team_ids([team_id]).get(team_id)
+    team = Team.objects.filter(pk=team_id).first()
     if team is None:
         return None
     access = UserAccessControl(user=cast(User, principal), team=team)

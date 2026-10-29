@@ -12,7 +12,7 @@ from django.test import RequestFactory
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -198,6 +198,22 @@ class TestCheckMatchesCurrentRules(BaseTest):
             after = authorization.check(resource=resource, action=Action.EDIT, subject=subject)
 
         assert (during, after) == (True, False)
+
+    def test_session_answers_each_team_with_its_own_rules(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Costs", created_by=self.other_user)
+        create_access_control(
+            team_id=other_team.id, resource="dashboard", access_level="none", resource_id=str(other_dashboard.id)
+        )
+        subject = Subject(user_id=self.user.id)
+
+        with authorization.authorization_session():
+            results = [
+                authorization.check(resource=resource_for_object(dashboard), action=Action.EDIT, subject=subject)
+                for dashboard in (self.dashboard, other_dashboard, self.dashboard)
+            ]
+
+        assert results == [True, False, True]
 
     @parameterized.expand(
         [

@@ -13,7 +13,7 @@ from django.db import connection, transaction
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from posthog.models import Team, User
+    from posthog.models import User
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -30,13 +30,11 @@ class Session:
 
     principal: Callable[[], Any] | None = None
     users: dict[int, User | None] = field(default_factory=dict)
-    teams: dict[int, Team | None] = field(default_factory=dict)
-    access: dict[tuple[PrincipalKey, int], UserAccessControl] = field(default_factory=dict)
+    access: dict[PrincipalKey, UserAccessControl] = field(default_factory=dict)
     uncommitted: bool = False
 
     def clear(self) -> None:
         self.users.clear()
-        self.teams.clear()
         self.access.clear()
 
     def committed(self) -> None:
