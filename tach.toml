@@ -253,7 +253,6 @@ depends_on = [
     "products.notifications",
     # Batch export runs emit internal events through products.cdp.backend.internal_events.
     "products.cdp",
-    "products.integrations",
 ]
 layer = "modules"
 

@@ -24,6 +24,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.integrations import IntegrationRecord
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
@@ -58,7 +59,6 @@ from products.batch_exports.backend.presentation.views.utils import (
     check_hogql_batch_exports_enabled,
 )
 from products.batch_exports.backend.service import BatchExportSchema, sync_batch_export
-from products.integrations.backend.facade.api import IntegrationRecord
 
 from . import (
     destinations as destination_views,

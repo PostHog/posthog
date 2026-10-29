@@ -210,9 +210,7 @@ class BigQueryDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        from products.integrations.backend.facade.api import (
-            IntegrationManager,  # noqa: PLC0415 — avoids a model import cycle
-        )
+        from posthog.integrations import IntegrationManager  # noqa: PLC0415 — avoids a model import cycle
 
         integration = IntegrationManager.google_cloud_service_account.credentials.get(
             self._ctx.team_id, self._ctx.integration_id

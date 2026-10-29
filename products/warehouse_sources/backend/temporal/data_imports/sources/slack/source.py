@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING, Optional, cast
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 
 if TYPE_CHECKING:
+    from posthog.integrations import IntegrationRecord
+
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
-    from products.integrations.backend.facade.api import IntegrationRecord
 
 from temporalio import activity
 

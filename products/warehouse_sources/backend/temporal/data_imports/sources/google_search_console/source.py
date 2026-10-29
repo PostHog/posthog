@@ -4,8 +4,8 @@ import requests
 from google.auth.exceptions import RefreshError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationNotFound
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -122,8 +122,8 @@ class GoogleSearchConsoleSource(
             # references an OAuth integration row that has since been deleted (account disconnected).
             # No retry can recreate the row, so stop and ask the user to reconnect.
             "Integration matching query does not exist": "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
-            # The SDK raises `IntegrationNotFound` ("No integration <id> in ...") for the same case.
-            "No integration ": "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
+            # `_get_integration` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
             # `RefreshError: invalid_grant` is raised while AuthorizedSession refreshes the OAuth
             # access token — the stored refresh token has been revoked, expired, or invalidated
             # (app access revoked, password change, long inactivity). It never recovers on retry,

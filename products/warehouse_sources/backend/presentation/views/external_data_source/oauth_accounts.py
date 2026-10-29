@@ -13,9 +13,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.utils import action
+from posthog.integrations import IntegrationManager
 from posthog.permissions import TeamMemberAdminManagementPermission
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.warehouse_sources.backend.facade.source_management import (
     CredentialAccountsMixin,
     IntegrationAccountListingError,

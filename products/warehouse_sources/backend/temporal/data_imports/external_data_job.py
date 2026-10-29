@@ -199,8 +199,6 @@ Any_Source_Errors: dict[str, str | None] = {
     UNSUPPORTED_SYNC_TYPE_ERROR: UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     DUPLICATE_PRIMARY_KEYS_ERROR: DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
-    # Raised by the integrations SDK (`IntegrationNotFound`) when the row is gone.
-    "No integration ": MISSING_INTEGRATION_MESSAGE,
     # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
     # two, so the ORM wording above never reaches here for the sources that go through it. Left
     # unclassified they were retried to exhaustion and then shown raw, echoing an internal
