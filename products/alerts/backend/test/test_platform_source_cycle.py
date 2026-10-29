@@ -42,6 +42,7 @@ from products.alerts.backend.platform_source_cycle import (
     MAX_DETECTOR_POINTS,
     MAX_RATIONALE_CHARS,
     QUERY_ID_PREFIX,
+    QUERY_INFLIGHT_KEY,
     ChartRenderPoolFull,
     evaluate_insight_check,
     fail_insight_check,
@@ -79,8 +80,8 @@ CUTOFF = datetime(2026, 9, 16, 10, tzinfo=UTC)
 class TestPlatformInsightEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        get_client().delete(INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
-        self.addCleanup(get_client().delete, INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
+        get_client().delete(INFLIGHT_KEY, QUERY_INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
+        self.addCleanup(get_client().delete, INFLIGHT_KEY, QUERY_INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
         self.organization.available_product_features = [
             {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
             {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
@@ -247,6 +248,38 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 render_firing_chart(self.team.id, str(alert.id), held_until=held_until)
 
         assert render.call_count == 2
+
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    def test_a_check_holds_a_clickhouse_slot_only_while_its_query_runs(self) -> None:
+        configuration = self._copy(self._alert())
+        slot = slot_of(configuration.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        (admitted,) = plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at)
+        other_query_until = time.time() + 60
+        admit_evaluation_slots(["other-query"], limit=1, expires_at=other_query_until, key=QUERY_INFLIGHT_KEY)
+        held_during_query: list[set[str]] = []
+
+        def query(*args: Any, **kwargs: Any) -> AlertEvaluationResult:
+            held_during_query.append(inflight_alert_ids(QUERY_INFLIGHT_KEY))
+            return AlertEvaluationResult(value=1.0, breaches=[])
+
+        with (
+            patch(f"{_MODULE}.check_alert_for_insight", side_effect=query) as check,
+            patch(f"{_MODULE}.QUERY_SLOT_WAIT_SECONDS", 0),
+        ):
+            starved = evaluate_insight_check(
+                self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test"
+            )
+            release_evaluation_slot("other-query", held_until=other_query_until, key=QUERY_INFLIGHT_KEY)
+            evaluation = evaluate_insight_check(
+                self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test"
+            )
+
+        assert starved is None
+        assert check.call_count == 1
+        assert evaluation is not None and evaluation.outcomes[0].failure is None
+        assert held_during_query == [{"test:1"}]
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
 
     @parameterized.expand(
         [
@@ -662,7 +695,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             (self.team.id, f"{QUERY_ID_PREFIX}run:1:2"),
         ]
 
-    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
     def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:
         held = self._copy(self._alert(), id=UUID(int=1))
         waiting = self._copy(self._alert(), id=UUID(int=2))
@@ -684,7 +717,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
         cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
 
-    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:
         first = self._copy(self._alert(), id=UUID(int=1))
         second = self._copy(self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value), id=UUID(int=2))

@@ -18,9 +18,10 @@ same set of checks.
 
 import time
 import asyncio
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 from django.conf import settings
@@ -33,7 +34,8 @@ from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_que
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
 from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
-from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
+from posthog.temporal.alerts.admission import admit_evaluation_slots, hold_evaluation_slot, release_evaluation_slot
+from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
@@ -101,8 +103,19 @@ from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 logger = structlog.get_logger(__name__)
 
+# A member also locks its check, so a later run cannot start the same check while it runs.
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
+QUERY_INFLIGHT_KEY = "alerts:platform:insight:queries:inflight"
 CHART_RENDER_INFLIGHT_KEY = "alerts:platform:insight:chart-renders:inflight"
+# Under the one-minute tick, so a check that gave up is not still waiting when the next tick admits it.
+QUERY_SLOT_WAIT_SECONDS = 45.0
+QUERY_SLOT_POLL_SECONDS = 0.5
+# Outlasts any query, so only a slot whose worker died expires before its release.
+QUERY_SLOT_LEASE_SECONDS = (alert_timeouts(None).evaluate_start_to_close + timedelta(minutes=2)).total_seconds()
+
+
+class ClickHouseBudgetFull(Exception):
+    """No ClickHouse slot came free in time. The check records nothing, so it stays due."""
 
 
 class ChartRenderPoolFull(Exception):
@@ -238,13 +251,13 @@ def plan_insight_batch(
         slot,
         cutoff,
         exclude=exclude,
-        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS,
     )
     if not candidates:
         return ()
     admitted = admit_evaluation_slots(
         list(candidates),
-        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS,
         expires_at=expires_at,
         key=INFLIGHT_KEY,
     )
@@ -282,11 +295,44 @@ def readmit_retried_check(
     token = attempt_slot_token(held_until, attempt)
     admitted = admit_evaluation_slots(
         [configuration_id],
-        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS,
         expires_at=token,
         key=INFLIGHT_KEY,
     )
     return token if admitted else None
+
+
+@contextmanager
+def _clickhouse_slot(holder: str) -> Iterator[None]:
+    """Holds a ClickHouse slot while the block runs, and raises `ClickHouseBudgetFull` when none comes free in time.
+
+    `holder` names one attempt of one check. A timed-out attempt's thread can still run its query, so
+    it keeps its own slot until that query ends, and the retry waits for a slot of its own.
+    """
+    deadline = time.monotonic() + QUERY_SLOT_WAIT_SECONDS
+    held_until: float | None = None
+    logged_failure = False
+    while held_until is None:
+        try:
+            held_until = hold_evaluation_slot(
+                holder,
+                limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+                lease_seconds=QUERY_SLOT_LEASE_SECONDS,
+                key=QUERY_INFLIGHT_KEY,
+            )
+        except Exception:
+            # Waits rather than fails, as production does, so a Redis outage shorter than the wait costs nothing.
+            if not logged_failure:
+                logger.exception("Could not take a ClickHouse slot for a platform insight check", holder=holder)
+                logged_failure = True
+        if held_until is None:
+            if time.monotonic() >= deadline:
+                raise ClickHouseBudgetFull()
+            time.sleep(QUERY_SLOT_POLL_SECONDS)
+    try:
+        yield
+    finally:
+        release_evaluation_slot(holder, held_until=held_until, key=QUERY_INFLIGHT_KEY)
 
 
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
@@ -334,7 +380,8 @@ def evaluate_insight_check(
 
     Returns the outcome with its delivery, if it asks for one. Returns None when the configuration
     is no longer due, because an earlier attempt already recorded it or it was edited out of the
-    batch, or when its detector no longer matches the worker it was routed to. Writes nothing.
+    batch, when its detector no longer matches the worker it was routed to, or when no ClickHouse
+    slot came free in time. Writes nothing.
 
     `evaluation_id` names the check across its attempts, so the AI detector reuses a verdict an
     earlier attempt paid for. An AI detector that reaches no verdict raises
@@ -564,11 +611,16 @@ def _decide(
         alert_calculation_interval=alert.calculation_interval,
         alert_config_type=(alert.config or {}).get("type"),
     )
+    slot_holder = f"{evaluation_id}:{attempt}"
     if check.grouping.mode != GroupingMode.SINGLE:
-        return _decide_grouped(check, snapshot, alert, now=now)
-    started_at = time.monotonic()
+        return _decide_grouped(check, snapshot, alert, now=now, slot_holder=slot_holder)
     try:
-        result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
+        with _clickhouse_slot(slot_holder):
+            started_at = time.monotonic()
+            result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
+            duration_ms = int((time.monotonic() - started_at) * 1000)
+    except ClickHouseBudgetFull:
+        return None
     except LLMDetectorUnavailableError:
         if not final_attempt:
             # As production: a judge that reached no verdict gets another attempt, and only the
@@ -588,7 +640,6 @@ def _decide(
         return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
         return _query_failed(check, snapshot, alert, error, now=now)
-    duration_ms = int((time.monotonic() - started_at) * 1000)
 
     if result.skipped_reason is not None:
         return _skipped(check, snapshot, now=now)
@@ -705,8 +756,13 @@ GROUPED_INSIGHT_ALERT_POLICY: Final = replace(INSIGHT_ALERT_POLICY, mute_gates_n
 
 
 def _decide_grouped(
-    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, alert: AlertConfiguration, *, now: datetime
-) -> PlatformAlertOutcome:
+    check: PlatformAlertCheckInput,
+    snapshot: AlertSnapshot,
+    alert: AlertConfiguration,
+    *,
+    now: datetime,
+    slot_holder: str,
+) -> PlatformAlertOutcome | None:
     """One check of a breakdown alert, judged per breakdown value through the platform's decision.
 
     An open value the query no longer returns is judged as not breaching, so it can resolve. When
@@ -717,16 +773,19 @@ def _decide_grouped(
         return _broken(
             check, snapshot, alert, now=now, message=f"An insight alert can only group by {BREAKDOWN_GROUPING_KEY}"
         )
-    started_at = time.monotonic()
     try:
-        evaluated = check_alert_per_series(alert)
+        with _clickhouse_slot(slot_holder):
+            started_at = time.monotonic()
+            evaluated = check_alert_per_series(alert)
+            duration_ms = int((time.monotonic() - started_at) * 1000)
+    except ClickHouseBudgetFull:
+        return None
     except AlertExtractionError as error:
         return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
         return _query_failed(check, snapshot, alert, error, now=now)
     if not isinstance(evaluated, PerSeriesEvaluation):
         return _skipped(check, snapshot, now=now)
-    duration_ms = int((time.monotonic() - started_at) * 1000)
 
     decision = decide_groups(
         check,
