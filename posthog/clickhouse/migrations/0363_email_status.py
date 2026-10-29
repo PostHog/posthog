@@ -28,3 +28,7 @@ operations = [
 ]
 
 # THROWAWAY: touch a migration so the devex scan has a changed file.
+
+
+def _throwaway_probe(s):
+    return s.CLOUD_DEPLOYMENT
