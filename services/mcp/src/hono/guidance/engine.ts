@@ -22,7 +22,7 @@ export interface GuidanceCall {
     isError: boolean
 }
 
-export type GuidanceOutcome = 'shown' | 'flag_off' | 'suppressed'
+export type GuidanceOutcome = 'shown' | 'flag_off' | 'suppressed' | 'no_consent'
 
 export interface GuidanceNotice {
     ruleId: string
@@ -72,8 +72,9 @@ function isGuidanceAudience(state: ResolvedState): boolean {
     return !(state.isImpersonated || state.suppressAnalytics || state.clientProfile.consumer === 'posthog_ai')
 }
 
-// The flag decides only whether the text goes out: an eligible caller with the flag off is
-// counted the same way, so the stamped outcome gives a control group for the analysis.
+// The flag and org consent decide only whether the text goes out: an eligible caller with the
+// flag off, or without AI consent, is counted the same way, so the stamped outcome gives a
+// control group and a measure of how often consent blocks the notice.
 function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): boolean {
     return (
         rule.trigger.presets.includes(preset as GuidanceRule['trigger']['presets'][number]) &&
@@ -144,11 +145,11 @@ export class GuidanceEngine {
             for (const rule of rules) {
                 const result = await this.touchRule(rule, scope, ttl, call, winner === undefined)
                 if (result === RuleResult.Fired) {
-                    const shown = state.toolFeatureFlags?.[rule.flag] === true
+                    const outcome = firedOutcome(rule, state)
                     winner = {
                         ruleId: rule.id,
-                        outcome: shown ? 'shown' : 'flag_off',
-                        ...(shown ? { text: rule.text } : {}),
+                        outcome,
+                        ...(outcome === 'shown' ? { text: rule.text } : {}),
                     }
                 } else if (result === RuleResult.Suppressed && !winner) {
                     winner = { ruleId: rule.id, outcome: 'suppressed' }
@@ -191,6 +192,13 @@ export class GuidanceEngine {
         )
         return Number(fired) as RuleResult
     }
+}
+
+function firedOutcome(rule: GuidanceRule, state: ResolvedState): GuidanceOutcome {
+    if (rule.requiresAiConsent && state.aiConsentGiven !== true) {
+        return 'no_consent'
+    }
+    return state.toolFeatureFlags?.[rule.flag] === true ? 'shown' : 'flag_off'
 }
 
 function hashKey(value: string): string {

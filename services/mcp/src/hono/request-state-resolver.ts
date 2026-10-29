@@ -74,6 +74,8 @@ export interface ResolvedState {
     noDataAction?: NoDataAction | undefined
     /** Set on the per-call state: whether the client sent a session or conversation handle. */
     carriedContextHandle?: boolean | undefined
+    /** The organization's AI data processing consent; undefined when the org could not be read. */
+    aiConsentGiven?: boolean | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -354,6 +356,7 @@ export class RequestStateResolver {
             suppressAnalytics: props.suppressAnalytics,
             projectHasData: flagAnalyticsContext?.projectHasData,
             analyticsContext: flagAnalyticsContext,
+            aiConsentGiven: aiConsentGiven ?? undefined,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,

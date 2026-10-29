@@ -86,6 +86,7 @@ describe('ToolExecutor guidance notices', () => {
         const state = makeToolExecutorState(tools, {
             useSingleExec: mode === 'exec',
             suppressAnalytics: false,
+            aiConsentGiven: true,
             toolFeatureFlags: { [flag]: true },
         })
         const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})

@@ -26,6 +26,8 @@ const guidanceRuleSchema = z.object({
     suppressIfCalled: z.array(z.string().min(1)),
     /** Every tool the notice names, so it never points at one the caller's roster lacks. */
     requiresTool: z.array(z.string().min(1)).min(1),
+    /** The notice sends the agent to an AI feature, so it is withheld (and stamped) without org consent. */
+    requiresAiConsent: z.boolean().optional(),
     text: z.string().min(1).max(2000),
 })
 
@@ -55,6 +57,7 @@ const RULES: GuidanceRule[] = [
             'vision-requests-get',
             'vision-observations-search',
         ],
+        requiresAiConsent: true,
         text: [
             'SQL over session replay tables returns recording metadata (duration, event counts, URLs), not what happened in the session.',
             'To answer a question about what users did or saw, Replay Vision can watch the recordings for you:',

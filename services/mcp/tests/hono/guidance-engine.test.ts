@@ -77,6 +77,19 @@ describe('GuidanceEngine', () => {
         ])
     })
 
+    it.each([
+        ['without org consent', false, 'no_consent'],
+        ['when consent is unknown', undefined, 'no_consent'],
+        ['with org consent', true, 'shown'],
+    ])('stamps the consent outcome %s for a rule that needs it', async (_label, aiConsentGiven, outcome) => {
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, requiresAiConsent: true }])
+        const state = makeState({ aiConsentGiven })
+        await engine.evaluate(state, replayQuery)
+        const notice = await engine.evaluate(state, replayQuery)
+        expect(notice).toMatchObject({ ruleId: 'test-rule', outcome })
+        expect(notice?.text === undefined).toBe(outcome !== 'shown')
+    })
+
     it('stamps a flag_off outcome without text when the flag is off', async () => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
         const state = makeState({ toolFeatureFlags: {} })
