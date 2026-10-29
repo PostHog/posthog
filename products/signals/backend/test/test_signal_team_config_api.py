@@ -88,6 +88,15 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert data["default_autostart_priority"] == "P4"
         # Null until a team explicitly opts out; the guard treats null as autostart-on.
         assert data["autostart_enabled"] is None
+        assert data["anomaly_scoring_enabled"] is True
+
+    @parameterized.expand([("covered", True), ("not_covered", False)])
+    def test_anomaly_scoring_available_follows_the_scoring_payload(self, _name, covered):
+        payload = {"enabled": True, "organization_ids": [str(self.organization.id)] if covered else []}
+        with patch("products.signals.backend.serializers.read_payload", return_value=payload):
+            data = self.client.get(self._url()).json()
+
+        assert data["anomaly_scoring_available"] is covered
 
     def test_get_config_lazily_creates_when_no_config_exists(self):
         self.config.delete()
@@ -322,6 +331,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
                 False,
                 True,
             ),
+            ("anomaly_scoring", "anomaly_scoring_enabled", False, "anomaly scoring", "changed", True, False),
         ]
     )
     def test_update_is_recorded_in_the_activity_log(self, _name, field, sent, label, action, before, after):
