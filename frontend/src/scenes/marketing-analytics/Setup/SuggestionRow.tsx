@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import {
     SetupSection,
@@ -10,7 +13,8 @@ import {
 import type { ApplyOp, Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
-import { useMarketingAnalyticsEditDisabledReason } from '../useMarketingAnalyticsEditDisabledReason'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { CAPABILITY_COPY } from './ReadinessHeader'
 import { SECTION_BY_KIND, SECTION_LABEL } from './sectionRouting'
 import { SuggestionIcon } from './SuggestionIcon'
@@ -78,7 +82,9 @@ export function SuggestionRow({
     isDismissed?: boolean
 }): JSX.Element {
     const { applyingIds } = useValues(setupPlanLogic)
-    const editDisabledReason = useMarketingAnalyticsEditDisabledReason()
+    const editDisabledReason =
+        useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin }) ??
+        getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
     const { dismissSuggestion, restoreSuggestion } = useActions(setupPlanLogic)
     const { setSetupSection } = useActions(marketingAnalyticsLogic)
 

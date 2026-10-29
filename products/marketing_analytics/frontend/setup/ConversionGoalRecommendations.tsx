@@ -3,12 +3,15 @@ import type { ReactNode } from 'react'
 
 import { LemonBanner, LemonButton, LemonCard, LemonCollapse } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useMarketingAnalyticsEditDisabledReason } from 'scenes/marketing-analytics/useMarketingAnalyticsEditDisabledReason'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ConversionRecommendationApi } from '../generated/api.schemas'
 import { conversionGoalFormLogic } from './conversionGoalFormLogic'
@@ -28,7 +31,9 @@ export function ConversionGoalRecommendations({
 }): JSX.Element | null {
     const { currentTeamId, currentTeamLoading } = useValues(teamLogic)
     const { isSaving } = useValues(conversionGoalFormLogic({ projectId: currentTeamId ?? -1 }))
-    const editDisabledReason = useMarketingAnalyticsEditDisabledReason()
+    const editDisabledReason =
+        useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin }) ??
+        getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const enabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI]
