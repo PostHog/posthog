@@ -42,6 +42,7 @@ from products.feature_flags.backend.facade.filters import (
     set_holdout,
     set_release_condition_rollout,
     strip_group_cohort_restriction,
+    without_payloads,
 )
 from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, build_scheduled_change_serializer_data
@@ -1222,6 +1223,7 @@ TRANSFORMS = [
     ("set_release_condition_rollout", lambda filters: set_release_condition_rollout(filters, 0, 10)),
     ("_leads_with_unconditional_rollout", _leads_with_unconditional_rollout),
     ("roll_out_to_everyone", roll_out_to_everyone),
+    ("without_payloads", without_payloads),
 ]
 
 

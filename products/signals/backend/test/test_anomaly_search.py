@@ -16,7 +16,12 @@ from posthog.models import Team
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
 from products.signals.backend.anomaly_scores.read import SeriesSummary, prior_rate, rank_series, rollup
-from products.signals.backend.anomaly_scores.search import MAX_INSIGHT_SERIES
+from products.signals.backend.anomaly_scores.search import (
+    MAX_INSIGHT_SERIES,
+    SCORING_DISABLED_MESSAGE,
+    SCORING_TURNED_OFF_MESSAGE,
+)
+from products.signals.backend.models import SignalTeamConfig
 
 NOW = datetime.datetime(2026, 10, 23, 12, tzinfo=datetime.UTC)
 
@@ -173,13 +178,25 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert row["last_flagged_bucket"] == row["first_flagged_bucket"] == "2026-10-22T00:00:00+00:00"
         assert row["flagged_points"] == [{"bucket_start": "2026-10-22T00:00:00+00:00", "value": 10.0, "score": 0.98}]
 
-    def test_search_explains_an_empty_result_for_a_team_outside_the_scoring_payload(self) -> None:
-        self.payload.return_value = {"enabled": True, "organization_ids": []}
+    @parameterized.expand(
+        [
+            ("search_outside_the_payload", "search", False, SCORING_DISABLED_MESSAGE),
+            ("insight_outside_the_payload", "insight", False, SCORING_DISABLED_MESSAGE),
+            ("search_turned_off_in_settings", "search", True, SCORING_TURNED_OFF_MESSAGE),
+            ("insight_turned_off_in_settings", "insight", True, SCORING_TURNED_OFF_MESSAGE),
+        ]
+    )
+    def test_explains_an_empty_result_for_a_team_that_is_not_scored(
+        self, _name: str, endpoint: str, turned_off: bool, message: str
+    ) -> None:
+        if turned_off:
+            SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
+        else:
+            self.payload.return_value = {"enabled": True, "organization_ids": []}
 
-        body = self._get("search").json()
+        body = self._get(endpoint, insight_id=self.insight.id).json()
 
-        assert (body["scoring_enabled"], body["series"]) == (False, [])
-        assert body["message"] == "Anomaly scoring is not enabled for this project, so no insight is scored."
+        assert (body["scoring_enabled"], body["message"]) == (False, message)
 
     def test_insight_returns_every_bucket_of_each_series_oldest_first(self) -> None:
         self._score_history()
