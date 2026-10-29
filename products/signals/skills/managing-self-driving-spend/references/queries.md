@@ -82,6 +82,7 @@ SELECT
 FROM system.scout_runs
 WHERE created_at >= {date_from}
     AND created_at < {date_to}
+    AND skill_name != 'signals-scout-health-checks'
 GROUP BY scout, origin
 ORDER BY spend_usd DESC
 ```
@@ -91,7 +92,10 @@ For daily scout spend, group by `toDate(created_at)` instead of the scout.
 
 If `system.scout_runs` has no `total_spend` column, the run counts in this query still work.
 Get spend from `scout-runs-list` instead.
-It returns at most 100 runs per call, so page through the period one day at a time with `date_from` and `date_to`, and add up `total_spend` per `skill_name`.
+It returns at most 100 runs per call, newest first, and a busy project runs more than 100 scouts in one day.
+Call it with `limit: 100`, `date_from` set to the period start, and `date_to` set to the period end.
+While a call returns 100 runs, call again with `date_to` set to the `created_at` of the oldest run returned, and skip runs you already counted.
+Add up `total_spend` per `skill_name`, and leave out `signals-scout-health-checks`.
 
 ## Signals created by scouts
 
@@ -118,13 +122,18 @@ FROM (
         AND JSONExtractString(metadata, 'source_product') = 'signals_scout'
     GROUP BY document_id
 ) AS s
-INNER JOIN system.scout_run_emissions AS e ON e.source_id = s.source_id
+INNER JOIN (
+    SELECT DISTINCT run_id, source_id
+    FROM system.scout_run_emissions
+) AS e ON e.source_id = s.source_id
 INNER JOIN system.scout_runs AS r ON r.id = e.run_id
+WHERE r.skill_name != 'signals-scout-health-checks'
 GROUP BY scout
 ORDER BY spend_usd DESC
 ```
 
 This spend is already part of "Spend by signal source" under `signals_scout`. Do not add it to the total twice.
+A run can record the same finding more than once, so the `DISTINCT` keeps each signal from being counted twice.
 
 ## Yield
 
@@ -203,6 +212,7 @@ FROM (
     FROM system.scout_runs
     WHERE created_at >= {yield_from}
         AND created_at < {date_to}
+        AND skill_name != 'signals-scout-health-checks'
 ) AS e
 LEFT JOIN (
     SELECT
