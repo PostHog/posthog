@@ -10,15 +10,23 @@
 
 ## Deployment workflow
 
-The `user_defined_function.xml` deployed to ClickHouse is now pulled automatically from the `master` branch of this repo by ansible (`posthog-cloud-infra/ansible/roles/clickhouse/tasks/setup_udfs.yml`).
-It downloads `posthog/user_scripts/latest_user_defined_function.xml` and deploys it as ClickHouse's `user_defined_function.xml`.
+Cloud ClickHouse runs the UDFs from the PostHog commit that `posthog_udfs_revision` pins in `posthog-cloud-infra/ansible/roles/clickhouse/defaults/main.yml`, not from `master`.
+Ansible (`posthog-cloud-infra/ansible/roles/clickhouse/tasks/setup_udfs.yml`) copies `posthog/user_scripts` from that commit.
+It deploys `latest_user_defined_function.xml` as ClickHouse's `user_defined_function.xml`.
 
 For revertible cloud deploys:
 
 1. Develop using the binary files at the top level of `user_scripts` (see section above), with schema defined in `docker/clickhouse/user_defined_function.xml`
 2. When ready to deploy, increment the version in `posthog/udf_versioner.py` and run it. This generates versioned binaries and `latest_user_defined_function.xml`
 3. Land a PR with the updated `user_scripts` folder — include both the new version folder (e.g. `v12/`) and the regenerated `latest_user_defined_function.xml`. **Do not** include the `UDF_VERSION` bump in this PR — that goes in a separate PR (step 5)
-4. The binaries and XML should be automatically deployed to ClickHouse on the next config run. Verify in metabase by running `SELECT aggregate_funnel_vXX()`. An "invalid arguments" error means the function is registered. An "unknown function" error means the deploy hasn't taken effect yet. **Make sure to do this for both EU and US**
+4. Within an hour, the `Bump PostHog UDFs Revision` workflow in posthog-cloud-infra opens a PR that moves the pin to the latest `master` commit.
+   If a bump PR is already open, the workflow updates it instead.
+   The PR lists the PostHog PRs it deploys and requests review from the ClickHouse team.
+   Merging it deploys to the dev, US and EU clusters at the same time.
+   After it merges, verify in metabase by running `SELECT aggregate_funnel_vXX()`.
+   An "invalid arguments" error means the function is registered.
+   An "unknown function" error means the deploy hasn't taken effect yet.
+   **Make sure to do this for both EU and US**
 5. Once the deploy is confirmed, land a separate PR that bumps `UDF_VERSION` in `posthog/udf_versioner.py` to the new version. This switches the posthog query builder to use the new UDF
 
 ## Design decisions
