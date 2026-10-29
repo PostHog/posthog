@@ -120,26 +120,26 @@ function buildEvaluationBreakdownExpression(evaluations: EvaluationConfig[]): st
     return `multiIf(${conditionsAndLabels.join(', ')}, toString(properties.$ai_evaluation_id))`
 }
 
-/** Pass rate over time with one line per evaluation, or null when none of them has a pass rate. */
+/** Pass rate over time with one line per evaluation, or null when none of them has a pass rate. Callers pick which evaluations to chart. */
 export function buildEvaluationPassRateTrendsQuery(
     evaluations: EvaluationConfig[],
     dateFilter: { dateFrom: string | null; dateTo: string | null },
     intervalOverride?: 'hour' | 'day'
 ): TrendsQuery | null {
-    const enabledEvaluations = evaluations
-        .filter((evaluation) => evaluation.enabled && !evaluation.deleted && hasPassRate(evaluation))
+    const charted = evaluations
+        .filter((evaluation) => !evaluation.deleted && hasPassRate(evaluation))
         .slice(0, MAX_EVALUATION_CHART_SERIES)
 
-    if (enabledEvaluations.length === 0) {
+    if (charted.length === 0) {
         return null
     }
 
     const dateFrom = dateFilter.dateFrom || '-7d'
     const dateTo = dateFilter.dateTo || null
     const interval = intervalOverride ?? getIntervalFromDateRange(dateFrom)
-    const numericEvaluations = enabledEvaluations.filter((evaluation) => evaluation.output_type === 'numeric')
+    const numericEvaluations = charted.filter((evaluation) => evaluation.output_type === 'numeric')
     let passedExpression = evaluationPassedHogQLForMany(
-        enabledEvaluations.filter(evaluationIsDetector).map((evaluation) => evaluation.id)
+        charted.filter(evaluationIsDetector).map((evaluation) => evaluation.id)
     )
     let gradedExpression = EVALUATION_BOOLEAN_GRADED_HOGQL
     if (numericEvaluations.length > 0) {
@@ -152,8 +152,8 @@ export function buildEvaluationPassRateTrendsQuery(
         gradedExpression = `if(properties.$ai_evaluation_id IN (${numericIds}), ${EVALUATION_NUMERIC_GRADED_HOGQL}, ${EVALUATION_BOOLEAN_GRADED_HOGQL})`
     }
 
-    if (enabledEvaluations.some((evaluation) => evaluation.output_type === 'categorical')) {
-        passedExpression = `if(properties.$ai_evaluation_result_type = 'categorical', ${categoricalEvaluationsPassedHogQL(enabledEvaluations)}, ${passedExpression})`
+    if (charted.some((evaluation) => evaluation.output_type === 'categorical')) {
+        passedExpression = `if(properties.$ai_evaluation_result_type = 'categorical', ${categoricalEvaluationsPassedHogQL(charted)}, ${passedExpression})`
         gradedExpression = `if(properties.$ai_evaluation_result_type = 'categorical', ${EVALUATION_CATEGORICAL_GRADED_HOGQL}, ${gradedExpression})`
     }
 
@@ -168,7 +168,7 @@ export function buildEvaluationPassRateTrendsQuery(
                 properties: [
                     {
                         key: '$ai_evaluation_id',
-                        value: enabledEvaluations.map((evaluation) => evaluation.id),
+                        value: charted.map((evaluation) => evaluation.id),
                         operator: PropertyOperator.Exact,
                         type: PropertyFilterType.Event,
                     },
@@ -176,7 +176,7 @@ export function buildEvaluationPassRateTrendsQuery(
             },
         ],
         breakdownFilter: {
-            breakdown: buildEvaluationBreakdownExpression(enabledEvaluations),
+            breakdown: buildEvaluationBreakdownExpression(charted),
             breakdown_type: 'hogql',
             breakdown_limit: MAX_EVALUATION_CHART_SERIES,
             breakdown_hide_other_aggregation: true,
@@ -479,7 +479,11 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
             (
                 evaluationsForMetrics: EvaluationConfig[],
                 dateFilter: { dateFrom: string | null; dateTo: string | null }
-            ): TrendsQuery | null => buildEvaluationPassRateTrendsQuery(evaluationsForMetrics, dateFilter),
+            ): TrendsQuery | null =>
+                buildEvaluationPassRateTrendsQuery(
+                    evaluationsForMetrics.filter((evaluation) => evaluation.enabled),
+                    dateFilter
+                ),
         ],
     }),
 

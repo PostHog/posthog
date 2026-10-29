@@ -69,11 +69,13 @@ class SummaryOutcome:
     empty_profile: bool = False
 
 
-def gateway_client(team_id: int, user_id: int, as_of: datetime.date) -> OpenAI:
+def gateway_client(team_id: int, user_id: int, as_of: datetime.date, *, variant: str | None = None) -> OpenAI:
+    """`variant` keeps the trace of another build of the same pair and day, such as a backfill, apart."""
+    seed = f"{AI_PRODUCT}:{team_id}:{user_id}:{as_of.isoformat()}"
     return build_openai_client(
         "signals",
         ai_product=AI_PRODUCT,
-        trace_id=trace_id_from_seed(f"{AI_PRODUCT}:{team_id}:{user_id}:{as_of.isoformat()}"),
+        trace_id=trace_id_from_seed(f"{seed}:{variant}" if variant else seed),
         properties={"team_id": str(team_id)},
         distinct_id=PIPELINE_DISTINCT_ID,
     )
