@@ -1087,6 +1087,9 @@ class TestPostgresSourceNonRetryableErrors:
             "missing chunk number 0 for toast value 90210 in pg_toast_16384",
             'index "orders_pkey" contains unexpected zero page at block 42',
             'could not read block 7 in file "base/16384/16385": read only 0 of 8192 bytes',
+            # The server couldn't open the relation file at all (IoError, SQLSTATE 58030) rather than
+            # failing to read a block from one already open.
+            'could not open file "base/16384/1259": Input/output error',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             "InternalError_: missing chunk number 0 for toast value 90210 in pg_toast_16384",
         ],
@@ -1101,6 +1104,16 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Damaged source page should surface an actionable message"
         assert "damaged data on disk" in friendly[0]
+
+    def test_file_descriptor_exhaustion_on_open_is_retryable(self, source):
+        # Same "could not open file" prefix as the damaged-page case above, but a different errno
+        # reason: file-descriptor exhaustion clears once load on the source drops, unlike the
+        # physical "Input/output error" case, so it must not be classified as permanent corruption.
+        error_msg = 'could not open file "base/16384/1259": Too many open files'
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Transient file-descriptor exhaustion should be retryable: {error_msg}"
+        )
 
     @pytest.mark.parametrize(
         "error_msg",
