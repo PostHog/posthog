@@ -1,10 +1,10 @@
 import dagster
 
-from products.signals.dags.inbox_ranking.common import is_inbox_ranking_registered
-from products.signals.dags.inbox_ranking.nn import (
-    dag as inbox_ranking_nn,
-    experiments as inbox_ranking_nn_experiments,
-    pairs as inbox_ranking_nn_pairs,
+from products.signals.backend.facade.dags_ml import (
+    inbox_ranking_nn,
+    inbox_ranking_nn_experiments,
+    inbox_ranking_nn_pairs,
+    is_inbox_ranking_registered,
 )
 
 from . import loggers, resources

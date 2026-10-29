@@ -75,7 +75,7 @@ from products.replay_vision.backend.billing import (
     get_replay_vision_observations_by_team,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
+from products.signals.backend.facade.billing import credited_refund_credits_for_org, signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -2093,7 +2093,7 @@ def get_teams_with_signals_credits_used_in_period(
 
     Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
     """
-    return get_signals_billing_credits_by_team(begin, end)
+    return [(row.team_id, row.credits) for row in signals_billing_credits_by_team(begin, end)]
 
 
 def get_signals_credited_refund_credits_for_org(
@@ -2114,14 +2114,14 @@ def get_self_driving_credits_used_in_period_for_orgs(
     """Live self-driving credits used in `[begin, end)` for each org, from one read. Orgs with no usage are absent."""
     if not organization_ids:
         return {}
-    rows = get_signals_billing_credits_by_team(begin, end, organization_ids=list(organization_ids))
+    rows = signals_billing_credits_by_team(begin, end, organization_ids=list(organization_ids))
     if not rows:
         return {}
-    team_orgs = dict(Team.objects.filter(id__in=[team_id for team_id, _ in rows]).values_list("id", "organization_id"))
+    team_orgs = dict(Team.objects.filter(id__in=[row.team_id for row in rows]).values_list("id", "organization_id"))
     totals: dict[str, int] = defaultdict(int)
-    for team_id, credits in rows:
-        if (organization_id := team_orgs.get(team_id)) is not None:
-            totals[str(organization_id)] += credits
+    for row in rows:
+        if (organization_id := team_orgs.get(row.team_id)) is not None:
+            totals[str(organization_id)] += row.credits
     return dict(totals)
 
 
@@ -2134,9 +2134,7 @@ def get_self_driving_credits_used_in_period_for_org(
     fresher number than the cron-patched `todays_usage`. Re-exported from this posthog-layer
     module for the same boundary reason as the helper above.
     """
-    return sum(
-        credits for _, credits in get_signals_billing_credits_by_team(begin, end, organization_id=organization_id)
-    )
+    return sum(row.credits for row in signals_billing_credits_by_team(begin, end, organization_id=organization_id))
 
 
 @timed_log()
