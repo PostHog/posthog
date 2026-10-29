@@ -79,6 +79,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
+from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 from products.warehouse_sources.backend.presentation.views.destination_links import (
@@ -1896,6 +1897,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 table_mode=schema_model.cdc_table_mode,
                 request=request,
             )
+
+        create_default_failure_alert(self.team)
 
         return Response(
             status=status.HTTP_201_CREATED,
