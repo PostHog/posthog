@@ -261,8 +261,9 @@ Every check runs on cloud only, so a self-hosted deployment reaches these names 
 
 It stops the default scanner configuration. It does not stop a determined attacker, who points a
 CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain
-the real controls. Refusing the name closes the window in which a rebinding record answers public
-for the IP check and private for the connect, on the paths that do not pin the address.
+the real controls. Refusing the name stops the public rebinding services on the list, `rbndr.us` and `1u.ms`,
+on the paths that do not pin the address. A rebinding record on any other name still passes
+the name check, so address pinning and the egress proxy stay the controls there.
 
 ## Content Security Policy
 
