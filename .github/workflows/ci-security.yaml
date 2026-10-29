@@ -38,6 +38,7 @@ jobs:
             desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
             # Pushes default to 'false' because the semgrep-ci action already scans the whole tree on a push.
             scan-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.scan-setup || 'false' }}
+            devex-setup: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex-setup || 'false' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -145,6 +146,9 @@ jobs:
                       # unchanged code, so the jobs that pass local rules scan the whole tree.
                       scan-setup:
                         - '.semgrep/rules/security/**'
+                        - '.github/workflows/ci-security.yaml'
+                      devex-setup:
+                        - '.semgrep/rules/devex/**'
                         - '.github/workflows/ci-security.yaml'
 
     semgrep-python:
@@ -455,8 +459,9 @@ jobs:
 
             # Pass 1: print WARNING-severity findings. No --error — this step
             # does not fail CI. Backlogs from migration-in-progress rules show
-            # up here.
+            # up here. Pull requests get pass 3 instead.
             - name: Warnings (informational)
+              if: github.event_name != 'pull_request'
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
@@ -472,19 +477,24 @@ jobs:
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
             - name: Errors (blocking)
-              run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
-                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                    ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
-                      --config ".semgrep/rules/devex/" \
-                      --severity=ERROR \
-                      --exclude "products/desktop" \
-                      --error \
-                      --metrics=off \
-                      --verbose \
-                      --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+              uses: ./.github/actions/semgrep-ci
+              with:
+                  image: ${{ env.SEMGREP_IMAGE }}
+                  full-scan: ${{ needs.changes.outputs.devex-setup }}
+                  args: >-
+                      --config .semgrep/rules/devex/
+                      --severity=ERROR
+                      --include /bin
+                      --include /common
+                      --include /docs/onboarding
+                      --include /ee
+                      --include /frontend
+                      --include /packages
+                      --include /posthog
+                      --include /products
+                      --include /services
+                      --include /tools
+                      --exclude products/desktop
 
             # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
             # baseline file lists the allowed count per file. More findings than the baseline fails, and
