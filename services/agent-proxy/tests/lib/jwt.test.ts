@@ -61,6 +61,7 @@ interface TokenOptions {
     isTerminal?: unknown
     thinTail?: unknown
     originProduct?: unknown
+    agentSendsCallbacks?: unknown
 }
 
 async function signToken(opts: TokenOptions = {}): Promise<string> {
@@ -76,6 +77,7 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
         isTerminal,
         thinTail,
         originProduct,
+        agentSendsCallbacks,
     } = opts
 
     const claims: Record<string, unknown> = { run_id: runId, task_id: taskId, team_id: teamId }
@@ -90,6 +92,9 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
     }
     if (originProduct !== undefined) {
         claims['origin_product'] = originProduct
+    }
+    if (agentSendsCallbacks !== undefined) {
+        claims['agent_sends_callbacks'] = agentSendsCallbacks
     }
 
     const builder = new SignJWT(claims).setProtectedHeader({
@@ -273,6 +278,17 @@ describe('jwt', () => {
             const payload = await validateSandboxEventIngestToken(token, keys.publicKeys)
 
             expect(payload.thinTail).toBe(expected)
+        })
+
+        it.each([
+            { name: 'true', claim: true, expected: true },
+            { name: 'false', claim: false, expected: false },
+            { name: 'absent', claim: undefined, expected: false },
+        ])('carries an agent_sends_callbacks claim of $name', async ({ claim, expected }) => {
+            const token = await signToken({ audience: SANDBOX_EVENT_INGEST_AUDIENCE, agentSendsCallbacks: claim })
+            const payload = await validateSandboxEventIngestToken(token, keys.publicKeys)
+
+            expect(payload.agentSendsCallbacks).toBe(expected)
         })
 
         it.each([{ claim: 'yes' }, { claim: 1 }, { claim: null }])(

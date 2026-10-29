@@ -203,15 +203,22 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(run.state["agent_otel_telemetry_enabled"], True)
+        self.assertEqual(run.state["agent_sends_callbacks"], True)
         self.assertEqual(run.state["overlap_clone_boot_enabled"], True)
-        flag.assert_called_once_with(
-            "tasks-overlap-clone-boot",
-            distinct_id=f"user_{self.user.id}",
-            groups={"organization": str(self.organization.id)},
-            group_properties={"organization": {"id": str(self.organization.id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
+        self.assertEqual(flag.call_count, 2)
+        actor_distinct_id = f"user_{self.user.id}"
+        for flag_key, expected_distinct_id in (
+            ("tasks-agent-sends-callbacks", actor_distinct_id),
+            ("tasks-overlap-clone-boot", actor_distinct_id),
+        ):
+            flag.assert_any_call(
+                flag_key,
+                distinct_id=expected_distinct_id,
+                groups={"organization": str(self.organization.id)},
+                group_properties={"organization": {"id": str(self.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
 
     @parameterized.expand(
         [

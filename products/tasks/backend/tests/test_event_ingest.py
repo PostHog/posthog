@@ -118,12 +118,14 @@ class TestTaskRunEventIngest(TestCase):
         token: str,
         lines: Sequence[dict],
         path: str | None = None,
+        extra_headers: Sequence[tuple[bytes, bytes]] = (),
     ) -> tuple[int, dict]:
         body = "".join(json.dumps(line) + "\n" for line in lines).encode("utf-8")
         return self._call_ingest_chunks(
             token,
             [body[: len(body) // 2], body[len(body) // 2 :]],
             path=path,
+            extra_headers=extra_headers,
         )
 
     def _call_ingest_chunks(
@@ -131,6 +133,7 @@ class TestTaskRunEventIngest(TestCase):
         token: str,
         chunks: Sequence[bytes],
         path: str | None = None,
+        extra_headers: Sequence[tuple[bytes, bytes]] = (),
     ) -> tuple[int, dict]:
         async def _call() -> tuple[int, dict]:
             messages = [
@@ -145,7 +148,7 @@ class TestTaskRunEventIngest(TestCase):
             async def send(message: dict) -> None:
                 sent.append(message)
 
-            headers = [(b"authorization", f"Bearer {token}".encode())]
+            headers = [(b"authorization", f"Bearer {token}".encode()), *extra_headers]
 
             handled = await handle_task_run_event_ingest(
                 {
@@ -669,17 +672,18 @@ class TestTaskRunEventIngest(TestCase):
             ("interactive", "interactive", True, True),
             ("background", "background", True, False),
             ("web", "interactive", False, False),
+            ("agent_callbacks", "interactive", True, True, True),
         ]
     )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_permission_request_ingest_pushes_awaiting_input(
-        self, _name: str, mode: str, created_on_mobile: bool, expect_push: bool
+        self, _name: str, mode: str, created_on_mobile: bool, expect_push: bool, agent_callbacks: bool = False
     ) -> None:
         creator = User.objects.create_and_join(self.organization, "awaiting-push@posthog.com", None)
         self.task.created_by = creator
         self.task.state = {"created_on_mobile": created_on_mobile}
         self.task.save(update_fields=["created_by", "state"])
-        self.task_run.state = {**(self.task_run.state or {}), "mode": mode}
+        self.task_run.state = {**(self.task_run.state or {}), "mode": mode, "agent_sends_callbacks": agent_callbacks}
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
         permission_request_params: dict[str, object] = {
@@ -699,10 +703,18 @@ class TestTaskRunEventIngest(TestCase):
             patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            status, body = self._call_ingest(token, [{"seq": 1, "event": permission_request}])
+            status, body = self._call_ingest(
+                token,
+                [{"seq": 1, "event": permission_request}],
+                extra_headers=[(b"x-posthog-agent-callbacks", b"1")] if agent_callbacks else [],
+            )
             self.assertEqual((status, body["accepted"]), (200, 1))
             permission_request_params["requestId"] = "request-2"
-            status, body = self._call_ingest(token, [{"seq": 2, "event": permission_request}])
+            status, body = self._call_ingest(
+                token,
+                [{"seq": 2, "event": permission_request}],
+                extra_headers=[(b"x-posthog-agent-callbacks", b"1")] if agent_callbacks else [],
+            )
 
         self.assertEqual((status, body["accepted"]), (200, 1))
         if not expect_push:
@@ -1324,6 +1336,55 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(status, 413)
         self.assertEqual(body["error"], "Too many events in request")
         self.assertEqual(body["last_accepted_seq"], MAX_EVENTS_PER_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("agent_sends_callbacks", True, True, True),
+            ("old_agent_on_opted_in_run", True, False, False),
+            ("header_without_signed_claim", False, True, False),
+            ("ingest_sends_callbacks", False, False, False),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_ingest_reports_turn_lifecycle_only_for_agents_that_do_not(
+        self, _case_name: str, claim: bool, header: bool, agent_sends_callbacks: bool
+    ) -> None:
+        self.task_run.state = {**(self.task_run.state or {}), "agent_sends_callbacks": claim}
+        token = self._create_token()
+        lines = [
+            {
+                "seq": 1,
+                "event": {
+                    "type": "notification",
+                    "notification": {
+                        "method": "session/update",
+                        "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                    },
+                },
+            },
+            {
+                "seq": 2,
+                "event": {
+                    "type": "notification",
+                    "notification": {"method": "_posthog/turn_complete", "params": {"stopReason": "end_turn"}},
+                },
+            },
+        ]
+
+        with (
+            patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow,
+            patch.object(TaskRun, "signal_agent_turn_completed") as turn_completed,
+        ):
+            status, body = self._call_ingest(
+                token,
+                lines,
+                extra_headers=[(b"x-posthog-agent-callbacks", b"1")] if header else [],
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 2)
+        self.assertEqual(heartbeat_workflow.called, not agent_sends_callbacks)
+        self.assertEqual(turn_completed.called, not agent_sends_callbacks)
 
     @parameterized.expand(
         [

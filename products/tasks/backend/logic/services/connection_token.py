@@ -12,7 +12,12 @@ import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
-from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
+from products.tasks.backend.constants import AGENT_SENDS_CALLBACKS_STATE_KEY
+from products.tasks.backend.feature_flags import (
+    run_agent_sends_callbacks,
+    run_stream_presence_gated,
+    run_stream_thin_tail,
+)
 from products.tasks.backend.logic.services.sandbox_config import SANDBOX_TTL_SECONDS
 from products.tasks.backend.redis import run_uses_dedicated_stream
 
@@ -47,6 +52,7 @@ class SandboxEventIngestTokenPayload:
     thin_tail: bool = False
     origin_product: str | None = None
     stream_generation: str | None = None
+    agent_sends_callbacks: bool = False
 
 
 @dataclass(frozen=True)
@@ -294,6 +300,7 @@ def create_sandbox_event_ingest_token(
             "origin_product": task_run.task.origin_product,
             "stream_generation": stream_generation
             or get_task_run_stream_generation(str(task_run.id), run_uses_dedicated_stream(task_run.state)),
+            AGENT_SENDS_CALLBACKS_STATE_KEY: run_agent_sends_callbacks(task_run.state),
         },
     )
 
@@ -309,6 +316,7 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
     thin_tail = payload.get("thin_tail", False)
     origin_product = payload.get("origin_product")
     stream_generation = payload.get("stream_generation")
+    agent_sends_callbacks = payload.get(AGENT_SENDS_CALLBACKS_STATE_KEY, False)
 
     if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
@@ -322,6 +330,8 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
     if "stream_generation" in payload and (not isinstance(stream_generation, str) or not stream_generation):
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
+    if not isinstance(agent_sends_callbacks, bool):
+        raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
 
     return SandboxEventIngestTokenPayload(
         run_id=run_id,
@@ -332,6 +342,7 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         thin_tail=thin_tail,
         origin_product=origin_product,
         stream_generation=stream_generation,
+        agent_sends_callbacks=agent_sends_callbacks,
     )
 
 

@@ -29,6 +29,8 @@ def is_html_artifact(name: str, content_type: str) -> bool:
 
 PERMISSION_REQUEST_ID_MAX_LENGTH = 200
 
+AGENT_SENDS_CALLBACKS_FEATURE_FLAG = "tasks-agent-sends-callbacks"
+AGENT_SENDS_CALLBACKS_STATE_KEY = "agent_sends_callbacks"
 # Shared with the MCP server (services/mcp/src/hono/constants.ts): one flag decides both whether
 # the MCP serves product skills through `learn` and whether a sandbox launches without bundled skills.
 MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"

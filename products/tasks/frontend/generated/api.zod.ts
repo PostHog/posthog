@@ -2070,6 +2070,138 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, budget steer or process kill. Only the run's sandbox may call this, and only for a run whose callbacks the agent sends instead of the agent-proxy.
+ * @summary Send an agent callback
+ */
+export const tasksRunsAgentCallbackCreateBodyStreamGenerationDefault = `initial`
+export const tasksRunsAgentCallbackCreateBodyStreamGenerationMax = 200
+
+export const tasksRunsAgentCallbackCreateBodyActivityStartedDefault = false
+export const tasksRunsAgentCallbackCreateBodyTurnCompletedDefault = true
+export const tasksRunsAgentCallbackCreateBodyTurnSucceededDefault = false
+export const tasksRunsAgentCallbackCreateBodyRequestIdMax = 200
+
+export const tasksRunsAgentCallbackCreateBodySpentUsdMin = 0
+
+export const tasksRunsAgentCallbackCreateBodyCapUsdMin = 0
+
+export const tasksRunsAgentCallbackCreateBodyThresholdSpentUsdMin = 0
+
+export const tasksRunsAgentCallbackCreateBodyProcessKilledOneCommMax = 64
+
+export const tasksRunsAgentCallbackCreateBodyProcessKilledOneSignalMax = 16
+
+export const tasksRunsAgentCallbackCreateBodyProcessKilledOneTreeRssBytesMin = 0
+
+export const tasksRunsAgentCallbackCreateBodyProcessKilledOneMemoryCurrentBytesMin = 0
+
+export const tasksRunsAgentCallbackCreateBodyProcessKilledOneMemoryLimitBytesMin = 0
+
+export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
+    stream_generation: zod
+        .string()
+        .max(tasksRunsAgentCallbackCreateBodyStreamGenerationMax)
+        .default(tasksRunsAgentCallbackCreateBodyStreamGenerationDefault)
+        .describe('Stream generation from the agent event ingest token. Rejects callbacks from an earlier stream.'),
+    kind: zod
+        .enum([
+            'heartbeat',
+            'awaiting_input',
+            'permission_requested',
+            'turn_failed',
+            'command_dispatched',
+            'agent_activity',
+            'budget_steer',
+            'process_killed',
+        ])
+        .describe(
+            '\* `heartbeat` - Heartbeat\n\* `awaiting_input` - Awaiting input\n\* `permission_requested` - Permission requested\n\* `turn_failed` - Turn failed\n\* `command_dispatched` - Command dispatched\n\* `agent_activity` - Agent activity\n\* `budget_steer` - Budget steer\n\* `process_killed` - Process killed'
+        )
+        .describe(
+            "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'permission_requested' fires a 'needs your input' push when an interactive run waits on a permission request or a question. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.\n\n\* `heartbeat` - Heartbeat\n\* `awaiting_input` - Awaiting input\n\* `permission_requested` - Permission requested\n\* `turn_failed` - Turn failed\n\* `command_dispatched` - Command dispatched\n\* `agent_activity` - Agent activity\n\* `budget_steer` - Budget steer\n\* `process_killed` - Process killed"
+        ),
+    agent_active: zod
+        .boolean()
+        .describe(
+            "Whether the agent is currently active (true) or idle (false). This is true for 'heartbeat' and 'agent_activity', and false otherwise."
+        ),
+    activity_started: zod
+        .boolean()
+        .default(tasksRunsAgentCallbackCreateBodyActivityStartedDefault)
+        .describe('Whether this heartbeat marks new activity after the agent was idle, bypassing throttling.'),
+    turn_completed: zod
+        .boolean()
+        .default(tasksRunsAgentCallbackCreateBodyTurnCompletedDefault)
+        .describe(
+            "Whether 'awaiting_input' reports a completed turn. Set false for an idle sandbox resume to mark the agent idle without sending a completion notification or updating activity."
+        ),
+    turn_succeeded: zod
+        .boolean()
+        .default(tasksRunsAgentCallbackCreateBodyTurnSucceededDefault)
+        .describe(
+            "Whether 'awaiting_input' reports a turn that ended with the 'end_turn' stop reason. False for any other stop reason."
+        ),
+    sequence: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            "Stream sequence used to deduplicate turn results, budget steers and process kills. Also sent with 'permission_requested' to identify the event."
+        ),
+    request_id: zod
+        .string()
+        .max(tasksRunsAgentCallbackCreateBodyRequestIdMax)
+        .optional()
+        .describe("ID of the pending permission request that 'permission_requested' reports."),
+    timestamp: zod.iso.datetime({ offset: true }).optional().describe('Original event time, preserved across retries.'),
+    stage: zod.string().optional().describe('Budget stage: warn or critical.'),
+    mode: zod.string().optional().describe('Budget steer mode: publish or wrap_up.'),
+    delivered: zod.boolean().optional().describe('Whether the steer reached the agent.'),
+    spent_usd: zod
+        .number()
+        .min(tasksRunsAgentCallbackCreateBodySpentUsdMin)
+        .optional()
+        .describe('Estimated spend when the steer was sent.'),
+    cap_usd: zod
+        .number()
+        .min(tasksRunsAgentCallbackCreateBodyCapUsdMin)
+        .optional()
+        .describe('Gateway spending cap for this run.'),
+    threshold_spent_usd: zod
+        .number()
+        .min(tasksRunsAgentCallbackCreateBodyThresholdSpentUsdMin)
+        .optional()
+        .describe('Estimated spend when the budget stage was reached.'),
+    threshold_at: zod.iso.datetime({ offset: true }).optional().describe('Time when the budget stage was reached.'),
+    delivered_at: zod.iso.datetime({ offset: true }).optional().describe('Time when the steer reached the agent.'),
+    process_killed: zod
+        .object({
+            comm: zod
+                .string()
+                .max(tasksRunsAgentCallbackCreateBodyProcessKilledOneCommMax)
+                .describe('Command name of the root process the watchdog stopped.'),
+            signal: zod
+                .string()
+                .max(tasksRunsAgentCallbackCreateBodyProcessKilledOneSignalMax)
+                .describe('Last signal the watchdog sent, such as SIGTERM or SIGKILL.'),
+            tree_rss_bytes: zod
+                .number()
+                .min(tasksRunsAgentCallbackCreateBodyProcessKilledOneTreeRssBytesMin)
+                .describe('Resident memory of the stopped process tree, in bytes.'),
+            memory_current_bytes: zod
+                .number()
+                .min(tasksRunsAgentCallbackCreateBodyProcessKilledOneMemoryCurrentBytesMin)
+                .describe('Sandbox memory in use when the watchdog acted, in bytes.'),
+            memory_limit_bytes: zod
+                .number()
+                .min(tasksRunsAgentCallbackCreateBodyProcessKilledOneMemoryLimitBytesMin)
+                .describe('Sandbox memory limit, in bytes.'),
+        })
+        .optional()
+        .describe("The kill the sandbox memory watchdog reported. Required for 'process_killed'."),
+})
+
+/**
  * Store one activity record on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. Activities arrive in log order and do not overlap. An exact repeat of a stored activity returns its index without storing it again. The activities list is server-owned: it is not writable through the run update endpoint.
  * @summary Report an analysis activity
  */

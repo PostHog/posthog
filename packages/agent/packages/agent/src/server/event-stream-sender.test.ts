@@ -232,6 +232,148 @@ describe("TaskRunEventStreamSender", () => {
     expect(lastCall[0]).not.toContain("/api/projects/");
   });
 
+  it.each([
+    { agentSendsCallbacks: true, header: "1" },
+    { agentSendsCallbacks: false, header: null },
+  ])(
+    "marks its ingest requests only when the agent sends its own callbacks ($agentSendsCallbacks)",
+    async ({ agentSendsCallbacks, header }) => {
+      const fetchMock = vi.fn(
+        async (_url: string | URL | Request, init?: RequestInit) =>
+          responseForBody(await readRequestBody(init)),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const sender = createSender({
+        eventIngestBaseUrl: "http://agent-proxy:8003/",
+        agentSendsCallbacks,
+      });
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "first" },
+      });
+      await sender.stop();
+
+      expect(fetchMock).toHaveBeenCalled();
+      for (const [, init] of fetchMock.mock.calls) {
+        expect(
+          new Headers(init?.headers).get("X-PostHog-Agent-Callbacks"),
+        ).toBe(header);
+      }
+    },
+  );
+
+  it("acks the last event with its final sequence without waiting for the stream window", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = await readRequestBody(init);
+        if (!body) {
+          return new Response(JSON.stringify({ last_accepted_seq: 42 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return responseForBody(body);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sender = createSender({
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      keepProxyStreamOpen: true,
+    });
+
+    sender.enqueue({ type: "notification", notification: { method: "turn" } });
+
+    await expect(sender.awaitAckOfLastEvent()).resolves.toBe(43);
+    await sender.stop();
+  });
+
+  it("serializes concurrent ack requests through upload closure", async () => {
+    let uploads = 0;
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        uploads += 1;
+        const body = await readRequestBody(init);
+        bodies.push(body);
+        return responseForBody(body);
+      }),
+    );
+    const sender = createSender({
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      keepProxyStreamOpen: true,
+    });
+    const acks: Promise<number | null>[] = [];
+    for (let i = 0; i < 3; i++) {
+      sender.enqueue({
+        type: "notification",
+        notification: { method: "turn" },
+      });
+      acks.push(sender.awaitAckOfLastEvent());
+    }
+    await expect(Promise.all(acks)).resolves.toEqual([1, 2, 3]);
+    await sender.stop();
+    expect(bodies).toHaveLength(uploads);
+    expect(bodies.flatMap(eventSequences)).toEqual([1, 2, 3]);
+  });
+
+  it("still closes a held-open upload for an ack after the first upload fails", async () => {
+    let uploads = 0;
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = await readRequestBody(init);
+        if (eventSequences(body).length > 0) {
+          uploads += 1;
+          if (uploads === 1) {
+            return new Response("unavailable", { status: 503 });
+          }
+        }
+        return responseForBody(body);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sender = createSender({
+      eventIngestBaseUrl: "http://agent-proxy:8003/",
+      keepProxyStreamOpen: true,
+      retryDelayMs: 1,
+    });
+
+    sender.enqueue({ type: "notification", notification: { method: "turn" } });
+
+    await expect(sender.awaitAckOfLastEvent()).resolves.toBe(1);
+    await sender.stop();
+  });
+
+  it("acks nothing for an event the buffer dropped", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+        responseForBody(await readRequestBody(init)),
+      ),
+    );
+    const sender = createSender({ maxBufferedEvents: 0 });
+
+    sender.enqueue({ type: "notification", notification: { method: "turn" } });
+
+    await expect(sender.awaitAckOfLastEvent()).resolves.toBeNull();
+    await sender.stop();
+  });
+
+  it("releases pending acks when it stops without reaching ingest", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
+    );
+    const sender = createSender({ retryDelayMs: 1, stopTimeoutMs: 50 });
+
+    sender.enqueue({ type: "notification", notification: { method: "turn" } });
+    const acked = sender.awaitAckOfLastEvent();
+    await sender.stop().catch(() => undefined);
+
+    await expect(acked).resolves.toBeNull();
+  });
+
   it.each([undefined, "http://agent-proxy:8003/"])(
     "closes each drained batch with ingest base %s",
     async (eventIngestBaseUrl) => {

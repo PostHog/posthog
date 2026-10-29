@@ -43,7 +43,11 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunStreamSequenceGap,
     get_task_run_stream_key,
 )
-from products.tasks.backend.metrics import observe_sandbox_process_killed, observe_stream_write_skipped
+from products.tasks.backend.metrics import (
+    observe_ingest_request,
+    observe_sandbox_process_killed,
+    observe_stream_write_skipped,
+)
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.turn_completed import dispatch_turn_completed
@@ -79,6 +83,9 @@ ASGISend = Callable[[ASGIMessage], Awaitable[None]]
 WSGIStartResponse = Callable[[str, list[tuple[str, str]]], object]
 
 WSGI_READ_CHUNK_BYTES = 64 * 1024
+
+
+AGENT_CALLBACKS_HEADER = b"x-posthog-agent-callbacks"
 
 
 class ClientDisconnected(Exception):
@@ -162,12 +169,15 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         origin_product=claims.origin_product,
         expected_generation=claims.stream_generation or TASK_RUN_STREAM_INITIAL_GENERATION,
     )
+    agent_sends_callbacks = claims.agent_sends_callbacks and _get_header(scope, AGENT_CALLBACKS_HEADER) == "1"
+    observe_ingest_request("agent" if agent_sends_callbacks else "ingest", claims.origin_product)
 
     try:
         result = await _ingest_event_lines(
             redis_stream,
             claims,
             receive,
+            agent_sends_callbacks=agent_sends_callbacks,
         )
     except ClientDisconnected:
         logger.info("task_run_event_ingest_client_disconnected", run_id=claims.run_id)
@@ -254,6 +264,8 @@ async def _ingest_event_lines(
     redis_stream: TaskRunRedisStream,
     claims: SandboxEventIngestTokenPayload,
     receive: ASGIReceive,
+    *,
+    agent_sends_callbacks: bool = False,
 ) -> EventIngestResult:
     result = EventIngestResult(last_accepted_seq=await redis_stream.get_last_sequence())
 
@@ -278,8 +290,8 @@ async def _ingest_event_lines(
             sequence = parsed_line.sequence
             event = parsed_line.event
             rtk_savings_properties = _parse_rtk_savings_properties(claims, event)
-            budget_steer_properties = _parse_budget_steer_properties(claims, event)
-            process_killed = parse_process_killed(event)
+            budget_steer_properties = None if agent_sends_callbacks else _parse_budget_steer_properties(claims, event)
+            process_killed = None if agent_sends_callbacks else parse_process_killed(event)
             pending_side_effect = None
             if rtk_savings_properties is not None:
                 pending_side_effect = RTK_SAVINGS_SIDE_EFFECT
@@ -304,7 +316,9 @@ async def _ingest_event_lines(
 
             result.accepted += 1
             result.last_accepted_seq = sequence
-            await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)
+            await _notify_permission_request_if_needed(claims.run_id, event)
+            if not agent_sends_callbacks:
+                await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)
     except EventIngestPayloadTooLarge as error:
         if result.last_accepted_seq and error.last_accepted_seq == 0:
             error.last_accepted_seq = result.last_accepted_seq
@@ -591,6 +605,13 @@ def _parse_ingest_line(line: str) -> EventIngestEventLine | EventIngestCompleteL
     return EventIngestEventLine(sequence=sequence, event=event)
 
 
+async def _notify_permission_request_if_needed(run_id: str, event: dict) -> None:
+    if permission_request := parse_permission_request(event):
+        # A pending permission request or question holds the turn open, so no turn-complete push
+        # reaches the user until they answer it.
+        await sync_to_async(_notify_awaiting_input, thread_sensitive=True)(run_id, permission_request["request_id"])
+
+
 async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id: str, event: dict) -> None:
     if is_agent_command_dispatched(event) and await redis_stream.claim_first_agent_command():
         dispatched = await sync_to_async(_signal_agent_boot_milestone, thread_sensitive=True)(
@@ -604,11 +625,6 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
         )
         if not dispatched:
             await redis_stream.release_first_agent_activity()
-
-    if permission_request := parse_permission_request(event):
-        # A pending permission request or question holds the turn open, so no turn-complete push
-        # reaches the user until they answer it.
-        await sync_to_async(_notify_awaiting_input, thread_sensitive=True)(run_id, permission_request["request_id"])
 
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)

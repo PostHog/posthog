@@ -19,7 +19,12 @@ from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, OVERLAP_CLONE_BOOT_FEATURE_FLAG
+from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_SENDS_CALLBACKS_FEATURE_FLAG,
+    AGENT_SENDS_CALLBACKS_STATE_KEY,
+    OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+)
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import agent_otel_telemetry_enabled_for_state
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
@@ -55,7 +60,10 @@ logger = logging.getLogger(__name__)
 
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
-_BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),)
+_BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
+    (AGENT_SENDS_CALLBACKS_STATE_KEY, AGENT_SENDS_CALLBACKS_FEATURE_FLAG),
+    ("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),
+)
 
 
 def tag_startup_dispatch(task_run: TaskRun | None) -> None:

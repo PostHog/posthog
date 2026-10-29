@@ -8199,7 +8199,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         if expected_status == status.HTTP_200_OK:
             self.assertEqual(run.status, TaskRun.Status.QUEUED)
-            mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False)
+            mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False, force_rotation=False)
             mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
         else:
             self.assertEqual(run.status, TaskRun.Status.COMPLETED)
@@ -15130,6 +15130,124 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.json()["code"], "reauth_required")
 
+    @parameterized.expand(
+        [
+            ("sandbox_of_opted_in_run", "sandbox", True, status.HTTP_200_OK, 1),
+            ("sandbox_of_proxy_reported_run", "sandbox", False, status.HTTP_403_FORBIDDEN, 0),
+            ("sandbox_of_another_run", "other_run_sandbox", True, status.HTTP_403_FORBIDDEN, 0),
+            ("human_session", "session", True, status.HTTP_403_FORBIDDEN, 0),
+        ]
+    )
+    def test_agent_callback_heartbeats_only_for_the_sandbox_of_an_opted_in_run(
+        self, _name, caller, opted_in, expected_status, expected_heartbeats
+    ):
+        task = self.create_task()
+        self._create_run_with_sandbox(task)
+        client = self._sandbox_oauth_client(task.id) if caller == "other_run_sandbox" else self.client
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "agent_sends_callbacks": opted_in}
+        run.save(update_fields=["state"])
+        if caller == "sandbox":
+            client = self._sandbox_oauth_client(task.id)
+
+        with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
+            response = client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/",
+                {"kind": "heartbeat", "agent_active": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(heartbeat.call_count, expected_heartbeats)
+
+    @parameterized.expand(
+        [
+            ("same_sequence", [5, 5], [True, True], [200, 200], 1),
+            ("different_sequences", [5, 6], [True, True], [200, 200], 2),
+            ("no_sequence", [None, None], [True, True], [200, 200], 2),
+            ("retry_after_failed_signal", [5, 5], [False, True], [503, 200], 2),
+            ("retry_after_dispatch_error", [5, 5], [RuntimeError("database down"), True], [503, 200], 2),
+        ]
+    )
+    def test_agent_callback_drops_a_retried_turn_result(
+        self, _name, sequences, signal_results, expected_statuses, expected_signals
+    ):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "agent_sends_callbacks": True}
+        run.save(update_fields=["state"])
+        client = self._sandbox_oauth_client(task.id)
+
+        with patch.object(TaskRun, "signal_agent_turn_completed", side_effect=signal_results) as turn_completed:
+            statuses = []
+            for sequence in sequences:
+                body = {"kind": "awaiting_input", "agent_active": False, "turn_completed": True}
+                if sequence is not None:
+                    body["sequence"] = sequence
+                response = client.post(
+                    f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/", body, format="json"
+                )
+                statuses.append(response.status_code)
+
+        self.assertEqual(statuses, expected_statuses)
+
+        self.assertEqual(turn_completed.call_count, expected_signals)
+
+    @patch("products.tasks.backend.facade.agent_callback.get_task_run_stream_generation")
+    def test_agent_callback_dedupe_is_scoped_to_stream_generation(self, get_generation):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        client = self._sandbox_oauth_client(task.id)
+        run.refresh_from_db()
+        body = {"kind": "awaiting_input", "agent_active": False, "turn_completed": True, "sequence": 5}
+
+        with patch.object(TaskRun, "signal_agent_turn_completed", return_value=True) as turn_completed:
+            for generation in ("first", "first", "resumed", "resumed"):
+                get_generation.return_value = generation
+                body["stream_generation"] = generation
+                run.state = {**run.state, "agent_sends_callbacks": True, "stream_generation": generation}
+                run.save(update_fields=["state"])
+                response = client.post(
+                    f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/", body, format="json"
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(turn_completed.call_count, 2)
+
+    @parameterized.expand(
+        [
+            (kind, state_generation, use_dedicated)
+            for kind in ("heartbeat", "awaiting_input", "turn_failed")
+            for state_generation in ("initial", "resumed")
+            for use_dedicated in (False, True)
+        ]
+    )
+    @patch("products.tasks.backend.facade.agent_callback.get_task_run_stream_generation", return_value="resumed")
+    def test_agent_callback_rejects_previous_stream_generation(
+        self, kind, state_generation, use_dedicated, get_generation
+    ):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {
+            **run.state,
+            "agent_sends_callbacks": True,
+            "stream_generation": state_generation,
+            "use_dedicated_stream": use_dedicated,
+        }
+        run.save(update_fields=["state"])
+        client = self._sandbox_oauth_client(task.id)
+
+        with patch("products.tasks.backend.facade.agent_callback.AgentProxyCallbackDispatcher") as dispatcher:
+            response = client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/",
+                {"kind": kind, "agent_active": False, "stream_generation": "initial", "sequence": 5},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        get_generation.assert_called_once_with(str(run.id), use_dedicated)
+        dispatcher.assert_not_called()
+
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
         other_user = self.create_organization_user("task-owner")
@@ -17178,10 +17296,14 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_workflow.assert_called_once()
 
+    @parameterized.expand([False, True])
+    @override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=False)
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     @patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True)
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
-    def test_resume_in_cloud_on_inbox_task_needs_no_code_access(self, _mock_gate, _mock_reset, mock_resume):
+    def test_resume_in_cloud_on_inbox_task_needs_no_code_access(
+        self, agent_callbacks, _mock_gate, mock_reset, mock_resume
+    ):
         self.set_tasks_feature_flag(False)
         task = self._inbox_task(Task.OriginProduct.SIGNALS_CHAT)
         run = TaskRun.objects.create(
@@ -17189,7 +17311,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
             team=self.team,
             environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
-            state={"pr_authorship_mode": "bot"},
+            state={"pr_authorship_mode": "bot", "agent_sends_callbacks": agent_callbacks},
         )
 
         response = self.client.post(
@@ -17199,6 +17321,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_resume.assert_called_once()
+        mock_reset.assert_called_once_with(str(run.id), use_dedicated=False, force_rotation=agent_callbacks)
 
         task.refresh_from_db()
         self.assertEqual((task.state or {})["mobile_push_user_ids"], [self.user.id])

@@ -74,6 +74,7 @@ from products.posthog_ai.backend.task_ownership import (
 )
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_SENDS_CALLBACKS_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
     ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
     ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
@@ -3089,6 +3090,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # sandbox and re-enabling the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        AGENT_SENDS_CALLBACKS_STATE_KEY,
         "overlap_clone_boot_enabled",
         "stream_presence_gated",
         "stream_thin_tail",
@@ -3417,7 +3419,7 @@ def get_task_run_stream_info(
 
 def signal_workflow_completion(
     run_id: str | UUID, status: str, error_message: str | None, error_type: str | None = None
-) -> None:
+) -> bool:
     """Send a completion signal to a run's Temporal workflow (best-effort)."""
     import asyncio  # noqa: PLC0415 — only needed when signalling
 
@@ -3429,7 +3431,7 @@ def signal_workflow_completion(
 
     run = TaskRun.objects.filter(pk=run_id).first()
     if run is None or (run.scheduled_at is not None and run.queued_at is None):
-        return
+        return True
     if error_type is not None:
         record_run_failure_cause(run.id, error_type)
     try:
@@ -3439,6 +3441,8 @@ def signal_workflow_completion(
         logger.info("Signaled workflow completion for task run %s with status %s", run.id, status)
     except Exception as e:
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
+        return False
+    return True
 
 
 def _post_slack_update_for_pr(run: TaskRun) -> None:
@@ -6788,6 +6792,7 @@ def resume_task_run_in_cloud(
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
+    from products.tasks.backend.feature_flags import run_agent_sends_callbacks  # noqa: PLC0415
     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         resume_task_in_cloud_workflow,
@@ -6901,6 +6906,7 @@ def resume_task_run_in_cloud(
         if not reset_task_run_stream(
             str(run.id),
             use_dedicated=run_uses_dedicated_stream(run.state),
+            force_rotation=run_agent_sends_callbacks(run.state),
         ):
             raise RuntimeError("Failed to reset task run event stream")
         resume_task_in_cloud_workflow(str(run.id), run.workflow_id)

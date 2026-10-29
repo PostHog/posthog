@@ -1507,6 +1507,38 @@ describe("PiAgentServer", () => {
     );
   });
 
+  it("selects the turn acknowledgement before broadcasting ACP usage", () => {
+    const server = new PiAgentServer(
+      config({ piConversationFormat: "acp" }),
+    ) as unknown as {
+      handleEvent: ReturnType<typeof vi.fn>;
+      reportAgentEvent: ReturnType<typeof vi.fn>;
+      broadcastUsage: ReturnType<typeof vi.fn>;
+      recordTurnUsage: ReturnType<typeof vi.fn>;
+      handleConversationEvent(event: AgentConversationEvent): void;
+    };
+    const calls: string[] = [];
+    server.handleEvent = vi.fn(() => calls.push("turn"));
+    server.reportAgentEvent = vi.fn(() => calls.push("ack"));
+    server.broadcastUsage = vi.fn(() => calls.push("usage"));
+    server.recordTurnUsage = vi.fn();
+
+    server.handleConversationEvent({
+      type: "turn_completed",
+      timestamp: 1,
+      stopReason: "stop",
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cachedReadTokens: 0,
+        cachedWriteTokens: 0,
+        totalTokens: 2,
+      },
+    });
+
+    expect(calls).toEqual(["turn", "ack", "usage"]);
+  });
+
   it("reports cumulative run token usage after each settled Pi turn", async () => {
     const updateTaskRun = vi.fn(async () => ({}));
     const handled: AgentConversationEvent[] = [];
