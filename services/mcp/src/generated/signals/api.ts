@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 79 enabled ops
+ * PostHog API - MCP 80 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -339,7 +339,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .max(signalsReportsListQueryExcludeMax)
         .optional()
         .describe(
-            'Report ids to leave out of `results` and `count`, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.'
+            'Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.'
         ),
     has_implementation_pr: zod
         .boolean()
@@ -904,7 +904,7 @@ export const SignalsReportsStateCreateBody = () => zod.object({
             '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
         )
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
@@ -1342,7 +1342,7 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
             '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
         )
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
@@ -4010,6 +4010,56 @@ export const SignalsScoutLighthouseAuditBody = () => zod
             ),
     })
     .describe('Request body for `scout-lighthouse-audit`: one page, one device profile.')
+
+/**
+ * Submit the assigned Monitoring check's evidence and verdict while the scout is running. Only the owning Monitoring scout can call this endpoint. The server derives the check, attempt, definition, and fixed window from the run. Validation errors record nothing: correct the fields and retry in the same run. An identical accepted submission is idempotent. This records an evaluation and leaves the report in Monitoring.
+ * @summary Submit the result of an authored Monitoring check
+ */
+export const SignalsScoutSubmitMonitoringResultParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const signalsScoutSubmitMonitoringResultBodyEvidenceReasonMax = 2000
+
+export const signalsScoutSubmitMonitoringResultBodyExplanationMax = 16000
+
+export const signalsScoutSubmitMonitoringResultBodyEvidenceRefsMax = 50
+
+export const SignalsScoutSubmitMonitoringResultBody = () => zod.object({
+    evidence_status: zod
+        .enum(['sufficient', 'insufficient', 'unsupported', 'errored'])
+        .describe(
+            '\* `sufficient` - Sufficient\n\* `insufficient` - Insufficient\n\* `unsupported` - Unsupported\n\* `errored` - Errored'
+        )
+        .describe(
+            'Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.\n\n\* `sufficient` - Sufficient\n\* `insufficient` - Insufficient\n\* `unsupported` - Unsupported\n\* `errored` - Errored'
+        ),
+    evidence_reason: zod
+        .string()
+        .min(1)
+        .max(signalsScoutSubmitMonitoringResultBodyEvidenceReasonMax)
+        .describe('Explain why the evidence supports this qualification. Must not be blank.'),
+    expectation_matches: zod
+        .boolean()
+        .nullable()
+        .describe(
+            'Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.'
+        ),
+    explanation: zod
+        .string()
+        .min(1)
+        .max(signalsScoutSubmitMonitoringResultBodyExplanationMax)
+        .describe("Explain the conclusion using evidence from the assignment's fixed window."),
+    evidence_refs: zod
+        .array(zod.string().min(1))
+        .max(signalsScoutSubmitMonitoringResultBodyEvidenceRefsMax)
+        .describe('Evidence references supporting the conclusion, or an empty list when none are available.'),
+})
 
 /**
  * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.

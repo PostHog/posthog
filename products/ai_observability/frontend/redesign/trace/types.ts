@@ -1,8 +1,16 @@
-import type { TraceEvaluationResultOutcomeEnumApi, TraceNodeApi, TraceNodeDetailApi } from '../../generated/api.schemas'
+import type {
+    TraceEvaluationResultOutcomeEnumApi,
+    TraceFeedbackScoreApi,
+    TraceFeedbackTextApi,
+    TraceNodeApi,
+    TraceNodeDetailApi,
+    TraceNodeEvaluationRollupOutcomeEnumApi,
+    TraceSummaryContentApi,
+} from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
-export type TraceMode = 'spans' | 'thread' | 'timeline'
+export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
 
 export type TraceViewChoice = 'new' | 'legacy'
 
@@ -79,6 +87,16 @@ export interface NodeProperties {
  */
 export type EvalOutcome = TraceEvaluationResultOutcomeEnumApi
 
+/** A step's evaluations rolled up: `fail` if any fails, else `pass` if any passes, else `unrated`. */
+export type EvalRollupOutcome = TraceNodeEvaluationRollupOutcomeEnumApi
+
+export interface EvalsChipData {
+    passed: number
+    /** Results with a pass or a fail. */
+    graded: number
+    unrated: number
+}
+
 export interface EvalTarget {
     label: string
     nodeId: string
@@ -106,4 +124,54 @@ export type EvalsState =
 export interface LabeledLink {
     label: string
     href: string
+}
+
+export type SummaryItemKind = 'bullet' | 'note'
+
+/** Why a summary request failed. `throttled` means the user reached their summary limit. */
+export type SummaryRequestError = 'throttled' | 'failed'
+
+/** `none` means no summary this user may see exists yet, and `error` that reading it failed. A `failed` summary that
+ * is not `retryable` fails the same way on every new request. */
+export type SummaryModeState =
+    | { status: 'loading' }
+    | { status: 'none' }
+    | { status: 'pending' }
+    | { status: 'ready'; summary: TraceSummaryContentApi }
+    | { status: 'failed'; message: string; retryable: boolean }
+    | { status: 'error' }
+
+/** Where a person opened the Feedback mode from, other than its tab. */
+export type FeedbackEntry = 'chip' | 'step'
+
+export interface FeedbackStep {
+    id: string
+    name: string
+}
+
+/**
+ * `step` is null for feedback on the whole trace, and for a step the tree does not hold. `focused` marks the entries
+ * of the step the Feedback mode was opened from.
+ */
+export interface FeedbackPlacement {
+    step: FeedbackStep | null
+    focused: boolean
+}
+
+export type FeedbackScoreRow = TraceFeedbackScoreApi & FeedbackPlacement
+
+export type FeedbackResponseItem = TraceFeedbackTextApi & FeedbackPlacement
+
+export type FeedbackModeState =
+    | { status: 'loading' }
+    | { status: 'error' }
+    | { status: 'ready'; scores: FeedbackScoreRow[]; responses: FeedbackResponseItem[] }
+
+export interface FeedbackChipData {
+    total: number
+}
+
+export interface StepFeedback {
+    scores: TraceFeedbackScoreApi[]
+    textCount: number
 }

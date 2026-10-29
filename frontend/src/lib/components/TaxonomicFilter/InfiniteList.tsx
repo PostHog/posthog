@@ -62,7 +62,6 @@ import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { HiddenEventExplanation } from './HiddenEventExplanation'
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
-import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
@@ -719,7 +718,6 @@ const MAX_OTHER_GROUP_SWITCHES = 3
 function InfiniteListEmptyState(): JSX.Element {
     const {
         searchQuery,
-        activeTab,
         taxonomicGroups,
         taxonomicGroupTypes,
         metaGroupTypes,
@@ -741,11 +739,6 @@ function InfiniteListEmptyState(): JSX.Element {
         !emptySearchQuery &&
         !includeStaleEvents &&
         (listGroupType === TaxonomicFilterGroupType.Events || listGroupType === TaxonomicFilterGroupType.CustomEvents)
-    // Inactive tabs stay mounted but hidden, so only the open tab's empty state may ask for suggestions.
-    const canOfferEventMatch =
-        !emptySearchQuery &&
-        listGroupType === activeTab &&
-        (listGroupType === TaxonomicFilterGroupType.Events || isSuggestedFilters)
 
     // When this tab has no results but the aggregated "all" (suggested filters) section does, offer a
     // jump there so the user doesn't have to guess which tab their match lives in.
@@ -831,7 +824,6 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
-                    {canOfferEventMatch && <TaxonomicEventMatchSuggestions />}
                     {canOfferStaleToggle && (
                         <LemonButton
                             type="secondary"

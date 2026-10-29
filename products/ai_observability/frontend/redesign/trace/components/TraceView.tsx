@@ -1,7 +1,9 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
-import { ConversationState, LabeledLink, TraceMode } from '../types'
+import { ConversationState, EvalRollupOutcome, FeedbackModeState, LabeledLink, TraceMode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
+import { SummaryModeView, SummaryModeViewProps } from './SummaryModeView'
 import { Thread } from './Thread'
+import { TraceFeedbackView } from './TraceFeedbackView'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
 import { TraceModeTabs } from './TraceModeTabs'
 import { TraceSplitView } from './TraceSplitView'
@@ -23,7 +25,17 @@ export interface TraceViewReadyProps {
     detail: Omit<NodeDetailProps, 'onSelectNode'> | null
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
+    evalOutcomes: Record<string, EvalRollupOutcome>
+    summaryMode: SummaryModeViewProps
+    feedbackMode?: FeedbackModeState
+    onRetryFeedback?: () => void
+    /** Null until the feedback has loaded. */
+    feedbackCount?: number | null
+    /** Feedback entries per step id, trace-level ones on the root. */
+    feedbackCountByNodeId?: Record<string, number>
 }
+
+const FEEDBACK_LOADING: FeedbackModeState = { status: 'loading' }
 
 export type TraceViewProps =
     | { status: 'loading' }
@@ -41,7 +53,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
         <div className="flex flex-col gap-3">
             <TraceHeader {...props.header} />
             <TraceSummaryBar {...props.summary} />
-            <TraceModeTabs mode={props.mode} onModeChange={props.onModeChange} />
+            <TraceModeTabs mode={props.mode} onModeChange={props.onModeChange} feedbackCount={props.feedbackCount} />
             {props.mode === 'spans' ? (
                 <TraceSplitView
                     tree={props.tree}
@@ -49,9 +61,19 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     onSelectNode={props.onSelectNode}
                     onPrefetchNode={props.onPrefetchNode}
                     detail={props.detail}
+                    evalOutcomes={props.evalOutcomes}
+                    feedbackCountByNodeId={props.feedbackCountByNodeId}
                 />
             ) : props.mode === 'thread' ? (
                 <Thread conversation={props.thread} onSelectMessage={props.onSelectFromView} />
+            ) : props.mode === 'summary' ? (
+                <SummaryModeView {...props.summaryMode} />
+            ) : props.mode === 'feedback' ? (
+                <TraceFeedbackView
+                    state={props.feedbackMode ?? FEEDBACK_LOADING}
+                    onSelectStep={props.onSelectFromView}
+                    onRetry={props.onRetryFeedback}
+                />
             ) : (
                 <TraceTimeline
                     rows={props.timeline.rows}

@@ -34,7 +34,7 @@ GCS_ENDPOINT_URL = "https://storage.googleapis.com"
 # a path into the URLs built from it. GCS also allows underscores.
 _BUCKET_NAMES: dict[ObjectStoreProvider, re.Pattern[str]] = {
     ObjectStoreProvider.S3: re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]"),
-    # GCS allows up to 222 characters in a dotted name; `_valid_bucket` checks the length of each part.
+    # GCS allows up to 222 characters in a dotted name; `valid_bucket_name` checks the length of each part.
     ObjectStoreProvider.GCS: re.compile(r"[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]"),
     ObjectStoreProvider.R2: re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]"),
 }
@@ -48,7 +48,7 @@ _AZURE_CONTAINER_NAME = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
 _AZURE_ACCOUNT_KEY = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 
 
-def _valid_bucket(provider: ObjectStoreProvider, bucket: str) -> bool:
+def valid_bucket_name(provider: ObjectStoreProvider, bucket: str) -> bool:
     if not _BUCKET_NAMES[provider].fullmatch(bucket) or ".." in bucket:
         return False
     # A GCS name without dots is at most 63 characters, and so is each dot-separated part of one with dots.
@@ -104,7 +104,7 @@ class ObjectStoreConfig:
         )
 
     def __post_init__(self) -> None:
-        if not _valid_bucket(self.provider, self.bucket):
+        if not valid_bucket_name(self.provider, self.bucket):
             raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: '{self.bucket}' in the URL isn't a valid bucket name.")
         if self.provider == ObjectStoreProvider.S3:
             if not _REGION_NAME.fullmatch(self.region):

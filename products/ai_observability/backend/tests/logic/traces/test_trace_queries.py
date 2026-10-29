@@ -15,6 +15,7 @@ from products.ai_observability.backend.logic.traces.trace_queries import (
     TraceRootLookup,
     is_truthy_json,
     load_trace,
+    load_trace_feedback_rows,
     load_trace_node,
     load_trace_root,
 )
@@ -110,15 +111,28 @@ class TestLoadTrace(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert loaded.rows[0].latency == 1.0
         assert [row.uuid for row in loaded.rows if row.error_is_truthy] == [uuids[0]]
 
-    def test_ingested_error_and_token_values_read_like_the_legacy_view(self) -> None:
-        self._ingest("00000000-0000-0000-0000-000000000001", {"$ai_error": "", "$ai_input_tokens": {"total": 7}})
-        self._ingest("00000000-0000-0000-0000-000000000002", {"$ai_error": {"message": "boom"}, "$ai_input_tokens": 3})
+    def test_ingested_values_read_like_the_legacy_view(self) -> None:
+        self._ingest(
+            "00000000-0000-0000-0000-000000000001",
+            {"$ai_error": "", "$ai_input_tokens": {"total": 7}, "$ai_git_branch": ""},
+        )
+        self._ingest(
+            "00000000-0000-0000-0000-000000000002",
+            {
+                "$ai_error": {"message": "boom"},
+                "$ai_input_tokens": 3,
+                "$ai_git_branch": "feat/rag",
+                "$ai_git_repo": "acme/app",
+            },
+        )
 
         rows = load_trace(self.team, None, "trace-1", None).rows
 
-        assert sorted((row.uuid, row.error_is_truthy, row.input_tokens) for row in rows) == [
-            ("00000000-0000-0000-0000-000000000001", False, 7),
-            ("00000000-0000-0000-0000-000000000002", True, 3),
+        assert sorted(
+            (row.uuid, row.error_is_truthy, row.input_tokens, row.git_branch, row.git_repo) for row in rows
+        ) == [
+            ("00000000-0000-0000-0000-000000000001", False, 7, None, None),
+            ("00000000-0000-0000-0000-000000000002", True, 3, "feat/rag", "acme/app"),
         ]
 
     def test_person_comes_from_the_trace_event_distinct_id(self) -> None:
@@ -133,6 +147,85 @@ class TestLoadTrace(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         person = load_trace(self.team, None, "trace-1", None).person
 
         assert person is not None and (person.distinct_id, person.email) == ("user-1", "ada@example.com")
+
+    def test_reads_no_feedback_or_metric_events(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(
+                    "00000000-0000-0000-0000-000000000001",
+                    event="$ai_feedback",
+                    timestamp=T0 - timedelta(seconds=1),
+                    properties={"$ai_feedback_text": "Too long, but correct."},
+                ),
+                self._event(
+                    "00000000-0000-0000-0000-000000000002",
+                    event="$ai_metric",
+                    properties={"$ai_metric_name": "helpfulness", "$ai_metric_value": 0},
+                ),
+                self._event("00000000-0000-0000-0000-000000000003", timestamp=T0 + timedelta(seconds=1)),
+            ]
+        )
+
+        rows = load_trace(self.team, None, "trace-1", None).rows
+
+        assert [row.event for row in rows] == ["$ai_span"]
+
+
+class TestLoadTraceFeedbackRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
+    def test_reads_feedback_of_this_trace_and_only_the_steps_it_targets(self) -> None:
+        self._ingest(
+            "00000000-0000-0000-0000-000000000001",
+            {"$ai_metric_name": "helpfulness", "$ai_metric_value": 0, "$ai_parent_id": "span-a"},
+            event="$ai_metric",
+        )
+        self._ingest(
+            "00000000-0000-0000-0000-000000000002",
+            {"$ai_metric_name": "helpfulness", "$ai_metric_value": "0", "$ai_parent_id": "gen-a"},
+            event="$ai_metric",
+        )
+        self._ingest(
+            "00000000-0000-0000-0000-000000000003",
+            {"$ai_feedback_text": "Too long, but correct."},
+            event="$ai_feedback",
+        )
+        self._ingest("00000000-0000-0000-0000-000000000004", {"$ai_generation_id": "gen-a"}, event="$ai_generation")
+        self._ingest("00000000-0000-0000-0000-000000000005", {}, event="$ai_trace")
+        self._ingest("00000000-0000-0000-0000-000000000007", {"$ai_span_id": "span-a"})
+        self._ingest("00000000-0000-0000-0000-000000000010", {"$ai_span_id": "span-untargeted"})
+        self._ingest(
+            "00000000-0000-0000-0000-000000000008",
+            {"$ai_metric_value": 2, "$ai_parent_id": "00000000-0000-0000-0000-000000000009"},
+            event="$ai_metric",
+        )
+        self._ingest("00000000-0000-0000-0000-000000000009", {})
+        self._ingest(
+            "00000000-0000-0000-0000-000000000006",
+            {"$ai_trace_id": "other", "$ai_metric_value": 1},
+            event="$ai_metric",
+        )
+
+        rows = load_trace_feedback_rows(self.team, None, "trace-1", None)
+
+        assert sorted(
+            (row.uuid, row.event, row.parent_id, row.generation_id, row.metric_name, row.metric_value_json)
+            for row in rows
+        ) == [
+            ("00000000-0000-0000-0000-000000000001", "$ai_metric", "span-a", None, "helpfulness", "0"),
+            ("00000000-0000-0000-0000-000000000002", "$ai_metric", "gen-a", None, "helpfulness", '"0"'),
+            ("00000000-0000-0000-0000-000000000003", "$ai_feedback", None, None, None, ""),
+            ("00000000-0000-0000-0000-000000000004", "$ai_generation", None, "gen-a", None, ""),
+            ("00000000-0000-0000-0000-000000000007", "$ai_span", None, None, None, ""),
+            (
+                "00000000-0000-0000-0000-000000000008",
+                "$ai_metric",
+                "00000000-0000-0000-0000-000000000009",
+                None,
+                None,
+                "2",
+            ),
+            ("00000000-0000-0000-0000-000000000009", "$ai_span", None, None, None, ""),
+        ]
+        assert [row.feedback_text_json for row in rows if row.event == "$ai_feedback"] == ['"Too long, but correct."']
 
 
 NODE = "00000000-0000-0000-0000-000000000001"
@@ -209,7 +302,11 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("with a hint", T0), ("without a hint", None)])
     def test_falls_back_to_events(self, _name: str, timestamp_hint: datetime | None) -> None:
-        old_span: dict[str, object] = {"$ai_span_name": "old", "$ai_error": {"message": "boom"}}
+        old_span: dict[str, object] = {
+            "$ai_span_name": "old",
+            "$ai_error": {"message": "boom"},
+            "$ai_git_branch": "feat/rag",
+        }
         clean_span: dict[str, object] = {"$ai_error": "", "$ai_input_tokens": {"total": 7}}
         bulk_create_events(
             [
@@ -220,9 +317,11 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         loaded = load_trace(self.team, None, "trace-1", timestamp_hint)
 
-        assert sorted((row.uuid, row.span_name, row.error_is_truthy, row.input_tokens) for row in loaded.rows) == [
-            ("00000000-0000-0000-0000-000000000001", "old", True, None),
-            ("00000000-0000-0000-0000-000000000002", None, False, 7),
+        assert sorted(
+            (row.uuid, row.span_name, row.error_is_truthy, row.input_tokens, row.git_branch) for row in loaded.rows
+        ) == [
+            ("00000000-0000-0000-0000-000000000001", "old", True, None, "feat/rag"),
+            ("00000000-0000-0000-0000-000000000002", None, False, 7, None),
         ]
 
     def test_hint_bounds_the_fallback_window(self) -> None:
@@ -250,6 +349,22 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         assert row is not None and row.properties["$ai_span_name"] == "old"
         assert root.trace_event is not None and root.trace_event.uuid == TRACE_EVENT
+
+    @parameterized.expand([("with a hint", T0, 1), ("without a hint", None, 0)])
+    def test_feedback_falls_back_to_events_only_with_a_hint(
+        self, _name: str, timestamp_hint: datetime | None, expected: int
+    ) -> None:
+        bulk_create_events(
+            [
+                self._event(
+                    NODE, event="$ai_metric", properties={"$ai_metric_name": "helpfulness", "$ai_metric_value": 0}
+                )
+            ]
+        )
+
+        rows = load_trace_feedback_rows(self.team, None, "trace-1", timestamp_hint)
+
+        assert [(row.metric_name, row.metric_value_json) for row in rows] == [("helpfulness", "0")] * expected
 
     def test_node_and_root_without_a_hint_never_scan_events(self) -> None:
         bulk_create_events([self._event(NODE), self._event(TRACE_EVENT, event="$ai_trace")])

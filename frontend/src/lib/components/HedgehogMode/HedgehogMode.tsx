@@ -5,7 +5,7 @@ import { themeLogic } from 'lib/logic/themeLogic'
 import { inStorybook } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 
 import { useShortcut } from '../Shortcuts/useShortcut'
 import { hedgehogModeLogic } from './hedgehogModeLogic'
