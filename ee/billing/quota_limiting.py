@@ -1,6 +1,6 @@
 import copy
 import json
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from functools import lru_cache, partial
@@ -40,6 +40,8 @@ from posthog.tasks.usage_report import (
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
 from posthog.utils import get_current_day
+
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
 from ee.billing.quota_usage import QuotaUsageBatch, retry_quota_database_operation
 
@@ -1245,7 +1247,13 @@ class _QuotaUsageReports:
     team_tokens: dict[str, list[str]]
 
 
-def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, int]]) -> _QuotaUsageReports:
+def _aggregate_quota_usage(
+    teams: Sequence[Team],
+    all_data: dict[str, dict[int, int]],
+    *,
+    offline_usage: dict[str, dict[int, int]] | None = None,
+    organizations: Sequence[Organization] = (),
+) -> _QuotaUsageReports:
     todays_usage_report: dict[str, UsageCounters] = {}
     orgs_by_id: dict[str, Organization] = {}
     teams_by_org: dict[str, list[str]] = {}
@@ -1298,7 +1306,36 @@ def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, 
         if team.api_token:
             teams_by_org.setdefault(org_id, []).append(team.api_token)
 
+    for organization in organizations:
+        org_id = str(organization.id)
+        orgs_by_id.setdefault(org_id, organization)
+        todays_usage_report.setdefault(org_id, cast(UsageCounters, dict.fromkeys(UsageCounters.__annotations__, 0)))
+    for org_id, report in todays_usage_report.items():
+        report["llm_events"] += sum((offline_usage or {}).get(org_id, {}).values())
     return _QuotaUsageReports(usage=todays_usage_report, organizations=orgs_by_id, team_tokens=teams_by_org)
+
+
+def _iter_quota_organizations(
+    teams: Iterable[Team], offline_usage: dict[str, dict[int, int]]
+) -> Iterator[tuple[Organization, list[Team]]]:
+    seen: set[str] = set()
+    for organization_id, group in groupby(teams, key=lambda team: team.organization_id):
+        org_teams = list(group)
+        seen.add(str(organization_id))
+        yield org_teams[0].organization, org_teams
+    organizations = (
+        Organization.objects.filter(id__in=offline_usage.keys() - seen)
+        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
+        .order_by("id")
+    )
+    # Buffer each page because quota updates close database connections between batches.
+    page = organizations
+    while batch := list(page[:QUOTA_ORGANIZATION_BATCH_SIZE]):
+        for organization in batch:
+            yield organization, []
+        if len(batch) < QUOTA_ORGANIZATION_BATCH_SIZE:
+            return
+        page = organizations.filter(id__gt=batch[-1].id)
 
 
 def update_all_orgs_billing_quotas(
@@ -1345,6 +1382,9 @@ def update_all_orgs_billing_quotas(
     tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
+    offline_usage = _timed_query(
+        "offline_evaluation_usage", get_offline_evaluation_usage, period.start, period.start + timedelta(days=1)
+    )
     counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
     log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
 
@@ -1467,12 +1507,14 @@ def update_all_orgs_billing_quotas(
             quota_limiting_suspended_orgs[resource.value].pop(org_id, None)
 
     # The shared iterator keeps an organization's teams contiguous, including across read pages.
-    organization_teams = (list(group) for _, group in groupby(teams_iterator, key=lambda team: team.organization_id))
+    organization_teams = _iter_quota_organizations(teams_iterator, offline_usage)
     for team_groups in batched(organization_teams, QUOTA_ORGANIZATION_BATCH_SIZE, strict=False):
         if not settings.TEST:
             close_old_connections()
-        teams = [team for group in team_groups for team in group]
-        reports = _aggregate_quota_usage(teams, all_data)
+        teams = [team for _, group in team_groups for team in group]
+        reports = _aggregate_quota_usage(
+            teams, all_data, offline_usage=offline_usage, organizations=[org for org, _ in team_groups]
+        )
         orgs_by_id = reports.organizations
         teams_by_org = reports.team_tokens
         candidates_start = time()
