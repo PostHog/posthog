@@ -11,7 +11,9 @@ MAX_HARNESS_ICON_BYTES = 16 * 1024
 MAX_HARNESS_ICON_SIDE_PX = 256
 
 # SVG is left out on purpose: it can carry script, and only a raster image can be decoded and checked here.
-_PIL_FORMAT_BY_SUBTYPE = {"png": "PNG", "jpeg": "JPEG", "gif": "GIF", "webp": "WEBP"}
+# Pillow opens only these formats, so no other decoder ever runs on the uploaded bytes.
+# Phones save JPEG photos as MPO: a JPEG with extra images after it, and browsers show the first one.
+_PIL_FORMATS_BY_SUBTYPE = {"png": ["PNG"], "jpeg": ["JPEG", "MPO"], "gif": ["GIF"], "webp": ["WEBP"]}
 _DATA_URI = re.compile(r"data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/]+={0,2})")
 # Base64 needs 4 characters for every 3 bytes, plus the short prefix.
 _MAX_DATA_URI_LENGTH = MAX_HARNESS_ICON_BYTES * 4 // 3 + 64
@@ -36,19 +38,20 @@ def validate_harness_icon(value: str) -> None:
     if len(raw) > MAX_HARNESS_ICON_BYTES:
         raise ValidationError(f"The icon must be {MAX_HARNESS_ICON_BYTES // 1024} KB or smaller.")
 
+    formats = _PIL_FORMATS_BY_SUBTYPE[subtype]
     try:
-        with Image.open(io.BytesIO(raw)) as image:
-            pil_format, (width, height) = image.format, image.size
+        with Image.open(io.BytesIO(raw), formats=formats) as image:
+            width, height = image.size
             if max(width, height) > MAX_HARNESS_ICON_SIDE_PX:
                 raise ValidationError(
                     f"The icon must be {MAX_HARNESS_ICON_SIDE_PX} by {MAX_HARNESS_ICON_SIDE_PX} pixels or smaller."
                 )
+            # Only the first frame is checked and decoded, so a later frame could be any size.
+            if image.format != "MPO" and getattr(image, "is_animated", False):
+                raise ValidationError("The icon must be a still image, not an animation.")
             image.verify()
         # verify() checks structure only and leaves the image unusable, so decode the pixels from a fresh open.
-        with Image.open(io.BytesIO(raw)) as image:
+        with Image.open(io.BytesIO(raw), formats=formats) as image:
             image.load()
-    except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError):
-        raise ValidationError("The icon is not a valid image.")
-
-    if pil_format != _PIL_FORMAT_BY_SUBTYPE[subtype]:
-        raise ValidationError(f"The icon says it is image/{subtype}, but its content is a different image type.")
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError):
+        raise ValidationError(f"The icon is not a valid image/{subtype} image.")
