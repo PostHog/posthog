@@ -43,6 +43,4 @@ zstd = { workspace = true }
 
 [dev-dependencies]
 flate2 = { workspace = true }
-# The surfacing feature test compares floats with the TypeScript's bit for bit.
-serde_json = { workspace = true, features = ["float_roundtrip"] }
 tokio = { workspace = true }

@@ -592,7 +592,6 @@ A session's values are the fold of its block rows, as `_AGGREGATED_STATS_FRAGMEN
 - The columns are null in a row from a recorder that predates them, and absent from files written before them. A sampler falls back to the session's live score for such a session.
 - Ingestion corrects the event times of a message by the sender's clock skew, rounded to 5 minutes, and the recorder does not. A block whose messages got different corrections can therefore differ in its time-based values.
 - A field of an unexpected JSON type counts as missing, where JavaScript can coerce it or produce NaN, for example a mouse position without coordinates. Ingestion's parse step lets such fields through.
-- `session-feature-recorder-vector.json`, next to the TypeScript recorder, holds fixture blocks and what the TypeScript computes for each. Tests on both sides check it.
 
 #### Watermark files
 

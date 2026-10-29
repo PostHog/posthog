@@ -104,7 +104,7 @@ function quantizedClockSkewMs(sentAt: string | undefined, now: string | undefine
     return Math.round(rawSkew / CLOCK_SKEW_QUANTUM_MS) * CLOCK_SKEW_QUANTUM_MS
 }
 
-export function getValidEvents(
+function getValidEvents(
     events: unknown[],
     clockSkewMs: number
 ): {

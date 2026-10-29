@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
 use super::dom::{DomInspector, RemoteUrls, Srcset, UrlLimit};
-use super::events::{number, Activity, DataFields, EventCounter, NetworkRequest};
+use super::events::{number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
 use super::rrweb::{
     is_click, CUSTOM, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, META, MOUSE_INTERACTION, MUTATION,
@@ -48,8 +48,6 @@ pub struct SessionInspector {
 pub struct BlockInspection {
     counter: EventCounter,
     features: FeatureRecorder,
-    /// Reused for each network event's requests.
-    network_requests: Vec<NetworkRequest>,
     moments: Vec<Moment>,
     image_urls: Vec<String>,
     remote_urls: RemoteUrls,
@@ -149,12 +147,18 @@ impl SessionInspector {
         let index = block.events;
         block.events += 1;
         let navigations = block.counter.stats.navigations;
-        let data = DataFields::read(inner, event, &mut block.network_requests);
+        let data = DataFields::read(inner, event);
         let carried_href =
             block
                 .counter
                 .observe(inner, event, &data, &mut self.last_href, &mut self.activity);
-        block.features.observe(inner, event, &data);
+        let recorded = block.features.observe(inner, event, &data);
+        data.for_each_network_request(inner, |request| {
+            block.counter.count_network_request(request.status);
+            if recorded {
+                block.features.track_network_request(request);
+            }
+        });
         let navigated = block.counter.stats.navigations > navigations;
 
         let waiting = block.counter.stats.events_before_first_full_snapshot;

@@ -92,7 +92,7 @@ pub struct NetworkRequest {
 /// The fields of an event's `data`, and of `data.payload`, that the counters and the feature recorder read. Each object
 /// is read once per event, for all of them.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct DataFields<'r> {
+pub struct DataFields {
     /// `type`: the kind of a mouse interaction.
     pub interaction: Option<Span>,
     pub x: Option<Span>,
@@ -109,16 +109,14 @@ pub struct DataFields<'r> {
     pub level: Option<Span>,
     pub network_duration: Option<Span>,
     pub network_status: Option<Span>,
-    /// The requests of an `rrweb/network@1` event.
-    pub network_requests: &'r [NetworkRequest],
+    /// The requests of an `rrweb/network@1` event, which [`DataFields::for_each_network_request`] reads.
+    network_requests: Option<Span>,
 }
 
-impl<'r> DataFields<'r> {
-    /// Reads the fields of the events that use them, with the requests of a network event into `requests`. A
-    /// snapshot, a mutation or a mouse move's positions are large and use none of them, so their `data` is read only
-    /// when it has a key where `hrefFrom` looks for a page.
-    pub fn read(inner: &[u8], event: &Event, requests: &'r mut Vec<NetworkRequest>) -> Self {
-        requests.clear();
+impl DataFields {
+    /// Reads the fields of the events that use them. A snapshot, a mutation or a mouse move's positions are large and
+    /// use none of them, so their `data` is read only when it has a key where `hrefFrom` looks for a page.
+    pub fn read(inner: &[u8], event: &Event) -> Self {
         let Some(data) = event.data else {
             return Self::default();
         };
@@ -158,22 +156,6 @@ impl<'r> DataFields<'r> {
             .unwrap_or_default();
         let network_plugin = event.kind == Some(PLUGIN)
             && self::text(inner, plugin).as_deref() == Some("rrweb/network@1");
-        if let Some(items) = network_requests
-            .filter(|_| network_plugin)
-            .and_then(|r| scan::array_items(inner, r).ok())
-        {
-            for request in items.filter_map(Result::ok) {
-                let [duration, status, response_status] =
-                    fields(inner, request, [b"duration", b"status", b"responseStatus"]);
-                let status = status
-                    .filter(|&s| !scan::is_null(inner, s))
-                    .or(response_status);
-                requests.push(NetworkRequest {
-                    duration: number(inner, duration),
-                    status: number(inner, status),
-                });
-            }
-        }
         Self {
             interaction,
             x,
@@ -190,7 +172,29 @@ impl<'r> DataFields<'r> {
             level,
             network_duration,
             network_status,
-            network_requests: requests,
+            network_requests: network_requests.filter(|_| network_plugin),
+        }
+    }
+
+    /// Calls `each` with every request of an `rrweb/network@1` event, in order, as one pass reads them. The requests
+    /// are not kept, because an event of many tiny requests would take far more memory as a list than in its payload.
+    pub fn for_each_network_request(&self, inner: &[u8], mut each: impl FnMut(NetworkRequest)) {
+        let Some(items) = self
+            .network_requests
+            .and_then(|r| scan::array_items(inner, r).ok())
+        else {
+            return;
+        };
+        for request in items.filter_map(Result::ok) {
+            let [duration, status, response_status] =
+                fields(inner, request, [b"duration", b"status", b"responseStatus"]);
+            let status = status
+                .filter(|&s| !scan::is_null(inner, s))
+                .or(response_status);
+            each(NetworkRequest {
+                duration: number(inner, duration),
+                status: number(inner, status),
+            });
         }
     }
 }
@@ -279,6 +283,12 @@ impl EventCounter {
         false
     }
 
+    /// Counts one request of an `rrweb/network@1` event. The inspector reads an event's requests in one pass for this
+    /// and the feature recorder.
+    pub fn count_network_request(&mut self, status: Option<f64>) {
+        count_request(&mut self.stats, status);
+    }
+
     fn observe_plugin(&mut self, inner: &[u8], data: &DataFields) {
         let stats = &mut self.stats;
         match text(inner, data.plugin).as_deref() {
@@ -287,11 +297,6 @@ impl EventCounter {
                 Some("warn") => stats.console_warnings += 1,
                 _ => {}
             },
-            Some("rrweb/network@1") => {
-                for request in data.network_requests {
-                    count_request(stats, request.status);
-                }
-            }
             Some("posthog/network@1") => {
                 if data.payload.is_some_and(|p| scan::is_object(inner, p)) {
                     count_request(stats, number(inner, data.network_status));
@@ -340,12 +345,7 @@ pub fn event_page_url(inner: &[u8], event: &Event) -> Option<String> {
     if !matches!(event.kind, Some(META | CUSTOM)) {
         return None;
     }
-    href_from(
-        inner,
-        event.kind,
-        &DataFields::read(inner, event, &mut Vec::new()),
-    )
-    .map(Cow::into_owned)
+    href_from(inner, event.kind, &DataFields::read(inner, event)).map(Cow::into_owned)
 }
 
 /// The page URL an event carries, as `hrefFrom` in `rrweb-types.ts` reads it: `data.href`, such as a Meta event's, or
@@ -615,10 +615,13 @@ mod tests {
         )
         .unwrap();
         let mut counter = EventCounter::default();
-        let (mut last_href, mut activity, mut requests) = (None, Activity::default(), Vec::new());
+        let (mut last_href, mut activity) = (None, Activity::default());
         for event in &message.events {
-            let data = DataFields::read(&message.inner, event, &mut requests);
+            let data = DataFields::read(&message.inner, event);
             counter.observe(&message.inner, event, &data, &mut last_href, &mut activity);
+            data.for_each_network_request(&message.inner, |request| {
+                counter.count_network_request(request.status);
+            });
         }
         let stats = counter.finish();
 
