@@ -133,6 +133,12 @@ def apply_ses_tenant_state(
                 config.email_sending_tier_updated_at = now
                 update_fields += ["email_sending_tier", "email_sending_tier_updated_at"]
         config.save(update_fields=update_fields)
+        if config.email_sending_tier != previous_tier:
+            # Inside the transaction: the after-commit notification can raise, and a retry sees the
+            # state unchanged and returns early, so a row written after it would be lost for good.
+            log_email_sending_tier_change(
+                config.team, previous_tier=previous_tier, new_tier=MIN_EMAIL_SENDING_TIER, reason="ses_tenant_paused"
+            )
         logger.info(
             "SES tenant state changed",
             team_id=team_id,
@@ -161,11 +167,6 @@ def apply_ses_tenant_state(
             # Dispatch after commit so a rollback can't leave an email claiming a state
             # that was never persisted.
             transaction.on_commit(notify)
-
-    if config.email_sending_tier != previous_tier:
-        log_email_sending_tier_change(
-            config.team, previous_tier=previous_tier, new_tier=MIN_EMAIL_SENDING_TIER, reason="ses_tenant_paused"
-        )
 
 
 def _findings_for_email(findings: list[dict[str, Any]] | None) -> list[dict[str, str]]:
