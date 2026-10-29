@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, kea, key, path, props, reducers } from 'kea'
-import { beforeUnload } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 
 export interface UnsavedSettingsLogicProps {
     /** Identifies the settings section, so two sections on one page track their edits apart. */
@@ -49,7 +49,14 @@ export const unsavedSettingsLogic = kea<unsavedSettingsLogicType>([
         ],
     }),
     beforeUnload(({ values, props, actions }) => ({
-        enabled: () => values.hasUnsavedChanges,
+        enabled: (newLocation) => {
+            if (!values.hasUnsavedChanges) {
+                return false
+            }
+            // A heading's link icon only sets the hash. The section stays mounted and still
+            // dirty, so prompting there would clear the flag while the edits are still at risk.
+            return !newLocation || newLocation.pathname !== router.values.location.pathname
+        },
         message: props.message,
         onConfirm: () => {
             actions.setHasUnsavedChanges(false)

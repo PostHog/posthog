@@ -46,6 +46,17 @@ describe('unsavedSettingsLogic', () => {
         expect(logic.values.hasUnsavedChanges).toBe(true)
     })
 
+    it('stays quiet when only the hash changes', async () => {
+        confirm.mockReturnValue(false)
+        logic.actions.setHasUnsavedChanges(true)
+
+        router.actions.push(`${router.values.location.pathname}#a-heading`)
+        await expectLogic(router).toFinishAllListeners()
+
+        expect(confirm).not.toHaveBeenCalled()
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+    })
+
     it('navigates and disarms when they confirm', async () => {
         confirm.mockReturnValue(true)
         logic.actions.setHasUnsavedChanges(true)
