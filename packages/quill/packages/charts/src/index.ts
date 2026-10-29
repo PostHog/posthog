@@ -233,6 +233,8 @@ export type {
 } from './overlays/ReferenceLine'
 export { HighlightedRange } from './overlays/HighlightedRange'
 export type { HighlightedRangeProps } from './overlays/HighlightedRange'
+export { ValueBand } from './overlays/ValueBand'
+export type { ValueBandProps } from './overlays/ValueBand'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'
