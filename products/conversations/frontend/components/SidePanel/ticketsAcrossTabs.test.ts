@@ -1,4 +1,4 @@
-import { IDBFactory } from 'fake-indexeddb'
+import posthog from 'posthog-js'
 
 import type { ConversationTicket } from '../../types'
 import {
@@ -88,12 +88,19 @@ describe('loadTicketsAcrossTabs', () => {
     })
 
     describe('with the browser storage', () => {
-        beforeEach(() => {
-            globalThis.indexedDB = new IDBFactory()
+        const originalIndexedDB = globalThis.indexedDB
+
+        beforeEach(async () => {
+            await new Promise((resolve) => {
+                const request = indexedDB.deleteDatabase('posthog-conversations')
+                request.onsuccess = request.onerror = () => resolve(null)
+            })
         })
 
         afterEach(() => {
+            globalThis.indexedDB = originalIndexedDB
             Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
+            ;(posthog as any).config = undefined
         })
 
         test.each([
@@ -122,6 +129,30 @@ describe('loadTicketsAcrossTabs', () => {
             const tickets = await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
 
             expect(tickets).toEqual([ticket('fetched')])
+        })
+
+        it.each([
+            { name: 'before the next load', switchDuring: false },
+            { name: 'while the fetch is in flight', switchDuring: true },
+        ])('never reuses tickets fetched for another identity ($name)', async ({ switchDuring }) => {
+            ;(posthog as any).config = { identity_distinct_id: 'person-a' }
+            const switchIdentity = (): void => {
+                ;(posthog as any).config = { identity_distinct_id: 'person-b' }
+            }
+            const fetchTickets = jest.fn().mockImplementation(async () => {
+                if (switchDuring) {
+                    switchIdentity()
+                }
+                return [ticket('a-ticket')]
+            })
+
+            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
+            if (!switchDuring) {
+                switchIdentity()
+            }
+            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
+
+            expect(fetchTickets).toHaveBeenCalledTimes(2)
         })
 
         it('leaves no stored tickets behind after they are cleared', async () => {

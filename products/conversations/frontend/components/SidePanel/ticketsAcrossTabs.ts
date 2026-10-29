@@ -74,12 +74,17 @@ export async function clearSharedTickets(): Promise<void> {
 }
 
 function browserDeps(): AcrossTabsDeps {
-    // Tickets belong to one person, so a different person on the same browser must not see them.
-    const key = posthog.get_distinct_id?.() ?? ''
+    // The widget fetches tickets as its signed identity, which can differ from the current distinct id
+    // when another tab logs in as someone else, so that identity scopes the stored tickets.
+    const currentKey = (): string => posthog.config?.identity_distinct_id ?? posthog.get_distinct_id?.() ?? ''
+    const key = currentKey()
     return {
         now: () => Date.now(),
         read: async () => (await runRequest('readonly', (store) => store.get(key))) as TicketsSnapshot | null,
         write: async (snapshot) => {
+            if (currentKey() !== key) {
+                return false
+            }
             // Only the latest snapshot stays, so a person who used this browser earlier leaves nothing behind.
             const written = await runRequest('readwrite', (store) => {
                 store.clear()
