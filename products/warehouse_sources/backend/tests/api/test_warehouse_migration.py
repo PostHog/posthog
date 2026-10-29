@@ -141,6 +141,56 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert proposal["unmatched_tables"] == ["email_event"]
         assert proposal["unused_posthog_tables"] == ["deals"]
 
+    def test_items_list_survives_plans_stored_in_an_older_shape(self) -> None:
+        migration = self._migration()
+        # Saved before `alternative_names`, `vendor_table` and the table-match fields existed.
+        old: dict[str, Any] = {
+            "source_type": "Hubspot",
+            "prefix": "hubspot",
+            "prefill": {},
+            "schemas": [
+                {"name": "contacts", "should_sync": True, "sync_type": None, "disabled_columns": [], "row_filters": []}
+            ],
+            "sync_frequency": "6hour",
+            "sync_time_of_day": None,
+            "destination": None,
+        }
+        self._item(migration, name="old", proposal=old)
+        self._item(migration, name="broken", proposal={"source_type": "NotASource"})
+
+        response = self.client.get(f"{self.url}{migration.id}/items/")
+
+        assert response.status_code == 200, response.json()
+        by_name = {item["name"]: item for item in response.json()}
+        assert by_name["old"]["proposal"]["schemas"][0]["alternative_names"] == []
+        assert by_name["old"]["proposal"]["inferred_tables"] == []
+        assert by_name["broken"]["proposal"] is None
+        assert any("Refresh the migration" in caveat for caveat in by_name["broken"]["caveats"])
+
+    def test_bulk_skip_keeps_the_chosen_items_and_claimed_ones(self) -> None:
+        migration = self._migration()
+        keep = self._item(migration, name="keep")
+        other = self._item(migration, name="other")
+        failed = self._item(migration, name="failed", status=WarehouseMigrationItem.Status.FAILED)
+        applying = self._item(migration, name="applying", status=WarehouseMigrationItem.Status.APPLYING)
+        url = f"{self.url}{migration.id}/items/skip/"
+
+        assert self.client.post(url, {}, format="json").status_code == 400
+        both = {"item_ids": [str(other.id)], "keep_item_ids": [str(keep.id)]}
+        assert self.client.post(url, both, format="json").status_code == 400
+
+        response = self.client.post(url, {"keep_item_ids": [str(keep.id)]}, format="json")
+
+        assert response.status_code == 200, response.json()
+        assert sorted(response.json()["skipped_item_ids"]) == sorted([str(other.id), str(failed.id)])
+        assert response.json()["not_skipped_item_ids"] == [str(applying.id)]
+        statuses = dict(
+            WarehouseMigrationItem.objects.for_team(self.team.pk)
+            .filter(migration=migration)
+            .values_list("name", "status")
+        )
+        assert statuses == {"keep": "pending", "other": "skipped", "failed": "skipped", "applying": "applying"}
+
     def test_list_pages_newest_first_without_repeating_tied_rows(self) -> None:
         oldest, *tied = (self._migration() for _ in range(3))
         WarehouseMigration.objects.for_team(self.team.pk).filter(id=oldest.id).update(

@@ -384,6 +384,13 @@ class MigrationTableOverride:
 
 
 @dataclass(frozen=True)
+class WarehouseMigrationBulkSkip:
+    skipped_item_ids: list[UUID]
+    # Items an apply claimed or finished, which a skip never overwrites.
+    not_skipped_item_ids: list[UUID]
+
+
+@dataclass(frozen=True)
 class WarehouseMigrationItemCounts:
     as_is: int
     caveats: int

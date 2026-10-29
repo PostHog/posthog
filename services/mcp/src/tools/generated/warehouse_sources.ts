@@ -1068,6 +1068,38 @@ const warehouseMigrationItemApply = (): ToolBase<
     },
 })
 
+const WarehouseMigrationItemsSkipSchema = () => {
+    const WarehouseMigrationsItemsBulkSkipCreateBody = orvalSchemas.WarehouseMigrationsItemsBulkSkipCreateBody()
+    const WarehouseMigrationsItemsBulkSkipCreateParams = orvalSchemas.WarehouseMigrationsItemsBulkSkipCreateParams()
+    return WarehouseMigrationsItemsBulkSkipCreateParams.omit({ project_id: true }).extend(
+        WarehouseMigrationsItemsBulkSkipCreateBody.shape
+    )
+}
+
+const warehouseMigrationItemsSkip = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationItemsSkipSchema>,
+    Schemas.WarehouseMigrationSkipItemsResponse
+> => ({
+    name: 'warehouse-migration-items-skip',
+    schema: WarehouseMigrationItemsSkipSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemsSkipSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.item_ids !== undefined) {
+            body['item_ids'] = params.item_ids
+        }
+        if (params.keep_item_ids !== undefined) {
+            body['keep_item_ids'] = params.keep_item_ids
+        }
+        const result = await context.api.request<Schemas.WarehouseMigrationSkipItemsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/skip/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WarehouseMigrationItemSkipSchema = () => {
     const WarehouseMigrationsItemsSkipCreateParams = orvalSchemas.WarehouseMigrationsItemsSkipCreateParams()
     return WarehouseMigrationsItemsSkipCreateParams.omit({ project_id: true })
@@ -1196,6 +1228,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'warehouse-migration-connect-link': warehouseMigrationConnectLink,
     'warehouse-migration-get': warehouseMigrationGet,
     'warehouse-migration-item-apply': warehouseMigrationItemApply,
+    'warehouse-migration-items-skip': warehouseMigrationItemsSkip,
     'warehouse-migration-item-skip': warehouseMigrationItemSkip,
     'warehouse-migration-items-list': warehouseMigrationItemsList,
     'warehouse-migration-refresh': warehouseMigrationRefresh,
