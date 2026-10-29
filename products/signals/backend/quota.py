@@ -14,7 +14,7 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.temporal.common.metrics import get_metric_meter
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited, self_driving_quota_resource
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -40,7 +40,7 @@ def record_quota_check_failed_open() -> None:
     ).add(1)
 
 
-def is_team_signals_quota_limited(team_api_token: str) -> bool:
+def is_team_signals_quota_limited(team_api_token: str, resource: QuotaResource) -> bool:
     """Whether a team is currently over its Signals credits quota.
 
     Fails open on a quota-limiter read error so an infra blip lets work through rather than stalling.
@@ -48,9 +48,7 @@ def is_team_signals_quota_limited(team_api_token: str) -> bool:
     Synchronous (Redis read); wrap in `sync_to_async` when calling from async code.
     """
     try:
-        return is_team_limited(
-            team_api_token, QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
+        return is_team_limited(team_api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
     except Exception:
         logger.warning("signals_quota_check_failed_open", exc_info=True)
         record_quota_check_failed_open()
@@ -102,7 +100,7 @@ def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
     paths pay a single cached Redis read. Blocking network I/O; wrap in `sync_to_async` from
     async code.
     """
-    if not is_team_signals_quota_limited(team.api_token):
+    if not is_team_signals_quota_limited(team.api_token, self_driving_quota_resource(team.organization)):
         return SelfDrivingQuotaGate(limited=False, enforced=False)
     return SelfDrivingQuotaGate(limited=True, enforced=self_driving_quota_enforcement_enabled(team))
 
@@ -141,7 +139,7 @@ def notify_scout_quota_paused(team: "Team") -> None:
     must never fail the gate that called it. Requires `team.organization` to be loaded.
     """
     try:
-        usage = (team.organization.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value) or {}
+        usage = (team.organization.usage or {}).get(self_driving_quota_resource(team.organization).value) or {}
         quota_limited_until = usage.get("quota_limited_until") or 0
         limit = usage.get("limit") or 0
         from products.notifications.backend.facade.api import (  # noqa: PLC0415 (keeps the heavy dep off the import path)

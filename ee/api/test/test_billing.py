@@ -86,6 +86,8 @@ def create_usage_summary(**kwargs) -> dict[str, Any]:
         "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
     }
     for resource in QuotaResource:
+        if resource == QuotaResource.SIGNALS_SPEND_CREDITS:
+            continue
         data[resource.value] = {"limit": None, "usage": 0, "todays_usage": 0}
 
     data.update(kwargs)

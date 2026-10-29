@@ -6,7 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Dayjs } from 'lib/dayjs'
+import { dayjs, Dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getBillingLimitConfig } from 'scenes/billing/billingLimitConfig'
@@ -85,6 +85,7 @@ export interface inboxUsageLogicValues {
     refundsFlagEnabled: boolean
     resetDate: Dayjs | null
     showLimitFormErrors: boolean
+    spendProduct: BillingProductV2Type | null
     spentUsd: number | null
     status: InboxUsageStatus
     summaryFlagEnabled: boolean
@@ -186,6 +187,7 @@ export interface inboxUsageLogicMeta {
         refundsFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         quotaEnforcementFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         summaryFlagEnabled: (refundsFlagEnabled: boolean, quotaEnforcementFlagEnabled: boolean) => boolean
+        spendProduct: (billing: BillingType | null) => BillingProductV2Type | null
         product: (billing: BillingType | null) => BillingProductV2Type | null
         isLoading: (
             billing: BillingType | null,
@@ -356,6 +358,15 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             (s) => [s.refundsFlagEnabled, s.quotaEnforcementFlagEnabled],
             (refundsFlagEnabled: boolean, quotaEnforcementFlagEnabled: boolean): boolean =>
                 refundsFlagEnabled || quotaEnforcementFlagEnabled,
+        ],
+        spendProduct: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingProductV2Type | null => {
+                const cutoff = billing?.usage_summary?.signals_spend_credits?.billing_start_date
+                return cutoff && cutoff <= dayjs.utc().format('YYYY-MM-DD')
+                    ? (billing?.products?.find((product) => product.type === 'inbox_usage') ?? null)
+                    : null
+            },
         ],
         product: [
             (s) => [s.billing],

@@ -33,6 +33,8 @@ from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Wo
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
 
+from ee.billing.quota_limiting import self_driving_quota_resource
+
 logger = structlog.get_logger(__name__)
 
 # TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
@@ -95,7 +97,9 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
     names the exact limit that fired; the workflow only acts on the boolean.
     """
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    quota_limited = await sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
+    quota_limited = await sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(
+        team.api_token, self_driving_quota_resource(team.organization)
+    )
     daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
     # Captured whenever the daily gate binds — even when the quota drop below wins the
     # single-reason drop metric — so the daily-limit event stream stays complete on co-bound days.

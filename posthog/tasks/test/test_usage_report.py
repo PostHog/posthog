@@ -5131,10 +5131,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         """Signals credits are a flat charge per report whose implementation shipped a PR (Postgres path)."""
         from django.apps import apps
 
-        from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
+        from posthog.tasks.usage_report import (
+            get_teams_with_signals_credits_used_in_period,
+            get_teams_with_signals_spend_credits_used_in_period,
+        )
 
         from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
-        from products.signals.backend.models import SignalReport, SignalReportTask
+        from products.signals.backend.models import SignalReport, SignalReportTask, SignalSpend
 
         # `products.tasks` is isolated; reach its models via the app registry, not a cross-boundary import.
         Task = apps.get_model("tasks", "Task")
@@ -5167,6 +5170,20 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_signals_credits_used_in_period(period.start, period.end)
 
         self.assertEqual(result, [(team.id, 1500)])
+
+        SignalSpend.objects.for_team(team.id).create(
+            team=team,
+            kind=SignalSpend.Kind.AD_HOC,
+            signal_id=uuid4(),
+            finalized_at=period.start,
+            spend=15,
+        )
+        SignalReport.objects.filter(id=report.id).update(created_at=period.start - relativedelta(days=1))
+        organization = team.organization
+        organization.usage = {"signals_spend_credits": {"billing_start_date": period.start.date().isoformat()}}
+        organization.save(update_fields=["usage"])
+        self.assertEqual(get_teams_with_signals_credits_used_in_period(period.start, period.end), [])
+        self.assertEqual(get_teams_with_signals_spend_credits_used_in_period(period.start, period.end), [(team.id, 15)])
 
     def test_self_driving_credits_for_orgs_sum_each_orgs_teams(self) -> None:
         org_a = Organization.objects.create(name="Org A")

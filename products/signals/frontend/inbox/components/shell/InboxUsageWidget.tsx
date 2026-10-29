@@ -8,6 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type } from '~/types'
 
@@ -141,6 +142,7 @@ function EditLimitModal(): JSX.Element {
 export function InboxUsageWidget(): JSX.Element | null {
     const {
         product,
+        spendProduct,
         isLoading,
         isSubscribed,
         canAccessBilling,
@@ -163,6 +165,24 @@ export function InboxUsageWidget(): JSX.Element | null {
 
     if (isLoading) {
         return <UsageCardSkeleton />
+    }
+    if (spendProduct) {
+        return (
+            <div className="flex flex-col gap-2">
+                <span className="text-[13px] font-semibold">Inbox spend</span>
+                {spendProduct.current_amount_usd != null && (
+                    <span className="text-xs tabular-nums">
+                        {currencyFormatter(Number(spendProduct.current_amount_usd))}
+                    </span>
+                )}
+                {quotaLimited && <LemonTag type="warning">Spending limit reached</LemonTag>}
+                {canAccessBilling && (
+                    <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>
+                        View usage and limits
+                    </LemonButton>
+                )}
+            </div>
+        )
     }
     if (!product) {
         return null

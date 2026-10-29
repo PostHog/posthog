@@ -109,6 +109,28 @@ describe('inboxUsageLogic', () => {
         initKeaTests()
     })
 
+    it.each([undefined, '2099-01-01', '2020-01-01'])(
+        'selects the spend product only after its Billing cutoff (%s)',
+        async (cutoff) => {
+            useMocks({
+                get: {
+                    '/api/billing': () => [
+                        200,
+                        {
+                            products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: '12.34' }],
+                            usage_summary: { signals_spend_credits: { billing_start_date: cutoff } },
+                        },
+                    ],
+                },
+            })
+            logic = inboxUsageLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.spendProduct?.type ?? null).toBe(cutoff === '2020-01-01' ? 'inbox_usage' : null)
+            expect(logic.values.product?.type).toBe('inbox')
+        }
+    )
+
     afterEach(() => {
         logic?.unmount()
     })

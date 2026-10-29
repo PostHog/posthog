@@ -1,9 +1,11 @@
 import json
+from datetime import timedelta
 
 import pytest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
@@ -54,15 +56,50 @@ class TestEnforceSelfDrivingRunQuotaActivity:
         gate_mock.assert_not_called()
 
     @pytest.mark.django_db(transaction=True)
-    def test_run_with_pr_url_stops_checking_even_when_over_quota(self, activity_environment, test_task, test_task_run):
-        # A shipped PR means the report is already billed; cancelling would kill paid work.
-        _make_self_driving_run(test_task, test_task_run)
+    @pytest.mark.parametrize(
+        "cutoff_days,exempt,registered,expected",
+        [
+            (None, False, True, SELF_DRIVING_QUOTA_STOP_CHECKING),
+            (-1, False, True, SELF_DRIVING_QUOTA_CANCELLED),
+            (1, False, True, SELF_DRIVING_QUOTA_STOP_CHECKING),
+            (-1, True, True, SELF_DRIVING_QUOTA_STOP_CHECKING),
+            (-1, False, False, SELF_DRIVING_QUOTA_STOP_CHECKING),
+        ],
+    )
+    def test_pr_url_only_stops_quota_checks_for_non_usage_billed_runs(
+        self, activity_environment, test_task, test_task_run, cutoff_days, exempt, registered, expected
+    ):
+        report = _make_self_driving_run(test_task, test_task_run)
+        # New work on an old report still uses the run's spend eligibility.
+        type(report).objects.filter(id=report.id).update(created_at=timezone.now() - timedelta(days=30))
+        if registered:
+            SignalSpend = apps.get_model("signals", "SignalSpend")
+            SignalSpend.objects.for_team(test_task.team_id).create(
+                team_id=test_task.team_id,
+                report=report,
+                task_run_id=test_task_run.id,
+                kind="reviewer_triggered_implementation",
+                billing_exempt=exempt,
+            )
         test_task_run.output = {"pr_url": "https://github.com/x/y/pull/1"}
         test_task_run.save(update_fields=["output"])
-        with patch(f"{MODULE}.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(limited=True, enforced=True)):
-            assert _run_activity(activity_environment, test_task_run) == SELF_DRIVING_QUOTA_STOP_CHECKING
-        test_task_run.refresh_from_db()
-        assert test_task_run.status == TaskRun.Status.IN_PROGRESS
+        if cutoff_days is not None:
+            organization = test_task.team.organization
+            organization.usage = {
+                "signals_spend_credits": {
+                    "billing_start_date": (timezone.now() + timedelta(days=cutoff_days)).date().isoformat()
+                }
+            }
+            organization.save(update_fields=["usage"])
+        with (
+            patch(f"{MODULE}.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(limited=True, enforced=True)),
+            patch(f"{MODULE}.capture_signal_report_quota_paused"),
+            patch(
+                "products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None)
+            ) as cancel,
+        ):
+            assert _run_activity(activity_environment, test_task_run) == expected
+        assert cancel.called is (expected == SELF_DRIVING_QUOTA_CANCELLED)
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
