@@ -160,7 +160,10 @@ def _edit_columns(index: int, edit: WatchedEdit) -> list[ast.Expr]:
         placeholders={"key": key},
     )
     if edit.variants:
-        exposed = parse_expr("{variant_value} != ''", placeholders={"variant_value": variant_value})
+        # A split under 100% serves true to a person who matches the condition but draws no variant.
+        exposed = parse_expr(
+            "{variant_value} != '' OR {value} = 'true'", placeholders={"variant_value": variant_value, "value": value}
+        )
     else:
         exposed = parse_expr("{value} = 'true'", placeholders={"value": value})
 

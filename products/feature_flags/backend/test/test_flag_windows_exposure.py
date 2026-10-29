@@ -62,8 +62,10 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-2", 2, {"$feature/pricing-test": "test"}),
                     ("person-3", 3, {"$feature/pricing-test": "test"}),
                     ("person-4", 4, {"$feature/pricing-test": False}),
+                    # A split under 100% serves true to a person who matches but draws no variant.
+                    ("person-5", 5, {"$feature/pricing-test": True}),
                 ],
-                [(0, 4, 3, {"control": 1, "test": 2})],
+                [(0, 5, 4, {"control": 1, "test": 2})],
             ),
             (
                 "a_variant_named_false_counts_apart_from_a_flag_that_evaluated_to_false",
