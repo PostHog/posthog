@@ -32,7 +32,6 @@ export const AI_TAXONOMY_EVENT_PROPERTIES = [
     '$ai_eval_source',
     '$ai_evaluation_allows_na',
     '$ai_evaluation_applicable',
-    '$ai_evaluation_attachments',
     '$ai_evaluation_categorical_result',
     '$ai_evaluation_id',
     '$ai_evaluation_key_id',

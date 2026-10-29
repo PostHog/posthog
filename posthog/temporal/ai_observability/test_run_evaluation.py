@@ -1194,7 +1194,6 @@ def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rej
 
     if retries:
         assert result["verdict"] is True
-        assert "attachments" not in result
         assert client.complete.call_args_list[1].args[0].messages == [{"role": "user", "content": "user: Polite?"}]
     else:
         assert client.complete.call_count == 1
@@ -1619,7 +1618,7 @@ class TestRunEvaluationWorkflow:
                 parsed=BooleanEvalResult(verdict=True, reasoning="ok"),
                 usage=MagicMock(input_tokens=1, output_tokens=1, total_tokens=1),
             )
-            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         content = mock_client.complete.call_args.args[0].messages[0]["content"]
         if attaches_image:
@@ -1629,8 +1628,6 @@ class TestRunEvaluationWorkflow:
             assert isinstance(content, str)
             assert "[image" not in content
             assert "What does this chart show?" in content
-        properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 7, 1, tzinfo=UTC))
-        assert properties.get("$ai_evaluation_attachments") == (1 if attaches_image else None)
 
     @pytest.mark.parametrize(
         "oversized_input",

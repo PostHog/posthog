@@ -316,8 +316,6 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_id"] = result.get("key_id")
         if "probability" in result:
             properties["$ai_evaluation_probability"] = result["probability"]
-        if result.get("attachments"):
-            properties["$ai_evaluation_attachments"] = result["attachments"]
 
     if result["result_type"] == "categorical":
         properties["$ai_evaluation_allows_na"] = allows_na

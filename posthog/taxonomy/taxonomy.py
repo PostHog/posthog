@@ -2630,11 +2630,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The ID of the LLM provider key used for the evaluation.",
             "examples": ["550e8400-e29b-41d4-a716-446655440000"],
         },
-        "$ai_evaluation_attachments": {
-            "label": "AI Evaluation Attachments (LLM)",
-            "description": "The number of images from the evaluated generation that the LLM judge received.",
-            "examples": [1, 3],
-        },
         "$ai_evaluation_applicable": {
             "label": "AI Evaluation Applicable (LLM)",
             "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
