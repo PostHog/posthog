@@ -399,6 +399,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 f"SELECT properties, person.properties FROM events WHERE {MIXED}",
                 "properties and poe.properties",
             ),
+            # Each branch projects the raw value. The flag_evaluations branch has no Float64 column to match this one.
+            param(
+                "property_in_a_typed_materialized_column",
+                f"SELECT properties.probe FROM events WHERE {MIXED}",
+                "probe, which events stores in a Nullable\\(Float64\\) column",
+                typed_column=True,
+            ),
         ]
     )
     def test_mode_1_reads_events_and_mode_2_raises_when_the_union_cannot_read_a_mixed_scan(
@@ -407,7 +414,11 @@ class TestReadFlagCallsWithUnion(BaseTest):
         query: str,
         reason: str,
         warehouse_join: bool = False,
+        typed_column: bool = False,
     ):
+        if typed_column:
+            self.addCleanup(cleanup_materialized_columns)
+            materialize("events", "probe", is_nullable=True, column_type="Nullable(Float64)")
         if warehouse_join:
             # Joined on persons, it reaches events as a join that compares `person.properties.email`, not its key.
             DataWarehouseJoin.objects.create(

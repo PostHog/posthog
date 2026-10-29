@@ -10,6 +10,7 @@ from posthog.hogql.database.models import (
     LazyJoin,
     LazyTable,
     LazyTableToAdd,
+    StringJSONDatabaseField,
     Table,
     VirtualTable,
 )
@@ -49,6 +50,15 @@ def _column_name(field: FieldOrTable | None) -> str | None:
 
 def _is_expression(table: Table, chain: list[str | int]) -> bool:
     return isinstance(_field(table, chain)[0], ExpressionField)
+
+
+def property_read(table: Table, chain: list[str | int]) -> tuple[str, str] | None:
+    """The stored JSON column and the top-level key that `chain` reads on `table`, or None when it reads no property."""
+    field, rest = _field(table, chain)
+    column = _column_name(field)
+    if not isinstance(field, StringJSONDatabaseField) or column is None or not rest:
+        return None
+    return column, str(rest[0])
 
 
 def column_chains(table: Table, chain: list[str | int]) -> list[list[str | int]]:
@@ -193,6 +203,15 @@ class EventsWithFlagCallsTable(LazyTable):
 
     def to_printed_hogql(self):
         return EVENTS_WITH_FLAG_CALLS_TABLE
+
+
+def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":
+    """The union that `table_type` scans, through aliases and virtual tables, or None when it scans another table."""
+    while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
+        table_type = table_type.table_type
+    if isinstance(table_type, ast.LazyTableType) and isinstance(table_type.table, EventsWithFlagCallsTable):
+        return table_type.table
+    return None
 
 
 # Tables whose rows are events with the events columns. Property types, access control and time bounds treat their reads
