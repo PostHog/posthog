@@ -128,15 +128,15 @@ class AccountTrust:
 
 def trusted_floor_tier(trust: Optional[AccountTrust], *, now: datetime) -> int:
     floor = settings.WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER
-    # An unknown subscription earns nothing: the floor grants allowance, so it must fail closed.
+    # An unknown subscription or score earns nothing: the floor grants allowance, so it must fail closed.
     if floor <= MIN_EMAIL_SENDING_TIER or trust is None or trust.has_active_subscription is not True:
+        return MIN_EMAIL_SENDING_TIER
+    score = trust.workflow_emails_trust_score
+    if score is None or score < settings.WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE:
         return MIN_EMAIL_SENDING_TIER
     min_age = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_ORG_AGE_DAYS)
     if trust.organization_created_at is None or now - trust.organization_created_at < min_age:
         return MIN_EMAIL_SENDING_TIER
-    score = trust.workflow_emails_trust_score
-    if score is not None and score >= settings.WORKFLOWS_EMAIL_TIER_HIGH_TRUST_MIN_SCORE:
-        floor = max(floor, settings.WORKFLOWS_EMAIL_TIER_HIGH_TRUST_FLOOR_TIER)
     return min(floor, max_email_sending_tier())
 
 
@@ -294,7 +294,7 @@ def decide_tier(
         )
 
     # Only a team that sends now gets the floor. A dormant team then still decays below it, and a
-    # team that was ever rate-demoted climbs on its own sending only.
+    # team that was ever demoted or suspended climbs on its own sending only.
     if history.sent > 0 and last_rate_demotion_at is None:
         floor = trusted_floor_tier(account_trust, now=now)
         if floor > current_tier:

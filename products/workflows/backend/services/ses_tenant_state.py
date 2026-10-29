@@ -16,6 +16,7 @@ from posthog.tasks.email import (
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.services.email_sending_tier import SesTenantState
 
 logger = structlog.get_logger(__name__)
 
@@ -116,7 +117,13 @@ def apply_ses_tenant_state(
         config.ses_tenant_sending_status = sending_status
         config.ses_tenant_reputation_impact = impact
         config.ses_tenant_state_synced_at = now
-        config.save(update_fields=_STATE_FIELDS)
+        update_fields = list(_STATE_FIELDS)
+        if SesTenantState(sending_status=sending_status).is_paused:
+            # An AWS pause counts as a demotion, so a reinstated tenant earns its tier back by sending
+            # rather than through the trusted floor.
+            config.email_sending_tier_demoted_at = now
+            update_fields.append("email_sending_tier_demoted_at")
+        config.save(update_fields=update_fields)
         logger.info(
             "SES tenant state changed",
             team_id=team_id,

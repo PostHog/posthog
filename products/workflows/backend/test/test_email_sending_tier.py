@@ -14,6 +14,7 @@ from products.workflows.backend.management.commands.backfill_workflows_email_sen
     Command as BackfillCommand,
 )
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_controls import suspend_email_sending, unsuspend_email_sending
 from products.workflows.backend.services.email_sending_tier import (
     AccountTrust,
     SendingHistoryWindows,
@@ -26,6 +27,7 @@ from products.workflows.backend.services.email_sending_tier import (
     recompute_email_sending_tier_for_team,
     recompute_email_sending_tiers,
 )
+from products.workflows.backend.services.ses_tenant_state import apply_ses_tenant_state
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
 
@@ -49,10 +51,9 @@ TIER_SETTINGS = {
     "WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS": 7,
     "WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS": 30,
     "WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES": [],
-    "WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER": 2,
+    "WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER": 3,
     "WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_ORG_AGE_DAYS": 90,
-    "WORKFLOWS_EMAIL_TIER_HIGH_TRUST_FLOOR_TIER": 3,
-    "WORKFLOWS_EMAIL_TIER_HIGH_TRUST_MIN_SCORE": 7,
+    "WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE": 7,
 }
 
 
@@ -371,14 +372,15 @@ class TestEmailSendingTierDecision(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("paying and established", True, 120, None, 5, False, 0, 2, "trusted_account"),
-            ("high billing trust score", True, 120, 7, 5, False, 0, 3, "trusted_account"),
+            ("paying, established and trusted by billing", True, 120, 7, 5, False, 1, 3, "trusted_account"),
+            ("free trial or default paid trust score", True, 120, 3, 5, False, 0, 0, "tier_not_used_enough"),
+            ("no billing trust score", True, 120, None, 5, False, 0, 0, "tier_not_used_enough"),
             ("never synced by billing", None, 120, 7, 5, False, 0, 0, "tier_not_used_enough"),
             ("not paying", False, 120, 7, 5, False, 0, 0, "tier_not_used_enough"),
             ("organization too new", True, 30, 7, 5, False, 0, 0, "tier_not_used_enough"),
             ("no recent sends", True, 120, 7, 0, False, 0, 0, "tier_not_used_enough"),
             ("demoted for its rates before", True, 120, 7, 5, True, 0, 0, "tier_not_used_enough"),
-            ("already above the floor", True, 120, None, 5, False, 3, 3, "tier_not_used_enough"),
+            ("already at the floor", True, 120, 7, 5, False, 3, 3, "tier_not_used_enough"),
         ]
     )
     def test_trusted_account_floor(
@@ -478,15 +480,33 @@ class TestRecomputeEmailSendingTiers(BaseTest):
     def test_sweep_lifts_an_established_paying_account_to_the_trusted_floor(self) -> None:
         self.organization.has_active_subscription = True
         self.organization.created_at = timezone.now() - timedelta(days=120)
-        self.organization.customer_trust_scores = {"workflow_emails": 3}
+        self.organization.customer_trust_scores = {"workflow_emails": 7}
         self.organization.save()
         self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(hours=1))
 
         self._run({self.team.id: history(team_id=self.team.id, sent=5, daily_sends=clean_days(1, 5))})
 
-        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 2
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 3
         entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         assert (entry.detail or {})["context"] == {"reason": "trusted_account"}
+
+    @parameterized.expand([("staff_suspension",), ("ses_tenant_pause",)])
+    def test_reinstated_team_does_not_regain_the_trusted_floor(self, suspension: str) -> None:
+        self.organization.has_active_subscription = True
+        self.organization.created_at = timezone.now() - timedelta(days=120)
+        self.organization.customer_trust_scores = {"workflow_emails": 7}
+        self.organization.save()
+        self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
+        if suspension == "staff_suspension":
+            suspend_email_sending(self.team.id, "bounces")
+            unsuspend_email_sending(self.team.id)
+        else:
+            apply_ses_tenant_state(self.team.id, sending_status="DISABLED", reputation_impact="HIGH")
+            apply_ses_tenant_state(self.team.id, sending_status="ENABLED", reputation_impact="NONE")
+
+        self._run({self.team.id: history(team_id=self.team.id, sent=5, daily_sends=clean_days(1, 5))})
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 0
 
     def test_suspended_team_is_demoted_even_with_no_recent_sending(self) -> None:
         self._config(

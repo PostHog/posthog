@@ -1191,11 +1191,11 @@ WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS = int(get_from_env("WORKFLOWS_EMAIL_T
 WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS", 2))
 WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO = float(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO", 0.5))
 # An established paying customer starts from a floor instead of tier 0, so its first real send is not
-# capped at the probation allowance. A floor tier of 0 disables the floor.
-WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER", 2))
+# capped at the probation allowance. A floor tier of 0 disables the floor. Billing gives a free trial the
+# same trust score as most paid plans, so the score bar sits above that level.
+WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER", 3))
 WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_ORG_AGE_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_ORG_AGE_DAYS", 90))
-WORKFLOWS_EMAIL_TIER_HIGH_TRUST_FLOOR_TIER = int(get_from_env("WORKFLOWS_EMAIL_TIER_HIGH_TRUST_FLOOR_TIER", 3))
-WORKFLOWS_EMAIL_TIER_HIGH_TRUST_MIN_SCORE = int(get_from_env("WORKFLOWS_EMAIL_TIER_HIGH_TRUST_MIN_SCORE", 7))
+WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE", 7))
 # app_metrics2 metric names that count as a per-workflow auto-pause for the tier decision. Empty
 # means the signal contributes nothing, so the decision rests on rates and staff suspensions.
 WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES: list[str] = get_list(
