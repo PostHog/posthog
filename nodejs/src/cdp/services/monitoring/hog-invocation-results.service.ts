@@ -206,8 +206,9 @@ const extractTriggerFields = (
 // snapshot from when the original invocation ran.
 const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
 // A sensitive message carries reset links, login codes or private text, so its snapshot keeps no
-// variables either, and a rerun can't rebuild the send.
-const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables'])
+// variables either, and a rerun can't rebuild the send. A step paused mid-send (e.g. for a provider
+// retry) holds the rendered message on its VM stack, so that goes too.
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables', 'vmState'])
 export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
 
 const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
