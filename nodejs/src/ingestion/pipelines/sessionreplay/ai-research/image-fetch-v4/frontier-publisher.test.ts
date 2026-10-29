@@ -128,7 +128,7 @@ describe('FrontierPublisher', () => {
         expect(await batch.republish(candidate(), candidate(), 'retry', waitMs)).toBe('queued')
         await batch.flush()
 
-        expect(republished).toHaveBeenCalledWith('retry', 'delay')
+        expect(republished).toHaveBeenCalledWith('retry', 'delay', 0)
         expect(sent[0].topic).toBe(topic)
         expect(parseCollectedUrlsRecord(sent[0].value, 'example.com')).toMatchObject({
             ok: true,
@@ -191,22 +191,26 @@ describe('FrontierPublisher', () => {
         expect(sent.map((message) => message.topic).sort()).toEqual(['long', 'short'])
     })
 
-    it('records messages, registrable domains, and delivery time for each destination topic', async () => {
+    it('records URL age, messages, registrable domains, and delivery time for each destination topic', async () => {
         const { batch } = build()
         const observeRepublishBatch = jest.spyOn(ImageFetchRequestMetrics, 'observeRepublishBatch').mockImplementation()
         const observeRepublishFlush = jest.spyOn(ImageFetchRequestMetrics, 'observeRepublishFlush').mockImplementation()
+        const incRepublished = jest.spyOn(ImageFetchRequestMetrics, 'incRepublished').mockImplementation()
         const other = candidate({
             originalRef: `imageurl:v4:7:2026-10:${'b'.repeat(22)}`,
             currentUrl: 'https://img.other.net/b.png',
             host: 'img.other.net',
             origin: 'https://img.other.net',
             registrableDomain: 'other.net',
+            firstSeenAtMs: 1_700_000_000_000 - 7_200_000,
         })
 
         await batch.republish(candidate(), candidate(), 'pass_deadline')
         await batch.republish(other, other, 'retry', 30_000)
         await batch.flush()
 
+        expect(incRepublished).toHaveBeenCalledWith('pass_deadline', 'frontier', 0)
+        expect(incRepublished).toHaveBeenCalledWith('retry', 'delay', 7_200)
         expect(observeRepublishBatch).toHaveBeenCalledWith('frontier', 1, 1, expect.any(Number))
         expect(observeRepublishBatch).toHaveBeenCalledWith('retry_1m', 1, 1, expect.any(Number))
         expect(observeRepublishFlush).toHaveBeenCalledWith(expect.any(Number))

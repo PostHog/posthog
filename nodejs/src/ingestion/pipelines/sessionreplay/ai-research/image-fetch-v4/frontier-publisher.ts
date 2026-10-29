@@ -311,8 +311,13 @@ class BufferedRepublishBatch implements RepublishBatch {
                 this.recordFailedPlan(plan)
                 continue
             }
-            for (const reason of plan.reasons) {
-                ImageFetchRequestMetrics.incRepublished(reason, metricTopic === 'frontier' ? 'frontier' : 'delay')
+            const nowMs = Date.now()
+            for (let job = 0; job < plan.candidates.length; job++) {
+                ImageFetchRequestMetrics.incRepublished(
+                    plan.reasons[job],
+                    metricTopic === 'frontier' ? 'frontier' : 'delay',
+                    Math.max(0, nowMs - plan.candidates[job].firstSeenAtMs) / 1000
+                )
             }
         }
         if (attemptedMessages > 0) {
