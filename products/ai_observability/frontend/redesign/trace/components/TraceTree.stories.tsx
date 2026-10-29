@@ -12,11 +12,13 @@ function Stateful({
     initialSelectedId = 'gen-answer',
     evalOutcomes = {},
     feedbackCountByNodeId,
+    matchingNodeIds = null,
 }: {
     nodes: TraceNodeApi[]
     initialSelectedId?: string
     evalOutcomes?: Record<string, EvalRollupOutcome>
     feedbackCountByNodeId?: Record<string, number>
+    matchingNodeIds?: ReadonlySet<string> | null
 }): JSX.Element {
     const [selected, setSelected] = useState<string | null>(initialSelectedId)
     return (
@@ -27,6 +29,7 @@ function Stateful({
             onPrefetchNode={() => {}}
             evalOutcomes={evalOutcomes}
             feedbackCountByNodeId={feedbackCountByNodeId}
+            matchingNodeIds={matchingNodeIds}
         />
     )
 }
@@ -49,6 +52,9 @@ export const WithEvalMarkers: Story = {
         nodes: FIXTURE_TREE,
         evalOutcomes: { 'trace-1': 'pass', 'embed-question': 'unrated', 'gen-answer': 'fail' },
     },
+}
+export const WithSearchMatches: Story = {
+    args: { nodes: FIXTURE_TREE, matchingNodeIds: new Set(['span-search', 'gen-answer']) },
 }
 export const WithError: Story = {
     args: {
