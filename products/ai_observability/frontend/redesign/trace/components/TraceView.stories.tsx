@@ -11,6 +11,7 @@ import {
     FIXTURE_EVAL_OUTCOMES,
     FIXTURE_EVALS_CHIP,
     FIXTURE_FEEDBACK_MODE,
+    FIXTURE_SUMMARY,
     FIXTURE_TRACE,
     withWidth,
 } from '../storyFixtures'
@@ -93,6 +94,16 @@ function Playground({ fixture, initialMode, initialNodeId, evals, evalOutcomes =
             thread={fixture.thread}
             timeline={fixture.timeline}
             evalOutcomes={evalOutcomes}
+            summaryMode={{
+                state: { status: 'ready', summary: FIXTURE_SUMMARY },
+                requesting: false,
+                requestError: null,
+                consentGiven: true,
+                onRequest: () => {},
+                onRegenerate: () => {},
+                onReload: () => {},
+                onSelectStep: selectAndShowSpans,
+            }}
             feedbackMode={FIXTURE_FEEDBACK_MODE}
             feedbackCount={FIXTURE_FEEDBACK_MODE.scores.length + FIXTURE_FEEDBACK_MODE.responses.length}
             feedbackCountByNodeId={{ 'trace-1': 3, 'gen-answer': 3 }}

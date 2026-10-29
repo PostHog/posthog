@@ -1,6 +1,7 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { ConversationState, EvalRollupOutcome, FeedbackModeState, LabeledLink, TraceMode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
+import { SummaryModeView, SummaryModeViewProps } from './SummaryModeView'
 import { Thread } from './Thread'
 import { TraceFeedbackView } from './TraceFeedbackView'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
@@ -25,6 +26,7 @@ export interface TraceViewReadyProps {
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
     evalOutcomes: Record<string, EvalRollupOutcome>
+    summaryMode: SummaryModeViewProps
     feedbackMode?: FeedbackModeState
     onRetryFeedback?: () => void
     /** Null until the feedback has loaded. */
@@ -64,6 +66,8 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                 />
             ) : props.mode === 'thread' ? (
                 <Thread conversation={props.thread} onSelectMessage={props.onSelectFromView} />
+            ) : props.mode === 'summary' ? (
+                <SummaryModeView {...props.summaryMode} />
             ) : props.mode === 'feedback' ? (
                 <TraceFeedbackView
                     state={props.feedbackMode ?? FEEDBACK_LOADING}

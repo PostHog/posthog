@@ -4,7 +4,7 @@ import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
-import { FeedbackEntry, NodeDetailTab, TraceMode } from './types'
+import { FeedbackEntry, NodeDetailTab, SummaryItemKind, TraceMode } from './types'
 
 type ReadyValues = Pick<
     traceViewAdapterLogicValues,
@@ -22,6 +22,10 @@ type ReadyValues = Pick<
     | 'evalsChip'
     | 'evalOutcomesByNode'
     | 'gitBranch'
+    | 'summaryState'
+    | 'summaryRequesting'
+    | 'summaryRequestError'
+    | 'summaryConsentGiven'
     | 'feedbackChip'
     | 'feedbackCount'
     | 'feedbackCountByNodeId'
@@ -37,6 +41,10 @@ interface ReadyActions {
     viewInThread: () => void
     prefetchNode: (id: string) => void
     showFailingEvals: () => void
+    summarize: () => void
+    regenerateSummary: () => void
+    loadSummary: () => void
+    summaryStepClicked: (nodeId: string, kind: SummaryItemKind) => void
     showFeedback: (nodeId: string | null, entry: FeedbackEntry) => void
     retryTraceFeedback: () => void
 }
@@ -80,6 +88,16 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         thread: values.thread,
         timeline: values.timeline,
         evalOutcomes: values.evalOutcomesByNode,
+        summaryMode: {
+            state: values.summaryState,
+            requesting: values.summaryRequesting,
+            requestError: values.summaryRequestError,
+            consentGiven: values.summaryConsentGiven,
+            onRequest: actions.summarize,
+            onRegenerate: actions.regenerateSummary,
+            onReload: actions.loadSummary,
+            onSelectStep: actions.summaryStepClicked,
+        },
         feedbackMode: values.feedbackMode,
         onRetryFeedback: actions.retryTraceFeedback,
         feedbackCount: values.feedbackCount,
@@ -109,6 +127,10 @@ export function TraceScene(): JSX.Element {
         evalsChip,
         evalOutcomesByNode,
         gitBranch,
+        summaryState,
+        summaryRequesting,
+        summaryRequestError,
+        summaryConsentGiven,
         feedbackChip,
         feedbackCount,
         feedbackCountByNodeId,
@@ -135,6 +157,10 @@ export function TraceScene(): JSX.Element {
                       evalsChip,
                       evalOutcomesByNode,
                       gitBranch,
+                      summaryState,
+                      summaryRequesting,
+                      summaryRequestError,
+                      summaryConsentGiven,
                       feedbackChip,
                       feedbackCount,
                       feedbackCountByNodeId,
