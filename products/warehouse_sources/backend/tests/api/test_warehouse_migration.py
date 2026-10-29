@@ -135,7 +135,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
     def test_items_list_survives_plans_stored_in_an_older_shape(self) -> None:
         migration = self._migration()
         # Saved before `alternative_names`, `vendor_table` and the table-match fields existed.
-        old = {
+        old: dict[str, Any] = {
             "source_type": "Hubspot",
             "prefix": "hubspot",
             "prefill": {},
