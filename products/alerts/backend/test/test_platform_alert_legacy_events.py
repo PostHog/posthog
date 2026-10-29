@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -27,6 +27,15 @@ _MODULE = "products.alerts.backend.platform_alert_legacy_events"
 CHECKED_AT = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
 CHART_URL = "https://example.com/chart.png"
 _EMITTER = "products.alerts.backend.platform_alert_legacy_events"
+# What the platform adds on top of what the insight stack sends: the pre-rendered Slack card.
+_SLACK_CARD_PROPERTIES = {
+    "slack_alert_tags",
+    "slack_alert_type",
+    "slack_alert_status",
+    "slack_alert_timing",
+    "slack_alert_detected_at",
+    "slack_alert_details",
+}
 
 
 class TestInsightLegacyEvents(APIBaseTest):
@@ -105,13 +114,47 @@ class TestInsightLegacyEvents(APIBaseTest):
             trigger_alert_hog_functions(self.alert, {"breaches": "\n".join(breaches), **sent})
 
         with patch(f"{_EMITTER}.insight_chart_url", return_value=CHART_URL) as mint:
-            (event,) = self._emit(self._emission(detail={"breaches": breaches, **stored}))
+            (event,) = self._emit(self._emission(detail={"breaches": breaches, "is_anomaly": True, **stored}))
 
         assert event.event_name == produce.call_args.kwargs["event_name"]
-        assert event.properties == produce.call_args.kwargs["properties"]
+        expected = produce.call_args.kwargs["properties"]
+        assert {key: event.properties[key] for key in expected} == expected
+        # Named rather than left open, so a property the insight stack never sends cannot appear
+        # here unnoticed and reach a customer's HogFunction template.
+        assert set(event.properties) - set(expected) == _SLACK_CARD_PROPERTIES
+        assert event.properties["slack_alert_type"] == "Anomaly detected"
         # The URL opens the chart without a login, so it is minted for the user that rendered it.
         if "insight_chart_asset_id" in stored:
             assert mint.call_args.kwargs["chart"] == RenderedInsightChart(asset_id=7, render_user_id=3)
+
+    def test_a_firing_states_the_transition_it_announces_not_the_alert_row(self) -> None:
+        # The platform writes neither column, so a platform-owned alert's row keeps whatever the
+        # insight stack last left there — `Not firing` once the shadow check stops.
+        self.alert.state = AlertState.NOT_FIRING.value
+        self.alert.last_checked_at = CHECKED_AT - timedelta(days=30)
+        self.alert.save(update_fields=["state", "last_checked_at"])
+
+        (event,) = self._emit(self._emission(detail={"breaches": ["above 100"]}))
+
+        assert event.properties["state"] == AlertState.FIRING.value
+        assert event.properties["last_checked_at"] == CHECKED_AT.isoformat()
+
+    @parameterized.expand(
+        [
+            ("an_unknown_timezone", {"timezone": "Mars/Olympus"}),
+            ("a_breach_row_that_is_not_a_dict", {"breach_details": ["above 100"]}),
+            ("a_breach_row_without_an_observed_value", {"breach_details": [{"group": "Chrome"}]}),
+        ]
+    )
+    def test_a_detail_the_card_cannot_be_built_from_still_emits_the_event(
+        self, _name: str, detail: dict[str, Any]
+    ) -> None:
+        # The card is an extra. Losing it must not take the event, because the event is what every
+        # HogFunction destination — Slack, webhook, email — listens on.
+        (event,) = self._emit(self._emission(detail={"breaches": ["above 100"], **detail}))
+
+        assert event.properties["alert_id"] == str(self.alert.id)
+        assert event.properties["breaches"] == "above 100"
 
     @parameterized.expand(
         [
