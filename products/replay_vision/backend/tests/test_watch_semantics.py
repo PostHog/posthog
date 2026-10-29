@@ -353,7 +353,7 @@ class TestAssignSemantics(BaseTest):
         client = MagicMock(aclose=AsyncMock())
         client.models.generate_content = AsyncMock(side_effect=[RuntimeError("model unavailable"), response])
         with (
-            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
         ):
             with self.assertRaises(RuntimeError):
@@ -381,7 +381,7 @@ class TestAssignSemantics(BaseTest):
         client = MagicMock(aclose=AsyncMock())
         client.models.generate_content = AsyncMock(side_effect=doubled_then_failed)
         with (
-            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
             self.assertRaises(RuntimeError),
         ):
