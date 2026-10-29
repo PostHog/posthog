@@ -16,8 +16,6 @@ import {
 import { subscriptions } from 'kea-subscriptions'
 
 import { dayjs } from 'lib/dayjs'
-import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
-import { percentage } from 'lib/utils/numbers'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -43,7 +41,7 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapeHogQLString } from '~/queries/utils'
+import { escapeHogQLString } from '~/queries/utils'
 import {
     ActionType,
     BaseMathType,
@@ -54,6 +52,24 @@ import {
     PropertyOperator,
     TeamType,
 } from '~/types'
+
+import {
+    AI_VIEW,
+    CRAWLER,
+    GOOGLE_VIEW,
+    HUMAN_EVENTS,
+    HUMAN_VIEW,
+    PAGE_PERFORMANCE_EVENTS,
+    PagePerformanceMetric,
+    PagePerformanceWindow,
+    RAW_PATH,
+    buildBreakdownQuery,
+    buildPagePerformancePathExpr,
+    pageCandidatesPredicate,
+    pageKeyExpr,
+    resolvePagePerformanceWindow,
+    windowPredicates,
+} from 'products/web_analytics/frontend/searchAndAi/searchAndAiQueries'
 
 import type { TeamPublicType } from '../../types'
 import {
@@ -69,24 +85,9 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 import type { DateFilterState } from './webAnalyticsLogic'
 import { WebAnalyticsLogicProps } from './webAnalyticsLogicProps'
 
-const PAGE_PERFORMANCE_EVENTS = "('$pageview', '$screen', '$http_log')"
-
-const HUMAN_EVENTS = "('$pageview', '$screen')"
-
 const PAGE_TABLE_LIMIT = 20
 
 const PAGE_CANDIDATE_LIMIT = 200
-
-const HUMAN_VIEW = "(event = '$pageview' OR event = '$screen') AND NOT `$virt_is_bot`"
-
-const GOOGLE_VIEW = `${HUMAN_VIEW} AND session.$channel_type = 'Organic Search' AND session.$entry_referring_domain ILIKE '%google%'`
-
-const AI_VIEW = `${HUMAN_VIEW} AND session.$channel_type = 'AI'`
-
-const CRAWLER =
-    "`$virt_is_bot` = true AND `$virt_bot_name` != '' AND `$virt_traffic_category` IN ('ai_crawler', 'ai_assistant', 'ai_search')"
-
-export type PagePerformanceMetric = 'llm_referrals' | 'agent_crawls' | 'google_search'
 
 export interface PagePerformanceBreakdownState {
     page: string
@@ -96,14 +97,6 @@ export interface PagePerformanceBreakdownState {
 export interface PagePerformanceOrderBy {
     column: string
     direction: 'ASC' | 'DESC'
-}
-
-export interface PagePerformanceWindow {
-    currentFrom: dayjs.Dayjs | null
-    currentTo: dayjs.Dayjs
-    previousFrom: dayjs.Dayjs | null
-    previousTo: dayjs.Dayjs | null
-    timezone: string
 }
 
 export interface OverviewTotals {
@@ -240,8 +233,6 @@ export const resolvePagePerformanceDataState = (
     }
 }
 
-const tsLiteral = (date: dayjs.Dayjs, timezone: string): string => date.tz(timezone).format("'YYYY-MM-DD HH:mm:ss'")
-
 const conversionMatch = (conversionGoal: WebAnalyticsConversionGoal | null): string | null => {
     if (conversionGoal && 'actionId' in conversionGoal) {
         return `matchesAction(${(conversionGoal as ActionConversionGoal).actionId})`
@@ -250,55 +241,6 @@ const conversionMatch = (conversionGoal: WebAnalyticsConversionGoal | null): str
         return `event = ${escapeHogQLString((conversionGoal as CustomEventConversionGoal).customEventName)}`
     }
     return null
-}
-
-const RAW_PATH = 'properties.$pathname'
-
-export const buildPagePerformancePathExpr = (
-    source: string,
-    enabled: boolean,
-    filters: { regex?: string; alias?: string }[] | undefined
-): string => {
-    if (!enabled || !filters?.length) {
-        return source
-    }
-    let expr = source
-    for (const f of filters) {
-        if (f.regex && f.alias != null) {
-            expr = `replaceRegexpAll(${expr}, ${escapeHogQLString(f.regex)}, ${escapeHogQLString(f.alias)})`
-        }
-    }
-    return expr
-}
-
-export const resolvePagePerformanceWindow = (
-    dateFilter: DateFilterState,
-    compareFilter: CompareFilter,
-    timezone: string,
-    now: dayjs.Dayjs = dayjs().tz(timezone)
-): PagePerformanceWindow => {
-    const currentFrom =
-        dateFilter.dateFrom === 'all'
-            ? null
-            : (dateStringToDayJs(dateFilter.dateFrom, timezone) ?? now.subtract(7, 'day'))
-    const parsedCurrentTo = dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : null
-    const currentTo =
-        parsedCurrentTo && /^\d{4}-\d{2}-\d{2}$/.test(dateFilter.dateTo ?? '')
-            ? parsedCurrentTo.endOf('day')
-            : (parsedCurrentTo ?? now)
-
-    if (!compareFilter.compare || !currentFrom) {
-        return { currentFrom, currentTo, previousFrom: null, previousTo: null, timezone }
-    }
-
-    const spanMs = Math.max(currentTo.diff(currentFrom), 1)
-    const compareToComponents = dateStringToComponents(compareFilter.compare_to ?? null)
-    const previousFrom = compareToComponents
-        ? componentsToDayJs(compareToComponents, currentFrom, timezone)
-        : currentFrom.subtract(spanMs, 'millisecond')
-    const previousTo = compareToComponents ? previousFrom.add(spanMs, 'millisecond') : currentFrom
-
-    return { currentFrom, currentTo, previousFrom, previousTo, timezone }
 }
 
 export interface ParsedOverviewResponse {
@@ -420,23 +362,6 @@ export const parseMetricCell = (value: unknown): MetricCellValue | null =>
         ? { current: Number(value[0] ?? 0), previous: Number(value[1] ?? 0) }
         : null
 
-/** Shares below 10% get a decimal, so a page holding 0.4% of site traffic doesn't read as 0%. */
-export const formatShare = (part: number, whole: number): string | null => {
-    if (whole <= 0 || part <= 0) {
-        return null
-    }
-    const fraction = part / whole
-    return percentage(fraction, fraction < 0.1 ? 1 : 0)
-}
-
-/** Percent change against the previous period, or null when there is no comparable baseline. */
-export const changeVsPrevious = (current: number, previous: number): number | null => {
-    if (previous === 0) {
-        return null
-    }
-    return current === previous ? 0 : current / previous - 1
-}
-
 const SORTABLE_COLUMNS = new Set([
     'breakdown_value',
     'visitors',
@@ -448,23 +373,6 @@ const SORTABLE_COLUMNS = new Set([
 ])
 const orderByExpr = (column: string): string =>
     `"context.columns.${SORTABLE_COLUMNS.has(column) ? column : 'visitors'}"`
-
-const windowPredicates = (window: PagePerformanceWindow): { cur: string; prev: string; full: string } => {
-    const upperBound = `timestamp <= ${tsLiteral(window.currentTo, window.timezone)}`
-    const cur = window.currentFrom
-        ? `timestamp >= ${tsLiteral(window.currentFrom, window.timezone)} AND ${upperBound}`
-        : upperBound
-    const prev =
-        window.previousFrom && window.previousTo
-            ? `timestamp >= ${tsLiteral(window.previousFrom, window.timezone)} AND timestamp < ${tsLiteral(window.previousTo, window.timezone)}`
-            : 'false'
-    return { cur, prev, full: `(${cur}) OR (${prev})` }
-}
-
-const pageKeyExpr = (pathExpr: string): string => `concat(coalesce(properties.$host, ''), ${pathExpr})`
-
-const pageCandidatesPredicate = (pageKey: string, candidates: string[]): string =>
-    candidates.length > 0 ? `${pageKey} IN (${candidates.map(escapeHogQLString).join(', ')})` : 'false'
 
 /**
  * In the page_durations subquery, `{filters}` matches the carrier event (the NEXT pageview, or the
@@ -594,67 +502,6 @@ WHERE and(
 )
 GROUP BY GROUPING SETS ((bucket), ())
 `
-}
-
-const buildBreakdownQuery = (
-    metric: PagePerformanceMetric,
-    page: string,
-    window: PagePerformanceWindow,
-    pathExpr: string
-): string | null => {
-    const { cur } = windowPredicates(window)
-    const pageMatch = `${pageKeyExpr(pathExpr)} = ${escapeHogQLString(page)}`
-
-    if (metric === 'llm_referrals') {
-        return `
-SELECT
-    coalesce(nullIf(session.$entry_referring_domain, ''), '(direct)') AS "Assistant",
-    uniq(person_id) AS "Visitors"
-FROM events
-WHERE and(${AI_VIEW}, ${pageMatch}, (${cur}), {filters})
-GROUP BY "Assistant"
-ORDER BY "Visitors" DESC
-LIMIT 10
-`
-    }
-    if (metric === 'agent_crawls') {
-        return `
-SELECT
-    \`$virt_bot_name\` AS "Crawler",
-    \`$virt_traffic_category\` AS "Category",
-    count() AS "Requests",
-    max(timestamp) AS "Last seen"
-FROM events
-WHERE and(${CRAWLER}, event IN ${PAGE_PERFORMANCE_EVENTS}, ${pageMatch}, (${cur}), {filters})
-GROUP BY "Crawler", "Category"
-ORDER BY "Requests" DESC
-LIMIT 50
-`
-    }
-    return null
-}
-
-export const buildGoogleSearchConsoleQuery = (
-    tableName: string,
-    page: string,
-    window: PagePerformanceWindow,
-    isPathCleaningEnabled: boolean,
-    pathCleaningFilters: { regex?: string; alias?: string }[] | undefined
-): string => {
-    const gscPath = buildPagePerformancePathExpr('path(page)', isPathCleaningEnabled, pathCleaningFilters)
-    const gscPageKey = `concat(domain(page), ${gscPath})`
-    const dateField = 'toDate(date)'
-    const dateUpperBound = `${dateField} <= toDate(${tsLiteral(window.currentTo, window.timezone)})`
-    const datePredicate = window.currentFrom
-        ? `${dateField} >= toDate(${tsLiteral(window.currentFrom, window.timezone)}) AND ${dateUpperBound}`
-        : dateUpperBound
-
-    return `SELECT query AS "Query", sum(clicks) AS "Clicks", round(avg(position), 1) AS "Avg. position"
-FROM ${escapeDottedHogQLIdentifier(tableName)}
-WHERE ${gscPageKey} = ${escapeHogQLString(page)} AND (${datePredicate})
-GROUP BY query
-ORDER BY sum(clicks) DESC
-LIMIT 20`
 }
 
 export interface pagePerformanceLogicValues {
@@ -814,7 +661,7 @@ export type pagePerformanceLogicType = MakeLogicType<
 export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<pagePerformanceLogicType>([
     props({} as WebAnalyticsLogicProps),
     key((props) => props.context ?? 'web-analytics'),
-    path((key) => ['scenes', key === 'page-visibility' ? 'pageVisibility' : 'webAnalytics', 'pagePerformanceLogic']),
+    path(['scenes', 'webAnalytics', 'pagePerformanceLogic']),
     connect((props: WebAnalyticsLogicProps) => ({
         actions: [dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }), ['reloadAll']],
         values: [

@@ -1471,7 +1471,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate('test-notebook-id', { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(openNotebookSpy).toHaveBeenCalledWith('test-notebook-id', NotebookTarget.Scene, expect.any(Function))
             expect(router.values.location.pathname).toContain(urls.notebook('test-notebook-id'))
@@ -1492,7 +1492,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(findMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
             expect(routerActionsSpy).not.toHaveBeenCalled()
@@ -1510,7 +1510,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(notebookLogicFindMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
             expect(routerActionsSpy).not.toHaveBeenCalled()
@@ -3184,6 +3184,27 @@ describe('maxThreadLogic', () => {
                 pending_approvals: [approval('new', 'pending'), approval('stale', 'auto_rejected')],
             })
             expect(visibleProposal()).toBe('new')
+        })
+
+        it('marks the rest of a pending batch as rejected when the user rejects one card with feedback', async () => {
+            const streamSpy = mockStream()
+            logic.actions.setConversation(MOCK_CONVERSATION)
+            for (const id of ['first', 'second', 'third']) {
+                logic.actions.addPendingApprovalData(approval(id, 'pending'))
+            }
+            logic.actions.setResolvedApprovalStatus('third', 'approved')
+            logic.actions.setPendingApproval('first')
+
+            await expectLogic(logic, () => {
+                logic.actions.continueAfterRejection('first', 'monthly')
+            }).toDispatchActions(['autoRejectPendingApprovals'])
+
+            expect(logic.values.resolvedApprovalStatuses['second']?.status).toBe('auto_rejected')
+            expect(logic.values.resolvedApprovalStatuses['third']?.status).toBe('approved')
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ resume_payload: expect.objectContaining({ action: 'reject' }) }),
+                expect.any(Object)
+            )
         })
 
         it('follows the server for approvals it returns and selects none at turn end without a selection', () => {

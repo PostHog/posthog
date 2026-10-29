@@ -172,6 +172,11 @@ class AmazonAdsDefaultSources(StrEnum):
     AMAZON_ADS = "amazon_ads"
 
 
+class DefaultSort(StrEnum):
+    FIELD_LAST_VIEWED_AT = "-last_viewed_at"
+    FIELD_CREATED_AT = "-created_at"
+
+
 class AnnotationScope(StrEnum):
     DASHBOARD_ITEM = "dashboard_item"
     DASHBOARD = "dashboard"
@@ -572,7 +577,6 @@ class AssistantTool(StrEnum):
     ESTIMATE_REPLAY_VISION_SCANNER = "estimate_replay_vision_scanner"
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
-    SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -1080,6 +1084,7 @@ class CustomChannelOperator(StrEnum):
 class Kind(StrEnum):
     CUSTOM_PROPERTY = "custom_property"
     RELATIONSHIP = "relationship"
+    ACCOUNT_FIELD = "account_field"
 
 
 class DataColorToken(StrEnum):
@@ -1509,14 +1514,6 @@ class PrecomputationMode(StrEnum):
     DIRECT = "direct"
 
 
-class ExperimentSignificanceCode(StrEnum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
-
-
 class ExperimentStatsMethod(StrEnum):
     BAYESIAN = "bayesian"
     FREQUENTIST = "frequentist"
@@ -1526,6 +1523,11 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
+
+
+class ExperimentWarehouseNativeMathType(StrEnum):
+    TOTAL = "total"
+    SUM = "sum"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1581,6 +1583,7 @@ class FileSystemIconType(StrEnum):
     UPTIME_MONITORING = "uptime_monitoring"
     WORKFLOWS = "workflows"
     BROADCASTS = "broadcasts"
+    TRANSACTIONAL = "transactional"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"
@@ -2375,6 +2378,7 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
     ERROR_TRACKING_RELEASES_QUERY = "ErrorTrackingReleasesQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
+    ERROR_TRACKING_ISSUE_EVENTS_QUERY = "ErrorTrackingIssueEventsQuery"
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
@@ -2407,6 +2411,7 @@ class NodeKind(StrEnum):
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
     WEB_AGENT_ANALYTICS_QUERY = "WebAgentAnalyticsQuery"
+    WEB_PAGE_DIRECTORY_QUERY = "WebPageDirectoryQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
@@ -2423,10 +2428,12 @@ class NodeKind(StrEnum):
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
+    EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG = "ExperimentWarehouseNativeExposureConfig"
     EXPERIMENT_ACTORS_QUERY = "ExperimentActorsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_WAREHOUSE_NATIVE_NODE = "ExperimentWarehouseNativeNode"
     EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
@@ -3292,6 +3299,32 @@ class WebAnalyticsPreComputeStrategy(StrEnum):
 class WebBotsBreakdown(StrEnum):
     CRAWLER = "Crawler"
     PATH = "Path"
+
+
+class WebPageDirectoryMetric(StrEnum):
+    VISITORS = "visitors"
+    GOOGLE_SEARCH = "google_search"
+    AI_REFERRALS = "ai_referrals"
+    AI_CRAWLS = "ai_crawls"
+    CONVERSIONS = "conversions"
+    TIME_ON_PAGE = "time_on_page"
+    BOUNCE_RATE = "bounce_rate"
+
+
+class SortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class WebPageDirectorySortBy(StrEnum):
+    PAGE = "page"
+    VISITORS = "visitors"
+    GOOGLE_SEARCH = "google_search"
+    AI_REFERRALS = "ai_referrals"
+    AI_CRAWLS = "ai_crawls"
+    CONVERSIONS = "conversions"
+    TIME_ON_PAGE = "time_on_page"
+    BOUNCE_RATE = "bounce_rate"
 
 
 class WebStatsBreakdown(StrEnum):

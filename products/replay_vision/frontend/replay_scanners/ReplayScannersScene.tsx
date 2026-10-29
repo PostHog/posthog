@@ -322,7 +322,11 @@ export function ReplayScannersScene(): JSX.Element {
                 activeKey={activeTab}
                 onChange={(tab) => push(urls.replayVision(), tab === DEFAULT_TAB ? {} : { tab })}
                 tabs={[
-                    { key: 'watch', label: 'What to watch', content: <></> },
+                    {
+                        key: 'watch',
+                        label: 'Highlights',
+                        content: <></>,
+                    },
                     { key: 'scanners', label: 'Scanners', content: <></> },
                     { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },

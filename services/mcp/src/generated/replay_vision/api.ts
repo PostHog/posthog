@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 52 enabled ops
+ * PostHog API - MCP 51 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -513,6 +513,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1583,6 +1589,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1667,6 +1679,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1750,6 +1768,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -2299,55 +2323,7 @@ export const VisionScannersStatsRetrieveParams = () => zod.object({
 })
 
 /**
- * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
- */
-export const VisionScannersSuggestTagsCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const visionScannersSuggestTagsCreateBodyPromptMax = 10000
-
-export const visionScannersSuggestTagsCreateBodyTagsItemMax = 200
-
-export const visionScannersSuggestTagsCreateBodyTagsMax = 200
-
-export const visionScannersSuggestTagsCreateBodyMultiLabelDefault = true
-export const visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault = false
-
-export const VisionScannersSuggestTagsCreateBody = () => zod
-    .object({
-        prompt: zod
-            .string()
-            .max(visionScannersSuggestTagsCreateBodyPromptMax)
-            .describe("The classifier's instruction prompt — the single dimension to categorize sessions by."),
-        tags: zod
-            .array(zod.string().max(visionScannersSuggestTagsCreateBodyTagsItemMax))
-            .max(visionScannersSuggestTagsCreateBodyTagsMax)
-            .optional()
-            .describe('The categories already configured, so suggestions never duplicate one the user has.'),
-        multi_label: zod
-            .boolean()
-            .default(visionScannersSuggestTagsCreateBodyMultiLabelDefault)
-            .describe('Whether the classifier assigns multiple tags per session.'),
-        allow_freeform_tags: zod
-            .boolean()
-            .default(visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault)
-            .describe('Whether the classifier may emit tags outside the fixed vocabulary.'),
-        scanner_id: zod
-            .string()
-            .nullish()
-            .describe(
-                'Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.'
-            ),
-    })
-    .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')
-
-/**
- * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ * Succeeded observations in the window worth watching, ranked for the Highlights tab.
  */
 export const VisionScannersWatchFeedRetrieveParams = () => zod.object({
     project_id: zod
@@ -2362,7 +2338,17 @@ export const visionScannersWatchFeedRetrieveQueryDateFromDefault = `-7d`
 export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
 export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
 
+export const visionScannersWatchFeedRetrieveQueryOffsetDefault = 0
+export const visionScannersWatchFeedRetrieveQueryOffsetMin = 0
+export const visionScannersWatchFeedRetrieveQueryOffsetMax = 1000
+
 export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
+    as_of: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.'
+        ),
     created_by: zod
         .string()
         .min(1)
@@ -2388,8 +2374,14 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .max(visionScannersWatchFeedRetrieveQueryLimitMax)
         .default(visionScannersWatchFeedRetrieveQueryLimitDefault)
         .describe(
-            'Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.'
+            'Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.'
         ),
+    offset: zod
+        .number()
+        .min(visionScannersWatchFeedRetrieveQueryOffsetMin)
+        .max(visionScannersWatchFeedRetrieveQueryOffsetMax)
+        .default(visionScannersWatchFeedRetrieveQueryOffsetDefault)
+        .describe('How many ranked items to skip. Send `as_of` with every page after the first.'),
     scanner_ids: zod
         .string()
         .min(1)
@@ -2400,13 +2392,6 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             'Restrict the feed to observations from scanners of this type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
-        ),
-    search: zod
-        .string()
-        .min(1)
-        .optional()
-        .describe(
-            "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it."
         ),
     tags: zod
         .string()

@@ -465,7 +465,7 @@ const ViewRunSchema = () => {
     )
 }
 
-const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, unknown> => ({
+const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, WithPostHogUrl<Schemas.SavedQueryRunResponse>> => ({
     name: 'view-run',
     schema: ViewRunSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ViewRunSchema>>) => {
@@ -474,7 +474,13 @@ const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, unknown> => ({
         if (params.full_refresh !== undefined) {
             body['full_refresh'] = params.full_refresh
         }
-        const result = await context.api.request<unknown>({
+        if (params.direction !== undefined) {
+            body['direction'] = params.direction
+        }
+        if (params.engine !== undefined) {
+            body['engine'] = params.engine
+        }
+        const result = await context.api.request<Schemas.SavedQueryRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
             body,

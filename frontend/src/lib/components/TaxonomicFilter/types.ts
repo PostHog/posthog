@@ -10,6 +10,7 @@ import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~
 import {
     ActionFilter,
     ActionType,
+    AnyPropertyFilter,
     CohortType,
     EntityFilter,
     EventDefinition,
@@ -42,8 +43,7 @@ export interface QuickFilterItem {
     eventName?: string
     extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
     /** Set on the collapsed `URL contains "<query>"` row so commit telemetry can
-     *  measure contains-shortcut adoption, matching the rebuild menu's
-     *  `wasUrlContainsShortcut`. */
+     *  measure contains-shortcut adoption (`wasUrlContainsShortcut`). */
     isContainsShortcut?: boolean
 }
 
@@ -69,17 +69,16 @@ export type SelectedProperties = TaxonomicFilterGroupValueMap
 export type AllowedProperties = TaxonomicFilterGroupValueMap
 
 /**
- * Per-group-type **denylist of property-filter operators** the host cannot represent.
- * Acts only on the **Recent tab** — items whose stored operator is denylisted for
- * their source group are hidden so the picker never surfaces a value the
- * surrounding UI can't reproduce.
+ * Per-group rule for hiding property filters the host cannot represent.
+ * Acts only on the Recent tab. A list hides recent filters whose operator it contains.
+ * A callback receives the whole saved filter and returns true to hide it.
  *
  * Pairs with `selectingKeyOnly` when a host wants both (a) no operator/value
  * slot in the row *and* (b) impossible recents kept out of the picker — the two
  * concerns are deliberately separate so callers can use one without the other:
  * - `selectingKeyOnly` decides whether the row renders an operator+value pair
  *   (UI shape concern).
- * - `excludedOperators` decides which stored operators the host is willing to
+ * - `excludedOperators` decides which stored filters the host is willing to
  *   surface in Recent (history concern).
  *
  * NOT the same as `operatorAllowlist` on `OperatorValueSelect` — that's a flat
@@ -87,7 +86,9 @@ export type AllowedProperties = TaxonomicFilterGroupValueMap
  * filter (e.g. survey trigger surfaces only `=` / `contains` regardless of
  * filter type).
  */
-export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOperator[] }
+export type ExcludedOperators = {
+    [key in TaxonomicFilterGroupType]?: PropertyOperator[] | ((filter: AnyPropertyFilter) => boolean)
+}
 
 /**
  * Tells `TaxonomicPropertyFilter` to render a row as key-only — the picked
@@ -189,7 +190,7 @@ export interface TaxonomicFilterProps {
      *  query matches a known autocapture interaction keyword. Consumers must handle
      *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
     enableKeywordShortcuts?: boolean
-    /** Hide recent property filters whose operator is denylisted for their source group, so the
+    /** Hide recent property filters that the `ExcludedOperators` rule for their source group rejects, so the
      *  picker never surfaces a value the surrounding UI can't represent. See `ExcludedOperators`
      *  above for how this differs from `operatorAllowlist` on `OperatorValueSelect`. */
     excludedOperators?: ExcludedOperators
@@ -201,7 +202,7 @@ export interface TaxonomicFilterProps {
      *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
     selectingKeyOnly?: SelectingKeyOnly
     /** Collapse URL-shaped groups (Pageview URLs) to a single `URL contains "<query>"`
-     *  shortcut row instead of listing every matching URL — mirrors the rebuild menu.
+     *  shortcut row instead of listing every matching URL.
      *  Selecting the row commits `$current_url IContains <query>` via a `QuickFilterItem`,
      *  so a host must handle `isQuickFilterItem(item)` in onChange to honor the contains
      *  operator. Only `TaxonomicPropertyFilter` (and the property/universal-filter hosts
@@ -415,8 +416,8 @@ export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
 
 /** Selection types that reopen on their own tab/panel rather than the default "All" surface,
  *  because they're config/edit flows (an expression editor, a data-warehouse table/column
- *  picker) with no simple category value to verify at a glance. Honored by the legacy
- *  `activeTab` selector and the rebuild menu's `activeChip` initializer alike. */
+ *  picker) with no simple category value to verify at a glance. Honored by the
+ *  `activeTab` selector. */
 export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.DataWarehouse,

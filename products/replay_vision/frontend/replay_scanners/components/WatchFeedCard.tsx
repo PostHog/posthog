@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconFlag } from '@posthog/icons'
-import { LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconFlag, IconPlayFilled } from '@posthog/icons'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -15,124 +15,47 @@ import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { scannerTypeIcon } from '../../components/ScannerTypeBadge'
 import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type {
-    JevWatchReasonEnumApi,
     ReplayObservationApi,
+    WatchFeedCategoryEnumApi,
     WatchFeedItemApi,
     WatchFeedReasonApi,
 } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
+import { hasScannerPage, scannerLabel } from '../../utils/observation'
 import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
 import { CARD_SEEN_DWELL_MS, cardProperties } from '../watchFeedTelemetry'
 import { WatchFeedDismissButton } from './WatchFeedDismissButton'
+import { WatchFeedGroupList, WatchFeedGroupToggle } from './WatchFeedGroup'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
 export const FILLER_REASON_KINDS = new Set(['unviewed_recent', 'recent'])
 
-const roundScore = (value: number): number => Math.round(value * 100) / 100
-
-const PROBLEM_TYPE_LABELS: Record<string, string> = {
-    bug: 'bug',
-    crash: 'crash',
-    design_flaw: 'design flaw',
-    ux_friction: 'UX friction',
+const WATCH_CATEGORY_COPY: Record<WatchFeedCategoryEnumApi, string> = {
+    failure: 'Something failed in this session.',
+    struggle: 'The user struggled in this session.',
+    revenue: 'This session touches billing or a plan limit.',
 }
 
-const problemTypeLabel = (problemType: string): string =>
-    PROBLEM_TYPE_LABELS[problemType] ?? problemType.replace(/_/g, ' ')
-
-// A card lists the findings on one line, so it names the first few and counts the rest.
-const MAX_SHOWN_HEADLINES = 3
-
-const joinWithAnd = (parts: string[]): string =>
-    parts.length > 1 ? `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}` : parts[0]
-
-/** What the reason kind says about the session. Never the scan's notability sentence: the row's title
- * already leads with it. */
+/** What the reason kind says about the session. */
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     switch (reason.kind) {
-        case 'signal_emitted': {
-            const total = reason.signals_count ?? 0
-            const signals = reason.signals ?? []
-            const problemTypes =
-                signals.length > 0 ? signals.map((signal) => signal.problem_type) : (reason.problem_types ?? [])
-            if (problemTypes.length === 0) {
-                return total > 1
-                    ? `The scanner raised ${total} signals from this session.`
-                    : 'The scanner raised a signal from this session.'
+        case 'embedding_pick': {
+            const category = reason.watch_category
+                ? WATCH_CATEGORY_COPY[reason.watch_category]
+                : 'This session stands out for this scanner.'
+            const people = reason.affected_people ?? 1
+            if (people > 1) {
+                return `${category} ${people} people had a similar session.`
             }
-            // Count each problem type, keeping the order the scan first raised them.
-            const order: string[] = []
-            const countByType = new Map<string, number>()
-            for (const problemType of problemTypes) {
-                if (!countByType.has(problemType)) {
-                    order.push(problemType)
-                }
-                countByType.set(problemType, (countByType.get(problemType) ?? 0) + 1)
+            const similar = reason.similar_count ?? 0
+            if (similar === 0) {
+                return category
             }
-            // Sessions scanned before headlines shipped carry the types alone, so those cards still count.
-            if (signals.length === 0) {
-                if (order.length === 1) {
-                    const label = problemTypeLabel(order[0])
-                    return total > 1
-                        ? `The scanner raised ${total} ${label} signals from this session.`
-                        : `The scanner raised a ${label} signal from this session.`
-                }
-                const breakdown = order
-                    .map((problemType) => {
-                        const n = countByType.get(problemType) ?? 0
-                        return `${n} ${problemTypeLabel(problemType)} signal${n === 1 ? '' : 's'}`
-                    })
-                    .join(', ')
-                return `The scanner raised ${total} signals from this session: ${breakdown}.`
-            }
-            const shown = signals.slice(0, MAX_SHOWN_HEADLINES)
-            // Against the count, not the named list: the backend drops a finding whose headline came back
-            // blank, so the card can hold fewer names than the session raised signals.
-            const hidden = Math.max(total, signals.length) - shown.length
-            if (order.length === 1) {
-                const label = problemTypeLabel(order[0])
-                const named = shown.map((signal) => signal.headline)
-                const listed = joinWithAnd(hidden > 0 ? [...named, `${hidden} more`] : named)
-                return total > 1
-                    ? `The scanner raised ${total} ${label} signals from this session: ${listed}.`
-                    : `The scanner raised a ${label} signal from this session: ${listed}.`
-            }
-            const groups = order.map((problemType) => {
-                const n = countByType.get(problemType) ?? 0
-                const named = shown
-                    .filter((signal) => signal.problem_type === problemType)
-                    .map((signal) => signal.headline)
-                const label = `${n} ${problemTypeLabel(problemType)}`
-                return named.length > 0 ? `${label} (${named.join(', ')})` : label
-            })
-            const listed = joinWithAnd(hidden > 0 ? [...groups, `${hidden} more`] : groups)
-            return `The scanner raised ${total} signals from this session: ${listed}.`
+            return `${category} ${similar} other session${similar === 1 ? ' from this scanner looks' : 's from this scanner look'} similar.`
         }
-        case 'unusual_verdict':
-            return reason.verdict
-                ? `The scanner answered ${reason.verdict}, which is rare for it in this window.`
-                : 'The scanner gave a rare answer for this window.'
-        case 'verdict_yes':
-            return 'The scanner answered yes for this session.'
-        case 'outlier_score':
-            return reason.score != null && reason.window_mean != null
-                ? `Scored ${roundScore(reason.score)}, far from this scanner's recent average of ${roundScore(reason.window_mean)}.`
-                : "Scored far from this scanner's recent average."
-        case 'rare_tag':
-            return reason.tag
-                ? `Tagged "${reason.tag}", which is uncommon for this scanner lately.`
-                : 'Tagged something uncommon for this scanner lately.'
-        case 'novel_summary':
-            return "Reads unlike this scanner's other sessions in this window."
-        case 'notable':
-            return 'The scanner judged this session worth watching.'
-        case 'friction':
-            return 'The session shows signs of friction, like errors, retries, or dead ends.'
-        case 'jev_watchable':
-            return 'The decision model judged this session worth watching.'
         case 'unviewed_recent':
             return 'New since you last looked.'
         case 'recent':
@@ -155,6 +78,14 @@ export function observationKeyMomentMs(observation: ReplayObservationApi): numbe
 /** Where the player starts: a short lead-in before the key moment, or the recording's start without one. */
 export function watchStartSeconds(keyMomentMs: number | null): number {
     return keyMomentMs === null ? 0 : Math.max(0, Math.floor(keyMomentMs / 1000) - KEY_MOMENT_LEAD_IN_S)
+}
+
+/** The observation page. `t` is always set, so the player opens expanded, and `from` makes the back button return to the feed. */
+export function watchFeedObservationUrl(observation: ReplayObservationApi): string {
+    return combineUrl(urls.replayVisionObservation(observation.id), {
+        t: watchStartSeconds(observationKeyMomentMs(observation)),
+        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
+    }).url
 }
 
 /**
@@ -210,11 +141,9 @@ interface WatchFeedRowProps {
 function WatchCardPerson({
     observation,
     person,
-    children,
 }: {
     observation: ReplayObservationApi
     person: string | null | undefined
-    children?: React.ReactNode
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
@@ -232,28 +161,19 @@ function WatchCardPerson({
                 ))}
             {person && <span aria-hidden>·</span>}
             <TZLabel time={observation.created_at} className="shrink-0" />
-            {children && <span aria-hidden>·</span>}
-            {children}
         </div>
     )
 }
 
-/**
- * The one sentence a row leads with when the scan wrote no short title. The scan's notability
- * sentence names the finding, so it outranks prose derived from the result; the derived headline
- * covers scans from before notability shipped, and the scanner's name covers scans with no prose at all.
- */
-export function watchFeedRowSentence(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string {
-    if (reason.notability_reason) {
-        return reason.notability_reason
-    }
+/** The one sentence a row leads with when the scan wrote no short title, or the scanner's name for scans with no prose at all. */
+export function watchFeedRowSentence(observation: ReplayObservationApi): string {
     const headline = watchCardHeadline(observation)
-    return headline?.title ?? ((observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)')
+    return headline?.title ?? scannerLabel(observation)
 }
 
 /**
- * The scanner behind a row: a circle in its type's color, then its name. Clicking it narrows the
- * feed to that scanner. The tooltip carries the scanner's question and verdict.
+ * The scanner behind a row: a circle in its type's color, then its name. Clicking it opens the
+ * scanner. The tooltip carries the scanner's question and verdict.
  */
 function WatchFeedScannerLink({
     observation,
@@ -264,8 +184,21 @@ function WatchFeedScannerLink({
     scannerName: string
     scannerType: ScannerType | undefined
 }): JSX.Element {
-    const { setScannerIdsFilter } = useActions(watchFeedLogic)
     const verdict = readResult(observation)?.verdict
+    const linked = hasScannerPage(observation)
+    const chip = (
+        <>
+            {scannerType && (
+                <LemonTag
+                    type={SCANNER_TYPE_TAG_TYPE[scannerType]}
+                    className="size-6 shrink-0 justify-center !rounded-full !p-0"
+                >
+                    {scannerTypeIcon(scannerType)}
+                </LemonTag>
+            )}
+            <span className="truncate font-medium">{scannerName}</span>
+        </>
+    )
     return (
         <Tooltip
             title={
@@ -277,57 +210,34 @@ function WatchFeedScannerLink({
                             {typeof verdict === 'string' && verdict ? ` Answered ${verdict}.` : ''}
                         </span>
                     )}
-                    <span className="italic">Click to show only this scanner's sessions</span>
+                    {linked && <span className="italic">Click to open this scanner</span>}
                 </div>
             }
         >
-            <button
-                type="button"
-                onClick={() => setScannerIdsFilter([observation.scanner_id])}
-                className="relative z-10 flex max-w-full min-w-0 cursor-pointer items-center gap-2 self-start text-sm text-secondary hover:text-default"
-                data-attr="vision-watch-feed-scanner-chip"
-            >
-                {scannerType && (
-                    <LemonTag
-                        type={SCANNER_TYPE_TAG_TYPE[scannerType]}
-                        className="size-6 shrink-0 justify-center !rounded-full !p-0"
-                    >
-                        {scannerTypeIcon(scannerType)}
-                    </LemonTag>
-                )}
-                <span className="truncate font-medium">{scannerName}</span>
-            </button>
+            {/* A one-off scan has no scanner page, so its chip names the scan without linking anywhere. */}
+            {linked ? (
+                <Link
+                    to={urls.replayVision(observation.scanner_id)}
+                    subtle
+                    className="relative z-10 flex max-w-full min-w-0 items-center gap-2 self-start text-sm text-secondary hover:text-default"
+                    data-attr="vision-watch-feed-scanner-chip"
+                >
+                    {chip}
+                </Link>
+            ) : (
+                <span className="relative z-10 flex max-w-full min-w-0 items-center gap-2 self-start text-sm text-secondary">
+                    {chip}
+                </span>
+            )}
         </Tooltip>
     )
-}
-
-/** The sentence that says why a row was picked, for each reason Jev can pick from its fixed list. */
-const JEV_WATCH_REASON_COPY: Record<JevWatchReasonEnumApi, string> = {
-    visible_error: 'The user saw an error message or a failed action in this session.',
-    silent_failure: "Something the user did didn't take effect, and nothing told them.",
-    unresponsive: "The user clicked on something that didn't respond.",
-    slow_or_stuck: 'The page was slow to load or got stuck while the user waited.',
-    blocked: "The user hit a dead end they couldn't get past.",
-    cant_find: "The user searched for something and couldn't find it.",
-    confused: 'The user seemed unsure how something worked and went back and forth.',
-    workaround: 'The user gave up on the usual path and found another way to finish.',
-    abandoned: 'The user started a task and left without finishing it.',
-    churn_signal: 'The user showed signs of churn or downgrading in this session.',
-    success: 'The user reached their goal smoothly, a good example of the product working.',
-}
-
-/** Why a row was picked: Jev's pick when it gave one, otherwise what the reason kind says, so both
- * ranker arms explain each row. */
-export function watchFeedRowWhy(reason: WatchFeedReasonApi): string {
-    // A value this build does not know (the backend list grew first) falls back to the kind's copy.
-    return (reason.watch_reason && JEV_WATCH_REASON_COPY[reason.watch_reason]) || watchReasonCopy(reason)
 }
 
 /**
  * The title of a row. A summarizer's authored title is already short, so it leads. Other scans
  * lead with watchFeedRowSentence.
  */
-export function watchFeedRowTitle(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string {
+export function watchFeedRowTitle(observation: ReplayObservationApi): string {
     const result = readResult(observation)
     const scannerType =
         (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
@@ -335,18 +245,17 @@ export function watchFeedRowTitle(observation: ReplayObservationApi, reason: Wat
     if (scannerType === 'summarizer' && typeof result?.title === 'string' && result.title) {
         return result.title
     }
-    return watchFeedRowSentence(observation, reason)
+    return watchFeedRowSentence(observation)
 }
 
 /**
- * One feed row, laid out like a video search result: a large key-moment poster, then a title, the
- * reason Jev picked the session when it gave one, the scanner, and the person and time. Both ranker
- * arms render it, so the experiment compares rankings, not layouts. The whole row opens the
- * observation page, which starts the player at the key moment.
+ * One feed row, laid out as a post: who and where on top, then the title and the reason it was
+ * picked, then the key-moment poster and a button that starts the player there. The whole card
+ * opens the observation page.
  */
 export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element {
     const { observation, reason } = item
-    const { feedLoad } = useValues(watchFeedLogic)
+    const { feedLoad, dateFrom } = useValues(watchFeedLogic)
     const { cardSeen, dismissItem } = useActions(watchFeedLogic)
     const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
     const result = readResult(observation)
@@ -354,17 +263,20 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const scannerType =
         (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
         (result?.scanner_type as ScannerType | undefined)
-    const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
+    const scannerName = scannerLabel(observation)
     const person = observation.recording_subject_email || observation.distinct_id
     const keyMomentMs = observationKeyMomentMs(observation)
-    // `t` is always set, so the observation page opens with the player expanded. `from` marks the feed as
-    // the origin, so the observation's back button returns here rather than the scanner.
-    const observationUrl = combineUrl(urls.replayVisionObservation(observation.id), {
-        t: watchStartSeconds(keyMomentMs),
-        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
-    }).url
-    const title = watchFeedRowTitle(observation, reason)
+    const observationUrl = watchFeedObservationUrl(observation)
+    const title = watchFeedRowTitle(observation)
     const filler = FILLER_REASON_KINDS.has(reason.kind)
+    const similarCount = reason.kind === 'embedding_pick' ? (reason.similar_count ?? 0) : 0
+    const groupProps = {
+        observationId: observation.id,
+        scannerId: observation.scanner_id,
+        dateFrom,
+        similarCount,
+        cardContext: cardProperties(feedLoad, item, position, 'feed_tab'),
+    }
     const captureOpened = (): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
             ...cardProperties(feedLoad, item, position, 'feed_tab'),
@@ -374,20 +286,25 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
         })
     }
     return (
-        <article ref={rowRef} className="group relative flex min-w-0 gap-4" data-attr="vision-watch-feed-row">
-            <div className="relative w-36 shrink-0 self-start overflow-hidden rounded-lg border group-hover:border-accent group-focus-within:border-accent @xl:w-80">
-                {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
-                <ObservationThumbnail observation={observation} className="rounded-none border-0" />
-                {!observation.viewed && (
-                    <UnviewedObservationTag className="absolute top-2 left-2 z-10 pointer-events-none" />
-                )}
-                {keyMomentMs !== null && (
-                    <span className="absolute bottom-2 right-2 z-10 rounded bg-black/70 px-1.5 text-xs tabular-nums text-white">
-                        {colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null)}
-                    </span>
-                )}
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+        <article
+            ref={rowRef}
+            className="group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4 hover:border-accent focus-within:border-accent"
+            data-attr="vision-watch-feed-row"
+        >
+            <header className="flex min-w-0 items-center gap-2">
+                <WatchFeedScannerLink observation={observation} scannerName={scannerName} scannerType={scannerType} />
+                <span className="text-xs text-muted" aria-hidden>
+                    ·
+                </span>
+                <div className="min-w-0 flex-1">
+                    <WatchCardPerson observation={observation} person={person} />
+                </div>
+                <WatchFeedDismissButton
+                    className="relative z-10 shrink-0"
+                    onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)}
+                />
+            </header>
+            <div className="flex min-w-0 flex-col gap-1">
                 <Link
                     to={observationUrl}
                     onClick={captureOpened}
@@ -402,30 +319,41 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                         {title}
                     </h3>
                 </Link>
-                <WatchFeedScannerLink observation={observation} scannerName={scannerName} scannerType={scannerType} />
-                <WatchCardPerson observation={observation} person={person}>
-                    <WatchFeedDismissButton
-                        className="relative z-10 -my-1"
-                        onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)}
-                    />
-                </WatchCardPerson>
-                {/* A short rule rather than a full-width line: rows carry no card, so a full line reads as
-                    the border between two rows. */}
-                <div className="mt-1 flex flex-col gap-2" data-attr="vision-watch-feed-why">
-                    <LemonDivider className="m-0 w-36" />
-                    <p className="m-0 flex items-start gap-1.5 text-sm text-secondary">
-                        <Tooltip title="Why this recording">
-                            <span className="mt-0.5 flex shrink-0">
-                                <IconFlag className="text-accent" aria-hidden />
-                            </span>
-                        </Tooltip>
-                        <span className="line-clamp-2">
-                            <span className="sr-only">Why this recording: </span>
-                            {watchFeedRowWhy(reason)}
+                <p className="m-0 flex items-start gap-1.5 text-sm text-secondary" data-attr="vision-watch-feed-why">
+                    <Tooltip title="Why this recording">
+                        <span className="mt-0.5 flex shrink-0">
+                            <IconFlag className="text-accent" aria-hidden />
                         </span>
-                    </p>
-                </div>
+                    </Tooltip>
+                    <span className="line-clamp-3">
+                        <span className="sr-only">Why this recording: </span>
+                        {watchReasonCopy(reason)}
+                    </span>
+                </p>
             </div>
+            {/* Clicks pass through the poster to the card's link, which sits beneath it. */}
+            <div className="pointer-events-none relative overflow-hidden rounded-md border">
+                {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
+                <ObservationThumbnail observation={observation} className="rounded-none border-0" />
+                {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
+            </div>
+            <footer className="flex items-center gap-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconPlayFilled />}
+                    to={observationUrl}
+                    onClick={captureOpened}
+                    className="relative z-10"
+                    data-attr="vision-watch-feed-row-watch"
+                >
+                    {keyMomentMs !== null
+                        ? `Watch from ${colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null)}`
+                        : 'Watch session'}
+                </LemonButton>
+                {similarCount > 0 && <WatchFeedGroupToggle {...groupProps} />}
+            </footer>
+            {similarCount > 0 && <WatchFeedGroupList {...groupProps} />}
         </article>
     )
 }

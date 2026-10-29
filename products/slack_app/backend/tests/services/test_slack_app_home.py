@@ -62,6 +62,7 @@ from products.slack_app.backend.services.slack_app_home import (
     AccountState,
     GitHubAccount,
     GitHubState,
+    OwnPlanState,
     ProjectChoice,
     ProjectState,
     RunDefaultsState,
@@ -478,8 +479,25 @@ class TestRenderHomeView:
             untagged_question_mode=UntaggedFollowupMode.ASK,
             channel_welcome_mode=ChannelWelcomeMode.CHANNEL,
             auto_model_choice=auto_model_choice,
+            own_plan=OwnPlanState(connected=True, settings_url="https://app.example.com/settings"),
             thread_join_mode=ThreadJoinMode.ASK_PER_THREAD,
         )
+
+    @pytest.mark.parametrize(
+        "connected, in_multiplayer, connect_link",
+        [(True, True, False), (False, False, True)],
+    )
+    def test_a_connected_plan_is_described_under_multiplayer(self, connected, in_multiplayer, connect_link):
+        # People who join spend the creator's plan, so the plan belongs with who may join.
+        view = render_home_view(
+            is_admin=False,
+            own_plan=OwnPlanState(connected=connected, settings_url="https://app.example.com/settings"),
+        )
+        text = _all_text(view)
+
+        assert ("Multiplayer" in text) is in_multiplayer
+        assert ("use your ChatGPT plan, also when other people join your thread" in text) is in_multiplayer
+        assert ("Connect your ChatGPT plan" in text) is connect_link
 
     def test_every_control_the_tab_renders_is_routable(self):
         # The interactivity endpoint claims region ownership and dispatches off
@@ -1261,22 +1279,33 @@ class TestHandleAppHomeOpened:
         assert mock_capture.call_args.args[1] == "slack app home opened"
         assert mock_capture.call_args.kwargs["posthog_user"] == opener
 
-    @pytest.mark.parametrize("flag_on_for_viewer", [True, False])
-    def test_multiplayer_section_follows_its_flag(
-        self, slack_integration, mock_slack_client, flag_on, admin_user, flag_on_for_viewer
+    @pytest.mark.parametrize("viewer_linked", [True, False])
+    def test_multiplayer_section_shows_only_to_a_linked_viewer(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, viewer_linked
     ):
+        if viewer_linked:
+            opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+            SlackUserProfileCache.objects.create(
+                integration=slack_integration, slack_user_id="U001", email=opener.email
+            )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is viewer_linked
+        assert ("Multiplayer" in _all_text(view)) is viewer_linked
+
+    def test_join_picker_shows_without_the_plan_card(self, slack_integration, mock_slack_client, flag_on, admin_user):
+        # Who may join a thread is not a plan feature, so closing the BYOS gate must not hide it.
         opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
         SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
 
-        with patch(
-            "products.slack_app.backend.services.slack_app_home.is_slack_app_multiplayer_approvals_enabled",
-            return_value=flag_on_for_viewer,
-        ):
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_app_byos_enabled", return_value=False):
             handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
 
         view = mock_slack_client.views_publish.call_args.kwargs["view"]
-        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is flag_on_for_viewer
-        assert ("Multiplayer" in _all_text(view)) is flag_on_for_viewer
+        assert ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)
+        assert "ChatGPT plan" not in _all_text(view)
 
     def _github_row(self, user: User, login: str) -> UserIntegration:
         return UserIntegration.objects.create(

@@ -1,15 +1,15 @@
 {
     "repository": "https://github.com/PostHog/posthog-sdk-test-harness",
-    "release": null,
-    "commit": "6c4182b71d8021fcb10919a6c20825413cbef3dc",
+    "release": "1.22.0",
+    "commit": "17d861f8e230fe943934d70e3eebf5cff6bf3aa4",
     "path": "contracts/feature_flag_rules_v2",
-    "contract_version": "3.0.0",
+    "contract_version": "7.0.0",
     "files": {
         "corpus/hash_sha1_60_v1.json": "e9bea9cff58bac0c6c1021e9c8842c53594055b6874a2c58bc4350d0c28a93ca",
         "corpus/legacy_projection.json": "536c8386eefa75721d113bd8718ddeb7fb1aad3b4f2cce1fbcf516a346a16e26",
         "corpus/v1_evaluation.json": "752ff88dcb943ab1e21f9552b0c4ec606029393fca2b565b01a497da89cd8675",
         "corpus/v2_boolean_evaluation.json": "2d2a4be5f7185445f6d6593533fe105e436bade1becc3e3b15ff380a8da477bb",
-        "corpus/v2_experiment_evaluation.json": "28ed98efed5b58134dc93af3d667f37c15c120dba38cbe36dd1997c8454fe437",
+        "corpus/v2_experiment_evaluation.json": "5d6049002aefa7b41b456dba6f2298ae61907e3ee49f0306e120bf075e0058f6",
         "corpus/v2_value_evaluation.json": "aaddd05e47fc5a4ae07ea42ada5a659798f4b5fc8d0c0827f6a68e4daf68c128",
         "fixtures/config/invalid/assign_by_not_person.json": "52d356d2bcdcbf705b0fe2673eb147ac352bda13c9b1bc3d53c4bbb1cb01a5aa",
         "fixtures/config/invalid/default_value_type_mismatch.json": "516e72b6bd9f761de62166457528242723694f86e417b1aee6eb37b924acc4b5",
@@ -54,12 +54,12 @@
         "fixtures/config/valid/string_group_assignment.json": "414987b3d374fc5fc2d912616cadce8241be9b346d66d6cf4945ca69c169354d",
         "fixtures/config/valid/version_float_literal.json": "a848ae2e3e0dd2119600bb90ebbcba59040b3bb788586ba127a57eab1848a403",
         "fixtures/wire/definitions.json": "894f37aaf7e6b360ca36e0b5beb5645abd8782dc9a09eb1f76db64285d02fe6d",
-        "fixtures/wire/responses.json": "5995db3a23667a58aaefb050779c7b0fe3ff154e821729408d4e6c138a7535b1",
-        "manifest.json": "6a9c0beffc378afafc1fe67f51297ff51252d2f293d59a1c835cbbaa91d80354",
+        "fixtures/wire/responses.json": "39aa62e340d66903e2fe86da226e622979c7dbc2efbf2b32afd040248a707c61",
+        "manifest.json": "90d99c41300e8067117648ad5b7591c9864a35d38e61f06f02690b79f067ec18",
         "registries/literals.json": "3e87e6c7c760f0ebac80289faa5412a6ecd17749cb5c79dabe5ed1efaea22578",
         "schemas/config.schema.json": "163507e0db1219329caef034a50516d27eb5759b5e4c250f313ceb53ca3f1e08",
         "schemas/definitions_entry.schema.json": "6d920c77fb7f20c2031dc188d495ed28c3789b3f362334517a2e86021a226e85",
-        "schemas/flags_response_v3.schema.json": "15e18f44616b98a2ec9a9a0b446aac2235ee0bdc87353e909eb7444b01b7b447",
-        "schemas/flags_response_v3_presence.schema.json": "987a07ed66fcae1b1e1e0e55e175c11ae1939af1818c18bd9d93551901ea26a7"
+        "schemas/flags_response_v4.schema.json": "8059289e3b8e0c9f78d568951b272040977633723cf916dbdd9073da4ee362af",
+        "schemas/flags_response_v4_presence.schema.json": "10746030358ed35785ac50ae4b58a02b8f33ee74f4ddb3205d6bb4815e65b122"
     }
 }

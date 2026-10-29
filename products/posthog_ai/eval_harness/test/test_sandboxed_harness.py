@@ -31,8 +31,14 @@ from products.posthog_ai.eval_harness.harness.providers import (
     SandboxProviderStrategy,
 )
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
-from products.tasks.backend.facade.agents import MultiTurnSession, TurnPollResult, TurnPollTimeout
+from products.tasks.backend.facade.agents import (
+    CustomPromptSandboxContext,
+    MultiTurnSession,
+    TurnPollResult,
+    TurnPollTimeout,
+)
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO
+from products.tasks.backend.logic.services import custom_prompt_internals
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
 
@@ -80,6 +86,29 @@ class _Provider(SandboxProviderStrategy):
 
 
 _TASK_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "system_prompt",
+    [None, {"type": "preset", "preset": "claude_code", "append": "Test surface instructions"}],
+)
+async def test_surface_prompt_reaches_task_run_state(
+    monkeypatch: pytest.MonkeyPatch, system_prompt: dict[str, str] | None
+) -> None:
+    task = MagicMock(id=_TASK_ID, team_id=25)
+    task.latest_run = MagicMock(id=UUID("00000000-0000-0000-0000-000000000002"))
+    create = MagicMock(return_value=task)
+    monkeypatch.setattr(custom_prompt_internals.Team.objects, "get", MagicMock(return_value=MagicMock(id=25)))
+    monkeypatch.setattr(custom_prompt_internals.Task, "create_and_run", create)
+
+    await runner.create_task_and_trigger(
+        "prompt", CustomPromptSandboxContext(team_id=25, user_id=26, system_prompt=system_prompt)
+    )
+
+    assert create.call_args.kwargs["extra_run_state"] == (
+        {"systemPrompt": system_prompt} if system_prompt is not None else {}
+    )
 
 
 def _patch_runner_boundaries(monkeypatch: pytest.MonkeyPatch, handle: _FakeWorkflowHandle, poll: AsyncMock) -> None:
@@ -228,6 +257,17 @@ def test_eval_run_exit_status(
         assert "SUITE START" not in output
     else:
         assert f"Status: {'PASS' if expected_exit_code == 0 else 'FAIL'}" in output
+
+
+def test_eval_run_rejects_overwriting_its_snapshot_input(tmp_path: Path) -> None:
+    report = tmp_path / "results.json"
+    report.write_text('{"saved": true}')
+    harness = SandboxedEvalHarness(parse_args(["--skill-snapshot-report", str(report), "--results-file", str(report)]))
+
+    with pytest.raises(lifecycle.PreflightError, match="must use different paths"):
+        harness.run()
+
+    assert report.read_text() == '{"saved": true}'
 
 
 @pytest.mark.asyncio

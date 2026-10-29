@@ -54,12 +54,20 @@ pub enum Event {
         timestamp_ms: i64,
         record: Record,
     },
+    /// A row outside the person sample, which still moves the watermark.
+    Skipped {
+        topic: Topic,
+        partition: i32,
+        timestamp_ms: i64,
+    },
 }
 
 impl Event {
     pub fn topic(&self) -> Topic {
         match self {
-            Event::Assigned { topic, .. } | Event::Arrival { topic, .. } => *topic,
+            Event::Assigned { topic, .. }
+            | Event::Arrival { topic, .. }
+            | Event::Skipped { topic, .. } => *topic,
         }
     }
 }
@@ -83,6 +91,7 @@ pub struct JoinConfig {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ObserveReport {
     pub filtered: bool,
+    pub sampled_out: bool,
     pub version_tie: Option<Side>,
     pub merge_conflict: Option<Side>,
     /// Whether the merge event sits on the partition its key selects.
@@ -280,6 +289,15 @@ impl Join {
                 self.progress.entry(topic).or_default().partition_count = Some(partitions);
                 return report;
             }
+            Event::Skipped {
+                topic,
+                partition,
+                timestamp_ms,
+            } => {
+                self.record_progress(topic, partition, timestamp_ms, now);
+                report.sampled_out = true;
+                return report;
+            }
             Event::Arrival {
                 topic,
                 partition,
@@ -288,17 +306,7 @@ impl Join {
             } => (topic, partition, timestamp_ms, record),
         };
 
-        let progress = self.progress.entry(topic).or_default();
-        let partition_count = progress.partition_count;
-        let seen = progress
-            .partitions
-            .entry(partition)
-            .or_insert(PartitionProgress {
-                max_timestamp_ms: timestamp_ms,
-                last_seen: now,
-            });
-        seen.max_timestamp_ms = seen.max_timestamp_ms.max(timestamp_ms);
-        seen.last_seen = now;
+        let partition_count = self.record_progress(topic, partition, timestamp_ms, now);
 
         let team_id = match &record {
             Record::Mapping(row) => row.team_id,
@@ -366,6 +374,27 @@ impl Join {
             }
         }
         report
+    }
+
+    /// Returns the topic's partition count, which places merge keys.
+    fn record_progress(
+        &mut self,
+        topic: Topic,
+        partition: i32,
+        timestamp_ms: i64,
+        now: Instant,
+    ) -> Option<u32> {
+        let progress = self.progress.entry(topic).or_default();
+        let seen = progress
+            .partitions
+            .entry(partition)
+            .or_insert(PartitionProgress {
+                max_timestamp_ms: timestamp_ms,
+                last_seen: now,
+            });
+        seen.max_timestamp_ms = seen.max_timestamp_ms.max(timestamp_ms);
+        seen.last_seen = now;
+        progress.partition_count
     }
 
     fn warmup_until(&mut self, watermark: i64) -> i64 {
@@ -855,6 +884,29 @@ mod tests {
             .expect("a properties sample");
         assert_eq!(mismatch["person_uuid"], uuid(2).to_string());
         assert_eq!(mismatch["differing_properties"], json!(["a", "b"]));
+    }
+
+    #[test]
+    fn rows_outside_the_person_sample_still_move_the_watermark() {
+        let t0 = Instant::now();
+        let mut join = join(usize::MAX, None);
+        join.observe(person(Side::Node, 1_000, 1, "{}"), t0);
+        join.observe(person(Side::Node, 70_000, 2, "{}"), t0);
+        let report = join.observe(
+            Event::Skipped {
+                topic: topic(Side::Personhog, Kind::Persons),
+                partition: 0,
+                timestamp_ms: 70_000,
+            },
+            t0,
+        );
+        assert!(report.sampled_out);
+
+        let report = join.settle(t0);
+        assert_eq!(
+            report.person_outcomes,
+            BTreeMap::from([(PersonOutcome::NodeOnly, 1)])
+        );
     }
 
     // Nothing settles until the slower feed passes the grace; the merge

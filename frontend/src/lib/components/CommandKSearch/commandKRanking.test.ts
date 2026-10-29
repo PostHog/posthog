@@ -39,6 +39,14 @@ describe('commandKRanking', () => {
         expect(rankLocalItem(query, name, aliases)?.matchedAlias).toEqual(alias)
     })
 
+    test.each([
+        { query: 'metrics', other: 'Data catalog', aliases: ['semantic layer', 'metrics'] },
+        { query: 'mertics', other: 'Shared metrics', aliases: [] },
+    ])('ranks Metrics above $other for $query', ({ query, other, aliases }) => {
+        const metrics = rankLocalItem(query, 'Metrics', ['time series'])?.rank ?? []
+        expect(compareRanks(metrics, rankLocalItem(query, other, aliases)?.rank ?? [])).toBeLessThan(0)
+    })
+
     it('matches a plural query to a singular name without a typo', () => {
         expect(strictLocalMatches([{ name: 'Survey' }, { name: 'Surveyed users' }], 'surveys')).toEqual([
             { name: 'Survey' },

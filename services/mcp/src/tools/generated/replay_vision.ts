@@ -391,6 +391,7 @@ const visionObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1267,6 +1268,7 @@ const visionScannersObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1313,6 +1315,7 @@ const visionScannersObservationsList = (): ToolBase<
                     triggered_by: params.triggered_by,
                     variant: params.variant,
                     verdict: params.verdict,
+                    watch_group: params.watch_group,
                 },
             })
             return withTextProjection(
@@ -1371,6 +1374,7 @@ const visionScannersObservationsStats = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1539,44 +1543,6 @@ const visionScannersSelfDrivingStats = (): ToolBase<
     },
 })
 
-const VisionScannersSuggestTagsSchema = () => {
-    const VisionScannersSuggestTagsCreateBody = orvalSchemas.VisionScannersSuggestTagsCreateBody()
-    return VisionScannersSuggestTagsCreateBody
-}
-
-const visionScannersSuggestTags = (): ToolBase<
-    ReturnType<typeof VisionScannersSuggestTagsSchema>,
-    Schemas.SuggestTagsResponse
-> => ({
-    name: 'vision-scanners-suggest-tags',
-    schema: VisionScannersSuggestTagsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersSuggestTagsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.multi_label !== undefined) {
-            body['multi_label'] = params.multi_label
-        }
-        if (params.allow_freeform_tags !== undefined) {
-            body['allow_freeform_tags'] = params.allow_freeform_tags
-        }
-        if (params.scanner_id !== undefined) {
-            body['scanner_id'] = params.scanner_id
-        }
-        const result = await context.api.request<Schemas.SuggestTagsResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/suggest_tags/`,
-            body,
-        })
-        return result
-    },
-})
-
 const VisionScannersUpdateSchema = () => {
     const VisionScannersPartialUpdateBody = orvalSchemas.VisionScannersPartialUpdateBody()
     const VisionScannersPartialUpdateParams = orvalSchemas.VisionScannersPartialUpdateParams()
@@ -1690,13 +1656,14 @@ const visionScannersWatchFeed = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/watch_feed/`,
             query: {
+                as_of: params.as_of,
                 created_by: params.created_by,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,
+                offset: params.offset,
                 scanner_ids: params.scanner_ids,
                 scanner_type: params.scanner_type,
-                search: params.search,
                 tags: params.tags,
             },
         })
@@ -1763,7 +1730,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-scout-reports-list': visionScannersScoutReportsList,
     'vision-scanners-scouts-create': visionScannersScoutsCreate,
     'vision-scanners-self-driving-stats': visionScannersSelfDrivingStats,
-    'vision-scanners-suggest-tags': visionScannersSuggestTags,
     'vision-scanners-update': visionScannersUpdate,
     'vision-scanners-variants-list': visionScannersVariantsList,
     'vision-scanners-watch-feed': visionScannersWatchFeed,

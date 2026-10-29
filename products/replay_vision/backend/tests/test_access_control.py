@@ -259,6 +259,28 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.json()["experiment_targeting"], targeting)
 
+    @parameterized.expand([("column",), ("config",)])
+    def test_list_hides_only_the_experiments_the_viewer_cannot_access(self, location: str) -> None:
+        allowed = create_experiment(self.team, "allowed-flag", created_by=self.user)
+        denied = create_experiment(self.team, "denied-flag", created_by=self.user)
+        self._create_experiment_scoped_scanner("allowed", allowed.id, location)
+        self._create_experiment_scoped_scanner("denied", denied.id, location)
+        self._set_resource_default("replay_scanner", "viewer")
+        self._grant_object_access(self.other_user, "experiment", str(denied.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(self.scanners_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        rows = {row["name"]: row for row in resp.json()["results"]}
+
+        def shown_experiment_id(row: dict) -> int | None:
+            if location == "column":
+                return (row["experiment_targeting"] or {}).get("experiment_id")
+            return row["scanner_config"].get("experiment_id")
+
+        self.assertEqual(shown_experiment_id(rows["allowed"]), allowed.id)
+        self.assertIsNone(shown_experiment_id(rows["denied"]))
+
     def test_save_by_a_viewer_denied_the_experiment_keeps_the_targeting(self) -> None:
         # The API redacts experiment_targeting to null for such an editor, and the editor form
         # writes the whole object back on save. Without the write-side guard, renaming the scanner

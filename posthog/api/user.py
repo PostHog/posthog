@@ -83,6 +83,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
+    groups,
     report_user_deleted_account,
     report_user_email_change_requested,
     report_user_identity_change_refused,
@@ -250,7 +251,7 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
     )
 
 
-def _person_properties_refresh_due(user: User) -> bool:
+def _reserve_person_properties_refresh_if_due(user: User) -> bool:
     # Store the last refreshed project, not one key per project. A project switch through
     # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
     # must refresh too.
@@ -882,7 +883,7 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        if _person_properties_refresh_due(instance):
+        if _reserve_person_properties_refresh_if_due(instance):
             with tracer.start_as_current_span("user_serializer.identify"):
                 posthoganalytics.capture(
                     distinct_id=instance.distinct_id,
@@ -1499,6 +1500,7 @@ class UserViewSet(
                 # Fire analytics only after the transaction commits, so a rolled-back
                 # request doesn't produce a skip event the DB doesn't back.
                 distinct_id = str(instance.distinct_id)
+                analytics_groups = groups(instance.organization, instance.team)
 
                 def _fire_skip_analytics() -> None:
                     try:
@@ -1512,6 +1514,7 @@ class UserViewSet(
                                 "reason": reason,
                                 "flow_variant": flow_variant,
                             },
+                            groups=analytics_groups,
                         )
                     except Exception as exc:
                         capture_exception(exc)

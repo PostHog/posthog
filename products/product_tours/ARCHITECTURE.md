@@ -124,7 +124,7 @@ Each tour gets an auto-created feature flag:
 
 ## Layer 2: Toolbar (Authoring UI)
 
-**Location:** `frontend/src/toolbar/product-tours/`
+**Location:** `frontend/src/toolbar/shared/product-tours/` (logic) and `frontend/src/toolbar/floating/product-tours/` (sidebar UI)
 
 The toolbar is injected into the customer's website to allow visual tour creation.
 

@@ -1,20 +1,36 @@
 from dataclasses import replace
 from datetime import timedelta
+from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
+
 from products.data_catalog.backend.facade.enums import CertificationStatus
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
-from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload, MaterializePayload
+from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.warehouse_suggestions.backend.facade.contracts import (
+    CertifyPayload,
+    MaterializePayload,
+    UnmaterializePayload,
+)
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionAssetOutcome,
+    WarehouseSuggestionKind,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
+)
+from products.warehouse_suggestions.backend.logic.candidates.base import (
+    DEPENDENTS_REJECTION,
+    FEEDS_CONSUMERS_REJECTION,
+    READER_ACCESS_REJECTION,
+    CandidateContext,
 )
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
@@ -23,11 +39,19 @@ from products.warehouse_suggestions.backend.logic.candidates.materialize import 
     allowed_intervals,
     estimate_savings,
     interval_basis,
+    refresh_cost,
 )
+from products.warehouse_suggestions.backend.logic.candidates.unmaterialize import (
+    EffectiveDefinition,
+    UnmaterializeCandidate,
+)
+from products.warehouse_suggestions.backend.logic.reads import RefreshRun, SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
+from products.warehouse_suggestions.backend.logic.view_costs import UnfinishedMeasurement
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
     context,
+    days_ago,
     table_subject,
     team_reads,
     view,
@@ -155,17 +179,40 @@ class TestMaterializeRules(SimpleTestCase):
 
         assert intervals == expected
 
-    @parameterized.expand([("at_floor", 90, True), ("one_read_short", 89, False)])
-    def test_time_saved_floor(self, _name: str, human_reads: int, expect_clear: bool) -> None:
+    @parameterized.expand(
+        [
+            ("at_floor", 90, 10_000.0, None, True),
+            ("one_read_short", 89, 10_000.0, None, False),
+            ("slow_reads_raise_the_refresh_price", 90, 20_000.0, None, False),
+            (
+                "recorded_refreshes_set_the_price",
+                90,
+                20_000.0,
+                SubjectRefreshes(runs=3, duration_ms=30_000, read_bytes=3),
+                True,
+            ),
+        ]
+    )
+    def test_time_saved_floor(
+        self,
+        _name: str,
+        human_reads: int,
+        alone_duration_ms_p90: float,
+        refreshes: SubjectRefreshes | None,
+        expect_clear: bool,
+    ) -> None:
         reads = busy_reads(
             human_reads=human_reads,
             human_duration_ms=human_reads * 10_000,
             alone_duration_ms_median=10_000.0,
+            alone_duration_ms_p90=alone_duration_ms_p90,
             human_read_bytes=human_reads,
             alone_read_bytes_median=1.0,
+            alone_read_bytes_p90=1.0,
         )
+        ctx = context(team_reads({}, refreshes={VIEW_ID: refreshes} if refreshes else None))
 
-        estimate = estimate_savings(context(team_reads({})), reads, DAY)
+        estimate = estimate_savings(ctx, reads, DAY, refresh_cost(ctx, VIEW_ID, reads))
 
         assert estimate.clears_a_floor is expect_clear
 
@@ -293,3 +340,352 @@ class TestDeprecateBackgroundReads(BaseTest):
         result = DeprecateCandidate().evaluate(candidate_context)
 
         assert [draft.subject_id for draft in result.drafts] == expected_subjects
+
+    def test_a_view_feeding_a_consumer_is_not_proposed(self) -> None:
+        candidate_context = context(team_reads({}), views=[view(VIEW_ID, materializes=True)], team_id=self.team.pk)
+
+        with patch(
+            "products.warehouse_suggestions.backend.logic.candidates.deprecate.saved_queries_feeding_consumers",
+            return_value=frozenset({VIEW_ID}),
+        ):
+            result = DeprecateCandidate().evaluate(candidate_context)
+
+        assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
+            (),
+            [FEEDS_CONSUMERS_REJECTION],
+        )
+
+
+HOURLY_RUNS = 720
+FIVE_SECONDS_MS = 5_000
+TWENTY_SECONDS_MS = 20_000
+RARE_READS = {"human_requests": 4, "human_reads": 4, "background_reads": 0}
+UNMATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.unmaterialize"
+
+
+def hourly_runs(
+    count: int = HOURLY_RUNS, *, duration_ms: int = FIVE_SECONDS_MS, prefix: str = "run"
+) -> tuple[RefreshRun, ...]:
+    return tuple(
+        RefreshRun(workflow_id=f"{prefix}-{index}", duration_ms=duration_ms, read_bytes=10**6) for index in range(count)
+    )
+
+
+def unmaterialize_context(
+    team_id: int,
+    *,
+    view_overrides: dict | None = None,
+    read_overrides: dict | None = None,
+    runs: tuple[RefreshRun, ...] | None = None,
+    recent_accepts: dict | None = None,
+) -> CandidateContext:
+    subject = view_subject(VIEW_ID)
+    return context(
+        team_reads(
+            {subject: busy_reads(**{**RARE_READS, **(read_overrides or {})})},
+            refresh_runs={VIEW_ID: hourly_runs() if runs is None else runs},
+        ),
+        views=[view(VIEW_ID, materializes=True, **(view_overrides or {}))],
+        team_id=team_id,
+        recent_accepts=recent_accepts,
+    )
+
+
+class TestUnmaterializeCandidate(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            id=VIEW_ID, team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+
+    def _record_jobs(self, runs: tuple[RefreshRun, ...], **job_fields: Any) -> None:
+        DataModelingJob.objects.bulk_create(
+            DataModelingJob(
+                team=self.team,
+                saved_query=self.saved_query,
+                workflow_id=run.workflow_id,
+                status=job_fields.get("status", DataModelingJob.Status.COMPLETED),
+                run_mode=job_fields.get("run_mode", DataModelingJob.RunMode.FULL_REFRESH),
+                engine=job_fields.get("engine", DataModelingJob.Engine.CLICKHOUSE),
+            )
+            for run in runs
+        )
+        if "created_at" in job_fields:
+            DataModelingJob.objects.filter(workflow_id__in=[run.workflow_id for run in runs]).update(
+                created_at=job_fields["created_at"]
+            )
+
+    def _log_query_change(self, at: Any) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.pk,
+                user=self.user,
+                was_impersonated=False,
+                item_id=VIEW_ID,
+                scope="DataWarehouseSavedQuery",
+                activity="updated",
+                detail=Detail(
+                    name="orders",
+                    changes=[
+                        Change(type="DataWarehouseSavedQuery", action="changed", field="query", before="a", after="b")
+                    ],
+                ),
+            )
+        ActivityLog.objects.filter(item_id=str(VIEW_ID)).update(created_at=at)
+
+    def test_proposes_a_rarely_read_view_with_refresh_cost_against_live_cost(self) -> None:
+        self._record_jobs(hourly_runs())
+
+        result = UnmaterializeCandidate().evaluate(unmaterialize_context(self.team.pk))
+
+        [draft] = result.drafts
+        assert isinstance(draft.payload, UnmaterializePayload)
+        assert replace(draft.payload, query_fingerprint="") == UnmaterializePayload(
+            subject_name="orders",
+            refresh_seconds_per_month=3600.0,
+            refresh_bytes_per_month=720.0 * 10**6,
+            live_seconds_per_month=20.0,
+            live_bytes_per_month=4.0 * 10**6,
+            read_seconds=5.0,
+            query_fingerprint="",
+        )
+
+    @parameterized.expand(
+        [
+            ("few_runs", {}, {}, hourly_runs(2), None, "has 2 completed full refreshes"),
+            ("incremental", {"refreshes_incrementally": True}, {}, None, None, "refreshes incrementally"),
+            (
+                "calls_a_decision_function",
+                {"calls_decision_functions": True},
+                {},
+                None,
+                None,
+                "calls jev() or decide()",
+            ),
+            (
+                "materialized_on_a_recent_suggestion",
+                {},
+                {},
+                None,
+                {WarehouseSuggestionKind.MATERIALIZE: frozenset({VIEW_ID})},
+                "was materialized on a suggestion",
+            ),
+            ("read_too_often", {}, {"human_reads": 600}, None, None, "would not save enough"),
+            ("background_reads_count", {}, {"background_reads": 600}, None, None, "would not save enough"),
+            (
+                "slow_tail",
+                {},
+                {},
+                hourly_runs(duration_ms=TWENTY_SECONDS_MS),
+                None,
+                "a read could take 20 seconds",
+            ),
+        ]
+    )
+    def test_rejects_a_view_that_would_cost_more_or_read_slowly_when_computed_on_read(
+        self,
+        _name: str,
+        view_overrides: dict,
+        read_overrides: dict,
+        runs: tuple[RefreshRun, ...] | None,
+        recent_accepts: dict | None,
+        expected_reason: str,
+    ) -> None:
+        self._record_jobs(runs or hourly_runs())
+        candidate_context = unmaterialize_context(
+            self.team.pk,
+            view_overrides=view_overrides,
+            read_overrides=read_overrides,
+            runs=runs,
+            recent_accepts=recent_accepts,
+        )
+
+        result = UnmaterializeCandidate().evaluate(candidate_context)
+
+        [rejection] = result.rejections
+        assert (result.drafts, expected_reason in rejection.reason) == ((), True), rejection.reason
+
+    @parameterized.expand(
+        [
+            ("failed", {"status": DataModelingJob.Status.FAILED}, False),
+            ("incremental", {"run_mode": DataModelingJob.RunMode.INCREMENTAL}, False),
+            ("another_engine", {"engine": DataModelingJob.Engine.LEGACY_DUCKGRES}, False),
+            ("before_the_query_changed", {"created_at": days_ago(10)}, True),
+        ]
+    )
+    def test_prices_only_completed_full_refreshes_of_the_current_query(
+        self, _name: str, fast_job_fields: dict, query_changed: bool
+    ) -> None:
+        slow = hourly_runs(10, duration_ms=TWENTY_SECONDS_MS, prefix="slow")
+        fast = hourly_runs(HOURLY_RUNS - 10, prefix="fast")
+        self._record_jobs(slow)
+        self._record_jobs(fast, **fast_job_fields)
+        if query_changed:
+            self._log_query_change(days_ago(5))
+
+        result = UnmaterializeCandidate().evaluate(unmaterialize_context(self.team.pk, runs=slow + fast))
+
+        assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
+            (),
+            ["a read could take 20 seconds, over 10"],
+        )
+
+    @parameterized.expand(
+        [
+            ("has_dependents", "dependent_saved_query_ids", {VIEW_ID: frozenset({uuid4()})}, DEPENDENTS_REJECTION),
+            (
+                "feeds_a_consumer",
+                "saved_queries_feeding_consumers",
+                frozenset({VIEW_ID}),
+                FEEDS_CONSUMERS_REJECTION,
+            ),
+            ("readers_could_lose_access", "inlining_could_deny_a_reader", True, READER_ACCESS_REJECTION),
+        ]
+    )
+    def test_rejects_a_view_others_rely_on(self, _name: str, lookup: str, found: object, expected_reason: str) -> None:
+        self._record_jobs(hourly_runs())
+        with patch(f"{UNMATERIALIZE_MODULE}.{lookup}", return_value=found):
+            result = UnmaterializeCandidate().evaluate(unmaterialize_context(self.team.pk))
+
+        assert (result.drafts, [rejection.reason for rejection in result.rejections]) == ((), [expected_reason])
+
+    def test_leaves_an_unread_view_to_deprecate(self) -> None:
+        candidate_context = context(
+            team_reads({}, refresh_runs={VIEW_ID: hourly_runs()}),
+            views=[view(VIEW_ID, materializes=True)],
+            team_id=self.team.pk,
+        )
+
+        result = UnmaterializeCandidate().evaluate(candidate_context)
+
+        assert (result.drafts, result.rejections) == ((), ())
+
+
+class TestMaterializeAfterUnmaterialize(SimpleTestCase):
+    def test_a_view_unmaterialized_on_a_recent_suggestion_is_not_proposed_again(self) -> None:
+        candidate_context = context(
+            team_reads({view_subject(VIEW_ID): busy_reads()}),
+            views=[view(VIEW_ID)],
+            recent_accepts={WarehouseSuggestionKind.UNMATERIALIZE: frozenset({VIEW_ID})},
+        )
+
+        result = MaterializeCandidate().evaluate(candidate_context)
+
+        assert (result.drafts, [rejection.reason for rejection in result.rejections]) == (
+            (),
+            ["was unmaterialized on a suggestion in the last 30 days"],
+        )
+
+
+MATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.materialize"
+FIRST_CONSUMER, SECOND_CONSUMER = uuid4(), uuid4()
+CURRENT_DEFINITION, EARLIER_DEFINITION = "current", "earlier"
+TIME_LIMIT = RULES.measurement.max_seconds
+EVERY_BUCKET_ALLOWED = SimpleNamespace(
+    bounds=SimpleNamespace(allowed=(timedelta(minutes=15), HOUR, timedelta(hours=6), DAY), floor=None),
+    max_data_age=timedelta(0),
+    best_effort_source_ids=set(),
+    identities={},
+)
+UNREAD = {
+    "human_requests": 0,
+    "human_reads": 0,
+    "human_days": 0,
+    "human_duration_ms": 0,
+    "human_read_bytes": 0,
+    "alone_reads": 0,
+}
+CHEAP_PREVIEWS = {
+    "human_requests": HOURLY_RUNS,
+    "human_reads": HOURLY_RUNS,
+    "human_duration_ms": HOURLY_RUNS * 500,
+    "human_read_bytes": HOURLY_RUNS * 10**6,
+    "alone_duration_ms_median": 500.0,
+    "alone_read_bytes_median": float(10**6),
+}
+
+
+class TestMaterializeRecomputedUpstream(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("one_consumer_refreshes_it_as_often_as_a_stored_copy_would", 1, 0, UNREAD, 3, None, None, False, False),
+            ("two_consumers_with_a_measured_cost", 2, 0, UNREAD, 3, None, None, True, False),
+            ("two_consumers_and_no_measurement", 2, 0, UNREAD, None, None, None, False, True),
+            ("measured_before_the_last_edit", 2, 0, UNREAD, 3, 1, None, False, True),
+            ("measurement_hit_the_time_limit", 2, 0, UNREAD, None, None, (TIME_LIMIT, CURRENT_DEFINITION), True, False),
+            ("time_limit_hit_before_an_edit", 2, 0, UNREAD, None, None, (TIME_LIMIT, EARLIER_DEFINITION), False, True),
+            ("measurement_failed", 2, 0, UNREAD, None, None, (0, CURRENT_DEFINITION), False, False),
+            ("measurement_failed_before_an_edit", 2, 0, UNREAD, None, None, (0, EARLIER_DEFINITION), False, True),
+            ("an_incremental_consumer_does_not_count", 2, 1, UNREAD, 3, None, None, False, False),
+            ("one_consumer_and_cheap_previews", 1, 0, CHEAP_PREVIEWS, 3, None, None, False, False),
+        ]
+    )
+    def test_proposes_a_view_that_materialized_views_compute_on_every_refresh(
+        self,
+        _name: str,
+        consumers: int,
+        incremental_consumers: int,
+        read_overrides: dict,
+        measured_days_ago: int | None,
+        edited_days_ago: int | None,
+        unfinished: tuple[int, str] | None,
+        expect_draft: bool,
+        expect_measurement_request: bool,
+    ) -> None:
+        consumer_ids = [FIRST_CONSUMER, SECOND_CONSUMER][:consumers]
+        reads = busy_reads(
+            **read_overrides,
+            measured_reads=1 if measured_days_ago else 0,
+            measured_duration_ms=TWENTY_SECONDS_MS,
+            last_measured_at=days_ago(measured_days_ago) if measured_days_ago else None,
+        )
+        candidate_context = context(
+            team_reads(
+                {view_subject(VIEW_ID): reads},
+                refreshes={
+                    consumer_id: SubjectRefreshes(runs=HOURLY_RUNS, duration_ms=HOURLY_RUNS * 60_000, read_bytes=1)
+                    for consumer_id in consumer_ids
+                },
+            ),
+            views=[
+                view(VIEW_ID),
+                *(
+                    view(consumer_id, materializes=True, refreshes_incrementally=index < incremental_consumers)
+                    for index, consumer_id in enumerate(consumer_ids)
+                ),
+            ],
+        )
+
+        with (
+            patch(f"{MATERIALIZE_MODULE}.dependent_saved_query_ids", return_value={VIEW_ID: frozenset(consumer_ids)}),
+            patch(f"{MATERIALIZE_MODULE}.saved_query_target_bounds", return_value=EVERY_BUCKET_ALLOWED),
+            patch(
+                f"{MATERIALIZE_MODULE}.effective_definition",
+                return_value=EffectiveDefinition(
+                    fingerprint=CURRENT_DEFINITION,
+                    changed_at=days_ago(edited_days_ago) if edited_days_ago else None,
+                ),
+            ),
+            patch(
+                f"{MATERIALIZE_MODULE}.unfinished_measurement",
+                return_value=UnfinishedMeasurement(seconds=unfinished[0], fingerprint=unfinished[1])
+                if unfinished
+                else None,
+            ),
+            patch(f"{MATERIALIZE_MODULE}.upstream_table_refs", return_value=[]),
+            patch(f"{MATERIALIZE_MODULE}.definition_database", return_value=None),
+        ):
+            result = MaterializeCandidate().evaluate(candidate_context)
+
+        assert result.measurement_requests == ((view_subject(VIEW_ID),) if expect_measurement_request else ())
+        if not expect_draft:
+            assert result.drafts == ()
+            return
+        [draft] = result.drafts
+        assert isinstance(draft.payload, MaterializePayload)
+        assert (
+            draft.payload.refresh_interval_seconds,
+            draft.payload.recomputed_by_views,
+            draft.payload.refresh_interval_basis,
+        ) == (HOUR.total_seconds(), 2, WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH)

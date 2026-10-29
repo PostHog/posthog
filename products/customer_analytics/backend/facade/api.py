@@ -35,11 +35,10 @@ from django.db.models import (
     BooleanField,
     CharField,
     Count,
-    DateTimeField,
     Exists,
     ExpressionWrapper,
     F,
-    Field,
+    FilteredRelation,
     FloatField,
     IntegerField,
     Max,
@@ -50,7 +49,6 @@ from django.db.models import (
     QuerySet,
     Subquery,
     Sum,
-    TextField,
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
@@ -1016,7 +1014,10 @@ def _set_tags(
     for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags).select_related("tag"):
         removed_tags.append(tagged_item.tag)
         tagged_item.delete()
-    Tag.objects.filter(Q(team_id=account.team_id) & Q(tagged_items__isnull=True)).delete()
+    if removed_tags:
+        Tag.objects.filter(
+            Q(team_id=account.team_id) & Q(id__in=[tag.id for tag in removed_tags]) & Q(tagged_items__isnull=True)
+        ).delete()
     account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
     _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
     _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)
@@ -1364,8 +1365,8 @@ def _to_user_customer_analytics_config(
     return contracts.UserCustomerAnalyticsConfig(
         pinned_properties=[
             contracts.PinnedAccountProperty(
-                kind=cast(Literal["custom_property", "relationship"], reference["kind"]),
-                id=UUID(str(reference["id"])),
+                kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
+                id=str(reference["id"]),
             )
             for reference in raw_references
         ],
@@ -3336,15 +3337,6 @@ def _apply_account_table_filters(
         raise InvalidAccountTableColumn(str(error)) from error
 
 
-def _custom_property_sort_output_field(display_type: DisplayType) -> Field:
-    return {
-        DataType.STRING: TextField(),
-        DataType.NUMERIC: FloatField(),
-        DataType.BOOLEAN: BooleanField(),
-        DataType.DATETIME: DateTimeField(),
-    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-
-
 def _apply_account_table_sort(
     queryset: QuerySet[Account],
     *,
@@ -3417,14 +3409,16 @@ def _apply_account_table_sort(
             DataType.BOOLEAN: "value_bool",
             DataType.DATETIME: "value_datetime",
         }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-        custom_property_value = CustomPropertyValue.objects.for_team(team_id).filter(
-            account_id=OuterRef("pk"), definition_id=sort.definition_id, is_deleted=False
-        )
         queryset = queryset.annotate(
-            _account_table_sort=Subquery(
-                custom_property_value.values(value_field)[:1],
-                output_field=_custom_property_sort_output_field(display_type),
-            )
+            _custom_property_sort_value=FilteredRelation(
+                "custom_property_values",
+                condition=Q(
+                    custom_property_values__team_id=team_id,
+                    custom_property_values__definition_id=sort.definition_id,
+                    custom_property_values__is_deleted=False,
+                ),
+            ),
+            _account_table_sort=F(f"_custom_property_sort_value__{value_field}"),
         )
 
     order = F("_account_table_sort")
@@ -5477,6 +5471,25 @@ def update_customer_task(
         return None
     fresh_user_access_control = UserAccessControl(user=user_access_control.user, team=team)
     return _to_customer_task_view(task, fresh_user_access_control)
+
+
+def bulk_update_customer_tasks(
+    *,
+    team: Team,
+    task_ids: list[UUID],
+    input: contracts.UpdateCustomerTaskInput,
+    archived: bool | None,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> int | None:
+    return _customer_tasks_logic.bulk_update_customer_tasks(
+        team=team,
+        task_ids=task_ids,
+        input=input,
+        archived=archived,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
 
 
 def archive_customer_task(

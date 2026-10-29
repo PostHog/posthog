@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -913,7 +916,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
-                // One card per reason kind. Only the first carries a key moment, so the rest show no time on the tile.
+                // Two picks, then each filler kind. Only the first carries a key moment, so the rest show no time on the tile.
                 '/api/projects/:team_id/vision/scanners/watch_feed/': {
                     results: [
                         {
@@ -947,7 +950,7 @@ const meta: Meta = {
                                 },
                                 viewed: false,
                             }),
-                            reason: { kind: 'signal_emitted', signals_count: 2 },
+                            reason: { kind: 'embedding_pick', watch_category: 'failure', similar_count: 0 },
                         },
                         {
                             observation: observation({
@@ -979,7 +982,7 @@ const meta: Meta = {
                                 },
                                 viewed: false,
                             }),
-                            reason: { kind: 'outlier_score', score: 9.5, window_mean: 5.1 },
+                            reason: { kind: 'embedding_pick', watch_category: 'revenue', similar_count: 0 },
                         },
                         {
                             observation: observation({
@@ -1128,22 +1131,85 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The home page lands on the What to watch feed.
-export const HomeWatchFeed: StoryObj = {}
+// The other sessions in the first embedding card's feed group, as the scanner's observation list returns them.
+const checkoutGroupMembers = [
+    {
+        email: 'bob@example.com',
+        reasoning: 'The card form rejected a valid card twice, then the user switched cards.',
+        hoursAgo: 2,
+        keyMomentMs: 98000,
+    },
+    {
+        email: 'carol@example.com',
+        reasoning: 'A valid card failed with a generic error before the user gave up.',
+        hoursAgo: 5,
+        keyMomentMs: 212000,
+    },
+    {
+        email: 'dan@example.com',
+        reasoning: 'The card form cleared itself after a failed charge and the user retyped it.',
+        hoursAgo: 9,
+        keyMomentMs: 41000,
+    },
+    {
+        email: 'erin@example.com',
+        reasoning: 'The payment step rejected the card and the user left checkout.',
+        hoursAgo: 26,
+        keyMomentMs: 305000,
+    },
+    {
+        email: 'frank@example.com',
+        reasoning: 'The user retried a declined card three times in a row.',
+        hoursAgo: 50,
+        keyMomentMs: null,
+    },
+].map(({ email, reasoning, hoursAgo, keyMomentMs }, index) =>
+    observation({
+        id: `00000000-0000-0000-0000-0000000000c${index}`,
+        scanner_id: scanners.results[0].id,
+        recording_subject_email: email,
+        created_at: dayjs('2026-05-11T09:00:00Z').subtract(hoursAgo, 'hour').toISOString(),
+        scanner_snapshot: { ...observation().scanner_snapshot!, name: 'Confused checkout', scanner_type: 'monitor' },
+        scanner_result: {
+            model_output: {
+                scanner_type: 'monitor',
+                verdict: 'yes',
+                confidence: 0.9,
+                reasoning,
+                ...(keyMomentMs !== null ? { key_moment_ms: keyMomentMs } : {}),
+            },
+            signals_count: 0,
+        },
+    })
+)
 
-// The jev ranker arm: the same rows as the default arm, plus the reason Jev picked each finding. The
-// first row leads with the scan's notability sentence, the second falls back to the derived headline,
-// and the filler row reads muted with no finding claim or reason.
-export const HomeWatchFeedJevArm: StoryObj = {
+// The home page lands on the Highlights feed. Each pick names its category, and the first stands for seven similar
+// sessions. The viewer created one scanner, so the feed offers the scope tabs.
+export const HomeWatchFeed: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/vision/scanners/': {
+                    ...scanners,
+                    results: scanners.results.map((item, index) =>
+                        index === 0
+                            ? { ...item, created_by: { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id } }
+                            : item
+                    ),
+                },
+                '/api/projects/:team_id/vision/scanners/:id/observations/': {
+                    // The group holds seven other sessions, so the preview of five ends with a link to the rest.
+                    count: 7,
+                    next: null,
+                    previous: null,
+                    results: checkoutGroupMembers,
+                },
                 '/api/projects/:team_id/vision/scanners/watch_feed/': {
-                    ranker: 'jev',
+                    has_more: false,
                     results: [
                         {
                             observation: observation({
-                                id: '00000000-0000-0000-0000-0000000000e1',
+                                id: '00000000-0000-0000-0000-0000000000a1',
                                 prompt_question: 'Did the user hesitate at checkout?',
                                 scanner_id: scanners.results[0].id,
                                 scanner_snapshot: {
@@ -1160,7 +1226,8 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                         scanner_type: 'monitor',
                                         verdict: 'yes',
                                         confidence: 0.92,
-                                        reasoning: 'Retried the payment form twice before completing.',
+                                        reasoning:
+                                            'The card form rejected a valid card three times before the user left.',
                                         key_moment_ms: 154000,
                                     },
                                     signals_count: 0,
@@ -1168,43 +1235,28 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                 viewed: false,
                             }),
                             reason: {
-                                kind: 'jev_watchable',
-                                jev_probability: 0.91,
-                                notability_reason:
-                                    'The card form rejected a valid card three times before the user abandoned the checkout.',
-                                watch_reason: 'visible_error',
+                                kind: 'embedding_pick',
+                                watch_category: 'failure',
+                                similar_count: 7,
+                                affected_people: 6,
                             },
                         },
                         {
                             observation: observation({
-                                id: '00000000-0000-0000-0000-0000000000e2',
-                                prompt_question: 'How strong is the buying intent in this session?',
-                                scanner_id: scanners.results[3].id,
-                                scanner_snapshot: {
-                                    name: 'Intent score',
-                                    scanner_type: 'scorer',
-                                    scanner_version: 1,
-                                    model: 'gemini-3.8-flash',
-                                    provider: 'google',
-                                    emits_signals: false,
-                                    scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
-                                },
+                                id: '00000000-0000-0000-0000-0000000000a2',
+                                prompt_question: 'What happened in this session?',
                                 scanner_result: {
                                     model_output: {
-                                        scanner_type: 'scorer',
-                                        score: 9.5,
-                                        confidence: 0.88,
-                                        reasoning: 'Compared plans, opened billing, invited a teammate.',
+                                        scanner_type: 'summarizer',
+                                        confidence: 0.8,
+                                        title: 'Plan limit blocked an export',
+                                        summary: 'The export stopped at the plan limit and the user opened billing.',
                                     },
                                     signals_count: 0,
                                 },
                                 viewed: true,
                             }),
-                            reason: { kind: 'jev_watchable', jev_probability: 0.48, watch_reason: 'success' },
-                        },
-                        {
-                            observation: observation({ id: '00000000-0000-0000-0000-0000000000e3' }),
-                            reason: { kind: 'unviewed_recent' },
+                            reason: { kind: 'embedding_pick', watch_category: 'revenue', similar_count: 0 },
                         },
                     ],
                 },

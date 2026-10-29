@@ -24,10 +24,11 @@ from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ON
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
 from products.signals.dags.inbox_ranking.training.calibration import CalibrationBucket
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
+from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN, ModelFamily
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
-from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, holdout_grade
-from products.signals.dags.inbox_ranking.training.unseen import ModelFamily
+from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, _auc, holdout_grade
+from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
 
 HOLDOUT_MODEL_FILE = "model.holdout.onnx"
 
@@ -59,14 +60,31 @@ def network_vector_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
     return VECTOR_KINDS if inputs.context is not None else ()
 
 
-def network_recipe(family: ModelFamily, config: NetworkConfig, vector_kinds: Sequence[str]) -> dict[str, Any]:
-    return model_recipe(
+def family_heads(family: ModelFamily) -> tuple[Head, ...]:
+    """The heads a `family` network is fit on, in its label and output column order."""
+    if family.grain == PAIR_GRAIN:
+        return tuple(HEADS_BY_NAME[name] for name in family.heads)
+    return NN_HEADS
+
+
+def network_recipe(
+    family: ModelFamily,
+    config: NetworkConfig,
+    vector_kinds: Sequence[str],
+    pair_settings: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """`pair_settings` is the pair examples' label horizon and schema, for a pair-grain family only,
+    so a report-grain family's recipe and hash stay as they were."""
+    recipe = model_recipe(
         model_kind=ONNX_MODEL_KIND,
         feature_set=family.feature_set,
-        heads=NN_HEADS,
+        heads=family_heads(family),
         learner_params=dataclasses.asdict(config),
         project_vector_kinds=vector_kinds,
     )
+    if family.grain == PAIR_GRAIN:
+        recipe = {**recipe, "grain": PAIR_GRAIN, "pair": dict(pair_settings or {})}
+    return recipe
 
 
 def candidate_metadata(
@@ -78,11 +96,13 @@ def candidate_metadata(
     windows: Mapping[str, Mapping[str, object]],
     trained_at: datetime.datetime,
     run_id: str,
+    pair_settings: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The `metadata.json` of a `family` candidate, in the layout of the per-head families.
 
     The heads carry the metric fields of `HeadMetrics`, the fields the per-head booster families
-    wrote, so the promotion rule, the events and the manifest read every family alike.
+    wrote, so the promotion rule, the events and the manifest read every family alike. A pair-grain
+    candidate also records its grain, and its heads carry the pair labels' horizon.
     """
     feature_set = family.feature_set
     metadata = {
@@ -108,7 +128,9 @@ def candidate_metadata(
             head.metrics.as_dict()
             | {
                 "cohort": HEADS_BY_NAME[head.metrics.head].cohort.__name__,
-                "horizon_days": HEADS_BY_NAME[head.metrics.head].horizon_days,
+                "horizon_days": (pair_settings or {}).get(
+                    "label_horizon_days", HEADS_BY_NAME[head.metrics.head].horizon_days
+                ),
                 "example_window_start": windows.get(head.metrics.head, {}).get("example_window_start"),
                 "example_cap_bound": windows.get(head.metrics.head, {}).get("example_cap_bound"),
                 "file": ONNX_MODEL_FILE,
@@ -118,7 +140,9 @@ def candidate_metadata(
         ],
         "skipped_heads": list(trained.skipped),
     }
-    return with_recipe(metadata, network_recipe(family, config, trained.vector_kinds))
+    if family.grain == PAIR_GRAIN:
+        metadata["grain"] = PAIR_GRAIN
+    return with_recipe(metadata, network_recipe(family, config, trained.vector_kinds, pair_settings))
 
 
 def onnx_probabilities(model: bytes, inputs: NetworkInputs, output_heads: Sequence[str]) -> dict[str, np.ndarray]:
@@ -160,3 +184,57 @@ def champion_grades(
             continue
         grades[name] = holdout_grade(table.labels[rows, index].astype(int), probabilities[name][rows])
     return grades
+
+
+def _paired(experiment_aucs: Sequence[float | None], baseline_aucs: Sequence[float | None]) -> dict[str, Any]:
+    deltas = [
+        experiment - base
+        for experiment, base in zip(experiment_aucs, baseline_aucs)
+        if experiment is not None and base is not None
+    ]
+    return {
+        "experiment_aucs": list(experiment_aucs),
+        "baseline_aucs": list(baseline_aucs),
+        "paired_seeds": len(deltas),
+        "mean_delta_auc": float(np.mean(deltas)) if deltas else None,
+        "min_delta_auc": min(deltas) if deltas else None,
+        "max_delta_auc": max(deltas) if deltas else None,
+        "wins": sum(1 for delta in deltas if delta > 0),
+    }
+
+
+def vs_baseline_block(
+    table: ExampleTable,
+    *,
+    baseline: str,
+    seeds: Sequence[int],
+    experiment_scores: Sequence[np.ndarray],
+    baseline_scores: Sequence[np.ndarray],
+) -> dict[str, Any]:
+    """The experiment against its baseline, per head, on the same holdout rows.
+
+    Each seed fits both arms on the same train rows, so the two AUCs of one seed form a pair. One
+    seed's gap can be noise from the network's initialization alone, so the block keeps the range
+    of the gaps across seeds. `within_team` is the read the inbox order depends on, and `pooled` is
+    there for reference. A seed where either arm has no AUC drops out of the pairs.
+    """
+    train_rows = table.network_train_rows()
+    heads: dict[str, dict[str, Any]] = {}
+    for index, name in enumerate(NN_HEAD_NAMES):
+        rows = table.head_rows(index, holdout=True)
+        y = table.labels[rows, index].astype(int)
+        team_ids = table.team_ids(rows)
+        heads[name] = {
+            "train_rows": int((~np.isnan(table.labels[train_rows, index])).sum()),
+            "holdout_rows": len(rows),
+            "holdout_positives": int(y.sum()),
+            "within_team": _paired(
+                [within_team_auc(y, scores[rows, index], team_ids).auc for scores in experiment_scores],
+                [within_team_auc(y, scores[rows, index], team_ids).auc for scores in baseline_scores],
+            ),
+            "pooled": _paired(
+                [_auc(y, scores[rows, index]) for scores in experiment_scores],
+                [_auc(y, scores[rows, index]) for scores in baseline_scores],
+            ),
+        }
+    return {"baseline": baseline, "seeds": list(seeds), "heads": heads}

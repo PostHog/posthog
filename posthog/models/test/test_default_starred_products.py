@@ -1,5 +1,10 @@
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.db.models.signals import post_save
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -16,6 +21,20 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.products import Products
 
 from products.access_control.backend.models.access_control import AccessControl
+
+
+class TestDefaultStarredProductsAccessControlSignals(SimpleTestCase):
+    @parameterized.expand([("dashboard",), ("customer_task",)])
+    def test_object_access_grant_does_not_query_membership(self, resource: str) -> None:
+        rule = AccessControl(
+            team_id=1,
+            resource=resource,
+            resource_id=str(uuid4()),
+            organization_member_id=uuid4(),
+            access_level="editor",
+        )
+
+        post_save.send(sender=AccessControl, instance=rule, created=True)
 
 
 class TestDefaultStarredProducts(BaseTest):

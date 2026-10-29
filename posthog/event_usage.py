@@ -531,7 +531,12 @@ def get_event_source(request) -> EventSource:
     # it authenticates with a personal API key, so there is no application to vouch for it.
     # Mis-declaring as the CLI only mislabels analytics — `cli` is already in
     # AGENT_EVENT_SOURCES, so it buys no extra write latitude.
-    if user_agent == "posthog-cli" or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli":
+    # `hog`, the TypeScript successor to posthog-cli, sends `hog/<version>`.
+    if (
+        user_agent == "posthog-cli"
+        or user_agent.startswith("hog/")
+        or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli"
+    ):
         return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return _resolve_mcp_surface(request)
@@ -654,7 +659,7 @@ def report_user_action(
     if not isinstance(user, User) or not user.distinct_id:
         return
     if user.email:
-        properties["$set_once"] = {"email": user.email}
+        properties["$set_once"] = {**properties.get("$set_once", {}), "email": user.email}
     with _tracer.start_as_current_span("report_user_action"):
         posthoganalytics.capture(
             distinct_id=user.distinct_id,

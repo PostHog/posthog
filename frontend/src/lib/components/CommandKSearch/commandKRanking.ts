@@ -101,7 +101,7 @@ function exactness(query: string, name: string, nameWords: string[]): number {
     return 5
 }
 
-function rankName(query: string, tokens: string[], name: string): RankKey | null {
+function rankName(query: string, tokens: string[], name: string, indirect: number): RankKey | null {
     const lowerName = name.toLowerCase()
     const nameWords = searchWords(lowerName)
     let matched = 0
@@ -137,9 +137,9 @@ function rankName(query: string, tokens: string[], name: string): RankKey | null
         proximity,
         matched === tokens.length ? 0 : 1,
         -exactWords,
-        0,
+        Math.min(...positions),
         Math.min(exactness(query, lowerName, nameWords), STARTS_WITH),
-        0,
+        indirect,
         -Number.MAX_SAFE_INTEGER,
     ]
 }
@@ -158,19 +158,19 @@ interface LocalRank {
     matchedAlias: string | null
 }
 
-export function rankLocalItem(query: string, name: string, aliases: string[] = []): LocalRank | null {
+export function rankLocalItem(query: string, name: string, aliases: string[] = [], isTab = false): LocalRank | null {
     const normalized = query.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
     const tokens = searchWords(normalized)
     if (!tokens.length) {
         return null
     }
     let best: LocalRank | null = null
-    const byName = rankName(normalized, tokens, name)
+    const byName = rankName(normalized, tokens, name, isTab ? 1 : 0)
     if (byName) {
         best = { rank: byName, matchedAlias: null }
     }
     for (const alias of normalized.length >= MIN_ALIAS_QUERY_LENGTH ? aliases : []) {
-        const byAlias = rankName(normalized, tokens, alias)
+        const byAlias = rankName(normalized, tokens, alias, isTab ? 2 : 1)
         if (byAlias && (!best || compareRanks(byAlias, best.rank) < 0)) {
             best = { rank: byAlias, matchedAlias: alias }
         }

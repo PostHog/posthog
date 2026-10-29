@@ -26,6 +26,8 @@ from posthog.temporal.ai_observability.evaluation_clustering.models import (
 from posthog.temporal.ai_observability.evaluation_clustering.workflow import (
     AIObservabilityEvaluationClusteringWorkflow,
     AIObservabilityEvaluationSamplerWorkflow,
+    SamplerWindow,
+    sampler_window,
 )
 from posthog.temporal.ai_observability.trace_clustering.constants import WORKFLOW_EXECUTION_TIMEOUT
 from posthog.temporal.common.base import PostHogWorkflow
@@ -70,9 +72,10 @@ class _LevelCoordinatorInputs:
     results_so_far: dict[str, Any] | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SamplerCoordinatorInputs(_LevelCoordinatorInputs):
-    pass
+    window_start: str | None = None
+    window_end: str | None = None
 
 
 @dataclasses.dataclass
@@ -90,12 +93,14 @@ def _empty_results() -> dict[str, Any]:
     }
 
 
-async def _discover_teams_and_jobs() -> tuple[list[int], dict[int, list[JobConfig]]]:
+async def _discover_teams_and_jobs(
+    discovery: TeamDiscoveryInput | None = None,
+) -> tuple[list[int], dict[int, list[JobConfig]]]:
     """Team discovery + fetch all clustering jobs, reusing the shared LLMA activities."""
     try:
         team_ids = await workflow.execute_activity(
             get_team_ids_for_ai_observability,
-            TeamDiscoveryInput(),
+            discovery or TeamDiscoveryInput(),
             start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
             retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
         )
@@ -118,6 +123,14 @@ async def _discover_teams_and_jobs() -> tuple[list[int], dict[int, list[JobConfi
         increment_fetch_jobs_failed("eval_sampling", "evaluation")
 
     return team_ids, per_team_jobs
+
+
+def _run_window(inputs: SamplerCoordinatorInputs) -> SamplerWindow:
+    if inputs.window_start and inputs.window_end:
+        return SamplerWindow(start=inputs.window_start, end=inputs.window_end)
+    # workflow_start_time, not now(): a continue_as_new leg carries the window, and a run that a worker picks
+    # up late must still sample the hour it was scheduled for.
+    return sampler_window(workflow.info().workflow_start_time)
 
 
 def _evaluation_jobs_for_team(team_jobs: list[JobConfig]) -> list[JobConfig]:
@@ -145,6 +158,8 @@ class AIObservabilityEvaluationSamplerCoordinatorWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SamplerCoordinatorInputs) -> SamplerCoordinatorResult:
+        window = _run_window(inputs)
+        window_start, window_end = window.start, window.end
         if inputs.remaining_team_ids is not None:
             team_ids = inputs.remaining_team_ids
             per_team_jobs: dict[int, list[JobConfig]] = {}
@@ -154,7 +169,11 @@ class AIObservabilityEvaluationSamplerCoordinatorWorkflow(PostHogWorkflow):
             results_so_far = inputs.results_so_far or _empty_results()
         else:
             logger.info("Starting evaluation sampler coordinator")
-            team_ids, per_team_jobs = await _discover_teams_and_jobs()
+            # Most teams with AI events have no $ai_evaluation events in a given hour, and each one would cost a
+            # child workflow and a sampling query that finds nothing. The event and window match the sampler query.
+            team_ids, per_team_jobs = await _discover_teams_and_jobs(
+                TeamDiscoveryInput(window_start=window_start, window_end=window_end, trigger_events=["$ai_evaluation"])
+            )
             record_teams_discovered(len(team_ids), "eval_sampling", "evaluation")
             results_so_far = _empty_results()
 
@@ -174,6 +193,8 @@ class AIObservabilityEvaluationSamplerCoordinatorWorkflow(PostHogWorkflow):
                             job_id=job.job_id,
                             job_name=job.name,
                             event_filters=job.event_filters,
+                            window_start=window_start,
+                            window_end=window_end,
                         ),
                         id=(f"{SAMPLER_CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{job.job_id}-{workflow.now().isoformat()}"),
                         execution_timeout=SAMPLER_WORKFLOW_EXECUTION_TIMEOUT,
@@ -207,6 +228,8 @@ class AIObservabilityEvaluationSamplerCoordinatorWorkflow(PostHogWorkflow):
                         remaining_team_ids=remaining,
                         per_team_jobs=serializable_jobs,
                         results_so_far=results_so_far,
+                        window_start=window_start,
+                        window_end=window_end,
                     )
                 )
 

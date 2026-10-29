@@ -18,6 +18,7 @@ import type {
     SignalSourceConfigApi,
     SignalScoutConfigApi,
 } from '../../generated/api.schemas'
+import { allReports } from '../__mocks__/inboxMocks'
 import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConfigs'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { inboxOnboardingLogic } from './inboxOnboardingLogic'
@@ -46,6 +47,7 @@ describe('focused Inbox setup', () => {
     let canonicalScouts: SignalScoutConfigApi[]
     let enabledScouts: string[]
     let hasErrorTrackingData: boolean
+    let githubOptional: boolean
     let hasEvents: boolean
     let completedAt: string | null
     let scanners: { id: string; enabled: boolean; emits_signals: boolean }[]
@@ -61,14 +63,16 @@ describe('focused Inbox setup', () => {
         canonicalScouts = []
         enabledScouts = []
         hasErrorTrackingData = false
+        githubOptional = false
         hasEvents = false
         failCompletion = true
         completedAt = null
         scanners = []
         useMocks({
             get: {
-                '/api/projects/@current': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
+                '/api/projects/:id': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
                 '/api/projects/:id/signals/reports/available_reviewers/': {},
+                '/api/projects/:id/wizard/sessions/latest/': () => [204, null],
                 '/api/environments/:id/external_data_sources/': () => ({
                     results: warehouseConnected
                         ? [
@@ -85,6 +89,7 @@ describe('focused Inbox setup', () => {
                     draft: savedDraft,
                     completed_at: completedAt,
                     variant,
+                    github_optional_available: githubOptional,
                 }),
                 '/api/projects/:id/signals/source_configs/': () => ({
                     results: sources,
@@ -107,26 +112,31 @@ describe('focused Inbox setup', () => {
                     status: 'low_activity',
                     items: [],
                 }),
-                '/api/projects/:id/integrations/': {
-                    results: [
-                        {
-                            id: 1,
-                            kind: 'github',
-                            config: {},
-                            display_name: 'example',
-                            created_at: '2026-10-14',
-                            icon_url: '',
-                        },
-                    ],
+                '/api/projects/:id/integrations/': () => ({
+                    results: githubOptional
+                        ? []
+                        : [
+                              {
+                                  id: 1,
+                                  kind: 'github',
+                                  config: {},
+                                  display_name: 'example',
+                                  created_at: '2026-10-14',
+                                  icon_url: '',
+                              },
+                          ],
                     next: null,
-                    count: 1,
-                },
+                    count: githubOptional ? 0 : 1,
+                }),
             },
             post: {
                 '/api/projects/:id/signals/onboarding/expose/': async ({ request }) => {
                     const assignment = (await request.json()) as { variant: typeof variant }
                     variant ??= assignment.variant
-                    return [200, { draft: savedDraft, completed_at: null, variant }]
+                    return [
+                        200,
+                        { draft: savedDraft, completed_at: null, variant, github_optional_available: githubOptional },
+                    ]
                 },
                 '/api/projects/:id/signals/scout/configs/sync/': ({ request }) => {
                     expect(new URL(request.url).searchParams.get('surface')).toBe('onboarding')
@@ -142,7 +152,15 @@ describe('focused Inbox setup', () => {
                 },
                 '/api/projects/:id/signals/onboarding/': async ({ request }) => {
                     savedDraft = (await request.json()) as InboxOnboardingDraftApi
-                    return [200, { draft: savedDraft, completed_at: completedAt, variant }]
+                    return [
+                        200,
+                        {
+                            draft: savedDraft,
+                            completed_at: completedAt,
+                            variant,
+                            github_optional_available: githubOptional,
+                        },
+                    ]
                 },
                 '/api/projects/:id/signals/config/': {},
                 '/api/projects/:id/signals/source_configs/': async ({ request }) => {
@@ -157,7 +175,15 @@ describe('focused Inbox setup', () => {
                 '/api/projects/:id/signals/onboarding/complete/': () =>
                     failCompletion
                         ? [500, { detail: 'Activation interrupted' }]
-                        : [200, { draft: savedDraft, completed_at: '2026-10-14T12:00:00Z', variant }],
+                        : [
+                              200,
+                              {
+                                  draft: savedDraft,
+                                  completed_at: '2026-10-14T12:00:00Z',
+                                  variant,
+                                  github_optional_available: githubOptional,
+                              },
+                          ],
             },
             patch: {
                 '/api/projects/:id/vision/scanners/:scanner/': async ({ request, params }) => {
@@ -193,17 +219,20 @@ describe('focused Inbox setup', () => {
     })
 
     it.each([
-        ['button', true, null],
-        ['github_return', true, null],
-        ['button', false, null],
-        ['github_return', false, null],
-        ['button', true, true],
-        ['button', false, false],
+        ['button', true, null, false],
+        ['github_return', true, null, false],
+        ['button', false, null, false],
+        ['github_return', false, null, false],
+        ['button', true, true, false],
+        ['button', false, false, false],
+        ['button', false, null, true],
+        ['button', true, null, true],
     ] as const)(
-        'activates through %s with usage-based pricing %s and saved implementation %s',
-        async (entry, usageBasedPricing, savedImplementation) => {
+        'activates through %s with usage-based pricing %s and saved implementation %s and GitHub-optional pilot %s',
+        async (entry, usageBasedPricing, savedImplementation, pilot) => {
+            githubOptional = pilot
             const capture = jest.spyOn(posthog, 'capture')
-            variant = entry === 'github_return' ? 'test-github' : null
+            variant = pilot ? 'control' : entry === 'github_return' ? 'test-github' : null
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing,
                 [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github',
@@ -238,7 +267,7 @@ describe('focused Inbox setup', () => {
             }
             await waitFor(() => expect(logic.values.completed).toBe(true))
             expect(enabledScouts).toEqual(['signals-scout-general'])
-            expect(logic.values.savedState?.draft?.automatic_implementation).toBe(!usageBasedPricing)
+            expect(logic.values.savedState?.draft?.automatic_implementation).toBe(!pilot && !usageBasedPricing)
             expect(logic.values.savedState?.draft?.suggestions.map((item) => item.skill_name)).toEqual([
                 'signals-scout-general',
             ])
@@ -254,13 +283,13 @@ describe('focused Inbox setup', () => {
                 [
                     'self-driving onboarding activation requested',
                     expect.objectContaining({
-                        variant: 'test-github',
+                        variant: pilot ? 'control' : 'test-github',
                         setup_mode: 'quick',
                         flow_version: 'ui-first-v1',
                         inbox_client: 'cloud',
                         activation_source: entry,
                         self_driving_ubp: usageBasedPricing,
-                        automatic_implementation: !usageBasedPricing,
+                        automatic_implementation: !pilot && !usageBasedPricing,
                     }),
                 ],
             ])
@@ -289,12 +318,8 @@ describe('focused Inbox setup', () => {
             const onboarding = inboxOnboardingLogic()
             onboarding.mount()
             try {
-                if (assignment === 'test-ui') {
-                    await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
-                    await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
-                } else {
-                    await expectLogic(logic, () => onboarding.actions.requestManualSetup()).toFinishAllListeners()
-                }
+                await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
                 expect(logic.values.usesFocusedSetup).toBe(true)
                 expect(logic.values.inProgress).toBe(true)
                 expect(onboarding.values.onboardingMode).toBe('takeover')
@@ -349,7 +374,10 @@ describe('focused Inbox setup', () => {
                 )
                 expect(
                     capture.mock.calls.filter(([event]) => event === 'self-driving onboarding welcome continued')
-                ).toHaveLength(assignment === 'test-ui' ? 1 : 0)
+                ).toHaveLength(1)
+                expect(
+                    capture.mock.calls.filter(([event]) => event === 'Inbox welcome manual setup clicked')
+                ).toHaveLength(assignment === 'test-ui' ? 0 : 1)
             } finally {
                 onboarding.unmount()
                 capture.mockRestore()
@@ -384,6 +412,52 @@ describe('focused Inbox setup', () => {
             )
         }
     )
+
+    it('shows the paused reminder when a Wizard-completed control project disables its sources', async () => {
+        variant = 'control'
+        savedDraft = null
+        completedAt = '2026-10-14T12:00:00Z'
+        sources = [
+            {
+                ...draft.sources[0],
+                id: 'source-one',
+                created_at: completedAt,
+                updated_at: completedAt,
+                status: null,
+            },
+        ]
+        useMocks({
+            get: {
+                '/api/projects/:id/signals/reports/': {
+                    results: allReports.slice(0, 1),
+                    count: 1,
+                    next: null,
+                    previous: null,
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        const onboarding = inboxOnboardingLogic()
+        onboarding.mount()
+        try {
+            await expectLogic(onboarding, () => {
+                onboarding.actions.refreshSetupState()
+                signalSourcesLogic.actions.loadVisionScanners()
+            }).toFinishAllListeners()
+            await waitFor(() => expect(onboarding.values.isSetupLoaded).toBe(true))
+            expect(logic.values.completed).toBe(true)
+            expect(onboarding.values.onboardingMode).toBe('none')
+
+            sources[0].enabled = false
+            await expectLogic(signalSourcesLogic, () =>
+                signalSourcesLogic.actions.loadSourceConfigs()
+            ).toFinishAllListeners()
+            await waitFor(() => expect(onboarding.values.onboardingMode).toBe('banner'))
+            expect(logic.values.completed).toBe(true)
+        } finally {
+            onboarding.unmount()
+        }
+    })
 
     it.each([true, false])('retries partial activation with usage-based pricing %s', async (usageBasedPricing) => {
         featureFlagLogic.actions.setFeatureFlags([], {

@@ -19,6 +19,7 @@ import { z } from 'zod'
 
 import posthog from 'lib/posthog-typed'
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
+import { replayListColumnLogic } from 'scenes/session-recordings/playlist/replayListColumnLogic'
 import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
@@ -31,6 +32,8 @@ import { SessionRecordingSidebarTab } from '~/types'
 import { visionObservationsViewedCreate, visionScannersWatchFeedRetrieve } from '../generated/api'
 import type { WatchFeedItemApi } from '../generated/api.schemas'
 import { observationKeyMomentMs, watchStartSeconds } from './components/WatchFeedCard'
+import type { WatchFeedEmptyReason } from './watchFeedEmptyState'
+import { recordFeedImpressions } from './watchFeedImpressionCounts'
 import {
     type WatchFeedLoad,
     WatchFeedImpressions,
@@ -88,6 +91,9 @@ export interface watchPicksLogicActions {
     ) => {
         item: WatchFeedItemApi
         position: number
+    }
+    emptyStateShown: (reason: WatchFeedEmptyReason) => {
+        reason: WatchFeedEmptyReason
     }
     loadPicks: () => {
         value: true
@@ -170,6 +176,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         markPickViewed: (observationId: string) => ({ observationId }),
         setPicksLoad: (load: WatchFeedLoad) => ({ load }),
         cardSeen: (item: WatchFeedItemApi, position: number) => ({ item, position }),
+        emptyStateShown: (reason: WatchFeedEmptyReason) => ({ reason }),
     }),
 
     loaders(({ values, actions }) => ({
@@ -185,7 +192,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                         limit: PICKS_LIMIT,
                     })
                     breakpoint()
-                    actions.setPicksLoad(newWatchFeedLoad(response.ranker, response.results))
+                    actions.setPicksLoad(newWatchFeedLoad(response.results))
                     return response.results
                 },
             },
@@ -289,6 +296,13 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             setPicksLoad: ({ load }) => {
                 cache.impressions.start(load)
             },
+            emptyStateShown: ({ reason }) => {
+                if (cache.emptyStateShownReason === reason) {
+                    return
+                }
+                cache.emptyStateShownReason = reason
+                posthog.capture('replay_vision_watch_picks_empty_shown', { reason })
+            },
             cardSeen: ({ item, position }) => {
                 // Fallback rows below the picks were not served by the ranker, so they are not impressions of this load.
                 if (values.picksLoad?.positions[item.observation.id] !== undefined) {
@@ -331,6 +345,10 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                 sessionRecordingsPlaylistLogic(props.playlistLogicProps).actions.setSelectedRecordingId(
                     observation.session_id
                 )
+                // The URL tab above is skipped when it matches the viewer's last tab.
+                replayListColumnLogic
+                    .findMounted({ logicKey: props.playlistLogicProps.logicKey ?? 'playlist' })
+                    ?.actions.setSegment('moments', 'observations')
                 if (!markViewed) {
                     return
                 }
@@ -355,7 +373,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
     }),
 
     afterMount(({ actions, cache }) => {
-        cache.impressions = new WatchFeedImpressions('list')
+        cache.impressions = new WatchFeedImpressions('list', (load, ids) => recordFeedImpressions(load.feedLoadId, ids))
         // Not paused on hide: hiding is when the batch must go out.
         cache.disposables.add(cache.impressions.flushOnHideAndUnmount, 'impressionsFlush', { pauseOnPageHidden: false })
         actions.loadPicks()

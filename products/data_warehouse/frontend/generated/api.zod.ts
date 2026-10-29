@@ -1016,6 +1016,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
  * Run this saved query.
  */
 export const warehouseSavedQueriesRunCreateBodyFullRefreshDefault = false
+export const warehouseSavedQueriesRunCreateBodyEngineDefault = `clickhouse`
 
 export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1024,6 +1025,20 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             .default(warehouseSavedQueriesRunCreateBodyFullRefreshDefault)
             .describe(
                 'Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected.'
+            ),
+        direction: zod
+            .enum(['upstream', 'downstream'])
+            .describe('\* `upstream` - Upstream\n\* `downstream` - Downstream')
+            .optional()
+            .describe(
+                'Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.\n\n\* `upstream` - Upstream\n\* `downstream` - Downstream'
+            ),
+        engine: zod
+            .enum(['clickhouse', 'trino'])
+            .describe('\* `clickhouse` - ClickHouse\n\* `trino` - Trino')
+            .default(warehouseSavedQueriesRunCreateBodyEngineDefault)
+            .describe(
+                "Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. 'trino' builds the same views on the organization's managed warehouse only, and leaves the ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed warehouse, and 409 while another managed warehouse run of these views is in progress.\n\n\* `clickhouse` - ClickHouse\n\* `trino` - Trino"
             ),
     })
     .describe('Body of the `run` action.')

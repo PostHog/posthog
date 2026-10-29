@@ -76,6 +76,36 @@ class AgentTaskRunDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AgentStartupFailure:
+    provider: Literal["claude", "codex", "pi"]
+    phase: Literal["session_setup", "sdk_initialization", "setup_hooks"]
+    reason: (
+        Literal[
+            "credential_unavailable",
+            "credential_service_unavailable",
+            "org_pin_api_key_conflict",
+            "org_verify_failed",
+            "org_pin_mismatch",
+            "managed_settings_invalid",
+            "remote_settings_required_unavailable",
+            "gateway_signin_required",
+            "gateway_access_denied",
+            "proxy_invalid",
+            "temp_dir_unusable",
+            "cwd_unavailable",
+            "shell_tool_missing",
+            "session_held_by_background",
+            "worktree_resume_refused",
+            "worktree_unverified",
+            "cli_version_too_old",
+            "bypass_root",
+        ]
+        | None
+    )
+    retryability: Literal["requires_action", "transient", "unknown"]
+
+
+@dataclass(frozen=True, kw_only=True)
 class SessionFile:
     """A text file a custom-prompt session puts in the sandbox before its first turn.
 
@@ -136,6 +166,17 @@ class TaskRunTokenUsage:
 
     cost_microusd: int | None
     complete: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskRunSpend:
+    created_at: datetime
+    run_id: UUID
+    task_id: UUID
+    cost_microusd: int | None
+    complete: bool
+    is_terminal: bool
+    stage: str
 
 
 @dataclass(frozen=True)
@@ -1047,38 +1088,6 @@ class WarmTaskDTO:
 
 
 @dataclass(frozen=True)
-class TaskRunPeerDTO:
-    """One peer agent run visible to a sender run (agent peer messaging discovery)."""
-
-    run_id: str
-    task_id: str
-    task_title: str
-    created_by_email: str | None
-    runtime: str
-    model: str | None
-    repository: str | None
-    stage: str | None
-    status: str
-    sendable: bool
-    updated_at: str | None
-
-
-PeerSendResultKind = Literal["accepted", "target_finished", "rejected"]
-
-
-@dataclass(frozen=True)
-class PeerMessageSendResultDTO:
-    """Synchronous result of a peer-message send. ``result`` is the public contract:
-    ``accepted`` means queued for delivery (never "delivered" — the sandbox handoff
-    happens later inside the workflow), ``target_finished`` means the target's
-    workflow is gone, ``rejected`` covers throttles and validation failures."""
-
-    result: PeerSendResultKind
-    detail: str
-    message_id: str | None = None
-
-
-@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
@@ -1145,3 +1154,11 @@ class SandboxRunStarter:
 
     parent_task_id: UUID
     parent_run_id: UUID
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunPlan:
+    """The user plan a run bills to in place of PostHog credits."""
+
+    plan_name: str
+    owner_user_id: int | None

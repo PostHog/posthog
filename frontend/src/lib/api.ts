@@ -38,7 +38,6 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     DataWarehouseManagedViewsetKind,
-    DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -217,10 +216,12 @@ import type {
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
+    EmailDomainConnectCheckApi,
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -1888,10 +1889,6 @@ export class ApiRequest {
 
     public messagingCategories(): ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
-    }
-
-    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
-        return this.messagingCategories().addPathComponent('import_from_customerio')
     }
 
     public messagingCategoriesOptOutSyncConfig(): ApiRequest {
@@ -5079,6 +5076,7 @@ const api = {
                     tailBytes?: number
                     before?: number
                     start?: number
+                    view?: TasksRunsLogsRetrieveParams['view']
                 }
             ): Promise<{
                 entries: Record<string, any>[]
@@ -5096,6 +5094,7 @@ const api = {
                         ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
                         ...(options.before !== undefined ? { before: options.before } : {}),
                         ...(options.start !== undefined ? { start: options.start } : {}),
+                        ...(options.view ? { view: options.view } : {}),
                     })
                     .getResponse({ signal: options.signal })
                 const entries = parseLogEntries(await response.text())
@@ -6076,14 +6075,7 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
-        async domainConnectCheck(domain: string): Promise<{
-            supported: boolean
-            provider_name: DomainConnectProviderName | null
-            available_providers: {
-                endpoint: string
-                name: DomainConnectProviderName
-            }[]
-        }> {
+        async domainConnectCheck(domain: string): Promise<EmailDomainConnectCheckApi> {
             return await new ApiRequest()
                 .integrationsDomainConnectCheck()
                 .withQueryString(`domain=${encodeURIComponent(domain)}`)
@@ -6181,8 +6173,11 @@ const api = {
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
         },
-        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
-            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        async roll(
+            id: PersonalAPIKeyType['id'],
+            data: Pick<Partial<PersonalAPIKeyType>, 'expires_at'> = {}
+        ): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create({ data })
         },
     },
 

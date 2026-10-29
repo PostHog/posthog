@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonit
     API_DOCS_URL,
     API_VERSION,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -82,7 +83,7 @@ class LogicmonitorSource(ResumableSource[LogicmonitorSourceConfig, LogicMonitorR
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # A start-time watermark misses later acknowledgments and clear events for older alerts.
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self,
@@ -118,7 +119,8 @@ class LogicmonitorSource(ResumableSource[LogicmonitorSourceConfig, LogicMonitorR
             label="LogicMonitor",
             caption=(
                 "Create a bearer token in Settings > Users & Roles > API Tokens > Bearer. "
-                "Give its user view access to Resources, Dashboards, Collectors, and Websites for the tables you select. "
+                "Give its user view access to Resources, Dashboards, Collectors, Websites, Ops Notes, and Audit Logs "
+                "for the tables you select. "
                 "Alerts use full refresh to capture acknowledgments and cleared status."
             ),
             iconPath="/static/services/logicmonitor.png",
