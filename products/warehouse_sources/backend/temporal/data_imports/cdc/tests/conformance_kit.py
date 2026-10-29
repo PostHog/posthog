@@ -508,6 +508,9 @@ class ConformanceKit:
             if update_fields is None or "job_inputs" in update_fields:
                 kit._source_job_inputs = copy.deepcopy(source.job_inputs)
 
+        def read_masked_columns(_extraction: CDCExtractActivity, schema: ExternalDataSchema) -> list[str] | None:
+            return kit._schema_row(schema.id).get("masked_columns")
+
         def cdc_schemas(extraction: CDCExtractActivity) -> list[ExternalDataSchema]:
             assert extraction.source is not None
             return [kit._load_schema(name, extraction.source) for name in kit._schema_rows]
@@ -533,6 +536,7 @@ class ConformanceKit:
             patch(f"{_CDC}.activities.source_type_supports_cdc", return_value=True),
             patch(f"{_CDC}.activities.ExternalDataSource", source_model),
             patch.object(CDCExtractActivity, "_get_cdc_schemas", cdc_schemas),
+            patch.object(CDCExtractActivity, "_read_masked_columns", read_masked_columns),
             patch(f"{_CDC}.activities.update_sync_type_config_keys", merge_config),
             patch.object(ExternalDataSchema, "save", save_schema),
             patch.object(ExternalDataSource, "save", save_source),

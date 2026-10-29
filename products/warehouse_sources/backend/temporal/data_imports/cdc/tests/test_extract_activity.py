@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -36,13 +37,18 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_PROVENANCE,
     ChangeEventBatcher,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
+    CDCErrorCategory,
+    CDCMaskedKeyError,
+    cdc_error_info,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     cancel_running_sync,
     stage_handed_over_reset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import has_queued_batches
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag, ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import mask_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
@@ -144,6 +150,7 @@ def _stub_app_db_writes():
             "_update_schema_sync_type_config",
             side_effect=_fake_update_schema_sync_type_config,
         ),
+        patch.object(CDCExtractActivity, "_read_masked_columns", side_effect=lambda schema: schema.masked_columns),
         patch(f"{_ACTIVITIES}.cancel_running_sync", return_value=None),
     ):
         yield
@@ -310,6 +317,27 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
     activity_obj.source = source
     activity_obj.log = log or MagicMock()
     return activity_obj
+
+
+class TestMaskEventColumns:
+    def test_masks_configured_columns_and_types_them_as_text(self):
+        activity_obj = _make_extract_activity(_make_source())
+        activity_obj.masked_columns_by_table = {"users": {"email", "visits"}}
+        event = dataclasses.replace(
+            _make_event(columns={"id": 1, "Email": "a@example.com", "visits": None}),
+            column_types={"id": pa.int64(), "Email": pa.string(), "visits": pa.int64()},
+        )
+
+        out = activity_obj._mask_event_columns(event)
+
+        assert out.columns == {"id": 1, "Email": mask_value(1, "a@example.com"), "visits": None}
+        assert out.column_types == {"id": pa.int64(), "Email": pa.string(), "visits": pa.string()}
+
+    def test_a_table_without_masks_is_untouched(self):
+        activity_obj = _make_extract_activity(_make_source())
+        event = _make_event(columns={"id": 1, "email": "a@example.com"})
+
+        assert activity_obj._mask_event_columns(event) is event
 
 
 class TestSetupSelfCleansUnrunnableSchedules:
@@ -1422,6 +1450,26 @@ class TestPKColumnLoading:
         assert queried_namespaces == {"cdc_test", "public"}
         assert act.pk_columns_by_table == {"cdc_test.orders": ["id"], "public.orders": ["uuid"]}
 
+    def test_a_mask_on_a_discovered_key_fails_capture(self):
+        schema = _make_schema("cdc_test.orders")
+        schema.masked_columns = ["ID"]
+        schema.incremental_field = None
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        with pytest.raises(CDCMaskedKeyError):
+            act._load_pk_columns()
+
+    def test_a_mask_on_a_stored_cursor_column_still_masks_it(self):
+        # CDC reads no cursor, so a stale incremental_field must not keep its column in plaintext.
+        schema = _make_schema("cdc_test.orders")
+        schema.masked_columns = ["Updated_At"]
+        schema.incremental_field = "updated_at"
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        act._load_pk_columns()
+
+        assert act.masked_columns_by_table == {"cdc_test.orders": {"updated_at"}}
+
     def test_stored_keys_are_not_requeried(self):
         schema = _make_schema("cdc_test.orders")
         schema.sync_type_config["primary_key_columns"] = ["id"]
@@ -2208,6 +2256,26 @@ class TestBufferedIngressCapture:
             capture.extract()
 
         assert schema.sync_type_config["cdc_reset_pending"] == staged
+
+    def test_a_finished_reset_masks_with_the_masks_saved_with_it(self):
+        # The run loads its tables before it finishes resets. A mask change saved after that load
+        # stages a reset this run finishes, so the buffer the run then writes must carry the new mask.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.masked_columns = None
+        schema.incremental_field = None
+        schema.sync_type_config["cdc_reset_pending"] = {"trigger": True}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, "email": "a@example.com"})]
+
+        with (
+            _capture_harness(source, [schema], events) as capture,
+            patch.object(CDCExtractActivity, "_read_masked_columns", return_value=["email"]),
+            patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow"),
+        ):
+            capture.extract()
+
+        written = capture.buffer.write_batch.call_args.kwargs["table"]
+        assert written.column("email").to_pylist() == [mask_value(1, "a@example.com")]
 
     def test_a_reset_waiting_on_a_slot_holds_the_table_out_until_the_slot_reads(self):
         # Recovery leaves this marker when it could not recreate the slot. Finishing the reset here

@@ -41,6 +41,7 @@ from posthog.temporal.common.schedule import (
     pause_schedule,
     schedule_exists,
     trigger_schedule,
+    trigger_schedule_buffer_one,
     unpause_schedule,
     update_schedule,
 )
@@ -214,9 +215,13 @@ def trigger_external_data_source_workflow(external_data_source: ExternalDataSour
     trigger_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
-def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
+def trigger_external_data_workflow(external_data_schema: ExternalDataSchema, *, buffer_one: bool = False):
     temporal = sync_connect()
-    trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
+    if buffer_one:
+        # The schedule skips a trigger while a run is open, and a cancelled run stays open until it closes.
+        trigger_schedule_buffer_one(temporal, str(external_data_schema.id))
+    else:
+        trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
 
 async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSchema):

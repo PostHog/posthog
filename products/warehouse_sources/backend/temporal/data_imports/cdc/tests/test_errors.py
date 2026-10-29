@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
     CDCErrorInfo,
+    CDCMaskedKeyError,
     CDCSlotNotConfiguredError,
     CDCTransactionTooLargeError,
     cdc_error_info,
@@ -42,6 +43,7 @@ class TestCDCErrorInfo:
             (CDCErrorCategory.SLOT_IN_USE, True),
             (CDCErrorCategory.WAL_DECODE_ERROR, False),
             (CDCErrorCategory.TRANSACTION_TOO_LARGE, False),
+            (CDCErrorCategory.MASKED_KEY_CONFLICT, False),
             (CDCErrorCategory.UNKNOWN, True),
         ]
     )
@@ -82,10 +84,26 @@ class TestClassifyCDCError:
         info = classify_cdc_error(wrapper, PostgresCDCAdapter())
         assert info.category is CDCErrorCategory.AUTH_FAILED
 
-    def test_transaction_too_large_is_classified_without_adapter(self):
-        info = classify_cdc_error(CDCTransactionTooLargeError("500001 events"), None)
-        assert info.category is CDCErrorCategory.TRANSACTION_TOO_LARGE
+    @parameterized.expand(
+        [
+            (
+                "transaction_too_large",
+                CDCTransactionTooLargeError("500001 events"),
+                CDCErrorCategory.TRANSACTION_TOO_LARGE,
+            ),
+            ("masked_key", CDCMaskedKeyError("public.orders", ["id"]), CDCErrorCategory.MASKED_KEY_CONFLICT),
+        ]
+    )
+    def test_config_errors_are_classified_without_adapter(self, _name, exc, category):
+        info = classify_cdc_error(exc, None)
+        assert info.category is category
         assert info.retryable is False
+
+    def test_masked_key_error_names_the_table_and_columns(self):
+        # Capture fails every table on the source, so the message must say which one to fix.
+        info = classify_cdc_error(CDCMaskedKeyError("public.orders", ["id", "tenant_id"]), None)
+        assert "public.orders" in info.friendly_message
+        assert "id, tenant_id" in info.friendly_message
 
     def test_slot_not_configured_is_classified_without_adapter(self):
         # A CDC-enabled source with no slot name is a config dead end, not a psycopg failure, so it

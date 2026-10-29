@@ -707,14 +707,22 @@ function ColumnsAndRowFiltersSection({
     // Both editors run in `hideActions` mode and report edits up here, so one Save commits both.
     const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
     const [draftRowFilters, setDraftRowFilters] = useState<RowFilter[] | null>(schema.row_filters ?? null)
+    const [draftMasked, setDraftMasked] = useState<string[]>(schema.masked_columns ?? [])
+    const [saving, setSaving] = useState(false)
 
     // Reset drafts on schema switch or when server values change (e.g. reload after save).
     // Keyed on content so unrelated re-renders don't wipe edits.
     useEffect(() => {
         setDraftColumns(schema.enabled_columns ?? null)
         setDraftRowFilters(schema.row_filters ?? null)
+        setDraftMasked(schema.masked_columns ?? [])
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [schema.id, JSON.stringify(schema.enabled_columns ?? null), JSON.stringify(schema.row_filters ?? null)])
+    }, [
+        schema.id,
+        JSON.stringify(schema.enabled_columns ?? null),
+        JSON.stringify(schema.row_filters ?? null),
+        JSON.stringify(schema.masked_columns ?? []),
+    ])
 
     const alwaysRetained = new Set<string>([
         ...(schema.primary_key_columns ?? []),
@@ -735,25 +743,57 @@ function ColumnsAndRowFiltersSection({
     const rowFilterErrors = validateRowFilters(draftRowFilters ?? [], { availableColumns: rowFilterColumns })
     const hasRowFilterErrors = Object.keys(rowFilterErrors).length > 0
 
+    const savedMasked = schema.masked_columns ?? []
+    const newlyMasked = draftMasked.filter((column) => !savedMasked.includes(column))
+    const unmasked = savedMasked.filter((column) => !draftMasked.includes(column))
+    const masksChanged = newlyMasked.length > 0 || unmasked.length > 0
+
     const isDirty =
         !sameColumns(draftColumns, schema.enabled_columns ?? null, available) ||
-        JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null)
+        JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null) ||
+        masksChanged
 
     const commit = (resyncAfter: boolean): void => {
-        const next = { ...schema, enabled_columns: draftColumns, row_filters: draftRowFilters }
-        if (resyncAfter) {
+        // A second save would validate against the old masks and request another rebuild.
+        if (saving) {
+            return
+        }
+        const next = {
+            ...schema,
+            enabled_columns: draftColumns,
+            row_filters: draftRowFilters,
+            masked_columns: draftMasked,
+        }
+        if (resyncAfter || masksChanged) {
             // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
             // stale one a still-queued PATCH hasn't written yet.
+            // The backend starts the resync itself when it saves a mask change, and it can refuse one.
+            setSaving(true)
             void api.externalDataSchemas
-                .update(schema.id, { enabled_columns: draftColumns, row_filters: draftRowFilters })
+                .update(schema.id, {
+                    enabled_columns: draftColumns,
+                    row_filters: draftRowFilters,
+                    // Unchanged masks stay out, so a column that left the source can't block the save.
+                    ...(masksChanged ? { masked_columns: draftMasked } : {}),
+                })
                 .then(() => {
                     updateSchema(next)
-                    resyncSchema(next)
-                    lemonToast.success('Saved — full resync queued')
+                    if (!masksChanged) {
+                        resyncSchema(next)
+                    }
+                    // The backend only stages the rebuild of a table that does not sync.
+                    lemonToast.success(
+                        !resyncAfter
+                            ? 'Saved'
+                            : masksChanged && !schema.should_sync
+                              ? 'Saved. The full resync starts when you turn syncing on.'
+                              : 'Saved — full resync queued'
+                    )
                 })
                 .catch((e: any) => {
                     lemonToast.error(e?.message || "Can't save at this time")
                 })
+                .finally(() => setSaving(false))
             return
         }
         updateSchema(next)
@@ -762,6 +802,38 @@ function ColumnsAndRowFiltersSection({
 
     const handleSave = (): void => {
         const syncType = schema.sync_type
+
+        if (masksChanged && !!schema.last_synced_at) {
+            LemonDialog.open({
+                title: 'Changing masked columns starts a full resync',
+                description: (
+                    <div className="flex flex-col gap-2">
+                        <span>
+                            The table is rebuilt from the source, because rows that are already synced can't be masked
+                            or unmasked in place. A masked column no longer matches the same values in tables where it
+                            isn't masked.
+                        </span>
+                        {newlyMasked.length > 0 && newlyMasked.length <= 6 && (
+                            <span className="text-xs text-muted">
+                                Masking: {newlyMasked.map((c) => `"${c}"`).join(', ')}
+                            </span>
+                        )}
+                        {unmasked.length > 0 && unmasked.length <= 6 && (
+                            <span className="text-xs text-muted">
+                                Unmasking: {unmasked.map((c) => `"${c}"`).join(', ')}
+                            </span>
+                        )}
+                    </div>
+                ),
+                primaryButton: {
+                    children: 'Save and resync',
+                    onClick: () => commit(true),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+            return
+        }
+
         const added = getAddedColumns(schema.enabled_columns ?? null, draftColumns, available)
         const requiresPrompt =
             !!schema.last_synced_at &&
@@ -797,7 +869,7 @@ function ColumnsAndRowFiltersSection({
             <div>
                 <SectionHeader
                     title="Columns"
-                    description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
+                    description="Choose which columns from this table get synced, and mask sensitive ones to replace their values with a one-way hash. Primary keys and the active incremental field are always synced and can't be masked."
                 />
                 <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
                     {!hasAvailableColumns || columnSelectionNeedsRefresh ? (
@@ -822,9 +894,18 @@ function ColumnsAndRowFiltersSection({
                         </div>
                     ) : (
                         <>
-                            <span className="text-sm text-secondary">{columnsSummary}</span>
+                            <span className="text-sm text-secondary">
+                                {columnsSummary}
+                                {draftMasked.length > 0 && `, ${draftMasked.length} masked`}
+                            </span>
                             <fieldset disabled={!!editorDisabledReason}>
-                                <ColumnSelectionPicker hideActions schema={schema} onChange={setDraftColumns} />
+                                <ColumnSelectionPicker
+                                    hideActions
+                                    enableMasking={source?.access_method !== 'direct'}
+                                    schema={schema}
+                                    onChange={setDraftColumns}
+                                    onMaskedChange={setDraftMasked}
+                                />
                             </fieldset>
                         </>
                     )}
@@ -867,6 +948,7 @@ function ColumnsAndRowFiltersSection({
                     <LemonButton
                         type="primary"
                         onClick={handleSave}
+                        loading={saving}
                         disabledReason={
                             editorDisabledReason ??
                             (hasRowFilterErrors

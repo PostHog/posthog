@@ -91,6 +91,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import mask_table_if_configured
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_cursor_partition_keys,
 )
@@ -1168,6 +1169,7 @@ class PipelineV3(Generic[ResumableData]):
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(drop_internal_columns(pa_table), self._load_id)
+        source_column_names = pa_table.column_names
         if not self._resource.preserve_column_names:
             pa_table = normalize_table_column_names(pa_table)
 
@@ -1193,6 +1195,10 @@ class PipelineV3(Generic[ResumableData]):
 
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
+        # After the null-column backfill, so a masked column the batch lacked is typed as text too.
+        # Capture masks a change before it writes the change buffer, so a buffered batch is masked already.
+        if self._resource.cdc_write_mode is None:
+            pa_table = await mask_table_if_configured(pa_table, self._schema, self._resource, source_column_names)
 
         # Converge this batch onto the column types earlier batches in this run already used,
         # and backfill columns they had that this one doesn't. The cursor column is named both

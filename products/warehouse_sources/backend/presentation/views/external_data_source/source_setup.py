@@ -88,6 +88,8 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
+    canonical_masked_columns,
+    masked_columns_error,
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
@@ -1089,6 +1091,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             request=self.request,
         )
 
+    @staticmethod
+    def _delete_new_source(source: ExternalDataSource, cdc_adapter: CDCSourceAdapter | None) -> None:
+        # A hard delete leaves no source row for the orphan-slot sweeper to find, so drop the slot
+        # and publication created for this source first.
+        if cdc_adapter is not None:
+            cdc_adapter.cleanup_resources(source)
+        source.delete()
+
     def _create_external_data_source(
         self,
         request: Request,
@@ -1543,6 +1553,21 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 payload_row_filters if isinstance(payload_row_filters, list) and payload_row_filters else None
             )
 
+            payload_masked_columns = schema.get("masked_columns")
+            # Dropping a malformed mask would sync the column in plaintext, so reject it.
+            if payload_masked_columns is not None and not (
+                isinstance(payload_masked_columns, list)
+                and all(isinstance(column, str) for column in payload_masked_columns)
+            ):
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"masked_columns for schema '{schema.get('name')}' must be a list of column names or null."
+                    },
+                )
+            masked_columns: list[str] | None = payload_masked_columns or None
+
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
@@ -1728,6 +1753,28 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
+            if masked_columns:
+                masking_error = masked_columns_error(
+                    masked_columns,
+                    source_type=source_type,
+                    is_direct_query=is_direct_query,
+                    source_columns=[column[0] for column in introspected_columns],
+                    # A sync merges and partitions on `id` when no key is stored or detected.
+                    primary_key_columns=sync_type_config.get("primary_key_columns")
+                    or (source_schema.detected_primary_keys if source_schema else None)
+                    or [column[0] for column in introspected_columns if column[0].lower() == "id"][:1],
+                    incremental_fields=[incremental_field],
+                )
+                if masking_error:
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Column masking not allowed for schema '{schema_name}': {masking_error}"},
+                    )
+                masked_columns = canonical_masked_columns(
+                    masked_columns, [column[0] for column in introspected_columns]
+                )
+
             # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
             # and the value prop is near-real-time. Other sync types use the 6h default.
             schema_sync_frequency_interval = (
@@ -1747,6 +1794,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 label=schema_label_by_name.get(schema_name),
                 sync_frequency_interval=schema_sync_frequency_interval,
                 enabled_columns=enabled_columns,
+                masked_columns=masked_columns,
                 row_filters=row_filters,
             )
 
@@ -1768,10 +1816,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         cast(str, metadata_source_schema),
                         cast(str, metadata_source_table_name),
                     )
-                    # A hard delete leaves no source row for the orphan-slot sweeper to find, so
-                    # drop the slot and publication created above before deleting the source.
-                    cdc_adapter.cleanup_resources(new_source_model)
-                    new_source_model.delete()
+                    self._delete_new_source(new_source_model, cdc_adapter)
                     return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": message})
 
             if direct_engine_adapter is not None and is_direct_query and should_sync:

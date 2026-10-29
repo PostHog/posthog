@@ -734,6 +734,13 @@ export interface sourceWizardLogicActions {
         returnLabel: string
         returnUrl: string
     }
+    setSchemaMaskedColumns: (
+        schema: ExternalDataSourceSyncSchema,
+        maskedColumns: string[]
+    ) => {
+        maskedColumns: string[]
+        schema: ExternalDataSourceSyncSchema
+    }
     setSchemaNameFilter: (schemaNameFilter: string) => {
         schemaNameFilter: string
     }
@@ -1089,6 +1096,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schema,
             rowFilters,
         }),
+        setSchemaMaskedColumns: (schema: ExternalDataSourceSyncSchema, maskedColumns: string[]) => ({
+            schema,
+            maskedColumns,
+        }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
             syncType: ExternalDataSourceSyncSchema['sync_type'],
@@ -1259,6 +1270,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return state.map((s) => ({
                         ...s,
                         row_filters: s.table === schema.table ? rowFilters : s.row_filters,
+                    }))
+                },
+                setSchemaMaskedColumns: (state, { schema, maskedColumns }) => {
+                    return state.map((s) => ({
+                        ...s,
+                        masked_columns: s.table === schema.table ? maskedColumns : s.masked_columns,
                     }))
                 },
                 updateSchemaSyncType: (
@@ -2188,6 +2205,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
                                         enabled_columns: schema.enabled_columns ?? null,
+                                        masked_columns: schema.masked_columns ?? null,
                                         row_filters: schema.row_filters ?? null,
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }

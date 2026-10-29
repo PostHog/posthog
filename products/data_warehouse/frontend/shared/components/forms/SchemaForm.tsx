@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconInfo, IconWarning } from '@posthog/icons'
+import { IconInfo, IconLock, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -71,6 +71,7 @@ export default function SchemaForm(): JSX.Element {
         setSchemaNameFilter,
         setSchemaSyncedColumns,
         setSchemaRowFilters,
+        setSchemaMaskedColumns,
     } = useActions(sourceWizardLogic)
     const [columnSelectionSchema, setColumnSelectionSchema] = useState<ExternalDataSourceSyncSchema | null>(null)
     const {
@@ -364,12 +365,19 @@ export default function SchemaForm(): JSX.Element {
                 const summary = !synced
                     ? `All ${schema.available_columns.length}`
                     : `${syncedCount} of ${schema.available_columns.length}`
+                const maskedCount = schema.masked_columns?.length ?? 0
                 return (
                     <div className="justify-end flex">
                         <LemonButton
                             className="my-1"
                             size="small"
                             type="secondary"
+                            icon={maskedCount > 0 ? <IconLock /> : undefined}
+                            tooltip={
+                                maskedCount > 0
+                                    ? `${maskedCount} masked ${maskedCount === 1 ? 'column' : 'columns'}`
+                                    : undefined
+                            }
                             onClick={() => setColumnSelectionSchema(schema)}
                             disabledReason={schema.permission_error ?? undefined}
                         >
@@ -635,7 +643,7 @@ export default function SchemaForm(): JSX.Element {
                         </>
                     ) : null
                 }
-                description="Choose which columns to sync and add row filters to sync only matching rows. Primary-key and incremental columns are always synced."
+                description="Choose which columns to sync, mask sensitive columns, and add row filters to sync only matching rows. Primary-key and incremental columns are always synced and can't be masked."
                 isOpen={columnSelectionSchema !== null}
                 onClose={() => setColumnSelectionSchema(null)}
                 footer={
@@ -649,13 +657,16 @@ export default function SchemaForm(): JSX.Element {
                         <h4 className="font-semibold mb-0">Columns to sync</h4>
                         <ColumnSelectionPicker
                             hideActions
+                            enableMasking={!isDirectQueryMode}
                             schema={
                                 columnSelectionSchema
                                     ? {
                                           id: columnSelectionSchema.table,
                                           name: columnSelectionSchema.table,
                                           enabled_columns: columnSelectionSchema.enabled_columns,
+                                          masked_columns: columnSelectionSchema.masked_columns,
                                           primary_key_columns: columnSelectionSchema.primary_key_columns,
+                                          detected_primary_keys: columnSelectionSchema.detected_primary_keys,
                                           incremental_field: columnSelectionSchema.incremental_field,
                                           available_columns: columnSelectionSchema.available_columns.map((c) => ({
                                               name: c.field,
@@ -668,6 +679,11 @@ export default function SchemaForm(): JSX.Element {
                             onChange={(enabledColumns) => {
                                 if (columnSelectionSchema) {
                                     setSchemaSyncedColumns(columnSelectionSchema, enabledColumns)
+                                }
+                            }}
+                            onMaskedChange={(maskedColumns) => {
+                                if (columnSelectionSchema) {
+                                    setSchemaMaskedColumns(columnSelectionSchema, maskedColumns)
                                 }
                             }}
                         />

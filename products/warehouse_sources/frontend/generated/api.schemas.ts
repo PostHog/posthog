@@ -520,6 +520,11 @@ export interface ExternalDataSchemaApi {
      */
     enabled_columns?: string[] | null
     /**
+     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+     * @nullable
+     */
+    masked_columns?: string[] | null
+    /**
      * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
      * @nullable
      */
@@ -709,6 +714,11 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+     * @nullable
+     */
+    masked_columns?: string[] | null
     /**
      * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
      * @nullable
@@ -5367,6 +5377,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
+     * @nullable
+     */
+    masked_columns?: string[] | null
     /**
      * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
      * @nullable

@@ -493,6 +493,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "masked_columns": "masked columns",
         "full_refresh_interval_days": "full refresh interval (days)",
         "full_refresh_time_of_day": "full refresh time (UTC)",
     },
