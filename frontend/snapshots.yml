@@ -17306,14 +17306,18 @@ snapshots:
         hash: v1.k794b7964.b3793a018b9fc7d1019402ec5216189d26ae85000cbb9d91ede5b7ac7f6528c3.V-ICrhJc-LkfYh8MsK8Q2AoJxCcRhqLIDNvGQ0uyFug
     warehouse-suggestions-suggested-certifications--banner--light:
         hash: v1.k794b7964.4398ae40c8e28494481e73b72c49315fd5294380aaa8f4f579c53b120e95d2f3.qj1-k55d9dyizhho1p59SKxeUPeAKHr6ZRnFAkcZgIA
+    warehouse-suggestions-suggested-certifications--delete-dialog--dark:
+        hash: v1.k794b7964.aad2607c019ac52b9556e91abd03d3a233ab8fdd198567fd1e129b934675d251.tSQKOmix1NM8XrB1tQ1mf_ddO7ZcMvpSpt1-mlY4REA
+    warehouse-suggestions-suggested-certifications--delete-dialog--light:
+        hash: v1.k794b7964.a9541f596401a8a9a9fbad1941304b64f5fb2ae8ab2a458e189b3e2cbd0c40ef.jRI2zgnjkgGptnLv2kYbB2DCHQor9oeuXjosAsweeIc
     warehouse-suggestions-suggested-certifications--deprecate-dialog--dark:
-        hash: v1.k794b7964.09b0aec605e49d00a60ef65ad6a4e44157179bfcd307e22500d1f0c95dcca84b.ffeyTu9F9ltSOuDHuRiBk66vNteeBGXBOuZdMSNUEWQ
+        hash: v1.k794b7964.569fbd69081ec9226b2537abd808af36a5af9479f9a916934db6b86400fc3575.iXbK1xwKnUOBSuwq1ysK1z081fchT6WbgT6mAE0H5as
     warehouse-suggestions-suggested-certifications--deprecate-dialog--light:
-        hash: v1.k794b7964.275d7a88a60faa93a269cf2845b2699cbfdf64e3e44915475a0b2bee1cd74d5f.NhxpoIwZXgvWwn3rUmWDa0TNkY2A7ZVGRJmHW1vAuBM
+        hash: v1.k794b7964.52c60a9e5d167d90d4c5606f0032ae4aaa99dad729d6cd3282d8dc3ee9d20889.tUy7qtGeFR3r-LLD3dqj8qxl20pbg4rl0qo9xpERdPk
     warehouse-suggestions-suggested-certifications--review-dialog--dark:
-        hash: v1.k794b7964.6dcbacf41e20c4bea01deeb9dfe4d35f2448360bf979c9b28a79fa2e70c9b093.vkNS26vk41QQyUFkJwTUZ6pxCQkisgogPmtUMRCOLQU
+        hash: v1.k794b7964.79329703679886eb0cc766b817ed635ab872e231b2d0c157aee6bd29caca951f.FGhDdgEznM4SRrNmEYuX88lQwOMw2_ZhdWZMNKQGWMs
     warehouse-suggestions-suggested-certifications--review-dialog--light:
-        hash: v1.k794b7964.10018e84324c52d7139e7329ad735059c12c23b62abd4da8c7b8db9ad04fb0f6.83Sg6I66DFRMw1gR9ZiuxhtiS1iRLdiTl-6B99FYlOw
+        hash: v1.k794b7964.b6bb52e92fb9f9b665b0c37374beaf8b5df6873cc787803bc36f9e0c368153e6.Cxvr8LuJdvGINBPf-TwPCo0DlkEk09S7PNxK6N09hio
     warehouse-suggestions-suggested-certifications--review-dialog-narrow--dark:
         hash: v1.k794b7964.09bce81ef734200f2bf6cb83ab6f721fe5bf3fa49baf8e7d3efc8ba2aef669b5.odxYkoZ6E1lVK5TmS2efjmW-Yc63cmsNvj01Tj1dVAY
     warehouse-suggestions-suggested-certifications--review-dialog-narrow--light:
