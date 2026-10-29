@@ -46,6 +46,7 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
+import { reportGithubAccessLogic } from './logics/reportGithubAccessLogic'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -968,13 +969,19 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback }) => {
-            if (values.createPrDisabledReason) {
-                lemonToast.error(values.createPrDisabledReason)
+            const disabledReason =
+                values.createPrDisabledReason ??
+                (
+                    reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
+                    reportGithubAccessLogic.findMounted({ report })
+                )?.values.disabledReason
+            if (disabledReason) {
+                lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({
                     report,
                     actionType: 'create_pr',
                     outcome: 'blocked',
-                    blockedReason: values.createPrDisabledReason,
+                    blockedReason: disabledReason,
                 })
                 actions.createPrFailure()
                 return

@@ -18,6 +18,10 @@ The metrics are proposed until a person approves them in the data catalog, so tr
 The metric and the query here hold the same SQL.
 When you change one, change the other in the same PR (`posthog:data-catalog-metric-update` for the metric).
 
+The rebuilt menu is removed from the code, but its `rebuild-menu` events stay in the data until they age out of the query windows.
+That is why these queries still split or filter by `surface`.
+Once no window holds a `rebuild-menu` row, simplify a query and its metric together.
+
 | Query | Metric                                               |
 | ----- | ---------------------------------------------------- |
 | 4     | `taxonomic_filter_engaged_selection_rate_by_surface` |

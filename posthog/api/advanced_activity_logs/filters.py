@@ -15,7 +15,7 @@ _ALLOWED_DETAIL_FILTER_OPERATIONS = {"exact", "contains", "in"}
 # and `name.regex` becomes `(detail ->> 'name')::text ~ <value>`, which evaluates an arbitrary
 # Postgres regular expression against every row. Computed from Django's registries so the set
 # stays correct when Django adds lookups.
-_DJANGO_LOOKUP_NAMES = frozenset(JSONField().get_lookups()) | frozenset(KeyTransform.get_lookups())
+_DJANGO_LOOKUP_NAMES = frozenset(JSONField().get_lookups()) | frozenset(KeyTransform.get_class_lookups())
 
 _MAX_DETAIL_FILTERS = 100
 _MAX_FIELD_PATH_LENGTH = 500

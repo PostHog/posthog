@@ -1,6 +1,5 @@
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { userLogic } from 'scenes/userLogic'
@@ -32,7 +31,7 @@ describe('watchFeedLogic', () => {
     beforeEach(() => {
         // The scope choice persists, so one test's choice must not leak into the next.
         localStorage.clear()
-        feedSpy = jest.fn(() => [200, { results: [item('o1', 'signal_emitted'), item('o2', 'recent')] }])
+        feedSpy = jest.fn(() => [200, { results: [item('o1', 'embedding_pick'), item('o2', 'recent')] }])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/watch_feed/': feedSpy,
@@ -48,21 +47,11 @@ describe('watchFeedLogic', () => {
     })
 
     it('loads on mount and reloads with params when filters change', async () => {
-        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation()
-        const lastFeedViewed = (): Record<string, any> | null | undefined =>
-            captureSpy.mock.calls.filter(([name]) => name === 'replay_vision_watch_feed_viewed').at(-1)?.[1]
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadFeed', 'loadFeedSuccess']).toFinishAllListeners()
         expect(logic.values.feedItems).toHaveLength(2)
         expect(new URL(feedSpy.mock.calls[0][0].request.url).searchParams.get('date_from')).toBe('-7d')
-        // A response without a ranker (an older API) reads as the default arm, outside the experiment.
-        expect(logic.values.feedRanker).toBe('weighted-score')
-        expect(lastFeedViewed()).not.toHaveProperty('$feature/vision-watch-feed-ranker')
 
-        feedSpy.mockImplementation(() => [
-            200,
-            { results: [item('o1', 'jev_watchable')], ranker: 'jev', ranker_variant: 'jev' },
-        ])
         const owned = [{ id: 'scanner-a', created_by: userLogic.values.user } as unknown as ReplayScannerApi]
         const lastCreatedBy = (): string | null =>
             new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('created_by')
@@ -96,10 +85,6 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         expect(feedSpy.mock.calls).toHaveLength(requestsBeforeSwitch + 1)
         expect(lastCreatedBy()).toBeNull()
-        // The response names the ranker that ordered the feed, and the feed-viewed event reports the
-        // project's variant, which is the exposure the experiment counts.
-        expect(logic.values.feedRanker).toBe('jev')
-        expect(lastFeedViewed()).toMatchObject({ ranker: 'jev', '$feature/vision-watch-feed-ranker': 'jev' })
 
         await expectLogic(logic, () => {
             logic.actions.setDateFrom('-30d')

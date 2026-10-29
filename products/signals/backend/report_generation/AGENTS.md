@@ -7,7 +7,7 @@ It is exercised locally via management commands, and it is also used by the prod
 
 - `select_repo.py`
   Selects the most relevant GitHub repository for a set of signals.
-  - If no eligible repo passes the source-visibility check: returns `None` (report goes to `pending_input`).
+  - If no eligible repo passes the source-visibility check: returns `None`. The `self-driving-github-optional` pilot continues research with project data; other projects go to `pending_input`.
   - If 1 eligible repo passes the source-visibility check: returns it directly (no sandbox needed).
   - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
@@ -19,6 +19,8 @@ It is exercised locally via management commands, and it is also used by the prod
   The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source can still route to an eligible confirmed-private repository, or to any eligible repository when the source is confirmed public.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
+  With `code_available=False`, the opening prompt states once that no repository is checked out. Research uses project evidence, omits code-history requirements, and converts its response to the canonical `SignalFinding` before persistence.
+  Reviewer selection uses project evidence and human corrections; verification uses the shared evidence-based plan prompt, and PR-stack planning is skipped. Caller activities control production eligibility for repository-free research.
   The agent researches each signal, then produces:
   - per-signal findings
   - actionability assessment
@@ -30,6 +32,14 @@ It is exercised locally via management commands, and it is also used by the prod
   - an optional task-attributed fix verification note for actionable reports
 
   The repository used for research is tracked separately via the `repo_selection` artefact.
+  Pilot research records `research_context` there, omits code-specific instructions without a checkout, and skips ownership lookup and PR-stack planning. Read [GitHub-optional pilot](../../../../docs/internal/signals-pr-lifecycle.md#github-optional-pilot) when changing fallback or enrollment behavior.
+
+  Startup failures cross the Tasks facade as `AgentStartupFailed`. The caller activity preserves
+  their typed details in `ResearchAgentStartupFailed`; transient sandbox failures retain the extended
+  `ResearchSandboxUnavailable` retry budget. Only failures classified as `requires_action` skip activity retries; a new run can succeed after the configuration or credentials are corrected.
+  The summary workflow persists the terminal failure, then retries its deduplicated notice in a separate
+  activity through `backend/startup_failure.py`. Recovery requires worker-attested startup success.
+  Keep this lifecycle in the caller, outside the research prompt flow.
 
 - `ownership_reviewers.py`
   Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. The artefact write path preserves human pins, exclusions, and confirmed lists during later research.
