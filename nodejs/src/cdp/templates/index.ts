@@ -38,7 +38,6 @@ import { template as posthogUpdateAccountRelationshipsTemplate } from './_destin
 import { template as posthogUpdateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account.template'
 import { template as posthogReplayVisionTemplate } from './_destinations/posthog_replay_vision/posthog-replay-vision.template'
 import { template as posthogRunScoutTemplate } from './_destinations/posthog_signals/posthog-run-scout.template'
-import { template as posthogShowSurveyTemplate } from './_destinations/posthog_surveys/posthog-show-survey.template'
 import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
 import { template as posthogAddToStaticCohortTemplate } from './_destinations/posthog_workflows/posthog-add-to-static-cohort.template'
 import { template as posthogClassifyTemplate } from './_destinations/posthog_workflows/posthog-classify.template'
@@ -116,7 +115,6 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogUpdateTicketTemplate,
     posthogCreateTaskTemplate,
     posthogRunScoutTemplate,
-    posthogShowSurveyTemplate,
     posthogClassifyTemplate,
     posthogAddToStaticCohortTemplate,
     posthogOptOutOfMessagesTemplate,
