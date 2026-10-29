@@ -14,6 +14,9 @@ from posthog.organization_offboarding_types import OffboardingResource
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.notebooks.backend.models import Notebook
+    from products.product_analytics.backend.models.insight import Insight
+
 
 @frozen
 class PublicResourceKind:
@@ -74,6 +77,7 @@ class OrganizationOffboarding:
             .order_by("-created_at")
         )
         if not include_deleted:
+            # nosemgrep: orm-field-injection -- kind comes from the fixed PUBLIC_RESOURCE_KINDS registry
             configurations = configurations.exclude(**{f"{kind}__deleted": True})
         resources: dict[str, OffboardingResource] = {}
         for configuration in configurations.iterator(chunk_size=200):
@@ -81,12 +85,12 @@ class OrganizationOffboarding:
             resource_id = f"public_link:{kind}:{configuration.team_id}:{getattr(configuration, f'{kind}_id')}"
             name = cast(str | None, getattr(resource, resource_kind.name_field))
             if kind == "insight" and not name:
-                name = cast(str | None, resource.derived_name)
+                name = cast("Insight", resource).derived_name
             path = {"dashboard": "dashboard", "insight": "insights", "notebook": "notebooks", "recording": "replay"}[
                 kind
             ]
             identifier = (
-                resource.short_id
+                cast("Insight | Notebook", resource).short_id
                 if kind in ("insight", "notebook")
                 else getattr(resource, resource_kind.identifier_field)
             )
