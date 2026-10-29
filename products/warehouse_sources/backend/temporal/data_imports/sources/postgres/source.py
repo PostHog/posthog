@@ -71,6 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
     _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _SERVER_STARTING_UP_ERROR_SUBSTRINGS,
+    _SERVICE_UNAVAILABLE_ERROR_SUBSTRING,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -205,7 +206,8 @@ POSTGRES_HOST_CHECK_SOURCE_TYPE = "postgres"
 
 PostgresErrors = {
     **CERTIFICATE_ERRORS,
-    "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # Some servers end the message here, without libpq's "for user <name>".
+    "password authentication failed": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # A proxy/pooler in front of some providers rejects bad credentials during its own
     # database-identification step instead of libpq's "password authentication failed for user",
     # wrapping the rejection in its own sentence ("Failed to identify your database: Your Postgres
@@ -481,6 +483,16 @@ _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
     "running and healthy. This sync is still enabled and will run again on its next schedule."
 )
 
+# Twin of `_SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE` for a bare proxy/pooler "service temporarily
+# unavailable" refusal (see `_SERVICE_UNAVAILABLE_ERROR_SUBSTRING` in postgres.py), which names no
+# lifecycle state, so the message doesn't claim one either.
+_SERVICE_UNAVAILABLE_EXHAUSTED_MESSAGE = (
+    "Your database refused PostHog's connection, reporting that the service was temporarily "
+    "unavailable, and it was still refusing connections after every retry. Check your database and "
+    "any connection pooler or proxy in front of it for an ongoing outage, maintenance, or failover. "
+    "This sync is still enabled and will run again on its next schedule."
+)
+
 _CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
     "Your database had no free connection slots for PostHog, and none freed up before the retries "
     "ran out. Raise the connection limit on the database or its pooler, or reduce how many other "
@@ -513,6 +525,39 @@ _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE = (
     "mid-query, or someone or something on your database canceled it. Check your database and "
     "pooler logs around the time of the failure. This sync is still enabled and will run again on "
     "its next schedule."
+)
+
+_SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE = (
+    "Your database kept aborting PostHog's read with a transaction serialization conflict, and the "
+    "conflict outlasted every retry. This is common on CockroachDB and similar databases under "
+    "heavy write load. Check how busy the table is during the sync window, or point the connection "
+    "at a replica with less write traffic. This sync is still enabled and will run again on its "
+    "next schedule."
+)
+
+# psycopg raises this only while it opens a connection. A schema that synced an hour earlier often
+# times out once and then syncs again with no change to the source, so a timeout alone is not proof
+# that the host is unreachable for good.
+_CONNECT_TIMEOUT_ERROR = "connection timeout expired"
+_CONNECT_TIMEOUT_EXHAUSTED_MESSAGE = (
+    "PostHog couldn't connect to your database before the connection timed out, and it did so again "
+    "on every retry. Check that the database is running and reachable from the public internet, and "
+    "that PostHog's egress IP addresses are allowed through your firewall. For a database that can't "
+    "be exposed publicly, use the SSH tunnel option. This sync is still enabled and will run again on "
+    "its next schedule."
+)
+
+# Supavisor blocks new connections for a short time after too many failed sign-ins to a project.
+# The failures can come from any client of that project, so the block does not prove that PostHog's
+# credentials are wrong. When they are wrong, the next attempt after the block clears gets
+# "password authentication failed", which stops the sync.
+_POOLER_AUTH_CIRCUIT_BREAKER_ERROR = "too many authentication failures"
+_POOLER_AUTH_CIRCUIT_BREAKER_EXHAUSTED_MESSAGE = (
+    "Your database connection pooler temporarily blocked new connections after too many failed "
+    "sign-in attempts, and the block was still active after every retry. Another client with an old "
+    "username or password can cause this block. Check the credentials of each client that connects "
+    "to this database, including this source. This sync is still enabled and will run again on its "
+    "next schedule."
 )
 
 
@@ -762,6 +807,7 @@ class PostgresSource(
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -889,18 +935,6 @@ class PostgresSource(
                 "wrong. Some connection poolers (for example Supabase's transaction pooler) also "
                 "require a pooler-specific username such as postgres.<project-ref>. Check your "
                 "credentials, then re-enable the sync."
-            ),
-            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials and refuses
-            # new connections with "FATAL: (ECIRCUITBREAKER) too many authentication failures, new
-            # connections are temporarily blocked". The block only clears once the failing attempts
-            # stop, so it's deterministic until the customer fixes the credentials — retrying just
-            # re-hits the block. Distinct from the transient credential-fetch variant of the same
-            # code, which postgres.py keeps retrying (see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`).
-            "too many authentication failures": (
-                "Your database connection pooler is blocking new connections after too many failed "
-                'sign-in attempts ("too many authentication failures"). This usually means the '
-                "username or password is wrong. Check your credentials, wait for the block to clear, "
-                "then re-enable the sync."
             ),
             # A Postgres server configured with `pam` auth in pg_hba.conf rejects bad credentials with
             # "FATAL: PAM authentication failed for user <user>" instead of PostgreSQL's
@@ -1183,18 +1217,6 @@ class PostgresSource(
             # retry until the customer fixes the network path.
             "Connection timed out": None,
             "password authentication failed connection": None,
-            # psycopg raises ConnectionTimeout ("connection timeout expired") only while establishing
-            # a connection. The read path retries it in-process first (see
-            # `_is_dropped_or_connect_timeout`); reaching here means every reconnect timed out, i.e. a
-            # persistently unreachable host — usually a firewall dropping PostHog's egress IPs, an
-            # IPv6-only host, or a wrong host/port. Stays non-retryable; give the actionable guidance
-            # the bare driver text lacks (mirrors the validate-path message for "timeout expired").
-            "connection timeout expired": (
-                "PostHog couldn't connect to your database before the connection timed out. Check that "
-                "the database is reachable from the public internet and that PostHog's egress IP "
-                "addresses are allowed through your firewall. For a database that can't be exposed "
-                "publicly, use the SSH tunnel option, then re-enable the sync."
-            ),
             # TLS ALPN alert (RFC 7301 "no_application_protocol", alert 120) sent by the server
             # during the TLS handshake. libpq (Postgres 17+) offers the "postgresql" ALPN protocol;
             # an endpoint that negotiates ALPN but doesn't accept it rejects the handshake outright.
@@ -1494,6 +1516,14 @@ class PostgresSource(
             # so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             "invalid input syntax for type bigint": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against a bigint incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            # Same mechanism as the integer/bigint keys above, but for a column whose declared type
+            # changed to boolean at the source after it was picked as the incremental field (e.g. an
+            # integer status column altered to `boolean`). `IncrementalFieldType` has no boolean
+            # variant, so this never happens for a freshly configured field — only when the source
+            # column's type drifted out from under an already-stored cursor. The stored watermark no
+            # longer parses against the column's new type, and every retry re-runs the identical
+            # failing query, so stop and ask the user to reset.
+            "invalid input syntax for type boolean": "PostHog tried to resume this table's incremental sync from a cursor value that your database can no longer parse as a boolean. This usually means the incremental field's column type changed at the source after this sync started. Please reset and fully re-sync this table, or pick a different incremental field.",
             # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
             # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
             # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
@@ -1683,6 +1713,11 @@ class PostgresSource(
         # new connections while the source is going down — all retried in-process by the
         # offset-chunking reconnect, same exhausted-budget fallback as above.
         #
+        # `_SERVICE_UNAVAILABLE_ERROR_SUBSTRING` is a bare proxy/pooler "service temporarily
+        # unavailable" refusal at connect time — no lifecycle state, no capacity limit, just a brief
+        # outage on the layer in front of Postgres. Same self-recovering shape, same in-process retry
+        # via `_is_dropped_or_connect_timeout` / `_is_dropped_or_connection_limit`.
+        #
         # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
         # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
@@ -1723,17 +1758,33 @@ class PostgresSource(
         # `_SSH_FORWARD_FAILED_ERROR` reaches here once `_connected_ssh_tunnel`'s own ~14 second
         # retry gives up opening the port forward to the database behind the bastion. See its
         # definition above for why that stays retryable rather than disabling the schema.
+        #
+        # `_CONNECT_TIMEOUT_ERROR` and `_POOLER_AUTH_CIRCUIT_BREAKER_ERROR` are temporary refusals at
+        # connect time. See their definitions above for why neither one disables the schema.
+        #
+        # "TransactionRetryWithProtoRefreshError" is CockroachDB's serialization-conflict wrapper
+        # (its wire protocol is Postgres-compatible, so customers configure it as a plain Postgres
+        # source — see the TABLESAMPLE workarounds in postgres.py). It covers every conflict reason
+        # CockroachDB nests under it (read-within-uncertainty-interval, write-too-old, ...), unlike
+        # "conflict with recovery" above, which is specifically Postgres hot-standby wording and
+        # never appears in CockroachDB's message. CockroachDB expects the whole transaction to be
+        # retried on conflict, which is exactly what letting this propagate to Temporal's
+        # whole-activity retry does, so it's the same self-recovering class as the other entries here.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
+            _SERVICE_UNAVAILABLE_ERROR_SUBSTRING,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
             "conflict with recovery",
+            "TransactionRetryWithProtoRefreshError",
             HOST_RESOLUTION_TIMEOUT_ERROR,
             TEMPORARY_HOST_RESOLUTION_ERROR,
             _SSH_FORWARD_FAILED_ERROR,
+            _CONNECT_TIMEOUT_ERROR,
+            _POOLER_AUTH_CIRCUIT_BREAKER_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -1750,13 +1801,17 @@ class PostgresSource(
             **dict.fromkeys(_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
+            _SERVICE_UNAVAILABLE_ERROR_SUBSTRING: _SERVICE_UNAVAILABLE_EXHAUSTED_MESSAGE,
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
+            "TransactionRetryWithProtoRefreshError": _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE,
             CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
             "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
+            _CONNECT_TIMEOUT_ERROR: _CONNECT_TIMEOUT_EXHAUSTED_MESSAGE,
+            _POOLER_AUTH_CIRCUIT_BREAKER_ERROR: _POOLER_AUTH_CIRCUIT_BREAKER_EXHAUSTED_MESSAGE,
         }
 
     def reconcile_schema_metadata(

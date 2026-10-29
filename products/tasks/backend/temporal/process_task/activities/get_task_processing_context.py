@@ -19,7 +19,6 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
@@ -132,10 +131,8 @@ class TaskProcessingContext:
     json_schema: dict | None = None
     ci_prompt: str | None = None
     # Captured at workflow start so snapshot creation is deterministic across
-    # activity retries. This means "create any Modal resume snapshot"; filesystem
-    # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
+    # activity retries.
     use_modal_resume_snapshots: bool = True
-    use_modal_directory_resume_snapshots: bool = True  # Temporal payload compatibility
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -167,9 +164,6 @@ class TaskProcessingContext:
     # default is what pre-existing run histories decode, so replays schedule no new timer
     # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
     interactive_max_run_duration_seconds: int | None = None
-    # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
-    # Exposure only: the peers endpoints re-check authorization server-side on every call.
-    peer_messaging_enabled: bool = False
     pi_acp_conversation_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
@@ -401,7 +395,6 @@ RUN_FEATURE_FLAG_KEYS: list[str] = [
     HOGLAND_SANDBOX_FEATURE_FLAG,
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
 ]
 
@@ -435,22 +428,6 @@ def _flag_enabled(flags: FlagsAndPayloads, key: str) -> bool:
 
 def _flag_payload(flags: FlagsAndPayloads, key: str) -> object:
     return (flags.get("featureFlagPayloads") or {}).get(key)
-
-
-def _is_peer_messaging_enabled(
-    *,
-    flags: FlagsAndPayloads,
-    run_id: str,
-) -> bool:
-    """Whether the agent peer-messaging tools should surface in the sandbox.
-
-    Fail-closed exposure gate only — the peers list/message endpoints enforce the
-    flag and runtime again server-side, so a stale env var in a resumed sandbox
-    can never authorize anything."""
-    enabled = _flag_enabled(flags, AGENT_PEER_MESSAGING_FEATURE_FLAG)
-    if enabled:
-        log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
-    return enabled
 
 
 def _is_pi_acp_enabled(*, flags: FlagsAndPayloads) -> bool:
@@ -1325,7 +1302,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ci_prompt=task.ci_prompt,
         # Hogland has no resume-snapshot support yet; every run cold-boots there.
         use_modal_resume_snapshots=sandbox_backend != "hogland",
-        use_modal_directory_resume_snapshots=sandbox_backend != "hogland",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         sandbox_rotation_enabled=True,
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
@@ -1346,12 +1322,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
-        # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
-        # so ACP runs never even evaluate it.
-        peer_messaging_enabled=task.runtime == Task.Runtime.PI
-        and _is_peer_messaging_enabled(
-            flags=flags,
-            run_id=run_id,
-        ),
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
     )

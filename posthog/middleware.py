@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
-from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
@@ -34,6 +33,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from rest_framework.exceptions import ValidationError
 from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
@@ -57,6 +57,7 @@ from posthog.models.activity_logging.utils import (
     client_from_header,
     record_agent_intent,
 )
+from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
@@ -1227,6 +1228,27 @@ class AutoLogoutImpersonateMiddleware:
         return self.get_response(request)
 
 
+class NewEventsSchemaCookieMiddleware:
+    """A staff person's requests read the native JSON events table while their browser carries the cookie.
+
+    The switch is per person, so one person can check a project on events_json, an impersonated one included,
+    without switching the project for everyone. An impersonated session counts as staff because only staff can
+    start one.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE) != "1":
+            return self.get_response(request)
+        user = cast(User, request.user)
+        if not (user.is_staff or is_impersonated_session(request)):
+            return self.get_response(request)
+        with new_events_schema_for_request():
+            return self.get_response(request)
+
+
 class UnversionedStaticPathMiddleware:
     """Serves /static/<version>/<file> as /static/<file>.
 
@@ -1402,6 +1424,14 @@ class SocialAuthExceptionMiddleware:
 
     _AUTH_FAILED_PREFIX = "Authentication failed: "
 
+    # `OrganizationInvite.validate()` codes mapped to login page error codes.
+    _INVITE_ERROR_CODES = {
+        "expired": "invalid_invite",
+        "invalid_recipient": "invite_email_mismatch",
+        "user_already_member": "invite_already_member",
+        "existing_email_address": "invite_email_taken",
+    }
+
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -1434,11 +1464,22 @@ class SocialAuthExceptionMiddleware:
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
-            url = sso_failure_redirect_url(request, "social_login_failure")
-            separator = "&" if "?" in url else "?"
-            return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
+            return redirect(sso_failure_redirect_url(request, "social_login_failure", error_detail=error_detail))
+
+        # The social auth pipeline validates invites with DRF exceptions. The callback is a plain
+        # Django view, so without this branch they render the 500 page.
+        if isinstance(exception, ValidationError):
+            error_code = self._INVITE_ERROR_CODES.get(self._error_code(exception), "social_login_failure")
+            return redirect(sso_failure_redirect_url(request, error_code))
 
         return None
+
+    def _error_code(self, exception: ValidationError) -> str:
+        # `OrganizationInvite.validate()` raises ValidationError("message", code=...), which DRF stores
+        # as a one-element list. Any other shape gets the generic login message.
+        codes = exception.get_codes()
+        first = codes[0] if isinstance(codes, list) and codes else None
+        return first if isinstance(first, str) else "unknown"
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()
@@ -1459,9 +1500,15 @@ class SocialAuthExceptionMiddleware:
 # partner pays for, which this check also never judges. Settling the balance is how a member lifts
 # a deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
 ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
-    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/", "/agentic/authorize"),
+    "/organization-pending-deletion": (
+        "/organization-pending-deletion",
+        "/signup/",
+        "/agentic/authorize",
+        "/_app_context",
+    ),
     "/organization-deactivated": (
         "/organization-deactivated",
+        "/_app_context",
         "/signup/",
         "/agentic/authorize",
         "/organization/billing",

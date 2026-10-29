@@ -18,7 +18,9 @@ from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
+from ..logic.traces.evaluation_summary import EvaluationSummary
 from ..logic.traces.events_fallback import fallback_window
+from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
@@ -146,7 +148,12 @@ def _to_trace(trace: Trace) -> contracts.Trace:
         thread_node_ids=trace.thread_node_ids,
         default_node_id=trace.default_node_id,
         node_ids_by_alias=trace.node_ids_by_alias,
+        git=_to_git(trace.git) if trace.git is not None else None,
     )
+
+
+def _to_git(ref: GitRef) -> contracts.TraceGit:
+    return contracts.TraceGit(branch=ref.branch, repo=ref.repo)
 
 
 def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail:
@@ -198,15 +205,13 @@ def mentions_evaluation_pass_markers(text: str) -> bool:
 def get_trace_evaluation_results(team: Team, user: User | None, trace_id: str) -> contracts.TraceEvaluationResults:
     rows = load_evaluation_results(team, user, trace_id)
     configs = load_output_configs(team, user, {row.evaluation_id for row in rows if row.evaluation_id})
+    results = [
+        EvaluationResult.from_row(row, trace_id=trace_id, output_config=configs.get(row.evaluation_id or "", {}))
+        for row in rows
+    ]
     return contracts.TraceEvaluationResults(
-        results=[
-            _to_evaluation_result(
-                EvaluationResult.from_row(
-                    row, trace_id=trace_id, output_config=configs.get(row.evaluation_id or "", {})
-                )
-            )
-            for row in rows
-        ]
+        results=[_to_evaluation_result(result) for result in results],
+        summary=_to_evaluation_summary(EvaluationSummary.from_results(results)),
     )
 
 
@@ -218,14 +223,26 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
         target_node_id=result.target_node_id,
         outcome=result.outcome,
         label=result.label,
+        score=result.score,
         reasoning=result.reasoning,
         timestamp=result.timestamp,
         is_backfill=result.is_backfill,
     )
 
 
+def _to_evaluation_summary(summary: EvaluationSummary) -> contracts.TraceEvaluationSummary:
+    return contracts.TraceEvaluationSummary(
+        passed=summary.passed,
+        failed=summary.failed,
+        unrated=summary.unrated,
+        nodes=[
+            contracts.TraceNodeEvaluationRollup(node_id=node.node_id, outcome=node.outcome) for node in summary.nodes
+        ],
+    )
+
+
 def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:
-    """Raises `InvalidPeriodError` for a period that is empty, longer than 90 days or out of range."""
+    """Raises `InvalidPeriodError` for a period that is empty, longer than 91 days or out of range."""
     return PeriodBounds.from_request(date_from, date_to, team.timezone_info)
 
 

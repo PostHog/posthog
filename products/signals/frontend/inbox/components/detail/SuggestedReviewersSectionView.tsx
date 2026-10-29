@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { IconInfo, IconPeople } from '@posthog/icons'
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { EnrichedReviewer } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval } from '../../types'
 import { DetailSection } from './DetailSection'
 import { ReviewerClaim } from './SuggestedReviewerClaimControls'
 import { SuggestedReviewersList } from './SuggestedReviewersList'
@@ -17,7 +17,7 @@ export function SuggestedReviewersSectionView({
 }: {
     reviewers: EnrichedReviewer[]
     disabled: boolean
-    onRemove: (reviewers: EnrichedReviewer[]) => void
+    onRemove: (reviewers: EnrichedReviewer[], removal?: ReviewerRemoval) => void
     addControl: ReactNode
     claim?: ReviewerClaim
 }): JSX.Element {

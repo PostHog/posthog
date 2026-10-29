@@ -482,6 +482,19 @@
                             "description": "Description explaining when the event is triggered",
                             "type": "string"
                         },
+                        "owner": {
+                            "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
                         "tags": {
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                             "type": "array",
@@ -503,12 +516,36 @@
             },
             "required": ["eventName"]
         },
+        "EventDefinitionGetSchema": {
+            "type": "object",
+            "properties": {
+                "eventName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The exact name of the event (e.g. \"$pageview\", \"user_signed_up\")"
+                }
+            },
+            "required": ["eventName"]
+        },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
             "properties": {
                 "description": {
                     "description": "Description explaining when the event is triggered",
                     "type": "string"
+                },
+                "owner": {
+                    "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                    "anyOf": [
+                        {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "tags": {
                     "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
@@ -541,6 +578,19 @@
                         "description": {
                             "description": "Description explaining when the event is triggered",
                             "type": "string"
+                        },
+                        "owner": {
+                            "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         },
                         "tags": {
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
@@ -629,6 +679,123 @@
                 }
             },
             "description": "Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. To add a screenshot, upload the image with media-image-upload-start and media-image-upload-complete with purpose \"experiment\", then pass the returned id here. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant."
+        },
+        "ExplainChartInputSchema": {
+            "type": "object",
+            "properties": {
+                "insightId": {
+                    "description": "The saved insight to explain: its numeric `id` or 8-character `short_id`.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
+                },
+                "query": {
+                    "description": "A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.",
+                    "type": "object",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "additionalProperties": {}
+                },
+                "series": {
+                    "default": 0,
+                    "description": "Index of the series in the chart's results that the story follows. Defaults to the first one.",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                },
+                "headline": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "description": "One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**."
+                },
+                "chapters": {
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "description": "A short title, for example \"A spike on October 2\" or \"Lower since September 28\"."
+                            },
+                            "start": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+                            },
+                            "end": {
+                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point.",
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "summary": {
+                                "description": "What happened, in one or two sentences. Do not repeat the chart's own numbers: the app works them out from the chart and shows them above this.",
+                                "type": "string",
+                                "maxLength": 400
+                            },
+                            "cause": {
+                                "description": "The most likely cause, in one or two sentences. Say whether it is a real change in behavior or an artifact of the data. Wrap the name behind it, such as a referrer or a country, in **double asterisks**. Omit it when you found no cause.",
+                                "type": "string",
+                                "maxLength": 600
+                            },
+                            "confidence": {
+                                "description": "How sure you are of the cause. high: independent signals agree. medium: one signal, or a strong pattern without a cross-check. low: a guess.",
+                                "type": "string",
+                                "enum": ["high", "medium", "low"]
+                            },
+                            "confidence_reason": {
+                                "description": "Why you gave that confidence, in one sentence.",
+                                "type": "string",
+                                "maxLength": 200
+                            },
+                            "evidence": {
+                                "description": "What you checked, at most 6 findings.",
+                                "maxItems": 6,
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "text": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 400,
+                                            "description": "One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**."
+                                        },
+                                        "query": {
+                                            "description": "The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.",
+                                            "type": "object",
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "additionalProperties": {}
+                                        },
+                                        "url": {
+                                            "description": "A link to the source when it is not a query, for example a commit, a pull request or a deploy.",
+                                            "type": "string",
+                                            "format": "uri",
+                                            "pattern": "^https:\\/\\/.*"
+                                        }
+                                    },
+                                    "required": ["text"]
+                                }
+                            }
+                        },
+                        "required": ["title", "start"]
+                    },
+                    "description": "The moments that stand out, in the order to read them. At most 8."
+                }
+            },
+            "required": ["headline", "chapters"]
         },
         "ExternalDataJobsAfterSchema": {
             "type": "string",
@@ -745,6 +912,74 @@
                 }
             },
             "required": ["summary", "feedback_type", "sentiment"]
+        },
+        "FlagRulesV2UpdateInputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "number",
+                    "description": "A unique integer value identifying this feature flag."
+                },
+                "version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "The flag's top-level `version` from your latest read. The write is refused with 409 when the flag changed after it."
+                },
+                "filters": {
+                    "type": "object",
+                    "properties": {
+                        "version": {
+                            "type": "number",
+                            "const": 2,
+                            "description": "Config format. Always 2 here; unrelated to the top-level `version`."
+                        },
+                        "return_type": {
+                            "type": "string",
+                            "description": "Copy it from the flag you read. It cannot change."
+                        },
+                        "default_value": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "object",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Value served when no rule returns one. Must match `return_type`, or null."
+                        },
+                        "rules": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            },
+                            "description": "The complete ordered rule list, in the shape the flag read returns. Keep `id` and `seed` on every rule you keep; omit both on a new rule."
+                        }
+                    },
+                    "required": ["version", "return_type", "default_value", "rules"],
+                    "additionalProperties": {},
+                    "description": "The complete new configuration. It replaces the stored `filters`."
+                }
+            },
+            "required": ["id", "version", "filters"]
         },
         "InsightQueryInputSchema": {
             "type": "object",
@@ -2079,17 +2314,17 @@
                                                 "operator": {
                                                     "type": "string",
                                                     "enum": [
+                                                        "semver_eq",
+                                                        "semver_neq",
                                                         "semver_gt",
                                                         "semver_gte",
                                                         "semver_lt",
                                                         "semver_lte",
-                                                        "semver_eq",
-                                                        "semver_neq",
                                                         "semver_tilde",
                                                         "semver_caret",
                                                         "semver_wildcard"
                                                     ],
-                                                    "description": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard"
+                                                    "description": "Semantic version comparison operator.\n\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard"
                                                 },
                                                 "value": {
                                                     "type": "string",

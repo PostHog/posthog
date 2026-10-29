@@ -47,6 +47,7 @@ export interface contentAutopilotPromptsLogicValues {
     promptActiveUpdating: Record<string, boolean>
     promptEngines: string[]
     promptTopics: AEOPromptTopicApi[]
+    promptTopicsError: boolean
     promptTopicsLoading: boolean
     prompts: PaginatedAEOPromptListApi | null
     promptsError: ContentAutopilotPromptsError | null
@@ -153,14 +154,20 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
             null as PaginatedAEOPromptListApi | null,
             {
                 loadAeoPrompts: async (_, breakpoint) => {
-                    const response = await aeoPromptsList(String(values.currentTeamIdStrict), {
-                        limit: PROMPTS_PAGE_SIZE,
-                        offset: (values.promptsPage - 1) * PROMPTS_PAGE_SIZE,
-                        topic: values.promptsTopic ?? undefined,
-                        include_archived: values.showArchived || undefined,
-                    })
-                    breakpoint()
-                    return response
+                    try {
+                        const response = await aeoPromptsList(String(values.currentTeamIdStrict), {
+                            limit: PROMPTS_PAGE_SIZE,
+                            offset: (values.promptsPage - 1) * PROMPTS_PAGE_SIZE,
+                            topic: values.promptsTopic ?? undefined,
+                            include_archived: values.showArchived || undefined,
+                        })
+                        breakpoint()
+                        return response
+                    } catch (error) {
+                        // A superseded request's failure must not show an error over the newer results
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
@@ -210,6 +217,13 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
             {
                 loadAeoPrompts: () => null,
                 loadAeoPromptsFailure: (_, { errorObject }) => promptsErrorFrom(errorObject),
+            },
+        ],
+        promptTopicsError: [
+            false,
+            {
+                loadAeoPromptTopicsSuccess: () => false,
+                loadAeoPromptTopicsFailure: () => true,
             },
         ],
     }),

@@ -55,8 +55,6 @@ import type {
     ScoutReportApi,
     SearchSuggestionsQueryApi,
     SearchSuggestionsResponseApi,
-    SuggestTagsRequestApi,
-    SuggestTagsResponseApi,
     VisionAlertConfigurationApi,
     VisionAlertConfigurationDetailApi,
     VisionAlertCreateDestinationApi,
@@ -387,7 +385,7 @@ export const getVisionObservationsFeedDismissalCreateUrl = (projectId: string, i
 }
 
 /**
- * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
  */
 export const visionObservationsFeedDismissalCreate = async (
     projectId: string,
@@ -408,7 +406,7 @@ export const getVisionObservationsFeedDismissalDestroyUrl = (projectId: string, 
 }
 
 /**
- * Undo the calling user's not-useful mark, so What to watch can show the observation again.
+ * Undo the calling user's not-useful mark, so the Highlights feed can show the observation again.
  */
 export const visionObservationsFeedDismissalDestroy = async (
     projectId: string,
@@ -603,8 +601,8 @@ export const getVisionObservationsSearchSuggestionsRetrieveUrl = (
 }
 
 /**
- * Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
- * scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect.
+ * Example searches for the Search tab's empty state: the labels of the largest active themes the
+ * embedding consumer named from recent issue observations. Reads only, with no side effect.
  */
 export const visionObservationsSearchSuggestionsRetrieve = async (
     projectId: string,
@@ -625,8 +623,8 @@ export const getVisionObservationsSearchViewedCreateUrl = (projectId: string) =>
 }
 
 /**
- * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
- * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Warm the query vectors for the suggestions the Search tab showed, so a click on one searches at once.
+ * It embeds text, so it is a POST rather than part of the read.
  */
 export const visionObservationsSearchViewedCreate = async (
     projectId: string,
@@ -1228,7 +1226,7 @@ export const getVisionScannersObservationsFeedDismissalCreateUrl = (
 }
 
 /**
- * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
  */
 export const visionScannersObservationsFeedDismissalCreate = async (
     projectId: string,
@@ -1254,7 +1252,7 @@ export const getVisionScannersObservationsFeedDismissalDestroyUrl = (
 }
 
 /**
- * Undo the calling user's not-useful mark, so What to watch can show the observation again.
+ * Undo the calling user's not-useful mark, so the Highlights feed can show the observation again.
  */
 export const visionScannersObservationsFeedDismissalDestroy = async (
     projectId: string,
@@ -1642,26 +1640,6 @@ export const visionScannersStatsRetrieve = async (
     })
 }
 
-export const getVisionScannersSuggestTagsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/suggest_tags/`
-}
-
-/**
- * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
- */
-export const visionScannersSuggestTagsCreate = async (
-    projectId: string,
-    suggestTagsRequestApi: SuggestTagsRequestApi,
-    options?: RequestInit
-): Promise<SuggestTagsResponseApi> => {
-    return apiMutator<SuggestTagsResponseApi>(getVisionScannersSuggestTagsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(suggestTagsRequestApi),
-    })
-}
-
 export const getVisionScannersWatchFeedRetrieveUrl = (
     projectId: string,
     params?: VisionScannersWatchFeedRetrieveParams
@@ -1682,7 +1660,7 @@ export const getVisionScannersWatchFeedRetrieveUrl = (
 }
 
 /**
- * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ * Succeeded observations in the window worth watching, ranked for the Highlights tab.
  */
 export const visionScannersWatchFeedRetrieve = async (
     projectId: string,
@@ -1700,7 +1678,7 @@ export const getVisionScannersWatchFeedImpressionsCreateUrl = (projectId: string
 }
 
 /**
- * Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time.
+ * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
  */
 export const visionScannersWatchFeedImpressionsCreate = async (
     projectId: string,

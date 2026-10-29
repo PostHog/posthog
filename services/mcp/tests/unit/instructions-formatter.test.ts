@@ -244,6 +244,25 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('replay vision guidance', () => {
+        const visionTools = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
+        it.each([
+            { name: 'all three scan tools', extra: visionTools, expected: true },
+            { name: 'inline scan only', extra: ['vision-scanners-inline-scan'], expected: false },
+            { name: 'no vision tools', extra: [], expected: false },
+        ])('names Replay Vision only when the roster carries $name', ({ extra, expected }) => {
+            const tools = [...realisticTools, ...extra.map((name) => ({ name, category: 'Replay vision' }))]
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions({ ...fullCtx, tools }),
+                formatter.buildExecCommandReference({ ...fullCtx, tools }),
+            ]) {
+                expect(rendered.includes('use Replay Vision instead of SQL over the replay tables')).toBe(expected)
+                expect(rendered.includes('{replay_vision}')).toBe(false)
+            }
+        })
+    })
+
     describe('buildExecCommandReference', () => {
         it.each([
             { name: 'both lookup tools', tools: ['project-get', 'execute-sql'], project: true, groups: true },
@@ -520,6 +539,25 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('**Notebook**')
             expect(result).toContain('**Dashboard**')
         })
+
+        it.each(surfaces)(
+            '$name sends chart explanations to explain-chart only when explain-chart exists',
+            ({ render }) => {
+                const formatter = new InstructionsFormatter()
+                const withTool = render(formatter, {
+                    ...fullCtx,
+                    tools: [...(fullCtx.tools ?? []), { name: 'explain-chart', category: 'Insights' }],
+                })
+                const withoutTool = render(formatter, {
+                    ...fullCtx,
+                    tools: fullCtx.tools?.filter(({ name }) => name !== 'explain-chart'),
+                })
+
+                expect(withTool).toContain('### Explaining a chart')
+                expect(withTool.indexOf('### Explaining a chart')).toBeGreaterThan(withTool.indexOf('**Notebook**'))
+                expect(withoutTool).not.toContain('explain-chart')
+            }
+        )
 
         // The SQL and Python guidance names `notebooks-add-cell`, so it must stay out of prompts
         // for clients that aren't advertised the cell tools.

@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     ApplyUtmDefaultsRequestApi,
     ApplyUtmDefaultsResponseApi,
+    AudienceSuggestionsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
     BroadcastConversionCandidatesApi,
@@ -80,6 +81,10 @@ import type {
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowImportRecordApi,
+    WorkflowImportRequestApi,
+    WorkflowImportResponseApi,
+    WorkflowImportsForWorkflowRetrieveParams,
     WorkflowProposalApi,
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
@@ -119,6 +124,43 @@ export const internalHogFlowsProcessDueSchedulesCreate = async (options?: Reques
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getBroadcastAudienceSuggestionsCurrentUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/broadcast_audience_suggestions/current/`
+}
+
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsCurrent = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AudienceSuggestionsResponseApi> => {
+    return apiMutator<AudienceSuggestionsResponseApi>(getBroadcastAudienceSuggestionsCurrentUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBroadcastAudienceSuggestionsGenerateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/broadcast_audience_suggestions/generate/`
+}
+
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsGenerate = async (
+    projectId: string,
+    dataSuggestionGenerateRequestApi?: DataSuggestionGenerateRequestApi,
+    options?: RequestInit
+): Promise<AudienceSuggestionsResponseApi> => {
+    return apiMutator<AudienceSuggestionsResponseApi>(getBroadcastAudienceSuggestionsGenerateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataSuggestionGenerateRequestApi),
     })
 }
 
@@ -1547,6 +1589,60 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_imports/`
+}
+
+/**
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it. Pass the templates its messages use, or leave them out when the project stored a Customer.io App API key, and PostHog reads them. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * @summary Import Customer.io automations as draft workflows
+ */
+export const workflowImportsCreate = async (
+    projectId: string,
+    workflowImportRequestApi: WorkflowImportRequestApi,
+    options?: RequestInit
+): Promise<WorkflowImportResponseApi> => {
+    return apiMutator<WorkflowImportResponseApi>(getWorkflowImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowImportRequestApi),
+    })
+}
+
+export const getWorkflowImportsForWorkflowRetrieveUrl = (
+    projectId: string,
+    params: WorkflowImportsForWorkflowRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_imports/for_workflow/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_imports/for_workflow/`
+}
+
+/**
+ * @summary Read what importing a workflow changed or left out
+ */
+export const workflowImportsForWorkflowRetrieve = async (
+    projectId: string,
+    params: WorkflowImportsForWorkflowRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowImportRecordApi | void> => {
+    return apiMutator<WorkflowImportRecordApi | void>(getWorkflowImportsForWorkflowRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

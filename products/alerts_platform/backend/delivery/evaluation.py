@@ -44,6 +44,7 @@ from products.alerts_platform.backend.facade.contracts import (
     LegacyEventEmission,
     MessageLink,
 )
+from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
 
@@ -161,6 +162,13 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     team = Team.objects.filter(id=request.team_id).first()
     if team is None or not (request.owned_by_platform or destinations_are_live(team)):
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
+    if delivery_holds.blocks_delivery(request.team_id, request.configuration_id, request.evaluation_key):
+        logger.info(
+            "alerts_platform_delivery_held",
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+        )
+        return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
 
     announced = announcement(
         request.team_id,

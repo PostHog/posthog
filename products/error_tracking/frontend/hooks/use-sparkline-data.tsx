@@ -79,11 +79,31 @@ export function applyVolumeSpikeHighlights(
     }
 
     const binSizeMs = data[1].date.getTime() - data[0].date.getTime()
-    const spikeTimestamps = spikeEvents.map((s) => new Date(s.detected_at).getTime())
+    const spikes = spikeEvents
+        .map((s) => ({
+            time: new Date(s.detected_at).getTime(),
+            multiplier: s.computed_baseline > 0 ? s.current_bucket_value / s.computed_baseline : undefined,
+        }))
+        .sort((a, b) => a.time - b.time)
 
+    let firstSpikeIndex = 0
     return data.map((datum) => {
         const datumTime = datum.date.getTime()
-        const hasSpikeInBin = spikeTimestamps.some((st) => st >= datumTime && st < datumTime + binSizeMs)
-        return hasSpikeInBin ? { ...datum, color: spikeStripeColor, isSpike: true } : datum
+        while (firstSpikeIndex < spikes.length && spikes[firstSpikeIndex].time < datumTime) {
+            firstSpikeIndex++
+        }
+        let hasSpike = false
+        let maxMultiplier: number | undefined
+        for (let i = firstSpikeIndex; i < spikes.length && spikes[i].time < datumTime + binSizeMs; i++) {
+            hasSpike = true
+            const { multiplier } = spikes[i]
+            if (multiplier !== undefined && (maxMultiplier === undefined || multiplier > maxMultiplier)) {
+                maxMultiplier = multiplier
+            }
+        }
+        if (!hasSpike) {
+            return datum
+        }
+        return { ...datum, color: spikeStripeColor, isSpike: true, spikeMultiplier: maxMultiplier }
     })
 }

@@ -37,7 +37,11 @@ export function CommandKSearchRankedItem({ row }: { row: Extract<CommandKRow, { 
           ? getItemTypeDisplayName(item.itemType)
           : item.category === 'persons'
             ? 'Person'
-            : 'Product'
+            : item.category === 'settings'
+              ? 'Setting'
+              : item.category === 'accounts'
+                ? 'Account'
+                : 'Product'
     const context = rankedContext(item, !!row.showCreator)
     return (
         <>

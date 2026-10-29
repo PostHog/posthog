@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 29 enabled ops
+ * PostHog API - MCP 32 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -32,6 +32,12 @@ export const HogFlowsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
+    latest_send_first: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
@@ -1356,6 +1362,29 @@ export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
 })
 
 /**
+ * Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
+ * the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+ * capped), together with the authoritative AWS SES tenant verdict — sending status and open
+ * reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
+ */
+export const HogFlowsReputationRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const HogFlowsReputationRetrieveQueryParams = () => zod.object({
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.'
+        ),
+})
+
+/**
  * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
  */
 export const WorkflowDataSuggestionsBuildParams = () => zod.object({
@@ -1407,6 +1436,110 @@ export const WorkflowDataSuggestionsGenerateBody = () => zod.object({
         .boolean()
         .default(workflowDataSuggestionsGenerateBodyRefreshDefault)
         .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
+/**
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it. Pass the templates its messages use, or leave them out when the project stored a Customer.io App API key, and PostHog reads them. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * @summary Import Customer.io automations as draft workflows
+ */
+export const WorkflowImportsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const workflowImportsCreateBodySenderIdentitiesItemNameDefault = ``
+export const workflowImportsCreateBodyDryRunDefault = false
+
+export const WorkflowImportsCreateBody = () => zod.object({
+    source: zod
+        .enum(['customerio'])
+        .describe('\* `customerio` - Customer.io')
+        .describe('The tool the automations come from.\n\n\* `customerio` - Customer.io'),
+    campaigns: zod
+        .array(
+            zod.object({
+                campaign: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        "The `campaign` object from Customer.io's `GET \/v1\/environments\/{environment_id}\/campaigns\/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields."
+                    ),
+                actions: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .describe('The top-level `actions` array from the same response, every step of the automation.'),
+                templates: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'The message templates the actions point at, from `GET \/v1\/environments\/{environment_id}\/templates\/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content.'
+                    ),
+            })
+        )
+        .describe('The automations to import, at most 50. People are never read from these objects.'),
+    snippets: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe('Customer.io snippet name to its content, inlined where a message uses `{% snippet \"name\" %}`.'),
+    segment_cohorts: zod
+        .record(zod.string(), zod.number())
+        .optional()
+        .describe(
+            'Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.'
+        ),
+    layouts: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Customer.io layout id to the layout's `body`, from `GET \/v1\/environments\/{environment_id}\/layouts\/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`."
+        ),
+    sender_identities: zod
+        .array(
+            zod.object({
+                id: zod.string().describe("The sender identity's id, which templates name in `from_identity_id`."),
+                email: zod.email().describe('The address the sender sends from.'),
+                name: zod
+                    .string()
+                    .default(workflowImportsCreateBodySenderIdentitiesItemNameDefault)
+                    .describe("The sender's display name."),
+            })
+        )
+        .optional()
+        .describe(
+            'Customer.io sender identities, from `GET \/v1\/environments\/{environment_id}\/identities?type=email`. Each email gets the PostHog sender with the same address.'
+        ),
+    segments: zod
+        .array(
+            zod.object({
+                id: zod.string().describe("The segment's id."),
+                name: zod.string().describe("The segment's name."),
+                type: zod.string().describe("The segment's type: `dynamic`, or `static` for a hand-made list."),
+            })
+        )
+        .optional()
+        .describe(
+            'Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones.'
+        ),
+    dry_run: zod
+        .boolean()
+        .default(workflowImportsCreateBodyDryRunDefault)
+        .describe('When true, translate and check the automations but save nothing, to preview the import.'),
+})
+
+/**
+ * @summary Read what importing a workflow changed or left out
+ */
+export const WorkflowImportsForWorkflowRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WorkflowImportsForWorkflowRetrieveQueryParams = () => zod.object({
+    hog_flow_id: zod.string().describe('The workflow to read the import of.'),
 })
 
 /**

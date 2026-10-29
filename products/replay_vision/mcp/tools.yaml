@@ -970,24 +970,6 @@ tools:
             What a signal-emitting scanner led to, all time: `signals_emitted` into the Signals inbox,
             `reports_contributed` (reports that include at least one of its signals), and implementation `prs_opened`
             and `prs_merged` by self-driving on those reports. All zero for a scanner that does not emit signals.
-    vision-scanners-suggest-tags:
-        operation: vision_scanners_suggest_tags_create
-        enabled: true
-        scopes:
-            - replay_scanner:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: false
-        title: Suggest classifier tags
-        description: >
-            Suggest tags for a classifier scanner, grounded in the org's product data and, when `scanner_id` is given,
-            in that scanner's own observations (its freeform tags and reasoning). Pass the classifier `prompt` and the
-            `tags` already configured so suggestions never repeat one. Returns `suggestions`, most relevant first; may
-            be empty when evidence is thin. Nothing is saved: add chosen tags with `vision-scanners-update`. A 503 means
-            the suggestions could not be generated; try again later.
-        requires_ai_consent: true
     vision-scanners-update:
         operation: vision_scanners_partial_update
         enabled: true
@@ -1053,8 +1035,8 @@ tools:
             Rank succeeded replay vision observations in a window by how worth watching their recordings are, across
             every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it
             made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days.
-            Narrow with `scanner_ids`, `scanner_type`, scanner `tags`, or a `search` over the scan's own words. `limit`
-            is at most 50. Use it to answer "which recordings should I watch this week?".
+            Narrow with `scanner_ids`, `scanner_type`, or scanner `tags`. `limit` is at most 50. Use it to answer "which
+            recordings should I watch this week?".
         agent_note: |
             Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.
         response:

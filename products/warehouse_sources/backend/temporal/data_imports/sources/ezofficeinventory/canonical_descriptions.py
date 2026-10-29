@@ -3,7 +3,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 
 _DOCS_URL = "https://ezo.io/ezofficeinventory/developers/"
-# Work orders and the history sub-resources are documented on the v2 reference only.
+# Work orders, custom roles, reservation requests and the history sub-resources are documented on
+# the v2 reference only.
 _DOCS_URL_V2 = "https://ezo.io/ezofficeinventory/api-v2/"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
@@ -205,6 +206,58 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "task_id": "Identifier of the work order that consumed the stock.",
             "created_at": "Timestamp when the transaction was recorded.",
             "updated_at": "Timestamp when the transaction was last updated.",
+        },
+    },
+    "reservation_requests": {
+        "description": (
+            "Reservation requests made by a member — bookings of assets, stock or bundles for a "
+            "future period, with their approval status."
+        ),
+        "docs_url": _DOCS_URL_V2,
+        "columns": {
+            "member_id": "Identifier of the member this request belongs to, taken from the parent member record.",
+            "id": "Identifier of the reservation request.",
+            "reservable_id": "Identifier of the item being reserved.",
+            "reservable_type": "Kind of item being reserved (e.g. Asset).",
+            "resource_id": "Identifier of the member or location the item is reserved for.",
+            "resource_type": "Whether the item is reserved for a member or a location.",
+            "status": "Status of the request (e.g. pending, approved, denied, fulfilled).",
+            "from_date": "Start of the reserved period.",
+            "to_date": "End of the reserved period.",
+            "quantity": "Quantity reserved, for quantity-tracked items.",
+            "price": "Price recorded on the reservation.",
+            "location_id": "Identifier of the location the item is reserved from.",
+            "reserved_to_location_id": "Identifier of the location the item is reserved to.",
+            "basket_id": "Identifier of the cart the reservation was made through.",
+            "package_id": "Identifier of the bundle the reservation was made through.",
+            "project_id": "Identifier of the project the reservation is linked to.",
+            "recurring_reservation_id": "Identifier of the recurring reservation this request belongs to.",
+            "denied_reason": "Reason given when the request was denied.",
+            "action_taken_by_id": "Identifier of the member who approved or denied the request.",
+            "approved_or_denied_at": "Timestamp when the request was approved or denied.",
+            "created_by_id": "Identifier of the member who created the request.",
+            "creation_source": "Where the request was created (e.g. web).",
+            "created_at": "Timestamp when the request was created.",
+            "updated_at": "Timestamp when the request was last updated.",
+        },
+    },
+    "custom_roles": {
+        "description": "Custom roles that set what members can see and do. Resolves the role on each member.",
+        "docs_url": _DOCS_URL_V2,
+        "columns": {
+            "id": "Unique identifier for the custom role.",
+            "name": "Display name of the custom role.",
+            "description": "Short description of the custom role.",
+            "base_role_id": "Identifier of the built-in role the custom role extends.",
+            "visibility": "Which items members with this role can see (e.g. limited to groups).",
+            "users_visibility": "Which members people with this role can see.",
+            "system_generated": "Whether the role was created by EZOfficeInventory rather than by a user.",
+            "group_ids": "Identifiers of the asset groups the role is limited to.",
+            "location_ids": "Identifiers of the locations the role is limited to.",
+            "team_ids": "Identifiers of the teams the role is limited to.",
+            "created_by_id": "Identifier of the member who created the role.",
+            "created_at": "Timestamp when the role was created.",
+            "updated_at": "Timestamp when the role was last updated.",
         },
     },
     "purchase_orders": {
