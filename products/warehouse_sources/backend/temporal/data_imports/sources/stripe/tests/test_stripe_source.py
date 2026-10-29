@@ -350,7 +350,7 @@ class _DeletableStripeListing:
         self.cursors: list[Optional[str]] = []
         self.after_page: Optional[Callable[[list[str]], None]] = None
 
-    def list(self, params: Optional[dict[str, Any]] = None) -> Any:
+    def list_objects(self, params: Optional[dict[str, Any]] = None) -> Any:
         params = params or {}
         cursor = params.get("starting_after")
         self.cursors.append(cursor)
@@ -371,7 +371,7 @@ class _DeletableStripeListing:
         if self.after_page is not None:
             self.after_page(page)
         if has_more and page:
-            yield from self.list({**params, "starting_after": page[-1]}).auto_paging_iter()
+            yield from self.list_objects({**params, "starting_after": page[-1]}).auto_paging_iter()
 
 
 class _PipelineAroundTheListing:
@@ -412,7 +412,7 @@ class _PipelineAroundTheListing:
             patch.object(
                 stripe_module,
                 "_build_resources",
-                return_value={REFUND_RESOURCE_NAME: StripeResource(method=listing.list)},
+                return_value={REFUND_RESOURCE_NAME: StripeResource(method=listing.list_objects)},
             ),
         ):
             response = stripe_module.stripe_source(
@@ -486,7 +486,7 @@ class TestStripeFlatResourceResumeCursor:
             patch.object(
                 stripe_module,
                 "_build_resources",
-                return_value={INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=listing.list)},
+                return_value={INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=listing.list_objects)},
             ),
         ):
             with pytest.raises(stripe_module.StripeResumeCursorGone):
