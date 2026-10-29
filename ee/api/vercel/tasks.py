@@ -44,7 +44,7 @@ def backfill_vercel_connectable_resources() -> None:
                 client = VercelAPIClient(bearer_token=access_token)
                 client.import_resource(
                     integration_config_id=installation.integration_id,
-                    resource_id=str(resource.pk),
+                    resource_id=str(resource.id),
                     product_id="posthog",
                     name=team.name,
                     secrets=VercelIntegration._build_secrets(team),

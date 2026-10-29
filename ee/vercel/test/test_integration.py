@@ -1643,7 +1643,7 @@ class TestGetOrCreateConnectableResource(TestCase):
             # The failed insert must leave the caller's transaction usable.
             assert Integration.objects.filter(pk=existing.pk).exists()
 
-        assert (resource.pk, created) == (existing.pk, False)
+        assert (resource.id, created) == (existing.id, False)
 
     def test_a_conflicting_row_outside_the_accessor_scope_raises(self):
         self._vercel_row({"type": "connectable", "warehouse_source_type": "Vercel"})

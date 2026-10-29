@@ -1264,7 +1264,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             defaults={
                 "scope": comment.scope,
                 "item_id": comment.item_id,
-                "integration": integration,
+                "integration_id": integration.id,
                 "slack_channel_id": channel_id,
                 "slack_channel_name": channel_name,
                 "slack_team_id": integration.integration_id,
@@ -1286,7 +1286,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # A reservation this old with no root message is a crashed send that would otherwise
             # block the discussion forever. Adopt it and retry the post; resetting created_at
             # re-bounds the reply backfill to this attempt.
-            slack_thread.integration = integration
+            slack_thread.integration_id = integration.id
             slack_thread.slack_channel_id = channel_id
             slack_thread.slack_channel_name = channel_name
             slack_thread.slack_team_id = integration.integration_id

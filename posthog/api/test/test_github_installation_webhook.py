@@ -181,7 +181,7 @@ class TestGitHubInstallationWebhook(TestCase):
         def list_then_race(reader, external_id, **kwargs):
             rows = real_list(reader, external_id, **kwargs)
             if case == "row_added_after_listing":
-                return [row for row in rows if row.pk != racing.pk]
+                return [row for row in rows if row.id != racing.pk]
             Integration.objects.filter(pk=racing.pk).delete()
             return rows
 

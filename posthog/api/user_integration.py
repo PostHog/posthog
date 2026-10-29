@@ -844,7 +844,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         install_url = build_invite_url(
             slack_user_id=None,
-            slack_team_id=workspace.integration_id,
+            slack_team_id=workspace.integration_id or "",
             posthog_team_id=team.id,
             channel=None,
             thread_ts=None,
