@@ -17,12 +17,12 @@ def shared_credentials_conflict_response(error: SharedCredentialsError) -> Respo
     names = ", ".join(usage.name for usage in error.usages)
     return Response(
         {
-            "type": "conflict",
-            "code": SHARED_CREDENTIALS_CODE,
             "detail": (
                 f"These credentials are also used by {names}. "
                 f"Send {UPDATE_SHARED_CREDENTIALS_PARAM}=true to change them everywhere."
             ),
+            "type": "conflict",
+            "code": SHARED_CREDENTIALS_CODE,
             "attr": None,
             "integration_id": error.integration_id,
             "usages": [{"type": str(usage.type), "id": usage.id, "name": usage.name} for usage in error.usages],
