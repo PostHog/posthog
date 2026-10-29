@@ -1,4 +1,5 @@
-from typing import Optional
+from collections.abc import Mapping
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -109,8 +110,7 @@ class NeonSource(PostgresSource):
         config: PostgresSourceConfig,
         management_mode: str,
         tables: list[str],
-        slot_name: str | None = None,
-        publication_name: str | None = None,
+        setup: Mapping[str, Any],
         require_ssl: bool = True,
         team_id: int | None = None,
     ) -> list[str]:
@@ -122,8 +122,7 @@ class NeonSource(PostgresSource):
             config,
             management_mode=management_mode,
             tables=tables,
-            slot_name=slot_name,
-            publication_name=publication_name,
+            setup=setup,
             require_ssl=require_ssl,
             team_id=team_id,
         )
