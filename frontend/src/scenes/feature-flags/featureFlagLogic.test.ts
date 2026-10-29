@@ -18,6 +18,7 @@ import { lemonToast as sharedLemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError, NetworkError } from 'lib/api-error'
+import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { flagTriggerLogic } from 'lib/components/IngestionControls/triggers/FlagTrigger/flagTriggerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -35,6 +36,7 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
+    ActivityScope,
     CohortPropertyFilter,
     CohortType,
     FeatureFlagGroupType,
@@ -85,7 +87,7 @@ import {
     validateFeatureFlagVariantKey,
     validateVariantRolloutSum,
 } from './featureFlagLogic'
-import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagUrlFromList, featureFlagsLogic } from './featureFlagsLogic'
 
 jest.mock('posthog-js')
 
@@ -294,13 +296,18 @@ describe('featureFlagLogic', () => {
     describe('breadcrumbs', () => {
         it('hands list filter params carried on the flag URL back to the list crumb', async () => {
             await expectLogic(logic, () => {
-                router.actions.push(urls.featureFlag(1), { search: 'checkout', created_by_id: '[42]', edit: 'true' })
+                router.actions.push(urls.featureFlag(1), {
+                    list_search: 'checkout',
+                    list_created_by_id: '[42]',
+                    edit: 'true',
+                })
             }).toFinishAllListeners()
 
             const listCrumb = logic.values.breadcrumbs[0]
             expect(listCrumb.path).toContain(`${urls.featureFlags()}?`)
             expect(listCrumb.path).toContain('search=checkout')
             expect(listCrumb.path).toContain('created_by_id=%5B42%5D')
+            expect(listCrumb.path).not.toContain('list_')
             expect(listCrumb.path).not.toContain('edit=')
         })
 
@@ -310,6 +317,31 @@ describe('featureFlagLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.breadcrumbs[0].path).toBe(urls.featureFlags())
+        })
+    })
+
+    describe('carried list params on the flag page', () => {
+        it('shows history page 1 when the flag is opened from list page 3', async () => {
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/activity/`]:
+                        () => [200, { results: [], next: null }],
+                },
+            })
+            const activityLogic = activityLogLogic({ scope: ActivityScope.FEATURE_FLAG, id: MOCK_FEATURE_FLAG.id })
+            activityLogic.mount()
+
+            try {
+                await expectLogic(activityLogic, () => {
+                    router.actions.push(featureFlagUrlFromList(MOCK_FEATURE_FLAG.id, { page: 3 }, { tab: 'history' }))
+                }).toFinishAllListeners()
+
+                // The list's page rides as `list_page`, so the History tab's own pagination
+                // (which reads the bare `page` param) starts at page 1
+                expect(activityLogic.values.page).toBe(1)
+            } finally {
+                activityLogic.unmount()
+            }
         })
     })
 
@@ -1198,7 +1230,7 @@ describe('featureFlagLogic', () => {
         })
 
         it('keeps the carried list filter params when the flag page saves', async () => {
-            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id), { search: 'checkout', edit: 'true' })
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id), { list_search: 'checkout', edit: 'true' })
             await expectLogic(logic).toFinishAllListeners()
             const replaceSpy = jest.spyOn(router.actions, 'replace')
 
@@ -1208,7 +1240,7 @@ describe('featureFlagLogic', () => {
                 }).toFinishAllListeners()
 
                 expect(replaceSpy).toHaveBeenCalledWith(
-                    combineUrl(urls.featureFlag(MOCK_FEATURE_FLAG.id), { search: 'checkout' }).url
+                    combineUrl(urls.featureFlag(MOCK_FEATURE_FLAG.id), { list_search: 'checkout' }).url
                 )
             } finally {
                 replaceSpy.mockRestore()
@@ -1274,6 +1306,24 @@ describe('featureFlagLogic', () => {
                 hasUnsavedChanges: false,
                 featureFlag: partial({ name: MOCK_FEATURE_FLAG.name }),
             })
+        })
+
+        it('keeps the carried list filter params when a save needs approval', async () => {
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id), { list_search: 'checkout', edit: true })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'Unapproved name' })
+            jest.spyOn(api, 'update').mockRejectedValueOnce(approvalRequired())
+            jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+            })
+                .toDispatchActions(['saveFeatureFlagFailure', 'loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            // The edit param falls away, but the list filters still ride for the breadcrumb
+            expect(router.values.searchParams.edit).toBeUndefined()
+            expect(router.values.searchParams.list_search).toBe('checkout')
         })
 
         it('opens the change request when creating a flag needs approval, and leaves the form clean', async () => {

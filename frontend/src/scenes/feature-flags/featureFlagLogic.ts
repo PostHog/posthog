@@ -47,9 +47,10 @@ import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
     FeatureFlagsTab,
-    featureFlagsListFilterParams,
+    carriedListFilterParams,
     featureFlagsLogic,
     isFeatureFlagsTab,
+    listFilterParamsFromCarried,
 } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -4484,10 +4485,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             actions.loadFeatureFlagStatus()
             if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
-                // Keep the ridden list filter params through the post-save redirect, so the
-                // breadcrumb still returns to the filtered list. A new flag's params are
-                // creation presets (`type`, `properties`), not list filters, so drop those.
-                const listParams = props.id === 'new' ? {} : featureFlagsListFilterParams(router.values.searchParams)
+                // Keep the list filter params from the flag URL through the post-save redirect,
+                // so the breadcrumb still returns to the filtered list. Only `list_`-prefixed
+                // params are carried, so a new flag's creation presets (`type`, `properties`)
+                // fall away here on their own.
+                const listParams = carriedListFilterParams(router.values.searchParams)
                 router.actions.replace(combineUrl(urls.featureFlag(featureFlag.id), listParams).url)
             }
             actions.editFeatureFlag(false)
@@ -4536,7 +4538,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (flagId) {
                     // The unsaved-changes guard compares against the router's pathname, which carries the
                     // project prefix that urls.featureFlag() lacks. Reuse it so the guard sees the same page.
-                    router.actions.replace(router.values.location.pathname)
+                    // Keep the carried list filter params, so the breadcrumb still returns to the filtered list.
+                    router.actions.replace(
+                        router.values.location.pathname,
+                        carriedListFilterParams(router.values.searchParams)
+                    )
                     actions.editFeatureFlag(false)
                     // The edit waits in the change request, so the page shows the stored flag again.
                     actions.loadFeatureFlag()
@@ -5499,13 +5505,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 {
                     key: Scene.FeatureFlags,
                     name: 'Feature Flags',
-                    // A saved flag's URL carries the list's filter params when opened from the list.
-                    // Hand them back, so this crumb (and the scene back arrow, which follows the same
-                    // path) returns to the view the user left. A new flag's URL params are creation
-                    // presets (`type`, `properties`), not list filters, so they stay out of the crumb.
-                    path: featureFlag.id
-                        ? combineUrl(urls.featureFlags(), featureFlagsListFilterParams(searchParams)).url
-                        : urls.featureFlags(),
+                    // A flag's URL carries the list's filter params (`list_`-prefixed) when opened
+                    // from the list. Hand them back, so this crumb (and the scene back arrow, which
+                    // follows the same path) returns to the view the user left. A new flag's URL
+                    // params are unprefixed creation presets (`type`, `properties`), so they stay
+                    // out of the crumb on their own.
+                    path: combineUrl(urls.featureFlags(), listFilterParamsFromCarried(searchParams)).url,
                     iconType: 'feature_flag',
                 },
                 {

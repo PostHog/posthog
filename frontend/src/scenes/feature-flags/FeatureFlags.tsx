@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
@@ -85,7 +84,7 @@ import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import {
     FLAGS_PER_PAGE,
     FeatureFlagsTab,
-    featureFlagsListFilterParams,
+    featureFlagUrlFromList,
     featureFlagsLogic,
     flagMatchesType,
 } from './featureFlagsLogic'
@@ -236,10 +235,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                     <>
                         {featureFlag.id && (
                             <LemonButton
-                                to={
-                                    combineUrl(urls.featureFlag(featureFlag.id), featureFlagsListFilterParams(filters))
-                                        .url
-                                }
+                                to={featureFlagUrlFromList(featureFlag.id, filters)}
                                 data-attr="feature-flag-view"
                                 fullWidth
                             >
@@ -269,12 +265,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? "You don't have permission to edit this feature flag."
                                             : null
                                     }
-                                    to={
-                                        combineUrl(urls.featureFlag(featureFlag.id), {
-                                            ...featureFlagsListFilterParams(filters),
-                                            edit: true,
-                                        }).url
-                                    }
+                                    to={featureFlagUrlFromList(featureFlag.id, filters, { edit: true })}
                                 >
                                     Edit
                                 </LemonButton>
@@ -485,8 +476,7 @@ export function OverviewTab({
                             featureFlag.id
                                 ? // Carry the list's filters on the flag URL, so the detail page's
                                   // breadcrumb and back arrow return to this view of the list
-                                  combineUrl(urls.featureFlag(featureFlag.id), featureFlagsListFilterParams(filters))
-                                      .url
+                                  featureFlagUrlFromList(featureFlag.id, filters)
                                 : undefined
                         }
                         title={

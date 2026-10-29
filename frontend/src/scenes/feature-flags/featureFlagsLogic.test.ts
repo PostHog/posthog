@@ -13,10 +13,13 @@ import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FeatureFlagsFilters,
     FeatureFlagsTab,
+    carriedListFilterParams,
+    featureFlagUrlFromList,
     featureFlagsListFilterParams,
     featureFlagsLogic,
     flagMatchesFilters,
     flagMatchesSearch,
+    listFilterParamsFromCarried,
     flagMatchesStatus,
     flagMatchesType,
 } from 'scenes/feature-flags/featureFlagsLogic'
@@ -373,6 +376,22 @@ describe('the feature flags logic', () => {
             expect(featureFlagsListFilterParams({ page: 3 })).toEqual({ page: 3 })
         })
 
+        it('carries filters on the flag URL under the list_ prefix, clear of detail-page params', () => {
+            const url = featureFlagUrlFromList(1, { search: 'checkout', page: 3 }, { edit: true })
+            expect(url).toContain('list_search=checkout')
+            expect(url).toContain('list_page=3')
+            expect(url).toContain('edit=true')
+            // The flag page's own params stay unshadowed: History pagination reads bare `page`
+            expect(url).not.toMatch(/[?&]page=/)
+            expect(url).not.toMatch(/[?&]search=/)
+        })
+
+        it('round-trips carried params back into list filter params', () => {
+            const flagPageParams = { list_search: 'checkout', list_page: '3', tab: 'history', page: '2' }
+            expect(carriedListFilterParams(flagPageParams)).toEqual({ list_search: 'checkout', list_page: '3' })
+            expect(listFilterParamsFromCarried(flagPageParams)).toEqual({ search: 'checkout', page: '3' })
+        })
+
         it('restores search, creator, and sort filters when the crumb hands them back', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFeatureFlagsFilters({
@@ -382,8 +401,9 @@ describe('the feature flags logic', () => {
                 })
             }).toFinishAllListeners()
 
-            // Opening a flag carries the filters on the detail URL
-            const detailUrl = combineUrl(urls.featureFlag(1), featureFlagsListFilterParams(logic.values.filters)).url
+            // Opening a flag carries the filters on the detail URL. The same helper builds the
+            // key link, View, and Edit URLs in FeatureFlags.tsx, so this covers all three.
+            const detailUrl = featureFlagUrlFromList(1, logic.values.filters)
             await expectLogic(logic, () => {
                 router.actions.push(detailUrl)
             }).toFinishAllListeners()
@@ -397,7 +417,7 @@ describe('the feature flags logic', () => {
             // The detail scene's list crumb rebuilds the list URL from the carried params
             const crumbUrl = combineUrl(
                 urls.featureFlags(),
-                featureFlagsListFilterParams(router.values.searchParams)
+                listFilterParamsFromCarried(router.values.searchParams)
             ).url
             await expectLogic(logic, () => {
                 router.actions.push(crumbUrl)

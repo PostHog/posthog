@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDialog, PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
@@ -186,10 +186,18 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
 const FILTER_PARAM_KEYS = Object.keys(DEFAULT_FILTERS) as (keyof FeatureFlagsFilters)[]
 
 /**
- * The list's filter params found in `filters` or in a page's search params. A flag opened from the
- * list carries them in its own URL, and the detail scene's list breadcrumb hands them back, so
- * returning that way restores the view the user left. They ride in the URL because the list logic
- * unmounts on scene change (sceneLogic swaps scene logics old-first), which resets its filters.
+ * Prefix for the list's filter params while they ride on a flag detail URL. The prefix keeps them
+ * out of the way of the detail page's own params — most importantly `page`, which the History tab's
+ * activityLogLogic reads for its pagination.
+ */
+const CARRIED_FILTER_PARAM_PREFIX = 'list_'
+
+/**
+ * The list's filter params found in `filters` or in the list URL's search params. A flag opened
+ * from the list carries them (prefixed) in its own URL, and the detail scene's list breadcrumb
+ * hands them back, so returning that way restores the view the user left. They ride in the URL
+ * because sceneLogic unmounts the list scene's logic before it mounts the flag scene's logic, so
+ * the flag logic's connection to `featureFlagsLogic` mounts a new copy with default filters.
  */
 export function featureFlagsListFilterParams(searchParams: Record<string, any>): Record<string, any> {
     const params = objectClean(Object.fromEntries(FILTER_PARAM_KEYS.map((key) => [key, searchParams[key]])))
@@ -198,6 +206,43 @@ export function featureFlagsListFilterParams(searchParams: Record<string, any>):
         delete params.page
     }
     return params
+}
+
+/** A flag detail URL that carries the list's current filters as `list_`-prefixed params. */
+export function featureFlagUrlFromList(
+    id: number | string,
+    filters: Record<string, any>,
+    extraParams: Record<string, any> = {}
+): string {
+    const carried = Object.fromEntries(
+        Object.entries(featureFlagsListFilterParams(filters)).map(([key, value]) => [
+            CARRIED_FILTER_PARAM_PREFIX + key,
+            value,
+        ])
+    )
+    return combineUrl(urls.featureFlag(id), { ...carried, ...extraParams }).url
+}
+
+/** The `list_`-prefixed params on a flag page's URL, as-is, for redirects that stay on the flag page. */
+export function carriedListFilterParams(searchParams: Record<string, any>): Record<string, any> {
+    return objectClean(
+        Object.fromEntries(
+            FILTER_PARAM_KEYS.map((key) => [
+                CARRIED_FILTER_PARAM_PREFIX + key,
+                searchParams[CARRIED_FILTER_PARAM_PREFIX + key],
+            ])
+        )
+    )
+}
+
+/** The carried params translated back into the list's own filter params, for the list breadcrumb. */
+export function listFilterParamsFromCarried(searchParams: Record<string, any>): Record<string, any> {
+    return Object.fromEntries(
+        Object.entries(carriedListFilterParams(searchParams)).map(([key, value]) => [
+            key.slice(CARRIED_FILTER_PARAM_PREFIX.length),
+            value,
+        ])
+    )
 }
 
 export interface FlagLogicProps {
