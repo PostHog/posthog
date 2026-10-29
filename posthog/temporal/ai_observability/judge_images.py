@@ -40,6 +40,13 @@ class ImagePrompt:
 
 
 @frozen
+class _Attachment:
+    outcome: Outcome
+    part: ImagePart | None = None
+    inline_bytes: int = 0
+
+
+@frozen
 class _Image:
     number: int
     mime_type: str
@@ -84,43 +91,46 @@ class JudgeImages:
         outcomes: Counter[str] = Counter()
         inline_bytes = 0
         for image in images:
-            if image.number in attachable:
-                outcome, part, size = self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
+            attachment = (
+                self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
+                if image.number in attachable
+                else _Attachment(outcome="over_limit")
+            )
+            inline_bytes += attachment.inline_bytes
+            outcomes[attachment.outcome] += 1
+            if attachment.part is None:
+                label = _NOT_ATTACHED_LABELS[attachment.outcome]
+                parts.append({"type": "text", "text": f"Image {image.number}: {label}."})
             else:
-                outcome, part, size = "over_limit", None, 0
-            inline_bytes += size
-            outcomes[outcome] += 1
-            if part is None:
-                parts.append({"type": "text", "text": f"Image {image.number}: {_NOT_ATTACHED_LABELS[outcome]}."})
-            else:
-                parts.extend([{"type": "text", "text": f"Image {image.number}:"}, part])
+                parts.extend([{"type": "text", "text": f"Image {image.number}:"}, attachment.part])
         parts.append({"type": "text", "text": user_prompt})
         logger.info("judge_images_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
-    def _attach(
-        self, image: _Image, provider: str, model: str, inline_budget: int
-    ) -> tuple[Outcome, ImagePart | None, int]:
-        """How one image travels, its part when attached, and the inline bytes it uses."""
+    def _attach(self, image: _Image, provider: str, model: str, inline_budget: int) -> _Attachment:
         transport = image_transport(provider, model, image.mime_type)
         if transport is None:
-            return "unavailable", None, 0
+            return _Attachment(outcome="unavailable")
         if image.pointer is None:
             size = len(image.base64_data or "") * 3 // 4
             if size > inline_budget:
-                return "too_large", None, 0
-            return "inline", ImagePart(mime_type=image.mime_type, base64_data=image.base64_data), size
+                return _Attachment(outcome="too_large")
+            part = ImagePart(mime_type=image.mime_type, base64_data=image.base64_data)
+            return _Attachment(outcome="inline", part=part, inline_bytes=size)
         if transport == "url":
             url = image.pointer.presigned_url(self._team_id, PRESIGNED_URL_SECONDS)
-            return ("link", ImagePart(mime_type=image.mime_type, url=url), 0) if url else ("unavailable", None, 0)
+            if url is None:
+                return _Attachment(outcome="unavailable")
+            return _Attachment(outcome="link", part=ImagePart(mime_type=image.mime_type, url=url))
         # Check the stored size before downloading, so an oversized blob never reaches worker memory.
         stored_size = image.pointer.stored_size(self._team_id)
         if stored_size is None:
-            return "unavailable", None, 0
+            return _Attachment(outcome="unavailable")
         if stored_size > inline_budget:
-            return "too_large", None, 0
+            return _Attachment(outcome="too_large")
         # ponytail: sequential reads, a thread pool if traces with many images get slow
         data = image.pointer.read(self._team_id)
         if data is None:
-            return "unavailable", None, 0
-        return "inline", ImagePart(mime_type=image.mime_type, base64_data=base64.b64encode(data).decode()), stored_size
+            return _Attachment(outcome="unavailable")
+        part = ImagePart(mime_type=image.mime_type, base64_data=base64.b64encode(data).decode())
+        return _Attachment(outcome="inline", part=part, inline_bytes=stored_size)
