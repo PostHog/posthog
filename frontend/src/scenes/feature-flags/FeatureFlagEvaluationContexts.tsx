@@ -18,7 +18,7 @@ interface FeatureFlagEvaluationContextsProps {
     evaluationContexts: string[]
     tagsAvailable?: string[]
     className?: string
-    flagId?: number | string | null
+    flagId: number | string | null | undefined
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
     /** Form mode: parent handles persistence. Mutually exclusive with onSave. */
