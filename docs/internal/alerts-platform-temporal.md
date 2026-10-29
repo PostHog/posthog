@@ -539,6 +539,7 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
    - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the queries that run in ClickHouse at once. A check holds one of these slots only while its query runs. A check that gets no slot within 45 seconds records nothing and stays due for a later tick.
    - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS` caps the checks admitted at once, and defaults to the query cap. An admitted check also locks itself, so a later run never starts the same check while it runs. An admitted check holds an evaluation worker slot until it ends, including while it waits for a query slot, so keep this cap inside the workers' activity slots.
 
+   Each worker reads both caps from its own environment, so set them to the same values on every worker that runs insight checks, the AI detector worker included.
    A batch refills the check slots its finished checks free, in rounds within its tick, so the caps limit concurrency rather than checks per minute.
    `ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK` bounds how many teams' batches start each minute, so a larger sample can need it raised. Sixty times its value must cover the batch keys due per hour. Otherwise the checks due at the top of the hour start later and later, while ClickHouse stays idle.
 
