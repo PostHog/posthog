@@ -187,7 +187,7 @@ describe('mcpRecurringReportsLogic', () => {
         await expectLogic(logic, () => logic.actions.toggleReportEnabled(1, false)).toFinishAllListeners()
 
         expect(logic.values.reports[0].enabled).toBe(false)
-        expect(mockedToggle).toHaveBeenCalledWith(1, false)
+        expect(mockedToggle).toHaveBeenCalledWith(1, false, null)
     })
 
     it('restores a deleted report when the delete is undone', async () => {
