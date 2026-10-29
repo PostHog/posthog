@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
 
@@ -375,15 +377,16 @@ def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str
         return
     context = tracker.external_context or {}
     try:
-        GitHubIntegration(
+        result = GitHubIntegration(
             tracker.integration, source="signals_tracker_issues", priority=Priority.BATCH
         ).comment_on_issue(
             context["repository"],
             int(context["number"]),
             _close_notice(report_link=report_link, actor_mention=actor_mention),
         )
-        tracker.close_comment_posted_at = timezone.now()
-        tracker.save(update_fields=["close_comment_posted_at", "updated_at"])
+        if result.get("success"):
+            tracker.close_comment_posted_at = timezone.now()
+            tracker.save(update_fields=["close_comment_posted_at", "updated_at"])
     except Exception:
         logger.warning("signals.tracker_issue_close_comment_failed", tracker_id=str(tracker.id), exc_info=True)
 
@@ -408,6 +411,29 @@ def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool)
         raise ValueError(f"Unsupported tracker provider {tracker.provider}")
 
 
+def _current_completion_attempt(
+    *, team_id: int, report_id: str, monitoring_attempt_id: str
+) -> SignalReportMonitoringAttempt | None:
+    return (
+        SignalReportMonitoringAttempt.objects.for_team(team_id)
+        .filter(
+            id=monitoring_attempt_id,
+            report_id=report_id,
+            aggregation_state="passed",
+            tracker_issue_close_processed_at__isnull=True,
+            monitoring_started_at=models.F("report__monitoring_started_at"),
+        )
+        .filter(
+            models.Q(report__status=SignalReport.Status.RESOLVED)
+            | models.Q(
+                report__status=SignalReport.Status.SUPPRESSED,
+                report__status_before_suppression=SignalReport.Status.RESOLVED,
+            )
+        )
+        .first()
+    )
+
+
 def _close_tracker_issue_for_report(
     *,
     team_id: int,
@@ -421,24 +447,20 @@ def _close_tracker_issue_for_report(
     A dismissed report will not produce a pull request, so its work item is finished. Leaving it
     open would grow a backlog of tracker issues that no pull request will ever answer.
     """
+
+    def can_complete() -> bool:
+        return (
+            monitoring_attempt_id is None
+            or _current_completion_attempt(
+                team_id=team_id, report_id=report_id, monitoring_attempt_id=monitoring_attempt_id
+            )
+            is not None
+        )
+
     try:
         if monitoring_attempt_id is not None:
-            attempt = (
-                SignalReportMonitoringAttempt.objects.for_team(team_id)
-                .filter(
-                    id=monitoring_attempt_id,
-                    report_id=report_id,
-                    aggregation_state="passed",
-                    monitoring_started_at=models.F("report__monitoring_started_at"),
-                )
-                .filter(
-                    models.Q(report__status=SignalReport.Status.RESOLVED)
-                    | models.Q(
-                        report__status=SignalReport.Status.SUPPRESSED,
-                        report__status_before_suppression=SignalReport.Status.RESOLVED,
-                    )
-                )
-                .first()
+            attempt = _current_completion_attempt(
+                team_id=team_id, report_id=report_id, monitoring_attempt_id=monitoring_attempt_id
             )
             if attempt is None:
                 return True
@@ -449,6 +471,7 @@ def _close_tracker_issue_for_report(
                     reason="resolved",
                     actor_user_id=actor_user_id,
                     comment_marker=f"<!-- monitoring-completion:{attempt.id} -->",
+                    before_close=can_complete,
                 )
         tracker = (
             SignalReportTrackerIssue.objects.for_team(team_id)
@@ -459,12 +482,16 @@ def _close_tracker_issue_for_report(
         if tracker is None or tracker.closed_at is not None:
             return False
 
+        if not can_complete():
+            return True
         report_url = build_report_url(team_id, report_id, ReportLinkSource.TRACKER)
         _comment_before_close(
             tracker,
             report_link=f"[linked PostHog report]({report_url})",
             actor_mention=github_mention_for_user(actor_user_id),
         )
+        if not can_complete():
+            return True
         _close_provider_issue(tracker, completed=completed)
         tracker.closed_at = timezone.now()
         tracker.save(update_fields=["closed_at", "updated_at"])
@@ -472,6 +499,27 @@ def _close_tracker_issue_for_report(
     except Exception:
         logger.warning("signals.tracker_issue_close_failed", report_id=report_id, team_id=team_id, exc_info=True)
         return False
+
+
+@contextmanager
+def tracker_issue_completion_lock(*, team_id: int, report_id: str) -> Iterator[bool]:
+    lock = None
+    acquired = False
+    try:
+        lock = get_client().lock(f"signals:tracker-close:{team_id}:{report_id}", timeout=120)
+        acquired = lock.acquire(blocking=False)
+    except RedisError:
+        logger.warning("signals.tracker_issue_close_lock_failed", report_id=report_id, team_id=team_id, exc_info=True)
+        yield False
+        return
+    try:
+        yield acquired
+    finally:
+        if acquired and lock is not None:
+            try:
+                lock.release()
+            except RedisError:
+                logger.warning("signals.tracker_issue_close_lock_release_failed", report_id=report_id, exc_info=True)
 
 
 def close_tracker_issue_for_report(
@@ -482,11 +530,7 @@ def close_tracker_issue_for_report(
     actor_user_id: int | None = None,
     monitoring_attempt_id: str | None = None,
 ) -> bool:
-    lock = None
-    acquired = False
-    try:
-        lock = get_client().lock(f"signals:tracker-close:{team_id}:{report_id}", timeout=120)
-        acquired = lock.acquire(blocking=False)
+    with tracker_issue_completion_lock(team_id=team_id, report_id=report_id) as acquired:
         if not acquired:
             return False
         return _close_tracker_issue_for_report(
@@ -496,15 +540,6 @@ def close_tracker_issue_for_report(
             actor_user_id=actor_user_id,
             monitoring_attempt_id=monitoring_attempt_id,
         )
-    except RedisError:
-        logger.warning("signals.tracker_issue_close_lock_failed", report_id=report_id, team_id=team_id, exc_info=True)
-        return False
-    finally:
-        if acquired and lock is not None:
-            try:
-                lock.release()
-            except RedisError:
-                logger.warning("signals.tracker_issue_close_lock_release_failed", report_id=report_id, exc_info=True)
 
 
 def complete_monitoring_tracker_issues(*, deadline: float, limit: int = 100) -> None:

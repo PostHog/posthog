@@ -2,13 +2,14 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.utils import timezone
 
 from celery.exceptions import Retry
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.test import APIClient
 
 from posthog.models import Team, User
 from posthog.models.integration import (
@@ -272,20 +273,40 @@ def test_link_pull_request_backs_off_when_the_body_changes_during_the_edit(team)
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "delivery",
-    ["sequential", "overlapping", "monitoring", "reopened", "replaced_attempt", "archived", "manual", "provider_retry"],
+    [
+        "sequential",
+        "overlapping",
+        "monitoring",
+        "reopened",
+        "replaced_attempt",
+        "archived",
+        "manual",
+        "provider_retry",
+        "failed_comment_retry",
+        "reopened_during_pr",
+        "reopened_during_comment",
+    ],
 )
-def test_close_tracker_issue_is_recorded_once(team, delivery):
+def test_close_tracker_issue_is_recorded_once(team: Team, delivery: str) -> None:
     integration = _connect_tracker(team, "github")
     report = _make_report(team)
     attempt_id = None
-    if delivery in {"monitoring", "reopened", "replaced_attempt", "archived", "manual"}:
+    if delivery in {
+        "monitoring",
+        "reopened",
+        "replaced_attempt",
+        "archived",
+        "manual",
+        "reopened_during_pr",
+        "reopened_during_comment",
+    }:
         started_at = timezone.now() - timedelta(hours=1)
         attempt = SignalReportMonitoringAttempt.objects.for_team(team.id).create(
             team=team,
             report=report,
             monitoring_started_at=started_at,
             aggregation_state="passed",
-            close_pr_on_resolve=delivery == "manual",
+            close_pr_on_resolve=delivery in {"manual", "reopened_during_pr"},
         )
         attempt_id = str(attempt.id)
         SignalReport.objects.filter(id=report.id).update(
@@ -297,7 +318,7 @@ def test_close_tracker_issue_is_recorded_once(team, delivery):
                 status=SignalReport.Status.SUPPRESSED,
                 status_before_suppression=SignalReport.Status.RESOLVED,
             )
-    SignalReportTrackerIssue.all_teams.create(
+    tracker = SignalReportTrackerIssue.all_teams.create(
         team=team,
         report=report,
         integration=integration,
@@ -309,16 +330,28 @@ def test_close_tracker_issue_is_recorded_once(team, delivery):
     def overlapping_close(*args: object, **kwargs: object) -> None:
         assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
 
+    def reopen_report(*args: object, **kwargs: object) -> dict[str, bool]:
+        SignalReport.objects.filter(team_id=team.id, id=report.id).update(status=SignalReport.Status.READY)
+        return {"success": True}
+
     with (
         patch.object(GitHubIntegration, "close_issue") as close_issue,
-        patch.object(GitHubIntegration, "comment_on_issue") as comment,
+        patch.object(GitHubIntegration, "comment_on_issue", return_value={"success": True}) as comment,
         patch("products.signals.backend.tracker_issues.close_implementation_pr_for_report") as close_pr,
     ):
         if delivery == "overlapping":
             close_issue.side_effect = overlapping_close
-        if delivery == "provider_retry":
+        if delivery == "reopened_during_pr":
+            close_pr.side_effect = reopen_report
+        if delivery == "reopened_during_comment":
+            comment.side_effect = reopen_report
+        if delivery in {"provider_retry", "failed_comment_retry"}:
             close_issue.side_effect = [RuntimeError("Provider unavailable"), None]
+            if delivery == "failed_comment_retry":
+                comment.side_effect = [{"success": False}, {"success": True}]
             assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
+            tracker.refresh_from_db()
+            assert (tracker.close_comment_posted_at is None) == (delivery == "failed_comment_retry")
         assert (
             close_tracker_issue_for_report(
                 team_id=team.id,
@@ -335,19 +368,82 @@ def test_close_tracker_issue_is_recorded_once(team, delivery):
                 reason="resolved",
                 actor_user_id=None,
                 comment_marker=f"<!-- monitoring-completion:{attempt_id} -->",
+                before_close=ANY,
             )
-        else:
+        elif delivery != "reopened_during_pr":
             close_pr.assert_not_called()
-        if delivery in {"reopened", "replaced_attempt"}:
+        if delivery in {"reopened", "replaced_attempt", "reopened_during_pr"}:
             close_issue.assert_not_called()
             comment.assert_not_called()
+        elif delivery == "reopened_during_comment":
+            close_issue.assert_not_called()
+            comment.assert_called_once()
         else:
             assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
-            if delivery == "provider_retry":
+            if delivery in {"provider_retry", "failed_comment_retry"}:
                 assert close_issue.call_count == 2
             else:
                 close_issue.assert_called_once_with("web", 12, completed=attempt_id is not None)
-            comment.assert_called_once()
+            assert comment.call_count == (2 if delivery == "failed_comment_retry" else 1)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bulk", [False, True])
+def test_reopening_waits_for_tracker_delivery(team: Team, bulk: bool) -> None:
+    integration = _connect_tracker(team, "github")
+    user = User.objects.create_and_join(team.organization, "reviewer@example.com", None)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    report = _make_report(team)
+    started_at = timezone.now() - timedelta(hours=1)
+    SignalReport.objects.filter(team_id=team.id, id=report.id).update(
+        status=SignalReport.Status.RESOLVED, monitoring_started_at=started_at
+    )
+    attempt = SignalReportMonitoringAttempt.objects.for_team(team.id).create(
+        team=team,
+        report=report,
+        monitoring_started_at=started_at,
+        aggregation_state="passed",
+        tracker_issue_close_requested_at=timezone.now(),
+    )
+    SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        integration=integration,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "web", "number": 12},
+    )
+    url = (
+        f"/api/projects/{team.id}/signals/reports/bulk-state/"
+        if bulk
+        else f"/api/projects/{team.id}/signals/reports/{report.id}/state/"
+    )
+    body: dict[str, object] = {"state": "potential"}
+    if bulk:
+        body["ids"] = [str(report.id)]
+
+    def try_reopening(*args: object, **kwargs: object) -> None:
+        response = client.post(url, body, format="json")
+        assert response.status_code == (200 if bulk else 409), response.json()
+        if bulk:
+            assert response.json()["results"][0]["outcome"] == "skipped"
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
+
+    with (
+        patch.object(GitHubIntegration, "comment_on_issue", return_value={"success": True}),
+        patch.object(GitHubIntegration, "close_issue", side_effect=try_reopening) as close_issue,
+    ):
+        assert close_tracker_issue_for_report(
+            team_id=team.id, report_id=str(report.id), completed=True, monitoring_attempt_id=str(attempt.id)
+        )
+        close_issue.assert_called_once()
+
+    response = client.post(url, body, format="json")
+    assert response.status_code == 200, response.json()
+    report.refresh_from_db()
+    assert report.status == SignalReport.Status.POTENTIAL
 
 
 @pytest.mark.django_db

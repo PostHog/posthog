@@ -427,7 +427,6 @@ def _pr_close_comment(
             if actor_mention
             else f"🔕 Closing this PR because the {report_link} was resolved without it."
         )
-        # A resolved report never reopens, so the restore advice below does not apply to it.
         return f"{opening}\n\nIf that wasn't intended, reopen this PR."
     opening = (
         f"🔕 Closing this PR because {actor_mention} {reason} the {report_link}."
@@ -589,6 +588,7 @@ def close_implementation_pr_for_report(
     pr_url: str | None = None,
     replacement_pr_url: str | None = None,
     comment_marker: str | None = None,
+    before_close: Callable[[], bool] | None = None,
 ) -> bool:
     try:
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
@@ -606,6 +606,7 @@ def close_implementation_pr_for_report(
                     actor_user_id=actor_user_id,
                     replacement_pr_url=replacement_pr_url,
                     comment_marker=comment_marker,
+                    before_close=before_close,
                 )
                 or closed
             )
