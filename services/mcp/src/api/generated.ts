@@ -64232,6 +64232,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `quick` - Quick
+     * * `guided` - Guided
+     */
+    export type InboxOnboardingSetupModeEnum = typeof InboxOnboardingSetupModeEnum[keyof typeof InboxOnboardingSetupModeEnum];
+
+
+    export const InboxOnboardingSetupModeEnum = {
+      Quick: 'quick',
+      Guided: 'guided',
+    } as const;
+
+    /**
      * * `session_replay` - Session replay
      * * `llm_analytics` - LLM analytics
      * * `github` - GitHub
@@ -64725,6 +64737,11 @@ export namespace Schemas {
        * * `scouts` - Scouts
        * * `github` - GitHub */
       step: InboxOnboardingStepEnum;
+      /** How setup was chosen: quick activation from the welcome screen, or the guided steps.
+       *
+       * * `quick` - Quick
+       * * `guided` - Guided */
+      setup_mode?: InboxOnboardingSetupModeEnum;
       /** Staged signal source choices. */
       sources: InboxOnboardingSource[];
       /**
@@ -64750,29 +64767,6 @@ export namespace Schemas {
        * * `P3` - P3
        * * `P4` - P4 */
       implementation_priority: AutonomyPriorityEnum;
-    }
-
-    /**
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore
-     */
-    export type InboxOnboardingVariantEnum = typeof InboxOnboardingVariantEnum[keyof typeof InboxOnboardingVariantEnum];
-
-
-    export const InboxOnboardingVariantEnum = {
-      Control: 'control',
-      TestUi: 'test-ui',
-      TestGithub: 'test-github',
-    } as const;
-
-    export interface InboxOnboardingExposure {
-      /** Assigned experiment variant at the eligible Inbox impression.
-       *
-       * * `control` - Control
-       * * `test-ui` - Focused steps
-       * * `test-github` - Activate and explore */
-      variant: InboxOnboardingVariantEnum;
     }
 
     /**
@@ -64829,12 +64823,6 @@ export namespace Schemas {
          * @nullable
          */
       completed_at: string | null;
-      /** Variant recorded at the first eligible impression.
-       *
-       * * `control` - Control
-       * * `test-ui` - Focused steps
-       * * `test-github` - Activate and explore */
-      variant: InboxOnboardingVariantEnum | null;
     }
 
     export interface InboxSummaryPullRequest {

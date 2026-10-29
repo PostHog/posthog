@@ -35,15 +35,13 @@ const draft: InboxOnboardingDraftApi = {
     implementation_priority: 'P1',
 }
 
-describe('focused Inbox setup', () => {
+describe('Inbox setup', () => {
     let logic: ReturnType<typeof inboxSetupLogic.build>
     let savedDraft: InboxOnboardingDraftApi | null
-    let variant: 'control' | 'test-ui' | 'test-github' | null
     let sources: SignalSourceConfigApi[]
     let failCompletion: boolean
     let createdSources: number
-    let warehouseConnected: boolean
-    let syncedSchemas: number
+    let inventoryRequests: number
     let canonicalScouts: SignalScoutConfigApi[]
     let enabledScouts: string[]
     let hasErrorTrackingData: boolean
@@ -52,14 +50,42 @@ describe('focused Inbox setup', () => {
     let completedAt: string | null
     let scanners: { id: string; enabled: boolean; emits_signals: boolean }[]
 
+    function generalScoutConfig(): SignalScoutConfigApi {
+        return {
+            ...mockScoutConfigs[0],
+            skill_name: 'signals-scout-general',
+            enabled: false,
+            scout_origin: 'canonical',
+        }
+    }
+
+    async function connectGithub(): Promise<void> {
+        const originalLocation = window.location
+        Object.defineProperty(window, 'location', {
+            value: { ...originalLocation, assign: jest.fn() },
+            configurable: true,
+        })
+        try {
+            await expectLogic(logic, () =>
+                logic.actions.connectGithub('https://github.com/apps/example/installations/new')
+            ).toFinishAllListeners()
+            expect(window.location.assign).toHaveBeenCalledWith('https://github.com/apps/example/installations/new')
+        } finally {
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        }
+    }
+
+    function activationRequests(capture: jest.SpyInstance): unknown[][] {
+        return capture.mock.calls.filter(([event]) => event === 'self-driving onboarding activation requested')
+    }
+
     beforeEach(() => {
+        window.sessionStorage.clear()
         initKeaTests()
         savedDraft = { ...draft }
-        variant = 'test-ui'
         sources = []
         createdSources = 0
-        warehouseConnected = false
-        syncedSchemas = 0
+        inventoryRequests = 0
         canonicalScouts = []
         enabledScouts = []
         hasErrorTrackingData = false
@@ -73,40 +99,37 @@ describe('focused Inbox setup', () => {
                 '/api/projects/:id': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
                 '/api/projects/:id/signals/reports/available_reviewers/': {},
                 '/api/projects/:id/wizard/sessions/latest/': () => [204, null],
-                '/api/environments/:id/external_data_sources/': () => ({
-                    results: warehouseConnected
-                        ? [
-                              {
-                                  id: 'linear-source',
-                                  source_type: 'Linear',
-                                  schemas: [{ id: 'issues', name: 'issues', should_sync: false }],
-                              },
-                          ]
-                        : [],
-                    next: null,
-                }),
                 '/api/projects/:id/signals/onboarding/': () => ({
                     draft: savedDraft,
                     completed_at: completedAt,
-                    variant,
                     github_optional_available: githubOptional,
                 }),
-                '/api/projects/:id/signals/source_configs/': () => ({
-                    results: sources,
-                    next: null,
-                    count: sources.length,
-                }),
-                '/api/projects/:id/event_definitions/': () => ({
-                    results: hasErrorTrackingData ? [{ name: '$exception', last_seen_at: '2026-10-15T00:00:00Z' }] : [],
-                    next: null,
-                    count: hasErrorTrackingData ? 1 : 0,
-                }),
-                '/api/projects/:id/error_tracking/issues/exists/': () => ({ exists: hasErrorTrackingData }),
-                '/api/projects/:id/vision/scanners/': () => ({
-                    results: scanners.filter((scanner) => scanner.enabled),
-                    next: null,
-                    count: scanners.length,
-                }),
+                '/api/projects/:id/signals/source_configs/': () => {
+                    inventoryRequests++
+                    return { results: sources, next: null, count: sources.length }
+                },
+                '/api/projects/:id/event_definitions/': () => {
+                    inventoryRequests++
+                    return {
+                        results: hasErrorTrackingData
+                            ? [{ name: '$exception', last_seen_at: '2026-10-15T00:00:00Z' }]
+                            : [],
+                        next: null,
+                        count: hasErrorTrackingData ? 1 : 0,
+                    }
+                },
+                '/api/projects/:id/error_tracking/issues/exists/': () => {
+                    inventoryRequests++
+                    return { exists: hasErrorTrackingData }
+                },
+                '/api/projects/:id/vision/scanners/': () => {
+                    inventoryRequests++
+                    return {
+                        results: scanners.filter((scanner) => scanner.enabled),
+                        next: null,
+                        count: scanners.length,
+                    }
+                },
                 '/api/projects/:id/signals/scout/configs/': () => canonicalScouts,
                 '/api/projects/:id/signals/scout/suggestions/': mockScoutSuggestionSet({
                     status: 'low_activity',
@@ -130,15 +153,12 @@ describe('focused Inbox setup', () => {
                 }),
             },
             post: {
-                '/api/projects/:id/signals/onboarding/expose/': async ({ request }) => {
-                    const assignment = (await request.json()) as { variant: typeof variant }
-                    variant ??= assignment.variant
-                    return [
-                        200,
-                        { draft: savedDraft, completed_at: null, variant, github_optional_available: githubOptional },
-                    ]
-                },
+                '/api/projects/:id/signals/onboarding/expose/': () => [
+                    200,
+                    { draft: savedDraft, completed_at: null, github_optional_available: githubOptional },
+                ],
                 '/api/projects/:id/signals/scout/configs/sync/': ({ request }) => {
+                    inventoryRequests++
                     expect(new URL(request.url).searchParams.get('surface')).toBe('onboarding')
                     return [200, canonicalScouts]
                 },
@@ -157,7 +177,6 @@ describe('focused Inbox setup', () => {
                         {
                             draft: savedDraft,
                             completed_at: completedAt,
-                            variant,
                             github_optional_available: githubOptional,
                         },
                     ]
@@ -180,7 +199,6 @@ describe('focused Inbox setup', () => {
                               {
                                   draft: savedDraft,
                                   completed_at: '2026-10-14T12:00:00Z',
-                                  variant,
                                   github_optional_available: githubOptional,
                               },
                           ],
@@ -196,18 +214,10 @@ describe('focused Inbox setup', () => {
                     Object.assign(config, await request.json())
                     return [200, config]
                 },
-                '/api/projects/:id/external_data_schemas/:schema/': async ({ request }) => {
-                    expect(await request.json()).toEqual({ should_sync: true })
-                    syncedSchemas++
-                    return [200, {}]
-                },
                 '/api/projects/:id/signals/source_configs/:source/': () => [200, sources[0]],
             },
         })
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.SELF_DRIVING_UBP]: true,
-            [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui',
-        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: true })
         logic = inboxSetupLogic()
         logic.mount()
     })
@@ -232,40 +242,35 @@ describe('focused Inbox setup', () => {
         async (entry, usageBasedPricing, savedImplementation, pilot) => {
             githubOptional = pilot
             const capture = jest.spyOn(posthog, 'capture')
-            variant = pilot ? 'control' : entry === 'github_return' ? 'test-github' : null
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing,
-                [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github',
             })
             savedDraft =
                 savedImplementation === null ? null : { ...draft, automatic_implementation: savedImplementation }
             failCompletion = false
             hasEvents = true
-            canonicalScouts = [
-                {
-                    ...mockScoutConfigs[0],
-                    skill_name: 'signals-scout-general',
-                    enabled: false,
-                    scout_origin: 'canonical',
-                },
-            ]
+            canonicalScouts = [generalScoutConfig()]
             const refresh = jest.spyOn(signalsApi, 'signalsScoutSuggestionsRefresh')
-            logic.actions.startSetup()
-            await waitFor(() => expect(logic.values.quickSetupReady).toBe(true))
-            expect(logic.values.isQuickSetup).toBe(true)
+            await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+            expect(inventoryRequests).toBe(0)
+            expect(logic.values.isQuickSetup).toBe(savedImplementation === null)
             if (savedImplementation !== null) {
                 expect(logic.values.savedState?.draft?.automatic_implementation).toBe(savedImplementation)
             }
             if (entry === 'github_return') {
+                await connectGithub()
                 router.actions.replace(router.values.location.pathname, { onboarding_step: 'quick' })
-                expect(logic.values.shouldResumeQuickSetup).toBe(true)
+                await waitFor(() => expect(logic.values.shouldResumeQuickSetup).toBe(true))
                 logic.actions.resumeQuickSetup()
                 logic.actions.resumeQuickSetup()
             } else {
                 logic.actions.activateQuickSetup()
                 logic.actions.activateQuickSetup()
             }
+            expect(logic.values.quickActivationPending).toBe(true)
             await waitFor(() => expect(logic.values.completed).toBe(true))
+            expect(inventoryRequests).toBeGreaterThan(0)
+            expect(logic.values.quickActivationPending).toBe(false)
             expect(enabledScouts).toEqual(['signals-scout-general'])
             expect(logic.values.savedState?.draft?.automatic_implementation).toBe(!pilot && !usageBasedPricing)
             expect(logic.values.savedState?.draft?.suggestions.map((item) => item.skill_name)).toEqual([
@@ -276,14 +281,10 @@ describe('focused Inbox setup', () => {
             )
             expect(router.values.searchParams.onboarding_step).toBeUndefined()
             expect(refresh).not.toHaveBeenCalled()
-            const requests = capture.mock.calls.filter(
-                ([event]) => event === 'self-driving onboarding activation requested'
-            )
-            expect(requests).toEqual([
+            expect(activationRequests(capture)).toEqual([
                 [
                     'self-driving onboarding activation requested',
                     expect.objectContaining({
-                        variant: pilot ? 'control' : 'test-github',
                         setup_mode: 'quick',
                         flow_version: 'ui-first-v1',
                         inbox_client: 'cloud',
@@ -302,127 +303,243 @@ describe('focused Inbox setup', () => {
         }
     )
 
-    it.each(['control', null, 'test-ui'] as const)(
-        'opens setup and preserves the %s assignment through resume and activation',
-        async (assignment) => {
-            variant = assignment
-            savedDraft = null
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.SELF_DRIVING_UBP]: true,
-                ...(assignment ? { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: assignment } : {}),
-            })
-            await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
-            expect(logic.values.usesFocusedSetup).toBe(assignment === 'test-ui')
-            expect(logic.values.inProgress).toBe(false)
-            const capture = jest.spyOn(posthog, 'capture')
-            const onboarding = inboxOnboardingLogic()
-            onboarding.mount()
-            try {
-                await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
-                await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
-                expect(logic.values.usesFocusedSetup).toBe(true)
-                expect(logic.values.inProgress).toBe(true)
-                expect(onboarding.values.onboardingMode).toBe('takeover')
-                expect(router.values.searchParams.onboarding_step).toBeUndefined()
-                await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
-                logic.actions.reportStepViewed()
-                logic.actions.reportStepViewed()
-                expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding step viewed')).toEqual(
-                    [
-                        [
-                            'self-driving onboarding step viewed',
-                            expect.objectContaining({ step: 'signals', setup_mode: 'guided' }),
-                        ],
-                    ]
-                )
-                await expectLogic(logic, () =>
-                    logic.actions.patchDraft({ sources: draft.sources })
-                ).toFinishAllListeners()
-                expect(savedDraft).toBeNull()
-                expect(
-                    capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')
-                ).toHaveLength(0)
-                onboarding.unmount()
-                logic.unmount()
-                router.actions.replace('/inbox')
-                logic = inboxSetupLogic()
-                logic.mount()
-                await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
-                expect(logic.values.inProgress).toBe(false)
-                expect(logic.values.draft.step).toBe('signals')
-                onboarding.mount()
-                await expectLogic(logic, () => logic.actions.openSetup()).toFinishAllListeners()
-                await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
-                await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
-                expect(savedDraft).toMatchObject({ step: 'github' })
-                logic.actions.reportStepViewed()
-                await expectLogic(logic, () => logic.actions.goToStep('signals')).toFinishAllListeners()
-                logic.actions.reportStepViewed()
-                expect(
-                    capture.mock.calls.filter(([event]) => event === 'self-driving onboarding step completed')
-                ).toEqual([['self-driving onboarding step completed', expect.objectContaining({ step: 'signals' })]])
-                await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
-                await expectLogic(logic, () =>
-                    logic.actions.patchDraft({ sources: draft.sources })
-                ).toFinishAllListeners()
-                expect(
-                    capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')
-                ).toHaveLength(1)
-                expect(capture).toHaveBeenCalledWith(
-                    'self-driving onboarding started',
-                    expect.objectContaining({ variant: assignment })
-                )
-                expect(
-                    capture.mock.calls.filter(([event]) => event === 'self-driving onboarding welcome continued')
-                ).toHaveLength(1)
-                expect(
-                    capture.mock.calls.filter(([event]) => event === 'Inbox welcome manual setup clicked')
-                ).toHaveLength(assignment === 'test-ui' ? 0 : 1)
-            } finally {
-                onboarding.unmount()
-                capture.mockRestore()
-            }
+    it.each([
+        ['a missing general scout', 'scouts'],
+        ['an unavailable source inventory', 'sources'],
+    ] as const)('reports %s after a quick activation click and activates on retry', async (_name, failure) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        savedDraft = null
+        failCompletion = false
+        hasEvents = true
+        const generalScout = generalScoutConfig()
+        canonicalScouts = failure === 'scouts' ? [] : [generalScout]
+        let sourcesUnavailable = failure === 'sources'
+        useMocks({
+            get: {
+                '/api/projects/:id/signals/source_configs/': () =>
+                    sourcesUnavailable
+                        ? [503, { detail: 'Unavailable' }]
+                        : { results: sources, next: null, count: sources.length },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        expect(inventoryRequests).toBe(0)
+        logic.actions.activateQuickSetup()
+        expect(logic.values.quickActivationPending).toBe(true)
+        await waitFor(() => expect(logic.values.error).toBeTruthy())
+        expect(logic.values.failedOperation).toBe(failure)
+        expect(logic.values.quickActivationPending).toBe(false)
+        expect(logic.values.completed).toBe(false)
+        if (failure === 'scouts') {
+            canonicalScouts.push(generalScout)
+        } else {
+            sourcesUnavailable = false
+        }
+        logic.actions.retry()
+        await waitFor(() => expect(logic.values.completed).toBe(true))
+        expect(logic.values.error).toBeNull()
+        expect(activationRequests(capture)).toEqual([
+            [
+                'self-driving onboarding activation requested',
+                expect.objectContaining({ activation_source: 'retry', setup_mode: 'quick' }),
+            ],
+        ])
+    })
+
+    it('does not activate from a quick-setup link unless the welcome screen started the GitHub connection', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        savedDraft = null
+        failCompletion = false
+        hasEvents = true
+        canonicalScouts = [generalScoutConfig()]
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        router.actions.replace(router.values.location.pathname, { onboarding_step: 'github' })
+        expect(logic.values.isQuickSetup).toBe(false)
+        await connectGithub()
+        router.actions.replace(router.values.location.pathname, { onboarding_step: 'quick' })
+        await waitFor(() => expect(logic.values.shouldResumeQuickSetup).toBe(true))
+        await expectLogic(logic, () => logic.actions.resumeQuickSetup()).toFinishAllListeners()
+        expect(logic.values.quickActivationPending).toBe(false)
+        expect(logic.values.completed).toBe(false)
+        expect(inventoryRequests).toBe(0)
+        expect(activationRequests(capture)).toEqual([])
+        logic.actions.activateQuickSetup()
+        await waitFor(() => expect(logic.values.completed).toBe(true))
+        expect(activationRequests(capture)).toEqual([
+            ['self-driving onboarding activation requested', expect.objectContaining({ activation_source: 'button' })],
+        ])
+    })
+
+    it('reloads the onboarding state on every retry after it failed to load', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        savedDraft = null
+        failCompletion = false
+        hasEvents = true
+        canonicalScouts = [generalScoutConfig()]
+        let onboardingUnavailable = true
+        useMocks({
+            get: {
+                '/api/projects/:id/signals/onboarding/': () =>
+                    onboardingUnavailable
+                        ? [503, { detail: 'Unavailable' }]
+                        : [200, { draft: savedDraft, completed_at: completedAt }],
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        logic = inboxSetupLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.error).toBeTruthy()
+        expect(logic.values.savedState).toBeNull()
+        logic.actions.activateQuickSetup('retry')
+        expect(logic.values.quickActivationPending).toBe(true)
+        await waitFor(() => expect(logic.values.error).toBeTruthy())
+        expect(logic.values.quickActivationPending).toBe(false)
+        await waitFor(() =>
+            expect(
+                logic.values.refreshingSources || logic.values.integrationsLoading || logic.values.scoutConfigsLoading
+            ).toBe(false)
+        )
+        onboardingUnavailable = false
+        logic.actions.activateQuickSetup('retry')
+        expect(logic.values.quickActivationPending).toBe(true)
+        await waitFor(() => expect(logic.values.completed).toBe(true))
+        expect(activationRequests(capture)).toEqual([
+            ['self-driving onboarding activation requested', expect.objectContaining({ activation_source: 'retry' })],
+        ])
+    })
+
+    it('activates when the integration refresh fails after the inventory loaded', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        savedDraft = null
+        failCompletion = false
+        hasEvents = true
+        canonicalScouts = [generalScoutConfig()]
+        let failIntegrations: (() => void) | undefined
+        const integrationsResponse = new Promise<[number, { detail: string }]>((resolve) => {
+            failIntegrations = () => resolve([503, { detail: 'Unavailable' }])
+        })
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        useMocks({ get: { '/api/projects/:id/integrations/': () => integrationsResponse } })
+        logic.actions.activateQuickSetup()
+        expect(logic.values.quickActivationPending).toBe(true)
+        await waitFor(() => {
+            expect(logic.values.scoutFleetSynced).toBe(true)
+            expect(logic.values.refreshingSources).toBe(false)
+            expect(logic.values.scoutConfigsLoading).toBe(false)
+            expect(logic.values.quickSetupDraft).not.toBeNull()
+        })
+        expect(logic.values.integrationsLoading).toBe(true)
+        expect(logic.values.completed).toBe(false)
+        failIntegrations!()
+        await waitFor(() => expect(logic.values.completed).toBe(true))
+        expect(logic.values.hasGithubIntegration).toBe(true)
+        expect(activationRequests(capture)).toEqual([
+            [
+                'self-driving onboarding activation requested',
+                expect.objectContaining({ activation_source: 'button', github_connected: true }),
+            ],
+        ])
+    })
+
+    it('opens setup and preserves progress through resume and activation', async () => {
+        savedDraft = null
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        expect(logic.values.inProgress).toBe(false)
+        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+        const capture = jest.spyOn(posthog, 'capture')
+        const onboarding = inboxOnboardingLogic()
+        onboarding.mount()
+        try {
+            await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.continueFromWelcome()).toFinishAllListeners()
+            expect(logic.values.inProgress).toBe(true)
+            expect(onboarding.values.onboardingMode).toBe('takeover')
+            expect(router.values.searchParams.onboarding_step).toBe('signals')
+            await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+            logic.actions.reportStepViewed()
+            logic.actions.reportStepViewed()
+            expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding step viewed')).toEqual([
+                [
+                    'self-driving onboarding step viewed',
+                    expect.objectContaining({ step: 'signals', setup_mode: 'guided' }),
+                ],
+            ])
+            await expectLogic(logic, () => logic.actions.patchDraft({ sources: draft.sources })).toFinishAllListeners()
+            expect(savedDraft).toBeNull()
+            expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')).toHaveLength(0)
+            onboarding.unmount()
             logic.unmount()
             router.actions.replace('/inbox')
             logic = inboxSetupLogic()
             logic.mount()
             await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
-            expect(logic.values.usesFocusedSetup).toBe(true)
-            expect(logic.values.inProgress).toBe(true)
-            expect(logic.values.draft.step).toBe('github')
-            expect(logic.values.experimentVariant).toBe(assignment)
-            await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
-            const resumedCapture = jest.spyOn(posthog, 'capture')
-            logic.actions.reportStepViewed()
-            expect(resumedCapture).toHaveBeenCalledWith(
-                'self-driving onboarding step viewed',
-                expect.objectContaining({
-                    step: 'github',
-                    implementation_toggle_shown: true,
-                })
-            )
-            failCompletion = false
-            await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
-            expect(logic.values.completed).toBe(true)
             expect(logic.values.inProgress).toBe(false)
-            expect(logic.values.experimentVariant).toBe(assignment)
-            expect(resumedCapture).toHaveBeenCalledWith(
-                'self-driving onboarding step completed',
-                expect.objectContaining({ step: 'github' })
+            expect(logic.values.draft.step).toBe('signals')
+            onboarding.mount()
+            await expectLogic(logic, () => logic.actions.openSetup()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
+            expect(savedDraft).toMatchObject({ step: 'github' })
+            logic.actions.reportStepViewed()
+            await expectLogic(logic, () => logic.actions.goToStep('signals')).toFinishAllListeners()
+            logic.actions.reportStepViewed()
+            expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding step completed')).toEqual([
+                ['self-driving onboarding step completed', expect.objectContaining({ step: 'signals' })],
+            ])
+            await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.patchDraft({ sources: draft.sources })).toFinishAllListeners()
+            expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')).toHaveLength(1)
+            expect(capture).toHaveBeenCalledWith(
+                'self-driving onboarding started',
+                expect.objectContaining({ setup_mode: 'guided' })
             )
+            expect(
+                capture.mock.calls.filter(([event]) => event === 'self-driving onboarding welcome continued')
+            ).toHaveLength(1)
+            expect(capture.mock.calls.filter(([event]) => event === 'Inbox welcome manual setup clicked')).toHaveLength(
+                1
+            )
+        } finally {
+            onboarding.unmount()
+            capture.mockRestore()
         }
-    )
+        logic.unmount()
+        router.actions.replace('/inbox')
+        logic = inboxSetupLogic()
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        expect(logic.values.inProgress).toBe(true)
+        expect(logic.values.draft.step).toBe('github')
+        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+        const resumedCapture = jest.spyOn(posthog, 'capture')
+        logic.actions.reportStepViewed()
+        expect(resumedCapture).toHaveBeenCalledWith(
+            'self-driving onboarding step viewed',
+            expect.objectContaining({
+                step: 'github',
+                implementation_toggle_shown: true,
+            })
+        )
+        failCompletion = false
+        await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
+        expect(logic.values.completed).toBe(true)
+        expect(logic.values.inProgress).toBe(false)
+        expect(resumedCapture).toHaveBeenCalledWith(
+            'self-driving onboarding step completed',
+            expect.objectContaining({ step: 'github' })
+        )
+    })
 
-    it('shows the paused reminder when a Wizard-completed control project disables its sources', async () => {
-        variant = 'control'
+    it('shows the paused reminder when a project with reports stops watching anything', async () => {
         savedDraft = null
-        completedAt = '2026-10-14T12:00:00Z'
         sources = [
             {
                 ...draft.sources[0],
                 id: 'source-one',
-                created_at: completedAt,
-                updated_at: completedAt,
+                created_at: '2026-10-14T12:00:00Z',
+                updated_at: '2026-10-14T12:00:00Z',
                 status: null,
             },
         ]
@@ -445,7 +562,7 @@ describe('focused Inbox setup', () => {
                 signalSourcesLogic.actions.loadVisionScanners()
             }).toFinishAllListeners()
             await waitFor(() => expect(onboarding.values.isSetupLoaded).toBe(true))
-            expect(logic.values.completed).toBe(true)
+            expect(logic.values.completed).toBe(false)
             expect(onboarding.values.onboardingMode).toBe('none')
 
             sources[0].enabled = false
@@ -453,17 +570,14 @@ describe('focused Inbox setup', () => {
                 signalSourcesLogic.actions.loadSourceConfigs()
             ).toFinishAllListeners()
             await waitFor(() => expect(onboarding.values.onboardingMode).toBe('banner'))
-            expect(logic.values.completed).toBe(true)
+            expect(logic.values.completed).toBe(false)
         } finally {
             onboarding.unmount()
         }
     })
 
     it.each([true, false])('retries partial activation with usage-based pricing %s', async (usageBasedPricing) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing,
-            [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui',
-        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing })
         const capture = jest.spyOn(posthog, 'capture')
         await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
         expect(logic.values.activationDisabledReason).toBeUndefined()
@@ -682,32 +796,6 @@ describe('focused Inbox setup', () => {
         expect(logic.values.activationDisabledReason).toBeUndefined()
     })
 
-    it('stages an inline connection without starting signals and preserves choices when confirmation is retried', async () => {
-        savedDraft = { ...draft, step: 'signals', sources: [{ ...draft.sources[0], enabled: false }] }
-        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.openSourceSetup('linear')).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.finishSourceSetup()).toFinishAllListeners()
-        expect(logic.values.sourceSetupSource).toBe('linear')
-        expect(logic.values.error).toBeTruthy()
-        expect(savedDraft?.sources).toEqual([{ ...draft.sources[0], enabled: false }])
-
-        warehouseConnected = true
-        await expectLogic(logic, () => logic.actions.finishSourceSetup()).toFinishAllListeners()
-        expect(logic.values.sourceSetupSource).toBeNull()
-        expect(savedDraft?.sources).toEqual([
-            { ...draft.sources[0], enabled: false },
-            { source_product: 'linear', source_type: 'issue', enabled: true },
-        ])
-        expect(createdSources).toBe(0)
-        expect(syncedSchemas).toBe(0)
-
-        failCompletion = false
-        await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
-        expect(logic.values.completed).toBe(true)
-        expect(createdSources).toBe(1)
-        expect(syncedSchemas).toBe(1)
-    })
-
     it.each(['refresh', 'return'] as const)(
         'updates saved source choices on %s without undoing explicit deselection',
         async (mode) => {
@@ -747,7 +835,6 @@ describe('focused Inbox setup', () => {
         const save = jest.spyOn(signalsApi, 'signalsOnboardingCreate').mockImplementation(async (_, draft) => ({
             draft,
             completed_at: null,
-            variant: 'test-ui',
         }))
         jest.useFakeTimers()
         logic.actions.patchDraft({ automatic_implementation: true })
@@ -800,11 +887,11 @@ describe('focused Inbox setup', () => {
         logic.actions.goToStep('scouts')
         expect(save).toHaveBeenCalledTimes(1)
         expect(logic.values.saving).toBe(true)
-        finishFirst({ draft: save.mock.calls[0][1], completed_at: null, variant: 'test-ui' })
+        finishFirst({ draft: save.mock.calls[0][1], completed_at: null })
         await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
         expect(logic.values.draft).toMatchObject({ automatic_implementation: false, implementation_priority: 'P2' })
         expect(router.values.searchParams.onboarding_step).not.toBe('scouts')
-        finishSecond({ draft: save.mock.calls[1][1], completed_at: null, variant: 'test-ui' })
+        finishSecond({ draft: save.mock.calls[1][1], completed_at: null })
         await expectLogic(logic).toFinishAllListeners()
         expect(save).toHaveBeenCalledTimes(2)
         expect(logic.values.saving).toBe(false)
@@ -838,7 +925,7 @@ describe('focused Inbox setup', () => {
             logic.actions.connectGithub('/authorize-github')
             expect(assign).not.toHaveBeenCalled()
             expect(logic.values.saving).toBe(true)
-            finish({ draft: save.mock.calls[1][1], completed_at: null, variant: 'test-ui' })
+            finish({ draft: save.mock.calls[1][1], completed_at: null })
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.error).toBeNull()
             expect(assign).toHaveBeenCalledWith('/authorize-github')
