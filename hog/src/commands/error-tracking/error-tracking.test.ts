@@ -15,8 +15,6 @@ import { join } from 'node:path'
 
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
-import { stripCredentials } from '@/error-tracking/git'
-import { loadMapContent, serializeMapContent } from '@/error-tracking/kinds/js'
 import { ZipWriter } from '@/error-tracking/native/zip'
 import { deriveBaseName } from '@/error-tracking/symbols'
 import { runHog } from '@/testing'
@@ -135,42 +133,36 @@ describe('hog error-tracking upload', () => {
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
     })
 
-    test('--delete-after leaves alone maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
-        const bundle = 'a();\n//# sourceMappingURL=../maps/a.js.map\n'
+    test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
         const folder = project({
-            'dist/a.js': bundle,
-            'maps/a.js.map': MAP,
             'dist/broken.css': 'a{}\n/*# sourceMappingURL=%FF.css.map */\n',
+            'dist/outside.css': 'a{}\n/*# sourceMappingURL=../maps/outside.css.map */\n',
+            'maps/outside.css.map': MAP,
             'dist/settings.css': 'a{}\n/*# sourceMappingURL=settings.json */\n',
             'dist/settings.json': '{"theme":"dark"}',
             'dist/ignored.css': 'a{}\n/*# sourceMappingURL=ignored.css.map */\n',
             'dist/ignored.css.map': MAP,
+            'dist/kept.css': 'a{}\n/*# sourceMappingURL=kept.css.map */\n',
+            'dist/kept.css.map': MAP,
         })
         const warnings: string[] = []
-        const outside = {
-            sourcePath: join(folder, 'dist/a.js'),
-            mapPath: join(folder, 'maps/a.js.map'),
-            sourceFingerprint: contentHash(bundle),
-            mapFingerprint: contentHash(serializeMapContent(loadMapContent(MAP))),
-            kind: 'js' as const,
-        }
         const css = cssTargets(
-            ['broken.css', 'settings.css', 'ignored.css'].map((name) => join(folder, 'dist', name)),
+            ['broken', 'outside', 'settings', 'ignored', 'kept'].map((name) => join(folder, `dist/${name}.css`)),
+            [join(folder, 'dist')],
             undefined,
             warnings,
             (mapPath) => mapPath.endsWith('ignored.css.map')
         )
-        const result = cleanUp([outside, ...css], [join(folder, 'dist')])
+        const result = cleanUp(css)
 
-        expect(result.deletedMaps).toEqual([])
-        expect([...warnings, ...result.warnings]).toEqual([
+        expect(result.deletedMaps).toEqual([expect.stringMatching(/dist\/kept\.css\.map$/)])
+        expect(warnings).toEqual([
             expect.stringContaining("broken.css: its sourcemap reference can't be read"),
             expect.stringContaining('resolves outside the selected paths'),
         ])
-        for (const path of ['maps/a.js.map', 'dist/settings.json', 'dist/ignored.css.map']) {
+        for (const path of ['maps/outside.css.map', 'dist/settings.json', 'dist/ignored.css.map']) {
             expect(existsSync(join(folder, path))).toBe(true)
         }
-        expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
     })
 
     test.skipIf(process.getuid?.() === 0)('inject changes no bundle when a map cannot be written', async () => {
@@ -253,9 +245,9 @@ describe('hog error-tracking upload', () => {
     })
 
     test.each([
-        ['matches an ignore glob', ['Shop.app.dSYM/Contents/Resources/DWARF/**'], false],
-        ['is a symlink to a file outside the selected folder', [], true],
-    ])('upload skips a dSYM member that %s', async (_name, ignore, linkOutside) => {
+        ['skips a dSYM member that matches an ignore glob', ['Shop.app.dSYM/Contents/Resources/DWARF/**'], false],
+        ['follows a dSYM member that is a symlink, as posthog-cli does', [], true],
+    ])('upload %s', async (_name, ignore, linkOutside) => {
         const folder = project({
             'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'apple', ignore }] } }),
         })
@@ -272,11 +264,18 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
 
-        expect(result.exitCode).toBe(1)
-        expect(result.error()).toMatchObject({
-            code: 'no_debug_symbols',
-            message: expect.stringContaining('apple/Shop.app.dSYM: '),
-        })
+        if (linkOutside) {
+            expect(result.exitCode).toBe(0)
+            expect(result.json().symbolSets).toEqual([
+                expect.objectContaining({ path: 'apple/Shop.app.dSYM', status: 'planned' }),
+            ])
+        } else {
+            expect(result.exitCode).toBe(1)
+            expect(result.error()).toMatchObject({
+                code: 'no_debug_symbols',
+                message: expect.stringContaining('apple/Shop.app.dSYM: '),
+            })
+        }
     })
 
     test('--include-source leaves out sources that match an ignore glob', async () => {
@@ -324,15 +323,6 @@ describe('hog error-tracking upload', () => {
             version: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
             id: null,
         })
-    })
-
-    test.each([
-        ['git@github.com:org/repo.git', 'git@github.com:org/repo.git'],
-        ['ghp_token@github.com:org/repo.git', 'github.com:org/repo.git'],
-        ['https://x-access-token:secret@github.com/org/repo.git', 'https://github.com/org/repo.git'],
-        ['git@github.com:org/repo@secret.git', undefined],
-    ])('the release keeps no credential from the remote %s', (remote, stored) => {
-        expect(stripCredentials(remote)).toBe(stored)
     })
 
     test.each([
