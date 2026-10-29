@@ -2,38 +2,11 @@ import { useValues } from 'kea'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
-import { BIConfig, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
-
+import { BICatalogMetricPicker } from './BICatalogMetricPicker'
 import { captureBIWorksheetAction } from './biEditorAnalytics'
-import { buildBIQuery, DEFAULT_BI_CONFIG } from './biEditorTypes'
+import { DEFAULT_BI_CONFIG } from './biEditorTypes'
+import { BI_QUESTION_STARTERS, starterWorksheetUrl } from './biQuestionStarters'
 import { biStartersLogic } from './biStartersLogic'
-
-export function starterWorksheetUrl(config: BIConfig): string {
-    const built = buildBIQuery(config)!
-    const worksheet: BIVisualizationNode = { ...built.node, kind: NodeKind.BIVisualizationNode, config }
-    return `${urls.businessIntelligenceNew()}?starter=1#q=${encodeURIComponent(JSON.stringify(worksheet))}`
-}
-
-const EVENTS_CONFIG: BIConfig = {
-    ...DEFAULT_BI_CONFIG,
-    source: { table: 'events' },
-    dateRange: { date_from: '-7d' },
-    chartType: ChartDisplayType.ActionsLineGraph,
-    rows: [
-        {
-            id: 'starter:timestamp',
-            name: 'timestamp',
-            expression: 'timestamp',
-            source: { table: 'events' },
-            type: 'datetime',
-            dateBucket: 'day',
-        },
-    ],
-}
 
 export function BIStarters(): JSX.Element {
     const { sources } = useValues(biStartersLogic)
@@ -41,6 +14,7 @@ export function BIStarters(): JSX.Element {
         <section className="flex flex-col gap-2" aria-label="Worksheet starting points">
             <h3 className="m-0">Start with a question</h3>
             <div className="flex flex-wrap gap-2">
+                <BICatalogMetricPicker />
                 {sources.map((source) => {
                     const config = { ...DEFAULT_BI_CONFIG, source: { table: source.target_name } }
                     return (
@@ -64,16 +38,23 @@ export function BIStarters(): JSX.Element {
                         </LemonButton>
                     )
                 })}
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    to={starterWorksheetUrl(EVENTS_CONFIG)}
-                    onClick={() =>
-                        captureBIWorksheetAction('starter_selected', EVENTS_CONFIG, { starter_kind: 'events' })
-                    }
-                >
-                    Events per day · Last 7 days
-                </LemonButton>
+                {BI_QUESTION_STARTERS.map((starter) => (
+                    <LemonButton
+                        key={starter.id}
+                        type="secondary"
+                        size="small"
+                        className="max-w-full"
+                        to={starterWorksheetUrl(starter.config)}
+                        onClick={() =>
+                            captureBIWorksheetAction('starter_selected', starter.config, { starter_kind: starter.id })
+                        }
+                    >
+                        <span className="flex min-w-0 flex-col items-start whitespace-normal py-1 text-left">
+                            <span>{starter.title}</span>
+                            <span className="text-xs font-normal text-secondary">{starter.description}</span>
+                        </span>
+                    </LemonButton>
+                ))}
             </div>
             <p className="m-0 text-xs text-secondary">
                 Choose a starting point, add fields, then Run. Save your worksheet to return to it or add it to a

@@ -4080,7 +4080,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 event="$pageview",
                 distinct_id=f"person_{value}",
                 timestamp="2020-01-11T12:00:00Z",
-                properties={"breakdown_value": f"{value}"},
+                properties={"breakdown_value": f"{value}", "amount": 7},
             )
 
         # line graph
@@ -4110,6 +4110,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30
+
+        # property math is not scaled up
+        runner = self._create_query_runner(
+            "2020-01-01",
+            "2020-01-31",
+            IntervalType.MONTH,
+            [EventsNode(event="$pageview", math=PropertyMathType.MAX, math_property="amount")],
+            TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        )
+        runner.query.samplingFactor = 0.1
+        response = runner.calculate()
+        assert len(response.results) == 1
+        assert response.results[0]["aggregated_value"] == 7
 
     def test_trends_multiple_event_breakdowns(self):
         self._create_test_events()
@@ -8150,6 +8163,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for result in response.results:
             self.assertEqual(11, len(result["data"]), "Should have 11 days of data")
             self.assertEqual(result["count"], sum(result["data"]), "Count should equal sum of data points")
+
+        # A series saved without a name displays the action's name from here, also inside a group.
+        self.assertEqual(
+            {str(page_action.id): "Page Action", str(pageview_action.id): "Pageview Action"}, response.action_names
+        )
 
     @parameterized.expand(
         [

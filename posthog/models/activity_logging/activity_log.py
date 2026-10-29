@@ -75,6 +75,7 @@ ActivityScope = Literal[
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
     "ReplayScanner",
+    "ReplayObservation",
     "VisionAlertConfiguration",
     "Comment",
     "Team",
@@ -458,6 +459,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # Observation notes are gated on observation access, which activity_log:read does not imply.
+    "ReplayObservation": ["content"],
     # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
     # readable through activity_log:read. Record that the rubrics changed, never their contents.
     "SignalScoutConfig": ["rubrics"],
@@ -516,6 +519,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "github_issue_writeback_enabled": "comment back on GitHub issues",
         "pull_request_label_enabled": "label self-driving PRs",
         "pull_request_label": "self-driving PR label",
+        "anomaly_scoring_enabled": "anomaly scoring",
         "scout_instructions": "scout instructions",
         "research_instructions": "research instructions",
         "implementation_instructions": "implementation instructions",
@@ -556,10 +560,6 @@ replay_scanner_machine_fields = [
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
-    "search_suggestions",
-    "search_suggestions_watermark",
-    "search_suggestions_generated_at",
-    "search_last_viewed_at",
     "prompt_question",
     "prompt_question_source",
     "prompt_valence",
@@ -681,10 +681,11 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
-        # Staff-only email sending suspension flips: the acting staff user must not leak into the
-        # org activity log. The customer is told via email and in-app notification instead.
+        # Staff-only email sending controls: the acting staff user must not leak into the org
+        # activity log. Suspensions and automatic tier moves reach the customer through email and
+        # in-app notification, and the Reputation tab shows the current tier.
         "scope": "Team",
-        "activities": ["email_sending_suspended", "email_sending_unsuspended"],
+        "activities": ["email_sending_suspended", "email_sending_unsuspended", "email_sending_tier_changed"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -1007,6 +1008,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "lease_id",
         "backoff_attempt",
         "backoff_until",
+        "pending_commit",
     ],
     "Integration": [
         "sensitive_config",
@@ -1212,7 +1214,8 @@ def safely_get_field_value(instance: models.Model | None, field: str):
             if hasattr(field_id, "pk"):
                 field_id = field_id.pk
             # Only fetch the actual object if we have a valid ID
-            related_model = field_obj.related_model
+            # Widen the stub type to keep the guard against an unresolved lazy "app.Model" reference.
+            related_model: type[models.Model] | str = field_obj.related_model
             if isinstance(related_model, type) and issubclass(related_model, models.Model):
                 return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
             else:
@@ -1730,6 +1733,7 @@ def load_activity(
     item_ids: Optional[list[str]] = None,
     limit: int = 10,
     page: int = 1,
+    user: Union["User", AnonymousUser, None] = None,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -1739,6 +1743,9 @@ def load_activity(
 
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
+
+    if user is not None:
+        activity_query = apply_activity_visibility_restrictions(activity_query, user)
 
     return get_activity_page(activity_query, limit, page)
 

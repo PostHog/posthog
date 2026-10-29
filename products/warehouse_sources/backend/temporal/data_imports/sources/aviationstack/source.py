@@ -165,6 +165,7 @@ Note: aviationstack pricing is a monthly request quota tied to your plan. Some t
                     ),
                     SourceFieldInputConfig(
                         name="flights_future_days",
+                        sync_setting=True,
                         label="Days of future flights to sync",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

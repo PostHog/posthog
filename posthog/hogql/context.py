@@ -252,10 +252,11 @@ class HogQLContext:
         self.directly_read_ids.clear()
 
     def read_tags(self) -> dict[str, list[str] | None]:
+        reads_warehouse_object = bool(self.referenced_saved_query_ids or self.referenced_warehouse_table_ids)
         return {
             "saved_query_ids": sorted(self.referenced_saved_query_ids) or None,
             "warehouse_table_ids": sorted(self.referenced_warehouse_table_ids) or None,
-            "directly_read_ids": sorted(self.directly_read_ids) or None,
+            "directly_read_ids": (sorted(self.directly_read_ids) or None) if reads_warehouse_object else None,
         }
 
     @contextmanager

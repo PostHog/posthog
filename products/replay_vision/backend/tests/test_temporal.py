@@ -40,6 +40,10 @@ from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    BumpStuckCounterInput,
+    bump_stuck_counter_activity,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
@@ -58,7 +62,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import QuotaSnapshot
-from products.replay_vision.backend.temporal import ApplyScannerWorkflow
+from products.replay_vision.backend.temporal import ACTIVITIES, ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
     _inject_known_freeform_tags,
@@ -1033,7 +1037,7 @@ class TestEgressConsentRecheck:
         team = await sync_to_async(self._team_without_consent)()
         # The activity derives the team from the asset row (no team_id in the payload), so it must exist.
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4")
-        with patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as mock_client:
+        with patch("products.replay_vision.backend.gemini_client.build_gemini_client") as mock_client:
             with pytest.raises(ConsentWithdrawnError) as exc_info:
                 await ActivityEnvironment().run(
                     upload_video_to_gemini_activity,
@@ -2719,7 +2723,7 @@ class TestCleanupGeminiFileActivity:
         await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-ok": 0.0})
         fake_client = MagicMock()
         with patch(
-            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
             return_value=fake_client,
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-ok"))
@@ -2734,7 +2738,7 @@ class TestCleanupGeminiFileActivity:
         fake_client = MagicMock()
         fake_client.files.delete.side_effect = RuntimeError("gemini down")
         with patch(
-            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
             return_value=fake_client,
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-transient"))
@@ -2751,12 +2755,28 @@ class TestCleanupGeminiFileActivity:
         fake_client = MagicMock()
         fake_client.files.delete.side_effect = APIError(code=code, response_json={})
         with patch(
-            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.RawGenAIClient",
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
             return_value=fake_client,
         ):
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-gone"))
         assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone") == 0
         assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-gone") is None
+
+    @pytest.mark.parametrize("code", [403, 404])
+    @pytest.mark.asyncio
+    async def test_keeps_tracking_when_the_gateway_refuses_the_delete(self, gemini_redis, code: int) -> None:
+        await gemini_redis.set(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-refused", "{}")
+        await gemini_redis.zadd(_GEMINI_REDIS_INDEX_KEY, {"files/rv-refused": 0.0})
+        fake_client = MagicMock()
+        fake_client.files.delete.side_effect = APIError(
+            code=code, response_json={"error": {"code": code, "details": [{"domain": "posthog.com"}]}}
+        )
+        with patch(
+            "products.replay_vision.backend.temporal.activities.cleanup_gemini_file.gemini_files_client",
+            return_value=fake_client,
+        ):
+            await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-refused"))
+        assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-refused") == 1
 
 
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:
@@ -2787,7 +2807,11 @@ class _WorkflowMocks:
         self.activity_calls: list[tuple[Any, Any]] = []
         self.child_calls: list[tuple[tuple, dict]] = []
 
-    async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
+    async def execute_activity(self, activity_fn: Any, activity_input: Any, **kwargs: Any) -> Any:
+        # Without a task_queue the call lands on the Replay Vision queue, so its worker must register the activity.
+        # pytest.fail raises a BaseException, which the workflow's fail-soft `except Exception` blocks can't swallow.
+        if kwargs.get("task_queue") is None and activity_fn not in ACTIVITIES:
+            pytest.fail(f"{activity_fn.__name__} is not registered on the Replay Vision worker")
         self.activity_calls.append((activity_fn, activity_input))
         if activity_fn in self.activity_errors:
             raise self.activity_errors[activity_fn]
@@ -3007,6 +3031,28 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
     # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
     assert upload_video_to_gemini_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_bumps_the_stuck_counter_when_a_render_times_out() -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(
+            TemporalTimeoutError("timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+        ),
+    )
+
+    with pytest.raises(Exception):
+        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks)
+
+    bumps = [arg for fn, arg in mocks.activity_calls if fn is bump_stuck_counter_activity]
+    assert bumps == [BumpStuckCounterInput(team_id=1, session_id="sess-raster")]
+    assert mocks.activity_calls[-1][1].error_reason.startswith("rasterization_failed:")
 
 
 @pytest.mark.asyncio
@@ -3718,10 +3764,7 @@ class TestUploadedFileNotActive:
             state=types.FileState.FAILED,
             error=types.FileStatus(code=code, message="the provider quoted 'wf-secret-name' back at us"),
         )
-        with (
-            patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as mock_client,
-            patch("products.replay_vision.backend.gemini_client.genai.AsyncClient"),
-        ):
+        with patch("products.replay_vision.backend.gemini_client.build_gemini_client") as mock_client:
             mock_client.return_value.files.upload.return_value = failed_file
             mock_client.return_value.aio.aclose = AsyncMock()
             with patch(
@@ -3748,7 +3791,7 @@ class TestUploadThroughTheGateway:
         return Team.objects.create(organization=org, name="gateway-upload-team")
 
     @pytest.mark.asyncio
-    async def test_the_upload_runs_on_the_teams_client_and_closes_it(self) -> None:
+    async def test_the_upload_runs_on_the_gateway_client_and_closes_it(self) -> None:
         team = await sync_to_async(self._team)()
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
         uri = "https://generativelanguage.googleapis.com/v1beta/files/abc"
@@ -3760,7 +3803,7 @@ class TestUploadThroughTheGateway:
         )
         module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
         with (
-            patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=gemini)) as factory,
+            patch(f"{module}.replay_gemini_client", return_value=gemini),
             patch(f"{module}.track_uploaded_file", AsyncMock()),
             patch(f"{module}.asyncio.sleep", AsyncMock()),
         ):
@@ -3768,42 +3811,12 @@ class TestUploadThroughTheGateway:
                 upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
             )
 
-        factory.assert_awaited_once_with(team.id)
         upload = gemini.raw.files.upload.call_args.kwargs
         assert "http_options" not in upload and upload["config"].http_options is None
         assert upload["config"].mime_type == "video/mp4"
         gemini.raw.files.get.assert_called_once_with(name="files/abc")
         assert (uploaded.file_uri, uploaded.gemini_file_name) == (uri, "files/abc")
         gemini.aclose.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_flag_off_uploads_direct_with_the_gateway_configured(self) -> None:
-        team = await sync_to_async(self._team)()
-        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
-        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
-        gateway_settings = {
-            "AI_GATEWAY_URL": "https://ai-gateway.example/v1",
-            "AI_GATEWAY_API_KEY": "phs_gateway",
-            "REPLAY_VISION_GEMINI_API_KEY": "replay-vision-google-key",
-        }
-        with (
-            override_settings(**gateway_settings),
-            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=False),
-            patch("products.replay_vision.backend.gemini_client.build_gemini_client") as build,
-            patch("products.replay_vision.backend.gemini_client.RawGenAIClient") as raw_client,
-            patch(f"{module}.track_uploaded_file", AsyncMock()),
-        ):
-            raw_client.return_value.aio.aclose = AsyncMock()
-            raw_client.return_value.files.upload.return_value = types.File(
-                name="files/abc", state=types.FileState.ACTIVE, uri="https://g/files/abc"
-            )
-            uploaded = await ActivityEnvironment().run(
-                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
-            )
-
-        raw_client.assert_called_once_with(api_key="replay-vision-google-key")
-        build.assert_not_called()
-        assert uploaded.gemini_file_name == "files/abc"
 
 
 class TestGeminiErrorRedaction:
@@ -4328,7 +4341,7 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
 
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 1
-    # The distinct problem types ride the row so the watch feed can name the kind of issue.
+    # The distinct problem types ride the row so the highlight feed can name the kind of issue.
     assert succeeded.scanner_result.signal_problem_types == ["bug"]
     # And the headline rides it too, so the card names the finding rather than counting it.
     assert [(s.problem_type, s.headline) for s in succeeded.scanner_result.signal_summaries] == [

@@ -82,13 +82,13 @@ export function SearchPerformanceDetail(): JSX.Element {
                                 ' Ad keywords can match different searches; these organic results are for the same text.'}
                         </p>
                     </div>
-                    {detailSourceNotices.map(({ sourceId, message }) => (
+                    {detailSourceNotices.map(({ sourceId, name, message }) => (
                         <LemonBanner
                             key={sourceId}
                             type="info"
-                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(sourceId) }}
+                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(`managed-${sourceId}`) }}
                         >
-                            {message}
+                            {`${name}: ${message}`}
                         </LemonBanner>
                     ))}
                     {detailQuery?.sources.length ? (

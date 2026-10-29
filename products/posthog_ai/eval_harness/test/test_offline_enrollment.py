@@ -28,8 +28,6 @@ async def test_discovered_suites_match_reporting_enrollment(tmp_path: Path) -> N
     with (
         patch.object(_BaseEvalRun, "run", capture),
         patch("products.posthog_ai.eval_harness.base.build_case_dir", return_value=tmp_path),
-        patch("products.posthog_ai.evals.taxonomic_filter.eval_event_match.system_one_configured", return_value=True),
-        patch("products.posthog_ai.evals.taxonomic_filter.eval_event_match.EVENT_MATCH_MODEL"),
         patch("products.posthog_ai.evals.taxonomic_filter.eval_search_intent.system_one_configured", return_value=True),
         patch("products.posthog_ai.evals.taxonomic_filter.eval_search_intent.fetch_search_intent_prompt"),
     ):

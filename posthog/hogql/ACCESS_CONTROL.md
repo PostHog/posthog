@@ -201,6 +201,8 @@ Native event JSON stores a flat dotted key such as `customer.ssn` under the path
 Native reads of a parent containing restricted children use the masked JSON document instead of a raw subcolumn. This also covers multi-key `JSONHas` calls with computed keys. Unrestricted siblings remain readable.
 A JSON function whose first key is computed per row reads the masked `properties` document, and the masked `temporary_properties` document on rows where the key names a moved property, so a restricted property stays unreadable through a computed key.
 
+Person property restrictions also apply inside event `$set` and `$set_once` containers, including native `%2E` key spellings. Restricted values read as `NULL` and are removed from blob reads; unrestricted siblings stay readable.
+
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
 
 ### Coverage is per table, not per column name

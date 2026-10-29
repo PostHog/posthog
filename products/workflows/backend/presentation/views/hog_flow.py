@@ -94,6 +94,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.cdp.backend.presentation.hog_functions import (
+    COHORT_NOT_READY_CODE,
     DATA_WAREHOUSE_SOURCES,
     FLAG_GATED_TEMPLATE_IDS,
     compile_filters_expr,
@@ -933,13 +934,18 @@ def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
     # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
     # Name each offending step instead so the error points at what to fix.
-    parts = []
+    failures = []
     for action_data, error in zip(actions, errors):
         if not error:
             continue
         message = _first_error_string(error) or "has an invalid configuration"
         name = action_data.get("name") if isinstance(action_data, dict) else None
-        parts.append(f"step '{name or 'unnamed'}': {message}")
+        failures.append((name or "unnamed", message))
+    if failures and all(getattr(message, "code", None) == COHORT_NOT_READY_CODE for _, message in failures):
+        # Nothing in the workflow needs a fix, so the message says to wait rather than to fix a step.
+        waits = " ".join(f"Step '{name}': {message}" for name, message in failures)
+        return f"Can't enable this workflow yet. {waits}"
+    parts = [f"step '{name}': {message}" for name, message in failures]
     return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
 
 
@@ -1601,7 +1607,9 @@ class HogFlowActionSerializer(serializers.Serializer):
         if not unchanged and not self._cohort_conditions_enabled():
             raise serializers.ValidationError({"type": "Cohort triggers aren't available for this organization."})
         try:
-            validate_realtime_cohorts([cohort_id], self.context["get_team"]())
+            validate_realtime_cohorts(
+                [cohort_id], self.context["get_team"](), require_ready=not self.context.get("is_draft")
+            )
         except serializers.ValidationError as error:
             raise serializers.ValidationError({"cohort_id": error.detail})
 
@@ -3010,7 +3018,8 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "The project's sending tier, what it allows, and how much of it has been used; null when the "
-            "caller lacks project-wide workflow access."
+            "caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean "
+            "sending record."
         ),
     )
 
@@ -4978,6 +4987,11 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                     "whether a schedule still has sends to come."
                 ),
             ),
+            OpenApiParameter(
+                "latest_send_first",
+                OpenApiTypes.BOOL,
+                description="Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.",
+            ),
         ]
     ),
     # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
@@ -5274,6 +5288,7 @@ class HogFlowViewSet(
             broadcast_statuses=frozenset(broadcast_statuses),
             suggestions_first=params.get("suggestions_first") in ("true", "1"),
             tags=tags,
+            latest_send_first=params.get("latest_send_first") == "true",
             field_filters={name: params[name] for name in WORKFLOW_FIELD_FILTER_PARAMS if name in params},
         )
 
