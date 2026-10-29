@@ -8,6 +8,7 @@ import { resolveCssColor } from '../../core/color-utils'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
 import { useChartDraw } from '../../core/hooks/useChartDraw'
 import { applyMarginOverride } from '../../core/hooks/useChartMargins'
+import { useResolvedChartTheme } from '../../core/theme'
 import type { ChartDrawArgs, ChartMargins, ChartScales } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
@@ -69,7 +70,7 @@ export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
 function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     nodes,
     links,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onNodeClick,
@@ -80,6 +81,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     dataAttr,
     children,
 }: Omit<SankeyChartProps<NodeMeta, LinkMeta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         nodeWidth = DEFAULT_NODE_WIDTH,
         nodePadding = DEFAULT_NODE_PADDING,
@@ -247,8 +249,6 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         overlayCtx,
         dimensions,
         scales,
-        series: [],
-        labels: [],
         hoverIndex,
         hoverPosition,
         theme,

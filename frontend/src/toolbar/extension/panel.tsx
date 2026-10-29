@@ -6,9 +6,9 @@ import { loadersPlugin } from 'kea-loaders'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { createRoot } from 'react-dom/client'
 
-import { extensionAuthLogic } from './extensionAuthLogic'
-import { ExtensionPanel } from './ExtensionPanel'
-import { extensionPanelLogic } from './extensionPanelLogic'
+import { ExtensionPanel } from './components/panel/ExtensionPanel'
+import { extensionAuthLogic } from './logics/panel/extensionAuthLogic'
+import { extensionPanelLogic } from './logics/panel/extensionPanelLogic'
 
 // The app's styles pick their colors from the body's theme attribute, which the panel takes from the browser.
 const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)')

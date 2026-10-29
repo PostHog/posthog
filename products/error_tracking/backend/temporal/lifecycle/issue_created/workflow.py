@@ -29,6 +29,7 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
     ALERT_DISPATCH_RETRY_POLICY,
     ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
 )
+from products.error_tracking.backend.temporal.lifecycle.summary_activity import execute_summary_activity
 
 WORKFLOW_NAME = "error-tracking-issue-created"
 
@@ -41,6 +42,7 @@ SEVERITY_INFERENCE_RETRY_POLICY = common.RetryPolicy(
 SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
 # Alerts wait for inference, so a model outage must not hold them past this bound, retries included.
 SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
+SUMMARY_ON_WRITE_PATCH = "error-tracking-summary-on-write-activity"
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=15),
@@ -141,6 +143,20 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             if workflow.patched(ALERT_DISPATCH_PATCH)
             else None
         )
+        # Patched for the same reason. The alert and the emit activities do not wait for the summary.
+        # The workflow awaits it before it completes, because a task left unawaited is dropped when the workflow returns.
+        summary = (
+            asyncio.create_task(
+                execute_summary_activity(
+                    "generate_issue_created_summary_activity",
+                    inputs,
+                    fail_open_counter="error_tracking_issue_created_summary_fail_open",
+                    description="Issue-created workflows whose summary activity failed",
+                )
+            )
+            if workflow.patched(SUMMARY_ON_WRITE_PATCH)
+            else None
+        )
         try:
             await workflow.execute_activity(
                 "emit_issue_created_internal_event_activity",
@@ -157,6 +173,8 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
         finally:
             if dispatch is not None:
                 await dispatch
+            if summary is not None:
+                await summary
         return IssueCreatedWorkflowResult(
             notified=True,
             embedding_skipped_reason=preparation.skipped_reason,

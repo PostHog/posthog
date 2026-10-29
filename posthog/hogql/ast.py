@@ -24,7 +24,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import FIELD_NOT_FOUND_MESSAGE, NotImplementedError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
@@ -212,7 +212,20 @@ class FieldAliasType(Type):
         raise NotImplementedError("FieldAliasType.resolve_table_type not implemented")
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
+class ArrayJoinAliasType(FieldAliasType):
+    """An ARRAY JOIN alias holds one item of its array expression, not the whole array."""
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        constant_type = self.type.resolve_constant_type(context)
+        if isinstance(constant_type, ArrayType):
+            return constant_type.item_type
+        if isinstance(constant_type, StringArrayType):
+            return StringType(nullable=False)
+        return UnknownType()
+
+
+@dataclass(kw_only=True, slots=True, frozen=False)
 class BaseTableType(Type):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         raise NotImplementedError("BaseTableType.resolve_database_table not overridden")
@@ -239,7 +252,7 @@ class BaseTableType(Type):
                 )
             return FieldType(name=name, table_type=self)
 
-        raise QueryError(f"Field not found: {name}")
+        raise QueryError(f"{FIELD_NOT_FOUND_MESSAGE}: {name}")
 
 
 TableOrSelectType = Union[BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType"]
@@ -1378,11 +1391,15 @@ class RatioExpr(Expr):
     right: Optional[Constant] = None
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
     offset_value: Optional[RatioExpr] = None
+
+    def samples_all_rows(self) -> bool:
+        """`SAMPLE 1` with no denominator and no offset reads every row. The printers drop it."""
+        return self.sample_value.left.value == 1 and self.sample_value.right is None and self.offset_value is None
 
 
 @dataclass(kw_only=True, slots=True)

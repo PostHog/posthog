@@ -61,16 +61,19 @@ The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experim
 
 ## Layout
 
-- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, `ReplayObservationRequest` (one handle over a programmatic batch of scans, served at `vision/requests/` and open to project secret API keys), observation labels (ratings), usage receipts, and `TeamReplayVisionConfig` (the team's cross-scanner search suggestions).
+- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, `ReplayObservationRequest` (one handle over a programmatic batch of scans, served at `vision/requests/` and open to project secret API keys), observation labels (ratings), usage receipts, and `TeamReplayVisionConfig` (the team's learned rules state).
 - `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, quota, stats, live progress over SSE).
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
 - `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, vision alerts, and the Gemini file cleanup sweep.
 - `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, the quota snapshot the meter reads, and the per-org credit-limit override described below.
+- `backend/gemini_client.py` — every Gemini call goes through the Go AI gateway (`AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`). There is no direct route to Google, so local development needs a running gateway (`bin/start-ai-gateway`, credential from `bin/setup-gateway-e2e`).
 - `backend/enqueue_claims.py` — atomic slot claims that keep on-demand scans inside the in-flight caps.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
 - `backend/search.py` + `backend/search_rerank.py` — observation search: embedding rank, access-scoped hydration, and the decision-model rerank of the head.
 - `backend/impact.py` — affected sessions and users per scanner, exportable as a static cohort.
-- `backend/search_suggestions.py` — example searches for the Search tab's empty state, per scanner and per team. A scheduled workflow generates them for every active scanner and team before anyone opens the tab, from an outcome-labeled sample of new observations and each scanner's instructions.
+- `backend/watch_themes.py`: example searches for the Search tab's empty state.
+  The embedding consumer clusters each scanner's issue observations into themes.
+  A small model names a theme when it reaches 5 members and again each time it doubles, and the Search tab shows the largest active themes.
 - `backend/tags.py` — tag slug normalization for classifiers.
 - `backend/max_tools.py` — Max AI tools (draft a scanner prompt, digest summaries, semantic search over observations).
 - `backend/scanner_access.py` — scanner-level RBAC shared by the API and the alert engine.

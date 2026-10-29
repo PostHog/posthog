@@ -57,8 +57,10 @@ posthog_export_ca_bundle() {
 
 # Borrow the main clone's toolchain into the current shell's environment.
 # Must be called with cwd = repo root (the hooks guarantee that). Scope $1 is
-# `node` or `all` (default): post-checkout only needs the node borrow, so it
-# skips the venv work (including the uv.lock compare, which isn't free).
+# `node`, `all` (default) or `main-only`: post-checkout only needs the node
+# borrow, so it skips the venv work (including the uv.lock compare, which isn't
+# free). `main-only` is `all` without the worktree's flox env, for callers that
+# run with the user's credentials in a worktree whose branch may not be trusted.
 posthog_worktree_borrow() {
     _ph_scope="${1:-all}"
     _ph_main="$(posthog_main_repo "$(pwd)")"
@@ -69,12 +71,14 @@ posthog_worktree_borrow() {
     # flox-activated shell. Prefer the worktree's own flox env, because the
     # main clone's can pin older tools than this worktree's branch requires.
     _ph_flox_root="$_ph_main"
-    for _ph_bin in .flox/run/*/bin; do
-        if [ -d "$_ph_bin" ]; then
-            _ph_flox_root="$(pwd)"
-            break
-        fi
-    done
+    if [ "$_ph_scope" != "main-only" ]; then
+        for _ph_bin in .flox/run/*/bin; do
+            if [ -d "$_ph_bin" ]; then
+                _ph_flox_root="$(pwd)"
+                break
+            fi
+        done
+    fi
     if [ -d "$_ph_flox_root/.flox/run" ]; then
         _ph_flox_on_path=""
         for _ph_bin in "$_ph_flox_root/.flox/run"/*/bin; do
@@ -97,7 +101,7 @@ posthog_worktree_borrow() {
         fi
     fi
 
-    if [ "$_ph_scope" = "all" ] && [ -z "$(posthog_find_venv "$(pwd)")" ]; then
+    if [ "$_ph_scope" != "node" ] && [ -z "$(posthog_find_venv "$(pwd)")" ]; then
         _ph_main_venv="$(posthog_find_venv "$_ph_main")"
         if [ -n "$_ph_main_venv" ]; then
             if cmp -s uv.lock "$_ph_main/uv.lock"; then

@@ -26,7 +26,6 @@ import type {
     ForgetRequestApi,
     ForgetResponseApi,
     InboxOnboardingDraftApi,
-    InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
@@ -119,6 +118,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportSectionCountsApi,
     SignalReportSourceMetadataRequestApi,
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
@@ -158,6 +158,7 @@ import type {
     SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
+    SignalsReportsSectionCountsRetrieveParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
     SignalsScoutConfigTrialComparisonHistoryParams,
@@ -178,6 +179,8 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SubmitMonitoringResultRequestApi,
+    SubmitMonitoringResultResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -419,26 +422,9 @@ export const getSignalsOnboardingExposeCreateUrl = (projectId: string) => {
 
 export const signalsOnboardingExposeCreate = async (
     projectId: string,
-    inboxOnboardingExposureApi: InboxOnboardingExposureApi,
     options?: RequestInit
 ): Promise<InboxOnboardingStateApi> => {
     return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingExposeCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(inboxOnboardingExposureApi),
-    })
-}
-
-export const getSignalsOnboardingReconcileCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/onboarding/reconcile/`
-}
-
-export const signalsOnboardingReconcileCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<InboxOnboardingStateApi> => {
-    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingReconcileCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -1638,6 +1624,39 @@ export const signalsReportsRefundSummaryRetrieve = async (
     })
 }
 
+export const getSignalsReportsSectionCountsRetrieveUrl = (
+    projectId: string,
+    params?: SignalsReportsSectionCountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/section_counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/section_counts/`
+}
+
+/**
+ * Count the ready reports with and without an implementation pull request, in one query. Accepts the list's filters, so each count matches a `count_only` list request with `status=ready` and the matching `has_implementation_pr`. Rejects `status`, `has_implementation_pr`, `include_all_statuses` and `view`, because the counts set those.
+ */
+export const signalsReportsSectionCountsRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsSectionCountsRetrieveParams,
+    options?: RequestInit
+): Promise<SignalReportSectionCountsApi> => {
+    return apiMutator<SignalReportSectionCountsApi>(getSignalsReportsSectionCountsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsReportsSourceMetadataCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/reports/source_metadata/`
 }
@@ -2705,6 +2724,28 @@ export const signalsScoutLighthouseAudit = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lighthouseAuditRequestApi),
+    })
+}
+
+export const getSignalsScoutSubmitMonitoringResultUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/monitoring_result/`
+}
+
+/**
+ * Submit the assigned Monitoring check's evidence and verdict while the scout is running. Only the owning Monitoring scout can call this endpoint. The server derives the check, attempt, definition, and fixed window from the run. Validation errors record nothing: correct the fields and retry in the same run. An identical accepted submission is idempotent. This records an evaluation and leaves the report in Monitoring.
+ * @summary Submit the result of an authored Monitoring check
+ */
+export const signalsScoutSubmitMonitoringResult = async (
+    projectId: string,
+    runId: string,
+    submitMonitoringResultRequestApi: SubmitMonitoringResultRequestApi,
+    options?: RequestInit
+): Promise<SubmitMonitoringResultResponseApi> => {
+    return apiMutator<SubmitMonitoringResultResponseApi>(getSignalsScoutSubmitMonitoringResultUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(submitMonitoringResultRequestApi),
     })
 }
 

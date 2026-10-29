@@ -20,6 +20,7 @@ function ready(turns: ConversationTurn[]): Story['args'] {
 }
 
 export const SingleTurn: Story = { args: ready([FIXTURE_TURN]) }
+export const WithSearchHighlight: Story = { args: { ...ready([FIXTURE_TURN]), highlightQuery: 'seats' } }
 export const Loading: Story = {
     args: { conversation: { status: 'loading' } },
     decorators: [withWidth(720)],
