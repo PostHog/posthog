@@ -793,7 +793,7 @@ impl Job {
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
         // Save the advanced offset and a pending-commit marker before the sink commit. After a crash
-        // between the two, the next claim finds the marker and pauses the job for review.
+        // between the two, the next claim finds the marker and sends the chunk again.
         self.shutdown_guard()?;
         info!(job_id = %self.job_id, "Beginning PG part commit");
         if self
@@ -915,10 +915,18 @@ impl Job {
         };
         model_state.events_emitted = model_state.events_emitted.saturating_add(events as u64);
 
+        let from_offset = new_offset.saturating_sub(consumed as u64);
+        // A re-send of the chunk recovered at claim keeps its interruption count.
+        let interrupted = model
+            .pending_commit
+            .as_ref()
+            .filter(|pending| pending.key == key && pending.from_offset == from_offset)
+            .map_or(0, |pending| pending.interrupted);
         model.pending_commit = Some(model::PendingCommit {
             key: key.to_string(),
-            from_offset: new_offset.saturating_sub(consumed as u64),
+            from_offset,
             to_offset: new_offset,
+            interrupted,
         });
 
         let written = model.save_progress(&self.context.db, true, true).await?;
@@ -1690,6 +1698,21 @@ mod tests {
             B: Fn(usize, Uuid, Arc<AppContext>) -> BF,
             BF: Future<Output = ()>,
         {
+            run_job_after_claim(None, on_send, before_process, fail_sends).await
+        }
+
+        /// Like `run_job`, for a claim that recovered `recovered` as the row's pending commit.
+        async fn run_job_after_claim<H, B, BF>(
+            recovered: Option<serde_json::Value>,
+            on_send: H,
+            before_process: B,
+            fail_sends: bool,
+        ) -> Run
+        where
+            H: FnOnce(Uuid, PgPool) -> Option<SendHook>,
+            B: Fn(usize, Uuid, Arc<AppContext>) -> BF,
+            BF: Future<Output = ()>,
+        {
             let context = test_db::context().await;
             let parts: Vec<String> = (1..=3).map(|n| format!("part-{n}")).collect();
             let state = JobState {
@@ -1709,7 +1732,7 @@ mod tests {
                 lease_id: "lease-from-claim",
                 state: state.clone(),
                 sink: serde_json::json!({"type": "capture", "send_rate": SEND_RATE}),
-                pending_commit: None,
+                pending_commit: recovered,
             };
             let id = test_db::insert_job(&context.db, &row).await;
             let sends = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1786,6 +1809,48 @@ mod tests {
         }
 
         async fn no_op(_step: usize, _id: Uuid, _context: Arc<AppContext>) {}
+
+        #[tokio::test]
+        async fn test_resent_chunk_keeps_its_interruption_count() {
+            let markers = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let recorded = markers.clone();
+            let run = run_job_after_claim(
+                Some(serde_json::json!(
+                    {"key": "part-1", "from_offset": 0, "to_offset": PART_BYTES, "interrupted": 1}
+                )),
+                move |id, pool| {
+                    let hook: SendHook = Arc::new(move |_index| {
+                        let (pool, recorded) = (pool.clone(), recorded.clone());
+                        Box::pin(async move {
+                            let stored = test_db::read_job(&pool, id).await;
+                            recorded
+                                .lock()
+                                .unwrap()
+                                .push(stored.pending_commit.unwrap()["interrupted"].clone());
+                        })
+                    });
+                    Some(hook)
+                },
+                no_op,
+                false,
+            )
+            .await;
+
+            run.result.unwrap();
+            assert_eq!(
+                *markers.lock().unwrap(),
+                vec![
+                    serde_json::json!(1),
+                    serde_json::json!(0),
+                    serde_json::json!(0)
+                ],
+                "only the re-sent chunk carries the count, so a crash loop on it reaches the cap"
+            );
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "completed");
+            assert_eq!(stored.pending_commit, None);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
 
         #[tokio::test]
         async fn test_send_rate_change_applies_from_the_next_chunk() {
