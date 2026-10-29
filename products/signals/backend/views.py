@@ -3,6 +3,7 @@ import json
 import math
 import uuid
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import ExitStack
 from datetime import UTC, timedelta
 from functools import cached_property, partial
 from typing import Any, Literal, cast
@@ -148,6 +149,7 @@ from products.signals.backend.models import (
     SignalReportAction,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportRefund,
     SignalScoutConfig,
     SignalSourceConfig,
@@ -322,6 +324,7 @@ from products.signals.backend.throttles import (
     ReportTaskActionRunBurstThrottle,
     ReportTaskActionRunSustainedThrottle,
 )
+from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -597,6 +600,19 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception:
             logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
+    def update(self, request: Request, *args: object, **kwargs: object) -> Response:
+        partial = kwargs.pop("partial", False)
+        with transaction.atomic():
+            # Read after locking so validation and merging use the last committed configuration.
+            self.queryset = self.queryset.select_for_update()
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+
+        # A best-effort status query must not roll back the configuration write if it fails.
+        return Response(serializer.data)
+
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)
         was_enabled = instance.enabled
@@ -619,7 +635,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.enabled and not was_enabled:
-            self._trigger_data_import_sync(instance)
+            transaction.on_commit(partial(self._trigger_data_import_sync, instance))
 
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {
@@ -653,16 +669,20 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
 
+# A task agent that could edit this list would widen the GitHub token of every later implementation run.
+_SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
+
+
 class SignalSteeringPermission(TeamMemberStrictManagementPermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if (
             request.method in ("GET", "HEAD", "OPTIONS")
             or not isinstance(request.data, dict)
-            or not any(field in request.data for field in STEERING_FIELDS.values())
+            or not any(field in request.data for field in _SANDBOX_PROTECTED_CONFIG_FIELDS)
         ):
             return True
         if is_sandbox_oauth_request(request):
-            self.message = "Task agents cannot modify steering instructions."
+            self.message = "Task agents cannot modify steering instructions or implementation repositories."
             return False
         return super().has_permission(request, view)
 
@@ -2414,8 +2434,18 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            queryset = queryset.annotate(**{annotation: self._latest_ranking_value(head, "scores")})
+            latest_score = self._latest_ranking_value(head, "scores")
+            if self._inbox_ranker is not None:
+                queryset = queryset.annotate(
+                    **{self._ranking_decile_annotation(annotation): score_decile(latest_score)}
+                )
+            else:
+                queryset = queryset.annotate(**{annotation: latest_score})
         return queryset
+
+    @staticmethod
+    def _ranking_decile_annotation(score_annotation: str) -> str:
+        return f"{score_annotation}_decile"
 
     @staticmethod
     def _latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
@@ -2683,7 +2713,7 @@ class SignalReportViewSet(
             name = clause.lstrip("-")
             if name in ranking_annotations:
                 # The recommended preset sorts by the score decile, so the order shows no more than `inbox_merge_key`.
-                expression = score_decile(name) if self._inbox_ranker is not None else F(name)
+                expression = F(self._ranking_decile_annotation(name) if self._inbox_ranker is not None else name)
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
                     expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)
@@ -4026,7 +4056,8 @@ class SignalReportViewSet(
         if target_status == SignalReport.Status.MONITORING and not self._report_monitoring_enabled:
             return SignalReportBulkStateOutcome.SKIPPED, "Monitoring is unavailable for this organization."
 
-        with transaction.atomic():
+        # Release the delivery lock after commit so workers cannot read the previous verdict.
+        with ExitStack() as completion_locks, transaction.atomic():
             # Lock the report row for the whole guard + transition so it serializes with the refund
             # path (which locks the same row before suppressing). Re-read committed state under the
             # lock: a resolve/restore that raced a refund must observe the refund's SUPPRESSED status
@@ -4037,6 +4068,23 @@ class SignalReportViewSet(
                 is not None
             ):
                 report.refresh_from_db()
+            if (
+                SignalReportMonitoringAttempt.objects.for_team(self.team.id)
+                .filter(
+                    report_id=report.id,
+                    tracker_issue_close_requested_at__isnull=False,
+                    tracker_issue_close_processed_at__isnull=True,
+                )
+                .exists()
+            ):
+                acquired = completion_locks.enter_context(
+                    tracker_issue_completion_lock(team_id=self.team.id, report_id=str(report.id))
+                )
+                if not acquired:
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "This report is being finalized. Try again in a moment.",
+                    )
             if dismissal_reason == "verified_manually" and (
                 not self._report_monitoring_enabled
                 or report.monitoring_started_at is None

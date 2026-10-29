@@ -2,6 +2,7 @@ import type { UserBasicType } from '~/types'
 
 import {
     type SignalReportApi,
+    type PatchedSignalSourceConfigApi,
     type ReportChartApi,
     type ReportMetricApi,
     type ReportPlanApi,
@@ -219,6 +220,7 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    configSet?: PatchedSignalSourceConfigApi['config_set']
     /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
     viaSetupWizard?: boolean
 }
@@ -412,6 +414,8 @@ export interface SignalTeamConfig {
     pull_request_label_enabled?: boolean
     /** The label name to apply, at most 50 characters. Null or blank means the default label. */
     pull_request_label?: string | null
+    /** Extra 'org/repo' names implementation tasks can read and write. They are not cloned and never become the PR target. */
+    implementation_repositories?: string[]
     /** Whether anomaly scoring writes $anomaly_score events for this project. True by default; false opts out. */
     anomaly_scoring_enabled?: boolean
     /** Read-only: whether anomaly scoring covers this project, so the switch above has an effect. Never send in a patch. */

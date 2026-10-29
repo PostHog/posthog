@@ -7886,6 +7886,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "ai_agent_name": "signals-scout-general",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
                     "self_driving_head_branch": "posthog-self-driving/attacker-000000",
+                    # a writable access list widens what the run's GitHub token can write to
+                    "github_access_repositories": ["attacker/attacker"],
                     "runtime_adapter": "codex",
                     "provider": "openai",
                     "model": "claude-opus-4-8",
@@ -7959,6 +7961,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
+        assert "github_access_repositories" not in run.state
         assert run.state["runtime_adapter"] == "claude"
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
