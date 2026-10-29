@@ -58,6 +58,26 @@ describe('telemetry', () => {
         expect(JSON.stringify(events(result))).not.toContain('secret-customer')
     })
 
+    test('a PostHog Cloud key ties events to its user and groups, and hog looks them up once', async () => {
+        const cloud = { ...AGENT, HOG_HOST: 'https://us.posthog.com' }
+        const respond = (url: string): { status: number; body: unknown } =>
+            url.endsWith('/api/users/@me/')
+                ? { status: 200, body: { distinct_id: 'user-1', organization: { id: 'org-current' } } }
+                : url.endsWith('/api/projects/7/')
+                  ? { status: 200, body: { uuid: 'project-uuid', organization: 'org-1' } }
+                  : { status: 200, body: {} }
+        const first = await runHog(['commands'], { ...ON, env: cloud, respond })
+        const second = await runHog(['commands'], { ...ON, env: cloud, respond, files: first.files })
+
+        for (const result of [first, second]) {
+            const [event] = events(result)
+            expect(event!.distinct_id).toBe('user-1')
+            expect(event!.properties).toMatchObject({ $groups: { organization: 'org-1', project: 'project-uuid' } })
+            expect(event!.properties).not.toHaveProperty('$process_person_profile')
+        }
+        expect(second.requests.filter((request) => request.url !== TELEMETRY)).toEqual([])
+    })
+
     test('the install ID stays the same across runs', async () => {
         const first = await runHog(['commands'], { ...ON, env: AGENT })
         const second = await runHog(['commands'], { ...ON, env: AGENT, files: first.files })

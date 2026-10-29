@@ -59,7 +59,6 @@ export class Context {
     // Throws `not_authenticated` when there are none.
     async credentials(): Promise<ResolvedCredentials> {
         this.resolved ??= await resolveCredentials(this.runtime, this.globals)
-        this.telemetry.projectId = this.resolved.projectId
         return this.resolved
     }
 }

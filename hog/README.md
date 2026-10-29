@@ -95,15 +95,19 @@ hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHO
 
 ## Telemetry
 
-hog sends anonymous usage events to PostHog, so the team can see which commands people use and where they fail.
+hog sends usage events to PostHog, so the team can see who uses which commands and where they fail.
 
 - `posthog cli command run`, once per command, the same event posthog-cli sends: the command, exit code, duration, the names of the options passed, the detected agent and CI provider, the OS, and counts from the result, such as rows returned or endpoints pushed.
 - `$exception` when a command fails, with the error code, message, hint and HTTP status. A message can name a file, or quote part of a query or an API answer.
 - `error_tracking_cli_sourcemaps_upload_started`, `_finished` and `_endpoint_fallback`, as in posthog-cli.
 
-Usage events never carry argument or option values or API keys. They are tied to a random ID in `~/.posthog/hog-telemetry-id`, not to a person.
+With a PostHog Cloud key, events belong to your PostHog user, organization and project, the same ones the web app uses.
+hog looks them up once per key with `/api/users/@me/` and `/api/projects/<id>/`, and keeps the answer in `~/.posthog/hog-telemetry-identity.json` for 30 days.
+Without a key, with a self-hosted PostHog, or with a key that can't read those, events belong to a random ID in `~/.posthog/hog-telemetry-id`.
+Usage events never carry argument or option values or API keys.
+
 Telemetry is on by default and goes to the same PostHog project as posthog-cli's.
-Turn telemetry off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"cli": { "telemetry": false }` in `posthog.json`.
+Turn it off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"cli": { "telemetry": false }` in `posthog.json`.
 
 ## posthog.json
 

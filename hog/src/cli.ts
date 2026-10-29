@@ -21,6 +21,7 @@ import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
 import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
+import { resolveCredentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
 const ROOT_HELP = `
@@ -177,6 +178,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             if (globals.noTelemetry) {
                 telemetry.disable()
             }
+            telemetry.credentials = () => resolveCredentials({ ...runtime, writeStderr: () => {} }, globals)
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
             if (envFlag(runtime.env, DRY_RUN_ENV)) {

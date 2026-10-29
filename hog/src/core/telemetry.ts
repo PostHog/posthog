@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
-import { posthogFile } from '@/posthog/credentials'
+import { posthogFile, type Credentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
@@ -13,6 +13,9 @@ const TELEMETRY_HOST = 'https://us.i.posthog.com'
 // posthog-cli's timeout. A CLI must not hang on its own analytics.
 const SEND_TIMEOUT_MS = 5000
 const ID_FILE = 'hog-telemetry-id'
+const IDENTITY_FILE = 'hog-telemetry-identity.json'
+const LOOKUP_TIMEOUT_MS = 2000
+const DAY_MS = 24 * 60 * 60 * 1000
 
 const CI_PROVIDERS: ReadonlyArray<readonly [envVar: string, provider: string]> = [
     ['GITHUB_ACTIONS', 'github-actions'],
@@ -37,14 +40,33 @@ interface QueuedEvent {
     timestamp: string
 }
 
-// Anonymous usage events for the PostHog team. Events carry no arguments or option values from the
-// caller, only names, counts, error codes and error messages.
+interface Identity {
+    distinctId?: string
+    organization?: string
+    project?: string
+}
+
+interface CachedIdentity extends Identity {
+    checkedAt: number
+}
+
+// Only PostHog Cloud users exist in the project telemetry goes to.
+function isCloudHost(host: string): boolean {
+    const { hostname } = new URL(host)
+    return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
+}
+
+const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined)
+
+// Usage events for the PostHog team. They belong to the PostHog Cloud user whose key hog uses, and
+// to a random install ID otherwise. Events carry no argument or option values, only names, counts,
+// error codes and error messages.
 export class Telemetry {
     private readonly queue: QueuedEvent[] = []
     private enabled: boolean
     readonly invocationId = randomUUID()
-    projectId: string | undefined
     commandName: string | undefined
+    credentials: (() => Promise<Credentials>) | undefined
 
     constructor(
         private readonly runtime: Runtime,
@@ -73,8 +95,22 @@ export class Telemetry {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
-        const distinctId = await this.installId()
-        const common = this.commonProperties()
+        const credentials = await this.credentials?.().catch(() => undefined)
+        const identity = credentials ? await this.identity(credentials) : undefined
+        const installId = await this.installId()
+        const distinctId = identity?.distinctId ?? installId
+        const groups = Object.fromEntries(
+            Object.entries({ organization: identity?.organization, project: identity?.project }).filter(
+                ([, key]) => key !== undefined
+            )
+        )
+        const common = {
+            ...this.commonProperties(),
+            install_id: installId,
+            env_id: credentials?.projectId ?? null,
+            ...(identity?.distinctId ? {} : { $process_person_profile: false }),
+            ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+        }
         const batch = this.queue.splice(0).map(({ event, properties, timestamp }) => ({
             event,
             timestamp,
@@ -104,14 +140,12 @@ export class Telemetry {
         const env = this.runtime.env
         const ci = CI_PROVIDERS.find(([envVar]) => env[envVar])?.[1]
         return {
-            $process_person_profile: false,
             $lib: 'hog',
             $lib_version: VERSION,
             cli: 'hog',
             cli_version: VERSION,
             invocation_id: this.invocationId,
             command_name: this.commandName,
-            env_id: this.projectId,
             os: process.platform,
             arch: process.arch,
             runtime_version: process.versions.bun,
@@ -120,6 +154,65 @@ export class Telemetry {
             is_terminal: this.runtime.stdoutIsTTY,
             agent: this.mode.agent ?? null,
             output_format: this.mode.format,
+        }
+    }
+
+    // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
+    // none, so most runs send no extra request. A key without the scopes stays anonymous.
+    private async identity(credentials: Credentials): Promise<Identity | undefined> {
+        if (!isCloudHost(credentials.host)) {
+            return undefined
+        }
+        let path: string
+        try {
+            path = posthogFile(this.runtime, IDENTITY_FILE)
+        } catch {
+            return undefined
+        }
+        const key = createHash('sha256')
+            .update(`${credentials.host}\n${credentials.projectId}\n${credentials.apiKey}`)
+            .digest('hex')
+        let cache: Record<string, CachedIdentity> = {}
+        try {
+            cache = JSON.parse(await this.runtime.readFile(path))
+        } catch {
+            // No cache yet.
+        }
+        const cached = cache[key]
+        const now = this.runtime.now()
+        if (cached && now - cached.checkedAt < (cached.distinctId ? 30 : 1) * DAY_MS) {
+            return cached
+        }
+        const identity = await this.lookup(credentials)
+        cache[key] = { ...identity, checkedAt: now }
+        try {
+            await this.runtime.writePrivateFile(path, JSON.stringify(cache))
+        } catch {
+            // Unwritable home: the next run looks it up again.
+        }
+        return identity
+    }
+
+    private async lookup(credentials: Credentials): Promise<Identity> {
+        const get = async (path: string): Promise<Record<string, any> | undefined> => {
+            try {
+                const response = await this.runtime.fetch(new URL(path, credentials.host), {
+                    headers: { Authorization: `Bearer ${credentials.apiKey}` },
+                    signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
+                })
+                return response.ok ? ((await response.json()) as Record<string, any>) : undefined
+            } catch {
+                return undefined
+            }
+        }
+        const [user, project] = await Promise.all([
+            get('/api/users/@me/'),
+            get(`/api/projects/${credentials.projectId}/`),
+        ])
+        return {
+            distinctId: text(user?.distinct_id),
+            organization: text(project?.organization) ?? text(user?.organization?.id),
+            project: text(project?.uuid),
         }
     }
 
