@@ -336,6 +336,7 @@ function ScatterChartInner<Meta = unknown>({
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-scatter-legend">
             <Chart
+                syncHover={false}
                 series={visibleSeries}
                 labels={labels}
                 config={baseConfig}

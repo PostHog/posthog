@@ -502,6 +502,7 @@ function HeatmapInner({
 
     return (
         <Chart<HeatmapRowMeta>
+            syncHover={false}
             series={adaptedSeries}
             labels={columnKeys}
             config={baseConfig}
