@@ -99,7 +99,7 @@ class TestClassifyTableColumns:
         assert rows == {"email": ("Where receipts go", S.EMAIL), "phone": ("", S.PHONE)}
         assert classify_table_columns(team.pk, table) == 0
 
-        table.columns["email"] = {"clickhouse": "Bool"}
+        table.columns = {"email": {"clickhouse": "Bool"}, "phone": {"clickhouse": "Nullable(String)"}}
         table.save()
         assert classify_table_columns(team.pk, table) == 1
         assert annotations.get(table=table, column_name="email").sensitivity is None
