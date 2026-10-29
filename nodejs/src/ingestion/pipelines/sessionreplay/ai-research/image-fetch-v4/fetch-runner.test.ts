@@ -784,15 +784,50 @@ describe('FetchRunner', () => {
         expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'not_ready', 600_000)
     })
 
-    it.each([
-        ['a fetch pass', OPTIONS],
-        ['the pod candidate pool', POOL_OPTIONS],
-    ])('returns pass-deadline work directly to the frontier from %s', async (_mode, options) => {
+    it.each<[string, FetchRunnerOptions, 'none' | 'transient' | 'retry_after_1h', string, number]>([
+        ['returns pass-deadline work directly to the frontier from a fetch pass', OPTIONS, 'none', 'pass_deadline', 0],
+        [
+            'returns pass-deadline work directly to the frontier from the pod pool',
+            POOL_OPTIONS,
+            'none',
+            'pass_deadline',
+            0,
+        ],
+        [
+            'delays pass-deadline work of a backed-off domain from a fetch pass',
+            OPTIONS,
+            'transient',
+            'not_ready',
+            60_000,
+        ],
+        [
+            'delays pass-deadline work of a backed-off domain from the pod pool',
+            POOL_OPTIONS,
+            'transient',
+            'not_ready',
+            60_000,
+        ],
+        [
+            'holds pass-deadline work of a long back-off in the ten-minute tier',
+            OPTIONS,
+            'retry_after_1h',
+            'not_ready',
+            600_000,
+        ],
+    ])('%s', async (_name, options, backOff, reason, waitMs) => {
         const harness = build({}, {}, 'queued', { ...options, batchBudgetMs: -1 })
+        if (backOff !== 'none') {
+            harness.budget.recordTransientFailure(
+                'example.com',
+                NOW_MS,
+                backOff === 'retry_after_1h' ? 3_600_000 : undefined
+            )
+        }
 
         await harness.runner.run([candidate()], new Map())
 
-        expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'pass_deadline', 0)
+        expect(harness.fetch).not.toHaveBeenCalled()
+        expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), reason, waitMs)
     })
 
     it('finishes a retry when its last hop was the failed request', async () => {

@@ -72,6 +72,7 @@ export interface FetchRunnerOptions {
 
 const TRANSIENT_OUTCOMES = new Set<TransientFetchOutcome>(['timeout', 'error', 'rate_limited', 'server_error'])
 const ONE_MINUTE_MS = 60_000
+const TEN_MINUTES_MS = 10 * ONE_MINUTE_MS
 const CONFIGURATION_RETRY_MS = 60 * 60 * 1000
 const STORAGE_FAILURE_LOG_INTERVAL_MS = 10_000
 
@@ -440,7 +441,7 @@ export class FetchRunner implements FetchPass {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
         }
         if (Date.now() > deadlineMs) {
-            return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [], 'pass_deadline')
+            return await this.deferPastDeadline(republishBatch, candidate)
         }
         return await ImageFetchProcessingMetrics.runLimited(
             this.candidateWork,
@@ -454,15 +455,7 @@ export class FetchRunner implements FetchPass {
                     }
                     try {
                         if (Date.now() > deadlineMs) {
-                            return await this.republish(
-                                republishBatch,
-                                candidate,
-                                'deadline',
-                                'pass_deadline',
-                                0,
-                                [],
-                                'pass_deadline'
-                            )
+                            return await this.deferPastDeadline(republishBatch, candidate)
                         }
                         return await this.fetchOne(
                             candidate,
@@ -813,6 +806,28 @@ export class FetchRunner implements FetchPass {
                 cache: withoutValidators(previousUrl?.cache),
             },
         }
+    }
+
+    /**
+     * A URL that the pass did not reach goes back to the frontier, so the next pass can try it at once. A URL whose
+     * registrable domain is backing off would only wait in the pool until that pass ends too, and loop through the
+     * frontier until the back-off ends. It waits out the back-off in a delay tier instead. The wait stops at the
+     * 10-minute tier because the one-hour tier runs one relay pod, and a back-off can outlast every tier.
+     */
+    private async deferPastDeadline(republishBatch: RepublishBatch, candidate: FetchCandidate): Promise<FetchAttempt> {
+        const blockedMs = this.budget.blockedForMs(candidate.registrableDomain, Date.now())
+        if (blockedMs > 0) {
+            return await this.republish(
+                republishBatch,
+                candidate,
+                'backoff',
+                'not_ready',
+                Math.min(Math.max(ONE_MINUTE_MS, blockedMs), TEN_MINUTES_MS),
+                [],
+                'unknown_backoff'
+            )
+        }
+        return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [], 'pass_deadline')
     }
 
     private async republish(
