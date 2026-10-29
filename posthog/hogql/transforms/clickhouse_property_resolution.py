@@ -39,7 +39,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_aggregation
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
@@ -1205,10 +1205,32 @@ class ClickHousePropertyResolver(CloningVisitor):
         try:
             if not node.group_by and node.group_by_mode != "all":
                 return super().visit_select_query(node)
-            result = super().visit_select_query(replace(node, having=None, order_by=None))
+            result = super().visit_select_query(
+                replace(
+                    node,
+                    select=[],
+                    group_by=None,
+                    having=None,
+                    order_by=None,
+                    qualify=None,
+                    window_exprs=None,
+                    limit_by=None,
+                    interpolate=None,
+                )
+            )
             self._in_grouped_clause = True
+            result.select = [self.visit(expr) for expr in node.select]
+            result.group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
             result.having = self.visit(node.having)
             result.order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
+            result.qualify = self.visit(node.qualify)
+            result.window_exprs = (
+                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+            )
+            result.limit_by = self.visit(node.limit_by)
+            result.interpolate = (
+                [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
+            )
             return result
         finally:
             self._in_grouped_clause = was_in_grouped_clause
@@ -1245,9 +1267,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         Only a single-key access (`properties.x`, no deeper `.a.b`) maps to one backing column. A multi-key access reads
         the column and then JSON-extracts deeper, so it can't use the bare-column comparison rewrites.
         """
-        # Bare-column rewrites after aggregation can reference a column absent from GROUP BY.
-        if self._in_grouped_clause:
-            return None
         node = self._lowered_property_operand(expr)
         if node is not None and len(node.keys) == 1:
             field_type = _blob_field_type_of(node)
@@ -1333,6 +1352,17 @@ class ClickHousePropertyResolver(CloningVisitor):
     # --- comparison / call rewrites ---
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
+        if self._in_grouped_clause:
+            if find_hogql_aggregation(node.name):
+                self._in_grouped_clause = False
+                try:
+                    return super().visit_call(node)
+                finally:
+                    self._in_grouped_clause = True
+            # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
+            # so its inputs keep the grouped context while ordinary aggregates above read original rows.
+            return super().visit_call(node)
+
         if node.name == "indexHint":
             self._index_hint_depth += 1
             try:
@@ -1894,6 +1924,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        if self._in_grouped_clause:
+            return super().visit_compare_operation(node)
+
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
         # rewritten comparison, so once one matches we must NOT also substitute the value. (session_id is left to the
         # printer — it optimizes a real column, not a property.)
