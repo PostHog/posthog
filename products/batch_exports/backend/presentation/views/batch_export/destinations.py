@@ -8,6 +8,8 @@ from django.db import models
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
+from posthog.integrations.fields import IntegrationReferenceField
+
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
 from products.batch_exports.backend.facade.enums import (
@@ -16,7 +18,6 @@ from products.batch_exports.backend.facade.enums import (
     S3_SUPPORTED_COMPRESSIONS,
 )
 from products.batch_exports.backend.models.batch_export import BatchExportDestination
-from products.integrations.backend.presentation.fields import IntegrationReferenceField
 
 
 class DatabricksDestinationConfigSerializer(serializers.Serializer):

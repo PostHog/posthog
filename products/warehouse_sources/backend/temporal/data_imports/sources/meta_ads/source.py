@@ -1,7 +1,8 @@
 from datetime import date
 from typing import cast
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -143,8 +144,8 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             "Integration matching query does not exist.": (
                 "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
             ),
-            # The SDK raises `IntegrationNotFound` ("No integration <id> in ...") for the same case.
-            "No integration ": (
+            # `_fetch_integration_row` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": (
                 "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
             ),
             META_CHECKPOINT_ERROR_MESSAGE: META_CHECKPOINT_ERROR_MESSAGE,

@@ -25,7 +25,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from products.integrations.backend.facade.contracts import IntegrationUsage
+from posthog.integrations import IntegrationUsage
 
 # The `job_inputs` key that holds the pk of the `Integration` row with a source's typed-in credentials.
 # An OAuth source keeps its own `*_integration_id` key instead and has no such row.
@@ -417,3 +417,5 @@ class SourceReferencingIntegration:
     id: UUID
     source_type: str
     prefix: str | None
+    # The inputs did not decode, so the source may point at the row. The search counts it as a user.
+    unreadable: bool = False

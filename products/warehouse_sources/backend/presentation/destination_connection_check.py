@@ -8,10 +8,10 @@ from enum import StrEnum
 import psycopg
 from psycopg import errors as pg_errors
 
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import PostgreSQLIntegration
 from posthog.models.integration.postgres import MISSING_CERT_PATH
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.warehouse_sources.backend.facade.source_management import HostNotAllowedError, pinned_host_kwargs
 
 CONNECT_TIMEOUT_SECONDS = 5

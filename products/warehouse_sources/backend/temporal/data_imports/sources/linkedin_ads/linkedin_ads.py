@@ -10,9 +10,9 @@ import pyarrow as pa
 import structlog
 from structlog.types import FilteringBoundLogger
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -157,14 +157,17 @@ def _get_integration(integration_id: int, team_id: int) -> IntegrationRecord:
     ``close_old_connections()`` evicts connections already known to be stale (and, after a failed
     query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
     backoff also gives a saturated pool time to drain rather than retrying straight back into the
-    same wait timeout. This read is idempotent, so it is safe to repeat. ``IntegrationNotFound``
-    is left to propagate.
+    same wait timeout. This read is idempotent, so it is safe to repeat. A missing row raises ``IntegrationNotFound``
+    with the text "Integration not found: <id>".
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
             return IntegrationManager.linkedin_ads.oauth.get(team_id, integration_id)
+        except IntegrationNotFound as error:
+            # A fixed text, because the error maps match on it. The SDK message is not part of its contract.
+            raise IntegrationNotFound(f"Integration not found: {integration_id}") from error
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:

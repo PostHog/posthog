@@ -11,7 +11,8 @@ import requests
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -150,10 +151,10 @@ class TestGetIntegrationDbResilience:
         assert get.call_count == 4
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=IntegrationNotFound())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
 
         with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH), mock.patch(_SLEEP_PATH):
-            with pytest.raises(IntegrationNotFound):
+            with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.

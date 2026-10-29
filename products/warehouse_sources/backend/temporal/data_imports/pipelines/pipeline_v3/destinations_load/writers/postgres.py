@@ -40,6 +40,7 @@ import psycopg
 import pyarrow as pa
 from psycopg import sql
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import PostgreSQLIntegration
 from posthog.psycopg_helpers import has_ipv6_route, is_resolvable_hostname, is_temporary_resolution_failure
 
@@ -51,8 +52,6 @@ from products.batch_exports.backend.facade.destinations.postgres import (
     run_in_retryable_transaction,
 )
 from products.batch_exports.backend.facade.pipeline import CSVStreamTransformer
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,

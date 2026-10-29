@@ -13,10 +13,10 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.integrations import IntegrationManager
 from posthog.models import Team
 from posthog.models.integration import ANY, Integration
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.warehouse_sources.backend.facade.contracts import (
     CONNECTION_FIELDS_STRIPPED_KEY,
     CREDENTIALS_REFERENCE_KEY,

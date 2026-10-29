@@ -28,6 +28,7 @@ from typing import ClassVar
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration.databricks import DatabricksIntegration
 
 from products.batch_exports.backend.facade.destinations.databricks import (
@@ -43,8 +44,6 @@ from products.batch_exports.backend.facade.destinations.databricks import (
     DatabricksSchemaNotFoundError,
     handle_common_errors,
 )
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,

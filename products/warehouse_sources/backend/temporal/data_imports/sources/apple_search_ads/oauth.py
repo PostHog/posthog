@@ -5,9 +5,9 @@ The customer grants PostHog access from the connect form, and the grant is store
 so the token is resolved per authentication rather than once per run.
 """
 
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.apple_search_ads import (
     AppleSearchAdsAuthError,
 )

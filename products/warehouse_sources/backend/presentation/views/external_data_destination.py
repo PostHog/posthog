@@ -14,12 +14,12 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.integrations import IntegrationKind, IntegrationRecord
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
-from products.integrations.backend.facade.api import IntegrationRecord
-from products.integrations.backend.presentation.fields import IntegrationReferenceField
 from products.warehouse_sources.backend.facade.destination_health import resume_destination
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
@@ -49,16 +49,16 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 # `Type` enum carries the rest so the column and its data do not change as each one lands, but
 # a user cannot select one until its writer ships.
 DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
-    str(ExternalDataDestination.Type.POSTGRES): (str(IntegrationRecord.IntegrationKind.POSTGRESQL),),
-    str(ExternalDataDestination.Type.REDSHIFT): (str(IntegrationRecord.IntegrationKind.AWS_REDSHIFT),),
-    str(ExternalDataDestination.Type.SNOWFLAKE): (str(IntegrationRecord.IntegrationKind.SNOWFLAKE),),
-    str(ExternalDataDestination.Type.DATABRICKS): (str(IntegrationRecord.IntegrationKind.DATABRICKS),),
+    str(ExternalDataDestination.Type.POSTGRES): (str(IntegrationKind.POSTGRESQL),),
+    str(ExternalDataDestination.Type.REDSHIFT): (str(IntegrationKind.AWS_REDSHIFT),),
+    str(ExternalDataDestination.Type.SNOWFLAKE): (str(IntegrationKind.SNOWFLAKE),),
+    str(ExternalDataDestination.Type.DATABRICKS): (str(IntegrationKind.DATABRICKS),),
     str(ExternalDataDestination.Type.S3): (
-        str(IntegrationRecord.IntegrationKind.AWS_S3),
-        str(IntegrationRecord.IntegrationKind.S3_COMPATIBLE),
+        str(IntegrationKind.AWS_S3),
+        str(IntegrationKind.S3_COMPATIBLE),
     ),
-    str(ExternalDataDestination.Type.BIGQUERY): (str(IntegrationRecord.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
-    str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationRecord.IntegrationKind.AZURE_BLOB),),
+    str(ExternalDataDestination.Type.BIGQUERY): (str(IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
+    str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationKind.AZURE_BLOB),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first

@@ -13,8 +13,8 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
@@ -95,14 +95,17 @@ def _get_integration(integration_id: int, team_id: int) -> IntegrationRecord:
     ``close_old_connections()`` evicts connections already known to be stale (and, after a failed
     query marks one unusable, drops it), so each attempt runs on a fresh connection; the short
     backoff also gives a saturated pool time to drain rather than retrying straight back into the
-    same wait timeout. This read is idempotent, so it is safe to repeat. ``IntegrationNotFound``
-    is left to propagate.
+    same wait timeout. This read is idempotent, so it is safe to repeat. A missing row raises ``IntegrationNotFound``
+    with the text "Integration not found: <id>".
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
             return IntegrationManager.google_analytics.oauth.get(team_id, integration_id)
+        except IntegrationNotFound as error:
+            # A fixed text, because the error maps match on it. The SDK message is not part of its contract.
+            raise IntegrationNotFound(f"Integration not found: {integration_id}") from error
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:

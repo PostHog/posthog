@@ -23,8 +23,8 @@ class WarehouseSourcesConfig(AppConfig):
 
         # Source kinds have no generated accessor. Callers reach their rows through `IntegrationManager.source(kind)`.
         # The SDK imports the Integration model, which needs the app registry.
-        from products.integrations.backend.facade.api import register_source_kinds  # noqa: PLC0415
-        from products.integrations.backend.facade.enums import AuthType  # noqa: PLC0415
+        from posthog.integrations import AuthType, register_source_kinds  # noqa: PLC0415
+
         from products.warehouse_sources.backend.facade.credential_auth_types import (  # noqa: PLC0415
             CREDENTIAL_AUTH_TYPES,
         )
