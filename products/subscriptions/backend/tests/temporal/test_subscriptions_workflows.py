@@ -2602,13 +2602,22 @@ async def test_generate_ai_report_consent_revoked_aborts_and_auto_disables(team,
     assert sub.enabled is False
 
 
-async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team, user):
+@pytest.mark.parametrize("creator_left_org", [False, True])
+async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team, user, creator_left_org):
     await _set_ai_consent(team, True)
     sub = await _create_ai_subscription(team, user)
     delivery = await _create_ai_delivery(sub)
+    if creator_left_org:
+        # The real report builder refuses before any LLM call, so the planner below must stay unused.
+        await sync_to_async(
+            OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).delete
+        )()
 
     with (
-        patch(_GENERATE_REPORT, side_effect=PromptRejectedError("Prompt is empty.")),
+        patch(
+            "products.subscriptions.backend.temporal.ai_subscription.delivery.generate_ai_report",
+            side_effect=PromptRejectedError("Prompt is empty."),
+        ) as generate_report,
         patch("products.subscriptions.backend.logic.auto_disable.send_notifications_for_disabled_subscription"),
     ):
         result = await ActivityEnvironment().run(
@@ -2616,6 +2625,7 @@ async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team,
         )
 
     assert result.aborted is True
+    assert generate_report.called is (not creator_left_org)
     # The PromptRejectedError detail must reach the delivery record, not be swallowed.
     assert any(r.error and r.error.get("type") == "PromptRejectedError" for r in result.recipient_results), (
         "prompt-rejected abort must carry the rejection detail in recipient_results"
