@@ -60483,6 +60483,11 @@ export namespace Schemas {
       readonly draft_updated_at: string | null;
       /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
       base_updated_at?: string;
+      /**
+         * Key of the product that owns this function, or null. This API can't change an owned function.
+         * @nullable
+         */
+      readonly managed_by: string | null;
     }
 
     /**
@@ -88597,6 +88602,11 @@ export namespace Schemas {
       readonly draft_updated_at?: string | null;
       /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
       base_updated_at?: string;
+      /**
+         * Key of the product that owns this function, or null. This API can't change an owned function.
+         * @nullable
+         */
+      readonly managed_by?: string | null;
     }
 
     /**

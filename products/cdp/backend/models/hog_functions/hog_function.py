@@ -177,6 +177,10 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     # Not serialized. A recent value means a Terraform state still manages this function.
     last_terraform_read_at = models.DateTimeField(null=True, blank=True)
 
+    # Key of the product that owns this function. The public hog function API hides and refuses
+    # to edit owned functions, so only the owning product changes them, through the cdp facade.
+    managed_by = models.CharField(max_length=32, null=True, blank=True)
+
     def record_terraform_read(self) -> None:
         # Every `terraform plan` reads every managed function, so write at most once a day. A queryset
         # update skips the save signals and leaves updated_at, which base_updated_at compares, alone.
@@ -187,7 +191,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["HogFunction"]:
-        base_qs = HogFunction.objects.filter(team=team, deleted=False)
+        base_qs = HogFunction.objects.filter(team=team, deleted=False, managed_by__isnull=True)
         return cls._filter_unfiled_queryset(
             base_qs, team, type__startswith="hog_function/", ref_field="id", surface=surface
         )
@@ -220,7 +224,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
             },
-            should_delete=self.deleted,
+            should_delete=self.deleted or self.managed_by is not None,
         )
 
     @property

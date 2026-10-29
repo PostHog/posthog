@@ -381,6 +381,17 @@
                     },
                     "type": "array"
                 },
+                "managed_by": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Key of the product that owns this function, or null. This API can't change an owned function."
+                },
                 "mappings": {
                     "anyOf": [
                         {

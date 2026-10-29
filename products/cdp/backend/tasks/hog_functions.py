@@ -30,7 +30,7 @@ def refresh_affected_hog_functions(
         team_id = action.team_id
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
-            .filter(team_id=action.team_id)
+            .filter(team_id=action.team_id, managed_by__isnull=True)
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
     elif cohort_id:
@@ -56,7 +56,7 @@ def refresh_affected_hog_functions(
     if team_id and not affected_hog_functions:
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
-            .filter(team_id=team_id)
+            .filter(team_id=team_id, managed_by__isnull=True)
             .filter(filters__contains={"filter_test_accounts": True})
         )
 

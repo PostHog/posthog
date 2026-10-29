@@ -3,16 +3,21 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.parser import parse_expr
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import (
     RUNTIME_CONTRACT,
+    FilterPropertyReferences,
     build_behavioral_event_expr,
     cohort_filters_to_expr,
     compile_filters_bytecode,
+    filter_property_references,
     hog_function_filters_to_expr,
 )
 from products.cohorts.backend.models.cohort import Cohort
@@ -546,6 +551,32 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             team=self.team,
         )
         assert "bytecode_error" not in response
+
+    def test_filter_property_references_cover_every_filter_source(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+        filters = {
+            "events": [
+                {
+                    "id": "$pageview",
+                    "type": "events",
+                    "properties": [{"key": "plan", "value": "pro", "type": "event", "operator": "exact"}],
+                }
+            ],
+            "actions": [{"id": str(self.action.pk), "type": "actions"}],
+            "properties": [
+                {"type": "group", "group_type_index": 0, "key": "$group_key", "operator": "exact", "value": "example"}
+            ],
+            "filter_test_accounts": True,
+        }
+        original = json.loads(json.dumps(filters))
+
+        references = filter_property_references(filters, self.team)
+
+        assert references == {"person": ["email"], "event": ["$group_0", "plan", "$current_url"]}
+        assert filters == original
 
     def test_filters_allow_a_lambda_parameter(self):
         # The parameter is a local, not a global. Reading the chain off the AST would reject this.
@@ -1310,3 +1341,43 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "or replace the cohort with inline person property filters. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
+
+
+class TestFilterPropertyReferences(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("properties.plan = 'example'", {"event": ["plan"]}),
+            ("properties['plan'] = 'example'", {"event": ["plan"]}),
+            ("properties['detail']['name'] = 'example'", {"event": ["detail.name"]}),
+            ("person.properties['email'] = 'example'", {"person": ["email"]}),
+            ("properties[concat('pl', 'an')] = 'example'", {"event": [None]}),
+            ("events.properties.customer.region = 'example'", {"event": ["customer.region"]}),
+            ("properties IS NOT NULL", {"event": [None]}),
+            ("person.properties.plan = 'example'", {"person": ["plan"]}),
+            ("person IS NOT NULL", {"person": [None]}),
+            ("pdi.person.properties.plan = 'example'", {"person": ["plan"]}),
+            ("pdi.person.properties IS NOT NULL", {"person": [None]}),
+            ("pdi IS NOT NULL", {"person": [None]}),
+            ("group_0.properties.plan = 'example'", {"group:0": ["plan"]}),
+            ("group_0 IS NOT NULL", {"group:0": [None]}),
+            ("`$group_0` = 'example'", {"event": ["$group_0"]}),
+            ("elements_chain_texts IS NOT NULL", {"event": ["$elements_chain"]}),
+            ("arrayExists(properties -> properties = 'x', ['x'])", {}),
+            ("arrayExists(events -> events.properties = 'x', ['x'])", {}),
+            ("arrayExists(person -> person.properties = 'x', ['x'])", {}),
+            ("arrayExists(properties -> properties = 'x', ['x']) AND properties.plan = 'example'", {"event": ["plan"]}),
+            ("arrayExists(properties -> arrayExists(person -> properties = person, ['x']), ['x'])", {}),
+            (
+                "arrayExists(properties -> arrayExists(person -> properties = person, ['x']) AND person.properties.plan = 'example', ['x'])",
+                {"person": ["plan"]},
+            ),
+            ("arrayExists(properties -> properties = 'x', events.properties.items)", {"event": ["items"]}),
+            ("arrayExists(x -> x = properties.plan, ['x'])", {"event": ["plan"]}),
+        ]
+    )
+    def test_references_include_free_property_reads_only(
+        self, expression: str, expected: dict[str, list[str | None]]
+    ) -> None:
+        visitor = FilterPropertyReferences()
+        visitor.visit(parse_expr(expression))
+        assert visitor.references == expected

@@ -6,11 +6,13 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import ANY, MagicMock, patch
 
-from django.db import connection
+from django.db import connection, transaction
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -22,6 +24,7 @@ from products.cdp.backend.api.hog_function import (
     comparable_content,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.facade.api import disable_managed_hog_functions, upsert_managed_hog_function
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
@@ -514,6 +517,114 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         else:
             return actual_data
 
+    def _upsert_managed(self, managed_by: str = "example_product", **overrides: Any) -> HogFunction:
+        payload = {
+            "type": "destination",
+            "name": "Managed webhook",
+            "hog": "fetch(inputs.url, {'method': 'POST'});",
+            "enabled": True,
+            "inputs_schema": [{"key": "url", "type": "string", "label": "URL", "secret": True, "required": True}],
+            "inputs": {"url": {"value": "https://example.com/hook"}},
+            "filters": {"events": [{"id": "$pageview", "type": "events"}]},
+            **overrides,
+        }
+        function_id = upsert_managed_hog_function(
+            payload, team_id=self.team.pk, created_by_id=self.user.pk, managed_by=managed_by
+        )
+        return HogFunction.objects.get(pk=function_id)
+
+    def test_public_api_cannot_see_create_or_edit_a_managed_function(self):
+        managed = self._upsert_managed()
+        assert managed.managed_by == "example_product"
+        assert (managed.encrypted_inputs or {})["url"]["value"] == "https://example.com/hook"
+        assert not FileSystem.objects.filter(team=self.team, ref=str(managed.id)).exists()
+
+        base_url = f"/api/projects/{self.team.id}/hog_functions"
+        listed_ids = {item["id"] for item in self.client.get(f"{base_url}/").json()["results"]}
+        assert str(managed.id) not in listed_ids
+        assert self.client.get(f"{base_url}/{managed.id}/").status_code == status.HTTP_404_NOT_FOUND
+        patch_response = self.client.patch(f"{base_url}/{managed.id}/", data={"enabled": False})
+        assert patch_response.status_code == status.HTTP_404_NOT_FOUND
+
+        create_response = self.client.post(f"{base_url}/", data={**EXAMPLE_FULL, "managed_by": "example_product"})
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        assert create_response.json()["managed_by"] is None
+
+    def test_managed_upsert_preserves_watcher_state_and_reloads_workers_after_commit(self):
+        managed = self._upsert_managed()
+
+        with (
+            patch("products.cdp.backend.facade.api.reload_hog_functions_on_workers") as mock_reload,
+            patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get,
+            patch("posthog.plugins.plugin_server_api.internal_requests.patch") as mock_patch,
+            self.captureOnCommitCallbacks(execute=True),
+            transaction.atomic(),
+        ):
+            mock_get.return_value.status_code = status.HTTP_200_OK
+            mock_get.return_value.json.return_value = {"state": HogFunctionState.DISABLED.value}
+            upsert_managed_hog_function(
+                {"name": "Renamed"},
+                team_id=self.team.pk,
+                created_by_id=self.user.pk,
+                managed_by="example_product",
+                hog_function_id=managed.id,
+            )
+            assert mock_reload.call_count == 0
+
+        mock_get.assert_not_called()
+        mock_patch.assert_not_called()
+        mock_reload.assert_called_once_with(team_id=self.team.pk, hog_function_ids=[str(managed.id)])
+        managed.refresh_from_db()
+        assert (managed.name, managed.managed_by) == ("Renamed", "example_product")
+
+    @parameterized.expand([("another_product", "another_product"), ("unmanaged", None)])
+    def test_managed_upsert_refuses_a_function_it_does_not_own(self, _name: str, owner: Optional[str]):
+        if owner:
+            target = self._upsert_managed(managed_by=owner)
+        else:
+            target = HogFunction.objects.get(
+                pk=self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL).json()["id"]
+            )
+
+        with self.assertRaises(PermissionDenied):
+            upsert_managed_hog_function(
+                {"name": "Hijacked"},
+                team_id=self.team.pk,
+                created_by_id=self.user.pk,
+                managed_by="example_product",
+                hog_function_id=target.id,
+            )
+
+        target.refresh_from_db()
+        assert target.name != "Hijacked"
+
+    @parameterized.expand([("reload_success", False), ("reload_failure", True)])
+    def test_disable_managed_hog_functions_disables_only_owned_functions_and_reloads_workers(
+        self, _name: str, reload_fails: bool
+    ) -> None:
+        owned = self._upsert_managed()
+        foreign = self._upsert_managed(managed_by="another_product")
+        later_callback = MagicMock()
+
+        with (
+            patch("products.cdp.backend.facade.api.reload_hog_functions_on_workers") as mock_reload,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if reload_fails:
+                mock_reload.side_effect = ConnectionError("The worker reload service is unavailable.")
+            disable_managed_hog_functions(
+                team_id=self.team.pk, managed_by="example_product", hog_function_ids=[owned.id, foreign.id]
+            )
+            transaction.on_commit(later_callback)
+
+        later_callback.assert_called_once_with()
+        owned.refresh_from_db()
+        foreign.refresh_from_db()
+        assert (owned.enabled, owned.encrypted_inputs) == (False, None)
+        assert foreign.enabled is True
+        assert (foreign.encrypted_inputs or {})["url"]["value"] == "https://example.com/hook"
+        mock_reload.assert_called_once_with(team_id=self.team.pk, hog_function_ids=[str(owned.id)])
+
     def test_retrieve_records_terraform_read_at_most_once_a_day(self):
         function = HogFunction.objects.create(team=self.team, name="Insight alert", hog="return null")
         url = f"/api/projects/{self.team.id}/hog_functions/{function.id}/"
@@ -928,6 +1039,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "version": 1,
             "draft": None,
             "draft_updated_at": None,
+            "managed_by": None,
         }
 
         id = response.json()["id"]

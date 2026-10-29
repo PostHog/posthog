@@ -1566,3 +1566,23 @@ class TestReservedFunctionsUsed(SimpleTestCase):
     )
     def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
         assert reserved_functions_used(hog) == expected
+
+
+class TestStrictEventFilters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_type", {"id": "purchase"}),
+            ("unknown_type", {"id": "purchase", "type": "event"}),
+            ("missing_id", {"type": "events"}),
+            ("invalid_event", {"id": 1, "type": "events"}),
+            ("fractional_action", {"id": 1.5, "type": "actions"}),
+            ("invalid_action", {"id": "abc", "type": "actions"}),
+        ]
+    )
+    def test_invalid_entries_are_rejected(self, _name: str, entry: dict[str, object]) -> None:
+        serializer = HogFunctionFiltersSerializer(
+            data={"events": [entry]},
+            context={"get_team": lambda: None, "strict_event_filters": True},
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("events", serializer.errors)
