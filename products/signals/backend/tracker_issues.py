@@ -24,6 +24,7 @@ from redis.exceptions import RedisError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
@@ -362,7 +363,9 @@ def _close_notice(*, report_link: str, actor_mention: str | None) -> str:
     return f"🔕 The {report_link} was closed in PostHog, so this issue is closed too."
 
 
-def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str, actor_mention: str | None) -> None:
+def _comment_before_close(
+    tracker: SignalReportTrackerIssue, *, report_link: str, actor_mention: str | None, priority: Priority
+) -> None:
     """Best-effort note on the issue naming who closed the report. Only GitHub takes one today.
 
     Explain first, close second, as the implementation pull request does. A failed comment must
@@ -387,18 +390,21 @@ def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str
         if result.get("success"):
             tracker.close_comment_posted_at = timezone.now()
             tracker.save(update_fields=["close_comment_posted_at", "updated_at"])
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        if priority == Priority.BATCH:
+            raise
     except Exception:
         logger.warning("signals.tracker_issue_close_comment_failed", tracker_id=str(tracker.id), exc_info=True)
 
 
-def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool) -> None:
+def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool, priority: Priority) -> None:
     integration = tracker.integration
     if integration is None:
         raise ValueError("Tracker issue has no integration left to close it through")
     context = tracker.external_context or {}
 
     if tracker.provider == Integration.IntegrationKind.GITHUB:
-        GitHubIntegration(integration, source="signals_tracker_issues", priority=Priority.CRITICAL).close_issue(
+        GitHubIntegration(integration, source="signals_tracker_issues", priority=priority).close_issue(
             context["repository"], int(context["number"]), completed=completed
         )
     elif tracker.provider == Integration.IntegrationKind.GITLAB:
@@ -441,11 +447,13 @@ def _close_tracker_issue_for_report(
     completed: bool,
     actor_user_id: int | None,
     monitoring_attempt_id: str | None,
+    priority: Priority,
 ) -> bool:
-    """Close the report's tracker issue once the report is dismissed or completed. Never raises.
+    """Close the report's tracker issue once the report is dismissed or completed.
 
     A dismissed report will not produce a pull request, so its work item is finished. Leaving it
-    open would grow a backlog of tracker issues that no pull request will ever answer.
+    open would grow a backlog of tracker issues that no pull request will ever answer. Batch rate
+    limits propagate so the sweep can honor the provider's retry window.
     """
 
     def can_complete() -> bool:
@@ -458,6 +466,7 @@ def _close_tracker_issue_for_report(
         )
 
     try:
+        pr_completed = True
         if monitoring_attempt_id is not None:
             attempt = _current_completion_attempt(
                 team_id=team_id, report_id=report_id, monitoring_attempt_id=monitoring_attempt_id
@@ -465,21 +474,28 @@ def _close_tracker_issue_for_report(
             if attempt is None:
                 return True
             if attempt.close_pr_on_resolve:
-                close_implementation_pr_for_report(
+                pr_completed = close_implementation_pr_for_report(
                     team_id,
                     report_id,
                     reason="resolved",
                     actor_user_id=actor_user_id,
                     comment_marker=f"<!-- monitoring-completion:{attempt.id} -->",
                     before_close=can_complete,
+                    priority=priority,
+                    require_all=True,
                 )
         tracker = (
             SignalReportTrackerIssue.objects.for_team(team_id)
             .select_related("integration")
-            .filter(report_id=report_id, status=SignalReportTrackerIssue.Status.CREATED)
+            .filter(
+                report_id=report_id,
+                status__in=[SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED],
+            )
             .first()
         )
         if tracker is None or tracker.closed_at is not None:
+            return monitoring_attempt_id is not None and pr_completed
+        if tracker.status == SignalReportTrackerIssue.Status.PENDING:
             return False
 
         if not can_complete():
@@ -489,13 +505,18 @@ def _close_tracker_issue_for_report(
             tracker,
             report_link=f"[linked PostHog report]({report_url})",
             actor_mention=github_mention_for_user(actor_user_id),
+            priority=priority,
         )
         if not can_complete():
             return True
-        _close_provider_issue(tracker, completed=completed)
+        _close_provider_issue(tracker, completed=completed, priority=priority)
         tracker.closed_at = timezone.now()
         tracker.save(update_fields=["closed_at", "updated_at"])
-        return True
+        return pr_completed
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        if priority == Priority.BATCH:
+            raise
+        return False
     except Exception:
         logger.warning("signals.tracker_issue_close_failed", report_id=report_id, team_id=team_id, exc_info=True)
         return False
@@ -529,6 +550,7 @@ def close_tracker_issue_for_report(
     completed: bool = False,
     actor_user_id: int | None = None,
     monitoring_attempt_id: str | None = None,
+    priority: Priority = Priority.CRITICAL,
 ) -> bool:
     with tracker_issue_completion_lock(team_id=team_id, report_id=report_id) as acquired:
         if not acquired:
@@ -539,6 +561,7 @@ def close_tracker_issue_for_report(
             completed=completed,
             actor_user_id=actor_user_id,
             monitoring_attempt_id=monitoring_attempt_id,
+            priority=priority,
         )
 
 
@@ -568,18 +591,23 @@ def complete_monitoring_tracker_issues(*, deadline: float, limit: int = 100) -> 
         )
         if not claimed:
             continue
-        completed = close_tracker_issue_for_report(
-            team_id=attempt.team_id,
-            report_id=str(attempt.report_id),
-            completed=True,
-            monitoring_attempt_id=str(attempt.id),
-        )
-        pending = SignalReportTrackerIssue.objects.for_team(attempt.team_id).filter(
-            report_id=attempt.report_id,
-            status__in=[SignalReportTrackerIssue.Status.PENDING, SignalReportTrackerIssue.Status.CREATED],
-            closed_at__isnull=True,
-        )
-        if completed or not pending.exists():
+        try:
+            completed = close_tracker_issue_for_report(
+                team_id=attempt.team_id,
+                report_id=str(attempt.report_id),
+                completed=True,
+                monitoring_attempt_id=str(attempt.id),
+                priority=Priority.BATCH,
+            )
+        except (GitHubEgressBudgetExhausted, GitHubRateLimitError) as error:
+            retry_after = 300
+            if isinstance(error, GitHubRateLimitError):
+                retry_after = max(retry_after, error.retry_after or 0, (error.reset_at or 0) - int(time.time()))
+            SignalReportMonitoringAttempt.objects.for_team(attempt.team_id).filter(
+                id=attempt.id, tracker_issue_close_processed_at__isnull=True
+            ).update(tracker_issue_close_next_attempt_at=timezone.now() + timedelta(seconds=retry_after))
+            return
+        if completed:
             SignalReportMonitoringAttempt.objects.for_team(attempt.team_id).filter(id=attempt.id).update(
                 tracker_issue_close_processed_at=timezone.now()
             )

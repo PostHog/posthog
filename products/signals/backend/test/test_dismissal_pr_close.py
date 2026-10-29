@@ -598,6 +598,17 @@ class TestSupersededPrClose(BaseTest):
         github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
         return github
 
+    def test_completion_waits_for_every_linked_pr(self) -> None:
+        github = self._github()
+        github.close_pull_request.side_effect = [{"success": False}, {"success": True}]
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id), require_all=True) is False
+            github.close_pull_request.side_effect = None
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id), require_all=True) is True
+
     def test_closes_the_named_pr_and_points_at_its_replacement(self):
         github = self._github()
         with patch(

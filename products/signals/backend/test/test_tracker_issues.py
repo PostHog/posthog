@@ -1,7 +1,9 @@
+import time
 from datetime import timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import ANY, MagicMock, patch
 
 from django.utils import timezone
@@ -11,6 +13,8 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APIClient
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team, User
 from posthog.models.integration import (
     GitHubIntegration,
@@ -20,9 +24,13 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
 )
+from posthog.redis import get_client
 
+from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 from products.signals.backend.models import (
+    SignalActorKind,
     SignalReport,
+    SignalReportAssignment,
     SignalReportMonitoringAttempt,
     SignalReportTrackerIssue,
     SignalTeamConfig,
@@ -33,6 +41,7 @@ from products.signals.backend.tracker_issues import (
     ABANDONED_CLAIM_REASON,
     PR_BODY_MARKER,
     close_tracker_issue_for_report,
+    complete_monitoring_tracker_issues,
     create_tracker_issue_for_report,
     issue_reference,
     link_pull_request_to_tracker_issue,
@@ -337,7 +346,9 @@ def test_close_tracker_issue_is_recorded_once(team: Team, delivery: str) -> None
     with (
         patch.object(GitHubIntegration, "close_issue") as close_issue,
         patch.object(GitHubIntegration, "comment_on_issue", return_value={"success": True}) as comment,
-        patch("products.signals.backend.tracker_issues.close_implementation_pr_for_report") as close_pr,
+        patch(
+            "products.signals.backend.tracker_issues.close_implementation_pr_for_report", return_value=True
+        ) as close_pr,
     ):
         if delivery == "overlapping":
             close_issue.side_effect = overlapping_close
@@ -369,6 +380,8 @@ def test_close_tracker_issue_is_recorded_once(team: Team, delivery: str) -> None
                 actor_user_id=None,
                 comment_marker=f"<!-- monitoring-completion:{attempt_id} -->",
                 before_close=ANY,
+                priority=Priority.CRITICAL,
+                require_all=True,
             )
         elif delivery != "reopened_during_pr":
             close_pr.assert_not_called()
@@ -385,6 +398,169 @@ def test_close_tracker_issue_is_recorded_once(team: Team, delivery: str) -> None
             else:
                 close_issue.assert_called_once_with("web", 12, completed=attempt_id is not None)
             assert comment.call_count == (2 if delivery == "failed_comment_retry" else 1)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("failure", "with_tracker"),
+    [
+        ("lock", False),
+        ("redis", False),
+        ("pr_close", False),
+        ("pr_close", True),
+        ("already_closed", False),
+        ("budget_probe", False),
+        ("rate_pr_close", False),
+        ("budget_tracker_close", True),
+        ("rate_tracker_comment", True),
+        ("tracker_close", True),
+    ],
+)
+def test_monitoring_completion_retries_until_all_delivery_finishes(
+    team: Team, failure: str, with_tracker: bool
+) -> None:
+    integration = _connect_tracker(team, "github")
+    report = _make_report(team)
+    now = timezone.now()
+    started_at = now - timedelta(hours=1)
+    SignalReport.objects.filter(team_id=team.id, id=report.id).update(
+        status=SignalReport.Status.RESOLVED, monitoring_started_at=started_at
+    )
+    attempt = SignalReportMonitoringAttempt.objects.for_team(team.id).create(
+        team=team,
+        report=report,
+        monitoring_started_at=started_at,
+        aggregation_state="passed",
+        close_pr_on_resolve=True,
+        tracker_issue_close_requested_at=now,
+    )
+    SignalReportAssignment.objects.for_team(team.id).create(
+        team=team,
+        report=report,
+        actor_kind=SignalActorKind.SYSTEM,
+        pr_url="https://github.com/acme/web/pull/50",
+        repository="acme/web",
+        pr_number=50,
+        pr_state=SignalReportAssignment.PrState.OPEN,
+    )
+    tracker = (
+        SignalReportTrackerIssue.objects.for_team(team.id).create(
+            team=team,
+            report=report,
+            integration=integration,
+            provider="github",
+            status=SignalReportTrackerIssue.Status.CREATED,
+            external_context={"repository": "web", "number": 12},
+        )
+        if with_tracker
+        else None
+    )
+    waiting_attempt = (
+        SignalReportMonitoringAttempt.objects.for_team(team.id).create(
+            team=team,
+            report=_make_report(team),
+            monitoring_started_at=started_at,
+            aggregation_state="passed",
+            tracker_issue_close_requested_at=now + timedelta(seconds=1),
+        )
+        if failure.startswith(("budget_", "rate_"))
+        else None
+    )
+    pr_closed = failure == "already_closed"
+    commented = False
+    failed = False
+    calls: list[str] = []
+    priorities: list[Priority] = []
+
+    def deliver(client: GitHubIntegration, stage: str) -> None:
+        nonlocal failed
+        priorities.append(client.priority)
+        calls.append(stage)
+        if not failed and failure.removeprefix("budget_").removeprefix("rate_") == stage:
+            failed = True
+            if failure.startswith("budget_"):
+                raise GitHubEgressBudgetExhausted("Budget unavailable")
+            if failure.startswith("rate_"):
+                if failure == "rate_tracker_comment":
+                    raise GitHubRateLimitError("Provider limited", reset_at=int(now.timestamp()) + 900)
+                raise GitHubRateLimitError("Provider limited", retry_after=900)
+            raise RuntimeError("Provider unavailable")
+
+    def probe(client: GitHubIntegration, repository: str, *, raise_on_transient: bool) -> bool:
+        deliver(client, "probe")
+        return True
+
+    def status(client: GitHubIntegration, repository: str, number: int) -> dict[str, object]:
+        deliver(client, "status")
+        return {"success": True, "state": "closed" if pr_closed else "open", "merged": False}
+
+    def find_comment(client: GitHubIntegration, repository: str, number: int, marker: str) -> bool:
+        deliver(client, "find_comment")
+        return commented
+
+    def comment_pr(client: GitHubIntegration, repository: str, number: int, body: str) -> dict[str, bool]:
+        nonlocal commented
+        deliver(client, "pr_comment")
+        commented = True
+        return {"success": True}
+
+    def close_pr(client: GitHubIntegration, repository: str, number: int) -> dict[str, bool]:
+        nonlocal pr_closed
+        deliver(client, "pr_close")
+        pr_closed = True
+        return {"success": True}
+
+    def comment_tracker(client: GitHubIntegration, repository: str, number: int, body: str) -> dict[str, bool]:
+        deliver(client, "tracker_comment")
+        return {"success": True}
+
+    def close_tracker(client: GitHubIntegration, repository: str, number: int, *, completed: bool) -> None:
+        deliver(client, "tracker_close")
+        assert completed
+
+    with (
+        time_machine.travel(now, tick=False),
+        patch.object(GitHubIntegration, "installation_can_access_repository", autospec=True, side_effect=probe),
+        patch.object(GitHubIntegration, "get_pull_request", autospec=True, side_effect=status),
+        patch.object(GitHubIntegration, "has_pull_request_comment", autospec=True, side_effect=find_comment),
+        patch.object(GitHubIntegration, "comment_on_pull_request", autospec=True, side_effect=comment_pr),
+        patch.object(GitHubIntegration, "close_pull_request", autospec=True, side_effect=close_pr),
+        patch.object(GitHubIntegration, "comment_on_issue", autospec=True, side_effect=comment_tracker),
+        patch.object(GitHubIntegration, "close_issue", autospec=True, side_effect=close_tracker),
+    ):
+        if failure == "lock":
+            with get_client().lock(f"signals:tracker-close:{team.id}:{report.id}", timeout=120):
+                complete_monitoring_tracker_issues(deadline=time.monotonic() + 30)
+        elif failure == "redis":
+            with patch("products.signals.backend.tracker_issues.get_client", side_effect=RedisConnectionError()):
+                complete_monitoring_tracker_issues(deadline=time.monotonic() + 30)
+        else:
+            complete_monitoring_tracker_issues(deadline=time.monotonic() + 30)
+        attempt.refresh_from_db()
+        if waiting_attempt is not None:
+            waiting_attempt.refresh_from_db()
+            assert waiting_attempt.tracker_issue_close_processed_at is None
+        if failure != "already_closed":
+            assert attempt.tracker_issue_close_processed_at is None
+            retry_at = now + timedelta(minutes=15 if failure.startswith("rate_") else 5)
+            assert attempt.tracker_issue_close_next_attempt_at == retry_at
+            call_count = len(calls)
+            complete_monitoring_tracker_issues(deadline=time.monotonic() + 30)
+            assert len(calls) == call_count
+            with time_machine.travel(retry_at, tick=False):
+                complete_monitoring_tracker_issues(deadline=time.monotonic() + 30)
+        attempt.refresh_from_db()
+        assert attempt.tracker_issue_close_processed_at is not None
+        pr_state = fetch_implementation_pr_state_for_reports([str(report.id)], team_id=team.id)[str(report.id)]
+        assert pr_state.state == "closed"
+        if tracker is not None:
+            tracker.refresh_from_db()
+            assert tracker.closed_at is not None
+        assert calls.count("pr_comment") <= 1
+        assert priorities and all(priority == Priority.BATCH for priority in priorities)
+        call_count = len(calls)
+        complete_monitoring_tracker_issues(deadline=time.monotonic() + 30)
+        assert len(calls) == call_count
 
 
 @pytest.mark.django_db

@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -161,6 +162,7 @@ class TestReportMonitoringAggregation(BaseTest):
             team_id=self.team.id,
             completed=True,
             monitoring_attempt_id=str(self.attempt.id),
+            priority=Priority.BATCH,
         )
 
     def test_failure_closes_immediately_and_records_research_intent_atomically(self) -> None:
