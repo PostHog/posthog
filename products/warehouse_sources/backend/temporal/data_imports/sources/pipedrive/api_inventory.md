@@ -37,15 +37,16 @@ Reference: <https://developers.pipedrive.com/docs/api/v1>
 | organization_fields | `/api/v1/organizationFields`   | offset     | id                       | —             |
 | lead_labels         | `/api/v1/leadLabels`           | none       | id                       | —             |
 | activity_types      | `/api/v1/activityTypes`        | none       | id                       | —             |
-| deal_products       | `/api/v2/deals/{id}/products`  | cursor     | deal_id, id              | add_time      |
+| deal_products       | `/api/v2/deals/products`       | cursor     | deal_id, id              | add_time      |
 | deal_changelog      | `/api/v1/deals/{id}/changelog` | cursor     | deal_id, field_key, time | time          |
 
 `lead_labels` and `activity_types` are documented as unpaginated and always return every row, so they are read in one request.
 
-`deal_products` and `deal_changelog` fan out over `/api/v2/deals`, one request chain per deal.
-Changelog rows carry neither an id nor the deal id, so `deal_id` is copied from the parent deal.
-`/api/v2/deals/products?deal_ids=...` reads line items for up to 100 deals per request and would cut the request count for `deal_products`.
-It needs a custom batching iterator, so the table uses the per-deal endpoint for now.
+`deal_products` and `deal_changelog` fan out over every deal in `/api/v2/deals` and `/api/v2/deals/archived`, so a deal keeps its line items and history after it is archived.
+`deal_products` sends up to 100 deal ids per request in the `deal_ids` param.
+`deal_changelog` sends one request chain per deal, because the changelog has no batched form.
+Changelog rows carry neither an id nor the deal id, so the source adds the `deal_id` it requested.
+The resume state holds the deal list and page, the last finished deal id, and the cursor of the deal group in progress, so it does not grow with the account.
 `/deals/{id}/flow` is not synced: it mixes activities, notes, files and field changes in one timeline, and the changelog and existing tables already cover those.
 
 ## Source versions

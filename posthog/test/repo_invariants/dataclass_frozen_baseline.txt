@@ -856,7 +856,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pinterest_ads/pinterest_ads.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pinterest_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pipedrive/pipedrive.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pipedrive/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pipeliner/pipeliner.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pipeliner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/plaid.py

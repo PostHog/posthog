@@ -1,14 +1,18 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
-    DependentEndpointConfig,
-)
+from typing import Literal, Optional
 
 PaginationStyle = Literal["cursor", "offset", "none"]
+# "batched" reads one request per group of deals through a `deal_ids` query param;
+# "per_deal" binds a single deal id into the `{id}` path placeholder.
+DealFanOut = Literal["batched", "per_deal"]
 
 # Pipedrive caps list pages at 500 items (default 100).
 PAGE_SIZE = 500
+# `/api/v2/deals/products` accepts at most 100 deal ids per request.
+DEAL_IDS_PER_REQUEST = 100
+# `/api/v2/deals` leaves out archived deals, so deal fan-outs read both lists to keep the line
+# items and history of a deal after it is archived.
+DEAL_PARENT_PATHS = ("/api/v2/deals", "/api/v2/deals/archived")
 
 
 @dataclass(frozen=True)
@@ -23,12 +27,8 @@ class PipedriveEndpointConfig:
     # field, which would rewrite partitions on every sync. `None` disables partitioning for
     # endpoints (users, *_fields) whose rows have no stable creation timestamp.
     partition_key: Optional[str] = "add_time"
-    # Set for endpoints read once per parent row, e.g. once per deal.
-    fanout: Optional[DependentEndpointConfig] = None
-    # Read by the shared fan-out helper. Every Pipedrive endpoint is full refresh.
-    page_size: int = PAGE_SIZE
-    incremental_fields: list[Any] = field(default_factory=list)
-    default_incremental_field: Optional[str] = None
+    # Set for endpoints read for every deal in `DEAL_PARENT_PATHS`.
+    deal_fan_out: Optional[DealFanOut] = None
 
 
 # Endpoints whose path and pagination are identical across every supported source version.
@@ -62,33 +62,19 @@ _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     ),
     "deal_products": PipedriveEndpointConfig(
         name="deal_products",
-        path="/api/v2/deals/{id}/products",
+        path="/api/v2/deals/products",
         pagination="cursor",
         primary_keys=["deal_id", "id"],
-        fanout=DependentEndpointConfig(
-            parent_name="deals",
-            resolve_param="id",
-            resolve_field="id",
-            include_from_parent=[],
-            # A deal deleted between the deals listing and this fetch has no line items left.
-            child_response_actions=[{"status_code": 404, "action": "ignore"}],
-        ),
+        deal_fan_out="batched",
     ),
-    # Changelog rows carry no id or deal reference, so the deal id comes from the parent row.
+    # Changelog rows carry no id or deal reference, so the source adds the deal id it requested.
     "deal_changelog": PipedriveEndpointConfig(
         name="deal_changelog",
         path="/api/v1/deals/{id}/changelog",
         pagination="cursor",
         primary_keys=["deal_id", "field_key", "time"],
         partition_key="time",
-        fanout=DependentEndpointConfig(
-            parent_name="deals",
-            resolve_param="id",
-            resolve_field="id",
-            include_from_parent=["id"],
-            parent_field_renames={"id": "deal_id"},
-            child_response_actions=[{"status_code": 404, "action": "ignore"}],
-        ),
+        deal_fan_out="per_deal",
     ),
 }
 
