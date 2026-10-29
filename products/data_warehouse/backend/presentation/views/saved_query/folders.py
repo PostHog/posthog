@@ -17,10 +17,9 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.data_modeling.backend.facade.api import delete_saved_query
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
-
-from . import lifecycle
 
 
 class DataWarehouseSavedQueryFolderSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -132,7 +131,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
             deleted_ids: list[uuid.UUID] = []
             for saved_query_id, saved_query in remaining.items():
                 try:
-                    lifecycle.delete_saved_query(saved_query)
+                    delete_saved_query(saved_query)
                     deleted_ids.append(saved_query_id)
                 except HasDependentsError:
                     continue

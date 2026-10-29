@@ -79,6 +79,8 @@ class DeprecateCandidate(Candidate):
     def asset_outcome(
         self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
     ) -> WarehouseSuggestionAssetOutcome:
+        if subject.id not in context.inventory.saved_queries:
+            return WarehouseSuggestionAssetOutcome.LIVE
         return certification_outcome(context, subject, CertificationStatus.DEPRECATED)
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:

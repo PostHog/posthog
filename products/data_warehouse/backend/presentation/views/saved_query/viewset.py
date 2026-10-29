@@ -34,6 +34,7 @@ from products.data_modeling.backend.facade.api import (
     MaterializationRefusedError,
     MaterializationRunDirection,
     SavedQueryNotFoundError,
+    delete_saved_query_by_id,
     disable_saved_query_materialization,
     enable_saved_query_materialization,
     run_related_node_materializations,
@@ -273,24 +274,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         instance: DataWarehouseSavedQuery = self.get_object()
         name = instance.name
         try:
-            lifecycle.delete_saved_query(instance)
+            delete_saved_query_by_id(
+                self.team_id, instance.id, user=cast(User, request.user), was_impersonated=is_impersonated(request)
+            )
         except HasDependentsError as dependents_error:
             visible = lifecycle.visible_dependents(dependents_error.dependents, self.user_access_control)
             raise DependentsValidationError(
                 describe_dependents(name, visible, any_hidden=len(visible) < len(dependents_error.dependents)),
                 node_id=lifecycle.refusal_node_id(dependents_error, visible, self.user_access_control),
             )
-
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=instance.id,
-            scope="DataWarehouseSavedQuery",
-            activity="deleted",
-            detail=Detail(name=name),
-        )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

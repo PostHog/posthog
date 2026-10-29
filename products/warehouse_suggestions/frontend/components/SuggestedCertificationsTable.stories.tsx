@@ -66,9 +66,16 @@ interface TableStoryProps {
     width?: 'normal' | 'narrow'
     reviewOpen?: boolean
     confirmSuggestionId?: string
+    deleteView?: boolean
 }
 
-function TableStory({ results, width, reviewOpen = false, confirmSuggestionId }: TableStoryProps): JSX.Element {
+function TableStory({
+    results,
+    width,
+    reviewOpen = false,
+    confirmSuggestionId,
+    deleteView = false,
+}: TableStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
             [LIST_URL]: { count: results.length, results },
@@ -86,8 +93,9 @@ function TableStory({ results, width, reviewOpen = false, confirmSuggestionId }:
         }
         if (confirmSuggestionId) {
             logic.actions.openAcceptConfirm(confirmSuggestionId)
+            logic.actions.setDeleteView(deleteView)
         }
-    }, [reviewOpen, confirmSuggestionId, stripState, logic])
+    }, [reviewOpen, confirmSuggestionId, deleteView, stripState, logic])
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
             <SuggestedCertificationsTable />
@@ -155,6 +163,15 @@ export const ReviewDialogNarrow: Story = {
 export const DeprecateDialog: Story = {
     args: {
         confirmSuggestionId: '3',
+        results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
+    },
+    parameters: dialogSnapshot(1300),
+}
+
+export const DeleteDialog: Story = {
+    args: {
+        confirmSuggestionId: '3',
+        deleteView: true,
         results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
     },
     parameters: dialogSnapshot(1300),

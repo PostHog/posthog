@@ -382,4 +382,9 @@ class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
                 "By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its "
                 "stored table, unless other views or syncs depend on it.",
             },
+            "delete_view": {
+                "allow_null": False,
+                "help_text": "Deprecate only: true to delete the view instead of marking it deprecated. Deleting also "
+                "drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it.",
+            },
         }

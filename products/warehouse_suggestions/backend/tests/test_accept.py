@@ -388,6 +388,51 @@ class TestAcceptSuggestion(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("deletes_a_materialized_view", True, None, status.HTTP_200_OK),
+            ("deletes_a_plain_view", False, None, status.HTTP_200_OK),
+            ("refuses_when_a_view_was_built_on_it", True, add_dependent_view, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_accepting_a_deprecate_suggestion_can_delete_the_view(
+        self,
+        _name: str,
+        materialized: bool,
+        add_reader: Callable[[DataWarehouseSavedQuery], None] | None,
+        expected_http_status: int,
+    ) -> None:
+        if materialized:
+            materialize_in_place(self.view)
+        suggestion = self._suggest(WarehouseSuggestionKind.DEPRECATE)
+        if add_reader is not None:
+            add_reader(self.view)
+
+        accepted = self._accept(suggestion.id, {"delete_view": True})
+
+        deleted = expected_http_status == status.HTTP_200_OK
+        self.view.refresh_from_db()
+        suggestion.refresh_from_db()
+        deleted_trigger = (
+            ActivityLog.objects.filter(team_id=self.team.id, item_id=str(self.view.id), activity="deleted")
+            .values_list("detail__trigger", flat=True)
+            .first()
+        )
+        assert accepted["http_status"] == expected_http_status, accepted
+        assert (bool(self.view.deleted), suggestion.status, self._certification_status()) == (
+            deleted,
+            WarehouseSuggestionStatus.ACCEPTED if deleted else WarehouseSuggestionStatus.PROPOSED,
+            None,
+        )
+        assert suggestion.created_asset == (
+            {"saved_query_id": str(self.view.id), "stopped_materialization": materialized} if deleted else None
+        )
+        assert deleted_trigger == (
+            {"job_type": "warehouse_suggestion", "job_id": str(suggestion.id), "payload": {"kind": "deprecate"}}
+            if deleted
+            else None
+        )
+
+    @parameterized.expand(
+        [
             ("node_type_update", "products.data_modeling.backend.logic.saved_query_materialization.update_node_type"),
             (
                 "frequency_target_clear",

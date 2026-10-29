@@ -39,7 +39,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
             : CATALOG_EDIT_ACCESS_REASON)
     const deprecating = isDeprecatePayload(payload)
     const refreshes = deprecating && payload.materialized !== false
-    const confirmsFirst = refreshes && !isTable
+    const confirmsFirst = deprecating && !isTable
 
     return (
         <SuggestionRow

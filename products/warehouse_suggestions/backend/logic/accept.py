@@ -11,6 +11,7 @@ from posthog.models.activity_logging.activity_log import Trigger
 from products.data_catalog.backend.facade.api import certifications_for_team, certify, deprecate, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import (
+    HasDependentsError,
     IncrementalConfig,
     IncrementalConfigRefusedError,
     MaterializationFailedError,
@@ -18,6 +19,7 @@ from products.data_modeling.backend.facade.api import (
     MaterializationRefusedError,
     SavedQueryNotFoundError,
     definition_database,
+    delete_saved_query_by_id,
     dependent_saved_query_ids,
     disable_saved_query_materialization,
     enable_saved_query_materialization,
@@ -41,6 +43,7 @@ from ..facade.contracts import (
     AcceptOptions,
     CertificationAsset,
     CreatedAsset,
+    DeletionAsset,
     DeprecatePayload,
     MaterializationAsset,
     MaterializePayload,
@@ -93,6 +96,7 @@ class Acceptor(ABC):
 
 
 KEEP_MATERIALIZED_FIELD = "keep_materialized"
+DELETE_VIEW_FIELD = "delete_view"
 WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
 OTHER_VIEWS_READ_IT = "Other views now read from this view."
 SYNCS_READ_IT = "This view now feeds person properties, account properties, a destination or a workflow."
@@ -143,6 +147,32 @@ class CertificationAcceptor(Acceptor):
         if not self.reuses_existing:
             raise SubjectAlreadyCertifiedError(subject_kind)
         return existing
+
+
+class DeprecateAcceptor(CertificationAcceptor):
+    @property
+    def option_fields(self) -> frozenset[str]:
+        return super().option_fields | {DELETE_VIEW_FIELD}
+
+    def accept(
+        self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
+    ) -> CreatedAsset:
+        if not request.options.delete_view:
+            return super().accept(suggestion, payload, request)
+        stopped_materialization = saved_query_still_materializes(suggestion.team_id, suggestion.subject_id)
+        try:
+            delete_saved_query_by_id(
+                suggestion.team_id,
+                suggestion.subject_id,
+                user=request.user,
+                was_impersonated=request.was_impersonated,
+                trigger=suggestion_trigger(suggestion),
+            )
+        except SavedQueryNotFoundError:
+            raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+        except HasDependentsError:
+            raise SuggestionOutdatedError(OTHER_VIEWS_READ_IT)
+        return DeletionAsset(saved_query_id=str(suggestion.subject_id), stopped_materialization=stopped_materialization)
 
 
 def _may_stop_materializing(suggestion: WarehouseSuggestion, options: AcceptOptions) -> bool:
@@ -257,7 +287,7 @@ UNIQUE_KEY_FIELD = "unique_key"
 class MaterializeAcceptor(Acceptor):
     @property
     def option_fields(self) -> frozenset[str]:
-        return frozenset(field.name for field in fields(AcceptOptions)) - {KEEP_MATERIALIZED_FIELD}
+        return frozenset(field.name for field in fields(AcceptOptions)) - {KEEP_MATERIALIZED_FIELD, DELETE_VIEW_FIELD}
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
@@ -366,7 +396,7 @@ ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
     WarehouseSuggestionKind.CERTIFY: CertificationAcceptor(
         status=CertificationStatus.CERTIFIED, apply=certify, reuses_existing=False
     ),
-    WarehouseSuggestionKind.DEPRECATE: CertificationAcceptor(
+    WarehouseSuggestionKind.DEPRECATE: DeprecateAcceptor(
         status=CertificationStatus.DEPRECATED, apply=deprecate, reuses_existing=True, stops_materialization=True
     ),
     WarehouseSuggestionKind.MATERIALIZE: MaterializeAcceptor(),
@@ -470,7 +500,7 @@ def refresh_savings(created_asset: CreatedAsset, payload: SuggestionPayload) -> 
 def _stopped_materialization(created_asset: CreatedAsset) -> bool:
     if isinstance(created_asset, UnmaterializationAsset):
         return True
-    return isinstance(created_asset, CertificationAsset) and created_asset.stopped_materialization
+    return isinstance(created_asset, CertificationAsset | DeletionAsset) and created_asset.stopped_materialization
 
 
 def _refuse_options_the_kind_ignores(acceptor: Acceptor, kind: WarehouseSuggestionKind, options: AcceptOptions) -> None:

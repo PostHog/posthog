@@ -43,7 +43,10 @@ Do not invent a score or a confidence level.
   - Accepting stops the refreshes and deletes the stored table. The view definition stays, so it can be materialized again later.
   - A 409 on accept means the view changed since the suggestion was made, for example another view now reads from it. Explain the reason to the user and do not retry.
 - **certify**: many people read this view or table, from several places. Use the read counts in `evidence`.
-- **deprecate**: nobody reads this materialized view, but it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. Accepting marks it deprecated in the data catalog, stops its refreshes and deletes its stored table. The view definition stays, so it can be materialized again later. To keep it refreshing, pass `keep_materialized: true`. After accepting, `created_asset.stopped_materialization` says whether the refreshes stopped: they keep running when other views read from it or its refreshes feed person properties, a destination or a workflow.
+- **deprecate**: nobody read this view in the window.
+  - When `materialized` is true, it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. When `materialized` is false, it is a plain view and costs nothing to keep. It only adds clutter.
+  - Accepting marks it deprecated in the data catalog. For a materialized view, it also stops the refreshes and deletes the stored table. The view definition stays, so it can be materialized again later. To keep it refreshing, pass `keep_materialized: true`. After accepting, `created_asset.stopped_materialization` says whether the refreshes stopped: they keep running when other views read from it or its refreshes feed person properties, a destination or a workflow.
+  - To delete the view instead, pass `delete_view: true`. Ask the user first, because a deleted view cannot be restored. A 409 means another view now reads from it. Explain the reason to the user and do not retry.
 
 ## 3. Change a materialize suggestion before accepting
 

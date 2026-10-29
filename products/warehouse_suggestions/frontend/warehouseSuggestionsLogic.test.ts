@@ -681,19 +681,38 @@ describe('warehouseSuggestionsLogic', () => {
         }
     )
 
-    it.each<[string, boolean, Record<string, unknown> | undefined, string]>([
-        ['stops refreshing by default', false, undefined, 'Marked old_rollup as deprecated and stopped its refreshes.'],
-        ['keeps refreshing when asked', true, { keep_materialized: true }, 'Marked old_rollup as deprecated.'],
-    ])('deprecating a materialized view %s', async (_name, keep, body, toast) => {
+    it.each<[string, boolean, boolean, Record<string, unknown> | undefined, Record<string, unknown>, string]>([
+        [
+            'stops refreshing by default',
+            false,
+            false,
+            undefined,
+            { certification_id: 'cert-1', stopped_materialization: true },
+            'Marked old_rollup as deprecated and stopped its refreshes.',
+        ],
+        [
+            'keeps refreshing when asked',
+            true,
+            false,
+            { keep_materialized: true },
+            { certification_id: 'cert-1', stopped_materialization: false },
+            'Marked old_rollup as deprecated.',
+        ],
+        [
+            'deletes it when asked',
+            false,
+            true,
+            { delete_view: true },
+            { saved_query_id: 'view-1', stopped_materialization: true },
+            'Deleted old_rollup.',
+        ],
+    ])('deprecating a materialized view %s', async (_name, keep, deleteView, body, createdAsset, toast) => {
         mockList.mockResolvedValue(page([DEPRECATE]))
-        mockAccept.mockResolvedValue({
-            ...DEPRECATE,
-            status: 'accepted',
-            created_asset: { certification_id: 'cert-1', stopped_materialization: !keep },
-        })
+        mockAccept.mockResolvedValue({ ...DEPRECATE, status: 'accepted', created_asset: createdAsset })
         await mountLogic('catalog')
         logic.actions.openAcceptConfirm(DEPRECATE.id)
         logic.actions.setKeepMaterialized(keep)
+        logic.actions.setDeleteView(deleteView)
 
         logic.actions.confirmAccept()
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])

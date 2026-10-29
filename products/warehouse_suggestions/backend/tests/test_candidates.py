@@ -367,6 +367,21 @@ class TestDeprecateCandidate(BaseTest):
         ] == expected_drafts
         assert DeprecateCandidate().is_resolved(candidate_context, subject) == expected_resolved
 
+    @parameterized.expand(
+        [
+            ("view_deleted", [], WarehouseSuggestionAssetOutcome.LIVE),
+            ("deprecation_removed", [view(VIEW_ID)], WarehouseSuggestionAssetOutcome.DELETED),
+        ]
+    )
+    def test_records_what_became_of_an_accepted_deprecation(
+        self, _name: str, views: list, expected: WarehouseSuggestionAssetOutcome
+    ) -> None:
+        candidate_context = context(team_reads({}), views=views)
+
+        assert (
+            DeprecateCandidate().asset_outcome(candidate_context, view_subject(VIEW_ID), accepted_at=None) == expected
+        )
+
     @parameterized.expand([("background_reads_count", True, []), ("only_people_count", False, [VIEW_ID])])
     def test_a_view_read_only_by_background_traffic(
         self, _name: str, counts_background_reads: bool, expected_subjects: list

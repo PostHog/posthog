@@ -21,6 +21,8 @@ _LAZY = {
     "MissingDagNodeError": "logic.saved_query_dag_sync",
     "blocked_lineage_node_id": "logic.saved_query_dag_sync",
     "check_saved_query_deletable": "logic.saved_query_dag_sync",
+    "delete_saved_query": "logic.saved_query_deletion",
+    "delete_saved_query_by_id": "logic.saved_query_deletion",
     "delete_node_from_dag": "logic.saved_query_dag_sync",
     "delete_node": "logic.saved_query_dag_sync",
     "delete_orphaned_table_nodes": "logic.saved_query_dag_sync",

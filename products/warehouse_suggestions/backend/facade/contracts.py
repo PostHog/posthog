@@ -190,6 +190,7 @@ class AcceptOptions:
     unique_key: tuple[str, ...] | None = None
     lookback_seconds: int | None = None
     keep_materialized: bool | None = None
+    delete_view: bool | None = None
 
 
 @frozen
@@ -197,7 +198,13 @@ class UnmaterializationAsset:
     saved_query_id: str
 
 
-CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset
+@frozen
+class DeletionAsset:
+    saved_query_id: str
+    stopped_materialization: bool
+
+
+CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset | DeletionAsset
 
 
 @frozen

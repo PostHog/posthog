@@ -17,7 +17,7 @@ tools:
             - warehouse_view:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: true
         title: Accept a warehouse suggestion
         description: >
@@ -26,7 +26,9 @@ tools:
             stops its refreshes and deletes its stored table, so the view is computed when read; pass
             keep_materialized=true to keep it refreshing. The view stays materialized when other views read from it or
             its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization`
-            says whether refreshes stopped. Unmaterialize suggestions turn a rarely read materialized view back into a
+            says whether refreshes stopped. A deprecate suggestion can be about a plain view too, with no refresh cost.
+            Pass delete_view=true on a deprecate suggestion to delete the view instead of marking it deprecated; this
+            cannot be undone, and a 409 means another view now reads from it. Unmaterialize suggestions turn a rarely read materialized view back into a
             plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about
             `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now
             reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the
@@ -43,7 +45,8 @@ tools:
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
                 If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute
                 cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is
-                deleted, unless keep_materialized is true. If it is an unmaterialize suggestion, the view's refreshes
+                deleted, unless keep_materialized is true. If delete_view is true, the view is deleted for good. If it is
+                an unmaterialize suggestion, the view's refreshes
                 stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.
             action_label: accept warehouse suggestion
     warehouse-suggestions-assign:
