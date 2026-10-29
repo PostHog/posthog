@@ -179,6 +179,11 @@ class OldEventsCleanupPlan:
 
 
 @frozen
+class OldSessionsCleanupPlan:
+    partitions: list[PartitionCleanup]
+
+
+@frozen
 class SessionsPlacement:
     table: str
     cluster: ClickhouseCluster
@@ -1569,7 +1574,7 @@ def plan_old_events_cleanup(
     config: MonthlyCleanupConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> OldEventsCleanupPlan:
-    """Find every team with an events retention, and for each month the teams whose events or sessions in it are all past it."""
+    """Find every team with an events retention, and for each month the teams whose events in it are all past it."""
     retention = effective_events_retention()
     if config.team_ids:
         if ignored := sorted(set(config.team_ids) - {item.team_id for item in retention}):
@@ -1608,21 +1613,6 @@ def plan_old_events_cleanup(
         results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
         team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
 
-    # Read from the sessions tables too, so a month whose events an earlier run already deleted
-    # still gets its sessions deleted.
-    sessions_partition_filter = "AND toUInt32(_partition_id) IN %(partitions)s" if config.partitions else ""
-    sessions_parameters = {**parameters, "cutoff_partition": _yyyymm(max(team_cutoffs.values()))}
-    for sessions in _sessions_placements(cluster):
-        query = f"""
-            SELECT DISTINCT team_id, toUInt32(_partition_id) AS partition
-            FROM {sessions.table}
-            WHERE team_id IN %(team_ids)s
-            AND toUInt32(_partition_id) < %(cutoff_partition)s
-            {sessions_partition_filter}
-        """
-        results = sessions.cluster.map_one_host_per_shard(Query(query, parameters=sessions_parameters)).result()
-        team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
-
     teams_by_partition: dict[int, list[int]] = defaultdict(list)
     for team_id, partition in sorted(team_months):
         if partition < _yyyymm(team_cutoffs[team_id]):
@@ -1652,7 +1642,7 @@ def cleanup_old_events_by_partition(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     plan: OldEventsCleanupPlan,
 ) -> None:
-    """Delete each planned month's events and sessions for the teams the plan lists for that month."""
+    """Delete each planned month's events for the teams the plan lists for that month."""
     if not plan.partitions:
         context.log.info("No partitions found to clean up")
         return
@@ -1662,9 +1652,9 @@ def cleanup_old_events_by_partition(
     # deleting IN PARTITION on a partition a table doesn't have is a no-op. sharded_events_json
     # clamps timestamps before 2020 into its 202001 partition, so it keeps events dated before 2020.
     #
-    # The sessions tables are built from events and have no TTL, so they are deleted with them.
+    # Events only, deliberately: this enforces a multi-year retention floor for the teams a run
+    # names, and every other personal-data table already expires sooner under its own TTL.
     placements = resolve_placements(cluster, EVENTS_TARGETS)
-    sessions_placements = _sessions_placements(cluster)
     reuse_floor = _mutation_reuse_floor(cluster)
 
     for idx, item in enumerate(plan.partitions, 1):
@@ -1686,10 +1676,112 @@ def cleanup_old_events_by_partition(
                 reuse_since=reuse_floor,
                 patch_parts=placement.target.uses_patch_parts,
             )
-            _run_on_every_shard(placement.cluster, delete_mutation_runner)
 
-        for sessions in sessions_placements:
-            sessions_delete_runner = LightweightDeleteMutationRunner(
+            # Run on one host per shard
+            shard_mutations = placement.cluster.map_one_host_per_shard(delete_mutation_runner).result()
+
+            # Wait for all mutations to complete
+            _ = placement.cluster.map_all_hosts_in_shards(
+                {
+                    host.shard_num: mutation.wait
+                    for host, mutation in shard_mutations.items()
+                    if host.shard_num is not None
+                }
+            ).result()
+
+        context.log.info(f"Completed deletion for partition {item.partition}")
+
+    context.add_output_metadata(
+        {
+            "partitions_processed": dagster.MetadataValue.int(total_partitions),
+            "team_ids": dagster.MetadataValue.text(
+                ", ".join(str(tid) for tid in sorted({tid for item in plan.partitions for tid in item.team_ids}))
+            ),
+        }
+    )
+
+
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
+def plan_old_sessions_cleanup(
+    context: dagster.OpExecutionContext,
+    config: MonthlyCleanupConfig,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> OldSessionsCleanupPlan:
+    """Find every team with an events retention, and for each month the teams whose sessions in it are all past it."""
+    retention = effective_events_retention()
+    if config.team_ids:
+        if ignored := sorted(set(config.team_ids) - {item.team_id for item in retention}):
+            context.log.info(f"Ignoring teams with no events retention: {ignored}")
+        retention = [item for item in retention if item.team_id in config.team_ids]
+    if not retention:
+        context.log.info("No team has an events retention to enforce")
+        return OldSessionsCleanupPlan(partitions=[])
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    team_cutoffs = {item.team_id: _yyyymm(whole_month_cutoff(now, item.months)) for item in retention}
+
+    # Each sessions version partitions on a different expression of the session start, so the
+    # month comes from the partition id.
+    partition_filter = "AND toUInt32(_partition_id) IN %(partitions)s" if config.partitions else ""
+    parameters = {
+        "team_ids": sorted(team_cutoffs),
+        "partitions": config.partitions,
+        "cutoff_partition": max(team_cutoffs.values()),
+    }
+    team_months: set[tuple[int, int]] = set()
+    for sessions in _sessions_placements(cluster):
+        query = f"""
+            SELECT DISTINCT team_id, toUInt32(_partition_id) AS partition
+            FROM {sessions.table}
+            WHERE team_id IN %(team_ids)s
+            AND toUInt32(_partition_id) < %(cutoff_partition)s
+            {partition_filter}
+        """
+        results = sessions.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
+        team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
+
+    teams_by_partition: dict[int, list[int]] = defaultdict(list)
+    for team_id, partition in sorted(team_months):
+        if partition < team_cutoffs[team_id]:
+            teams_by_partition[partition].append(team_id)
+
+    plan = OldSessionsCleanupPlan(
+        partitions=[
+            PartitionCleanup(partition=partition, team_ids=team_ids)
+            for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
+        ]
+    )
+    for partition_cleanup in plan.partitions:
+        context.log.info(f"{partition_cleanup.partition}: teams {partition_cleanup.team_ids}")
+
+    context.add_output_metadata(
+        {
+            "teams": dagster.MetadataValue.int(len(team_cutoffs)),
+            "partitions": dagster.MetadataValue.int(len(plan.partitions)),
+        }
+    )
+    return plan
+
+
+@dagster.op
+def cleanup_old_sessions_by_partition(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    plan: OldSessionsCleanupPlan,
+) -> None:
+    """Delete each planned month's sessions for the teams the plan lists for that month."""
+    if not plan.partitions:
+        context.log.info("No sessions partitions found to clean up")
+        return
+
+    total_partitions = len(plan.partitions)
+    placements = _sessions_placements(cluster)
+    reuse_floor = _mutation_reuse_floor(cluster)
+
+    for idx, item in enumerate(plan.partitions, 1):
+        context.log.info(f"Deleting sessions {item.partition} for teams {item.team_ids} ({idx}/{total_partitions})")
+        for sessions in placements:
+            delete_mutation_runner = LightweightDeleteMutationRunner(
                 table=sessions.table,
                 predicate="team_id IN %(team_ids)s",
                 parameters={"team_ids": item.team_ids},
@@ -1697,9 +1789,8 @@ def cleanup_old_events_by_partition(
                 settings={"lightweight_deletes_sync": 0},
                 reuse_since=reuse_floor,
             )
-            _run_on_every_shard(sessions.cluster, sessions_delete_runner)
-
-        context.log.info(f"Completed deletion for partition {item.partition}")
+            _run_on_every_shard(sessions.cluster, delete_mutation_runner)
+        context.log.info(f"Completed sessions deletion for partition {item.partition}")
 
     context.add_output_metadata(
         {
@@ -1719,7 +1810,10 @@ def cleanup_old_events_by_partition(
 )
 def monthly_retention_events_cleanup_job():
     """Delete events and sessions past each team's events retention set in Django admin, a whole month at a time."""
-    cleanup_old_events_by_partition(plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run()))
+    events_deleted = cleanup_old_events_by_partition(
+        plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run())
+    )
+    cleanup_old_sessions_by_partition(plan_old_sessions_cleanup(start_after=events_deleted))
 
 
 @dagster.schedule(
