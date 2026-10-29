@@ -26,8 +26,17 @@ import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
 import { BroadcastPushComposer } from './BroadcastPushComposer'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, aiEmailDraftStatus, channel } =
-        useValues(broadcastWizardLogic)
+    const {
+        broadcast,
+        email,
+        name,
+        stepValidationErrors,
+        templatingErrors,
+        selectedSender,
+        emailSettings,
+        aiEmailDraftStatus,
+        channel,
+    } = useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -68,11 +77,14 @@ export function BroadcastContentStep(): JSX.Element {
         }
     }
 
-    const errors = stepValidationErrors.content
+    // A parser message can quote the template, so it is kept out of the matching by wording below.
+    const templatingMessages: (string | undefined)[] = Object.values(templatingErrors)
+    const errors = stepValidationErrors.content.filter((error) => !templatingMessages.includes(error))
     const fieldErrors: EmailFieldErrors = {
         from: errors.find((error) => error.includes('sender')),
-        subject: errors.find((error) => error.includes('subject')),
-        body: errors.find((error) => error.includes('content')),
+        to: templatingErrors.to,
+        subject: errors.find((error) => error.includes('subject')) ?? templatingErrors.subject,
+        body: errors.find((error) => error.includes('content')) ?? templatingErrors.body,
     }
 
     // A push broadcast keeps its composer even with the flag off, so it can still be read and fixed.

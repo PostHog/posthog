@@ -17,7 +17,13 @@ import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/gen
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
-import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
+import {
+    DEFAULT_BROADCAST_EMAIL,
+    DEFAULT_BROADCAST_PUSH,
+    DELETED_SENDER_ERROR,
+    broadcastWizardLogic,
+    getBroadcastTemplatingErrors,
+} from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
     { key: 'plan', value: ['pro'], operator: PropertyOperator.Exact, type: PropertyFilterType.Person },
@@ -857,6 +863,47 @@ describe('broadcastWizardLogic', () => {
 
         expect(logic.values.stepValidationErrors.content).toEqual(expected)
         expect(logic.values.stepValidationErrors.review).toEqual(expected)
+    })
+
+    it.each([
+        {
+            field: 'link in the body',
+            email: { html: '<a href="https://example.com/?n={{%20person.name%20}}">Hi</a>' },
+            error: /^A link has a variable with spaces inside/,
+        },
+        { field: 'subject', email: { subject: 'Hi {{ person.name }' }, error: /^Liquid template error: / },
+    ])('blocks the content step on Liquid that cannot parse in the $field', ({ email, error }) => {
+        const valid = {
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { integrationId: 1 },
+            subject: 'Spring sale',
+            html: '<p>Hi {{ person.properties.name }}</p>',
+        }
+        logic.actions.setEmail({ ...valid, ...email })
+        expect(logic.values.stepValidationErrors.content).toEqual([expect.stringMatching(error)])
+
+        logic.actions.setEmail(valid)
+        expect(logic.values.stepValidationErrors.content).toEqual([])
+    })
+
+    it('leaves push text saved as Hog unparsed', () => {
+        const broadcast = {
+            actions: [
+                {
+                    type: 'function_push',
+                    config: { inputs: { title: { value: '', templating: 'hog' }, body: { value: '' } } },
+                },
+            ],
+        } as unknown as HogFlowApi
+        const push = { ...DEFAULT_BROADCAST_PUSH, title: 'Hi {person.name}', body: 'Sale {{ ends' }
+
+        expect(getBroadcastTemplatingErrors('push', DEFAULT_BROADCAST_EMAIL, push, broadcast)).toEqual({
+            title: undefined,
+            message: undefined,
+        })
+        expect(getBroadcastTemplatingErrors('push', DEFAULT_BROADCAST_EMAIL, push, null).message).toMatch(
+            /^Liquid template error: /
+        )
     })
 
     it('counts the audience missing the To field property on the review step only, and never for an unfiltered audience', async () => {
