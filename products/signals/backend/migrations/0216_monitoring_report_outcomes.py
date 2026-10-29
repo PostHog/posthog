@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("signals", "0214_closed_report_state")]
+    dependencies = [("signals", "0215_useractivitysummary_empty_profile_status")]
 
     operations = [
         migrations.AddField(

@@ -218,9 +218,7 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "offer_correctness": OfflineScorer(kind="boolean", version=UUID("01a15a29-ea9e-743e-9a21-cec75e5e417e")),
     },
     "taxonomic_filter": {
-        "event_match_found": OfflineScorer(kind="boolean", version=UUID("01a15582-8f96-76a8-a6b0-9ad9c932f12a")),
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a15582-85bb-71aa-b4c8-dc008015ab30")),
-        "no_wrong_event_match": OfflineScorer(kind="boolean", version=UUID("01a15582-9ce5-711e-b612-3b0be41c2669")),
         "no_wrong_switch": OfflineScorer(kind="boolean", version=UUID("01a15582-b862-766e-b1ee-6664b70a9a93")),
         "search_intent_match": OfflineScorer(kind="boolean", version=UUID("01a15582-a5dd-7f46-8681-5f0dd77b22d4")),
         "switch_when_needed": OfflineScorer(kind="boolean", version=UUID("01a15582-aef0-748b-8282-c92f901762b5")),
