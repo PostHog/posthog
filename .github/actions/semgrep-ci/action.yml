@@ -1,8 +1,9 @@
 name: Semgrep scan
 description: >
     Run `semgrep scan --error` in the digest-pinned Semgrep image. On pull requests
-    it scans only the files the PR adds or modifies, with no baseline; on pushes it
-    scans the whole tree. Runs logged out: nothing is uploaded to semgrep.dev, and
+    it scans only the files the PR adds or modifies, with no baseline, plus the whole
+    tree with any local rule file the PR adds or modifies; on pushes it scans the
+    whole tree. Runs logged out: nothing is uploaded to semgrep.dev, and
     any finding fails the step via the exit code. Callers check out with
     fetch-depth 2, so the merge commit's first parent (the base tip) is present.
 
@@ -22,9 +23,10 @@ inputs:
         required: true
     full-scan:
         description: >
-            'true' scans the whole tree on a pull request too, the way a push does.
-            Set it when the pull request changes a rule or the scan setup: a scan of
-            the changed files cannot see what an edited rule matches in unchanged code.
+            'true' scans the whole tree with every rule on a pull request too, the way
+            a push does. Set it when the pull request changes the scan setup, such as
+            the rule packs or the scanned paths. A changed local rule file needs no
+            full scan: the action scans the whole tree with that file on its own.
         required: false
         default: 'false'
 
@@ -109,12 +111,46 @@ runs:
               done < "$changed_list"
 
               echo "Scanning ${#targets[@]} changed file(s)"
-              if (( ${#targets[@]} == 0 )); then
-                exit 0
-              fi
               # Keeps the command line under the kernel's argument size limit.
               if (( ${#targets[@]} > 3000 )); then
                 full_scan
                 exit 0
               fi
-              semgrep_in_container scan --error --metrics=off --verbose --timeout 300 "${semgrep_args[@]}" -- "${targets[@]}"
+              if (( ${#targets[@]} > 0 )); then
+                semgrep_in_container scan --error --metrics=off --verbose --timeout 300 "${semgrep_args[@]}" -- "${targets[@]}"
+              fi
+
+              # The scan above cannot see what an added or edited rule matches in
+              # unchanged files. Every other rule passed on those files in master's full
+              # scan, so the whole tree is scanned again with the changed rule files only.
+              other_args=()
+              local_configs=()
+              for (( i = 0; i < ${#semgrep_args[@]}; i++ )); do
+                if [[ "${semgrep_args[i]}" == --config ]]; then
+                  i=$(( i + 1 ))
+                  if [[ -e "${semgrep_args[i]}" ]]; then
+                    local_configs+=("${semgrep_args[i]%/}")
+                  fi
+                else
+                  other_args+=("${semgrep_args[i]}")
+                fi
+              done
+
+              changed_rules=()
+              while IFS= read -r -d '' path; do
+                # Semgrep loads no *.test.yaml from a rule directory: those are fixtures.
+                if [[ "$path" != *.yaml && "$path" != *.yml ]] || [[ "$path" == *.test.yaml || "$path" == *.test.yml ]]; then
+                  continue
+                fi
+                for config in "${local_configs[@]}"; do
+                  if [[ "$path" == "$config" || "$path" == "$config"/* ]]; then
+                    changed_rules+=(--config "$path")
+                    break
+                  fi
+                done
+              done < "$changed_list"
+
+              echo "Scanning the whole tree with $(( ${#changed_rules[@]} / 2 )) changed rule file(s)"
+              if (( ${#changed_rules[@]} > 0 )); then
+                semgrep_in_container scan --error --metrics=off --verbose --timeout 300 "${other_args[@]}" "${changed_rules[@]}"
+              fi
