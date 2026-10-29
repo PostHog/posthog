@@ -707,7 +707,7 @@ def _thread_has_a_live_run(integration: IntegrationRecord, ctx: contracts.Workfl
     """
     existing = (
         SlackThreadTaskMapping.objects.select_related("task_run")
-        .filter(integration=integration, channel=ctx.channel, thread_ts=ctx.thread_ts)
+        .filter(integration_id=integration.id, channel=ctx.channel, thread_ts=ctx.thread_ts)
         .first()
     )
     return existing is not None and existing.task_run is not None and existing.task_run.status in ACTIVE_RUN_STATUSES
@@ -723,7 +723,7 @@ def _bind_slack_thread(*, team: Team, task: Task, binding: _SlackBinding) -> Non
         if run is None:
             return
         SlackThreadTaskMapping.objects.update_or_create(
-            integration=binding.integration,
+            integration_id=binding.integration.id,
             channel=thread.channel,
             thread_ts=thread.thread_ts,
             defaults={
