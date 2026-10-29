@@ -1223,6 +1223,35 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
+            "ed25519Verify",
+            native_func(|vm, args| {
+                if args.len() < 3 || args.len() > 4 {
+                    return Err(VmError::NativeCallFailed(
+                        "ed25519Verify takes 3 or 4 arguments".to_string(),
+                    ));
+                }
+                let encoding = encoding_arg(vm, &args, 3)?;
+                if encoding != "hex" && encoding != "base64" {
+                    return Err(VmError::NativeCallFailed(format!(
+                        "ed25519Verify: encoding must be 'hex' or 'base64', got '{encoding}'"
+                    )));
+                }
+                let (
+                    HogLiteral::String(message),
+                    HogLiteral::String(signature),
+                    HogLiteral::String(public_key),
+                ) = (
+                    args[0].deref(&vm.heap)?,
+                    args[1].deref(&vm.heap)?,
+                    args[2].deref(&vm.heap)?,
+                )
+                else {
+                    return Ok(HogLiteral::Boolean(false).into());
+                };
+                Ok(HogLiteral::Boolean(ed25519_verify(message, signature, public_key, &encoding)).into())
+            }),
+        ),
+        (
             "base64Encode",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "base64Encode")?;
@@ -2728,6 +2757,36 @@ fn encoding_arg(vm: &HogVM, args: &[HogValue], idx: usize) -> Result<String, VmE
         },
         None => Ok("hex".to_string()),
     }
+}
+
+fn decode_verify_arg(value: &str, encoding: &str, expected_bytes: usize) -> Option<Vec<u8>> {
+    let value = value.trim();
+    let bytes = if encoding == "hex" {
+        if !value.len().is_multiple_of(2) || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        (0..value.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&value[i..i + 2], 16))
+            .collect::<Result<Vec<u8>, _>>()
+            .ok()?
+    } else {
+        base64_decode_bytes(value).ok()?
+    };
+    (bytes.len() == expected_bytes).then_some(bytes)
+}
+
+// Returns false for a malformed key or signature, so a bad webhook reads as unverified, not as a crash.
+fn ed25519_verify(message: &str, signature: &str, public_key: &str, encoding: &str) -> bool {
+    let (Some(signature), Some(public_key)) = (
+        decode_verify_arg(signature, encoding, 64),
+        decode_verify_arg(public_key, encoding, 32),
+    ) else {
+        return false;
+    };
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key)
+        .verify(message.as_bytes(), &signature)
+        .is_ok()
 }
 
 fn to_hex(bytes: &[u8]) -> String {

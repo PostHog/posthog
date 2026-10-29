@@ -220,6 +220,27 @@ fn hmac_sha256_base64_key_matches_svix() {
 }
 
 #[test]
+fn ed25519_verify_matches_rfc8032() {
+    // RFC 8032 section 7.1, test 2: the message is the single byte 0x72 ("r").
+    let key = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
+    let sig = "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00";
+    let key_b64 = "PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw=";
+    let sig_b64 =
+        "kqAJqfDUyrhyDoILX2QlQKKye1QWUD+Ps3YiI+vbadoIWsHkPhWZbkWPNhPQ8R2MOHsurrQwKu6wDSkWErsMAA==";
+    let cases: &[(&str, &[&str], bool)] = &[
+        ("valid hex", &["r", sig, key], true),
+        ("valid base64", &["r", sig_b64, key_b64, "base64"], true),
+        ("tampered message", &["s", sig, key], false),
+        ("short key", &["r", sig, &key[..62]], false),
+        ("not hex", &["r", sig, &format!("zz{}", &key[2..])], false),
+    ];
+    for (name, args, expected) in cases {
+        let args: Vec<_> = args.iter().map(|a| str_lit(a)).collect();
+        assert_eq!(run(call("ed25519Verify", &args)), json!(expected), "{name}");
+    }
+}
+
+#[test]
 fn base64_round_trips() {
     let encoded = run(call("base64Encode", &[str_lit("Hello, World! 🦔")]));
     let decoded = run(call(

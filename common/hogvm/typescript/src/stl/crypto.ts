@@ -100,3 +100,49 @@ export function sha256HmacBase64Key(
     }
     return crypto.createHmac('sha256', Buffer.from(key, 'base64')).update(data).digest(encoding)
 }
+
+// DER prefix of an Ed25519 SubjectPublicKeyInfo. Node only imports public keys in a container format.
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
+
+function decodeVerifyArg(value: string, encoding: 'hex' | 'base64', expectedBytes: number): Buffer | null {
+    if (encoding === 'hex' && !/^(?:[0-9a-fA-F]{2})*$/.test(value)) {
+        return null
+    }
+    const bytes = Buffer.from(value, encoding)
+    return bytes.length === expectedBytes ? bytes : null
+}
+
+// Returns false for a malformed key or signature, so a bad webhook reads as unverified, not as a crash.
+export function ed25519Verify(
+    message: string | null,
+    signature: string | null,
+    publicKey: string | null,
+    encoding: 'hex' | 'base64' = 'hex',
+    options?: ExecOptions
+): boolean {
+    const crypto = options?.external?.crypto
+    if (!crypto) {
+        throw new HogVMException('The crypto module is required for "ed25519Verify" to work.', 'contract')
+    }
+    if (encoding !== 'hex' && encoding !== 'base64') {
+        throw new HogVMException(`ed25519Verify: encoding must be 'hex' or 'base64', got '${encoding}'`, 'data')
+    }
+    if (typeof message !== 'string' || typeof signature !== 'string' || typeof publicKey !== 'string') {
+        return false
+    }
+    const signatureBytes = decodeVerifyArg(signature.trim(), encoding, 64)
+    const keyBytes = decodeVerifyArg(publicKey.trim(), encoding, 32)
+    if (!signatureBytes || !keyBytes) {
+        return false
+    }
+    try {
+        const key = crypto.createPublicKey({
+            key: Buffer.concat([ED25519_SPKI_PREFIX, keyBytes]),
+            format: 'der',
+            type: 'spki',
+        })
+        return crypto.verify(null, Buffer.from(message), key, signatureBytes)
+    } catch {
+        return false
+    }
+}

@@ -4,7 +4,7 @@ import { DEFAULT_MAX_MEMORY } from '../constants'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, ExecOptions, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { COST_PER_UNIT, HogVMException, calculateCost, getNestedValue, like } from '../utils'
-import { md5, sha1, sha1HmacChain, sha256, sha256HmacBase64Key, sha256HmacChain } from './crypto'
+import { ed25519Verify, md5, sha1, sha1HmacChain, sha256, sha256HmacBase64Key, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
     fromUnixTimestamp,
@@ -175,7 +175,13 @@ function dateTruncFn([unit, val]: any[]): HogDateTime {
             break
         case 'minute':
             truncated = DateTime.fromObject(
-                { year: dt.year, month: dt.month, day: dt.day, hour: dt.hour, minute: dt.minute },
+                {
+                    year: dt.year,
+                    month: dt.month,
+                    day: dt.day,
+                    hour: dt.hour,
+                    minute: dt.minute,
+                },
                 { zone: dt.zoneName }
             )
             break
@@ -600,8 +606,16 @@ export const STL: Record<string, STLFunction> = {
             if (isHogDateTime(args[0])) {
                 return Math.floor(args[0].dt)
             } else if (isHogDate(args[0])) {
-                const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
-                const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+                const day = DateTime.fromObject({
+                    year: args[0].year,
+                    month: args[0].month,
+                    day: args[0].day,
+                })
+                const epoch = DateTime.fromObject({
+                    year: 1970,
+                    month: 1,
+                    day: 1,
+                })
                 return Math.floor(day.diff(epoch, 'days').days)
             }
             return !isNaN(parseInt(args[0])) ? parseInt(args[0]) : null
@@ -616,8 +630,16 @@ export const STL: Record<string, STLFunction> = {
             if (isHogDateTime(args[0])) {
                 return args[0].dt
             } else if (isHogDate(args[0])) {
-                const day = DateTime.fromObject({ year: args[0].year, month: args[0].month, day: args[0].day })
-                const epoch = DateTime.fromObject({ year: 1970, month: 1, day: 1 })
+                const day = DateTime.fromObject({
+                    year: args[0].year,
+                    month: args[0].month,
+                    day: args[0].day,
+                })
+                const epoch = DateTime.fromObject({
+                    year: 1970,
+                    month: 1,
+                    day: 1,
+                })
                 return Math.floor(day.diff(epoch, 'days').days)
             }
             return !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : null
@@ -1237,6 +1259,14 @@ export const STL: Record<string, STLFunction> = {
         example: 'sha256HmacBase64Key($1, $2, $3)',
         minArgs: 2,
         maxArgs: 3,
+    },
+    ed25519Verify: {
+        fn: ([message, signature, publicKey, encoding], _, options) =>
+            ed25519Verify(message, signature, publicKey, encoding ?? 'hex', options),
+        description: 'Verifies an Ed25519 signature of a string. Signature and public key are hex or base64',
+        example: 'ed25519Verify($1, $2, $3, $4)',
+        minArgs: 3,
+        maxArgs: 4,
     },
     isIPAddressInRange: {
         fn: ([address, prefix]) => isIPAddressInRange(address, prefix),

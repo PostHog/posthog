@@ -55,3 +55,14 @@ let svixPayload := 'msg_p5jXN8AQM9LWM0D4loKWxJek.1614265330.{"test": 2432232314}
 print('sha256HmacBase64Key(svix, \'base64\'):', sha256HmacBase64Key(svixKey, svixPayload, 'base64'))
 print('sha256HmacBase64Key(svix):', sha256HmacBase64Key(svixKey, svixPayload))
 print('sha256HmacBase64Key(unpadded):', sha256HmacBase64Key('YWI', 'data') = sha256HmacBase64Key('YWI=', 'data'))
+
+// RFC 8032 section 7.1, test 2: the message is the single byte 0x72 ("r").
+let edKey := '3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c'
+let edSig := '92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00'
+print('ed25519Verify(rfc8032):', ed25519Verify('r', edSig, edKey))
+print('ed25519Verify(base64):', ed25519Verify('r', 'kqAJqfDUyrhyDoILX2QlQKKye1QWUD+Ps3YiI+vbadoIWsHkPhWZbkWPNhPQ8R2MOHsurrQwKu6wDSkWErsMAA==', 'PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw=', 'base64'))
+print('ed25519Verify(tampered):', ed25519Verify('s', edSig, edKey))
+print('ed25519Verify(wrong key):', ed25519Verify('r', edSig, 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a'))
+print('ed25519Verify(short key):', ed25519Verify('r', edSig, substring(edKey, 1, 62)))
+print('ed25519Verify(not hex):', ed25519Verify('r', edSig, concat('zz', substring(edKey, 3, 62))))
+print('ed25519Verify(null):', ed25519Verify(null, edSig, edKey))

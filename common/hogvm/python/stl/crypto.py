@@ -1,7 +1,12 @@
+import re
 import hmac
 import base64
 import hashlib
+import binascii
 from typing import Literal
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
 def encode_digest(encoding: Literal["hex", "base64", "base64url", "binary"], digest: bytes) -> str:
@@ -70,3 +75,33 @@ def sha256HmacBase64Key(key: str, data: str, encoding: Literal["hex", "base64", 
     digest = hmac.new(key_bytes, data.encode(), hashlib.sha256).digest()
 
     return encode_digest(encoding, digest)
+
+
+def _decode_verify_arg(value: str, encoding: str, expected_bytes: int) -> bytes | None:
+    try:
+        if encoding == "hex":
+            if not re.fullmatch(r"(?:[0-9a-fA-F]{2})*", value):
+                return None
+            decoded = bytes.fromhex(value)
+        else:
+            decoded = base64.b64decode(value + "==")
+    except (ValueError, binascii.Error):
+        return None
+    return decoded if len(decoded) == expected_bytes else None
+
+
+# Returns False for a malformed key or signature, so a bad webhook reads as unverified, not as a crash.
+def ed25519Verify(message: object, signature: object, public_key: object, encoding: str = "hex") -> bool:
+    if encoding not in ("hex", "base64"):
+        raise ValueError(f"ed25519Verify: encoding must be 'hex' or 'base64', got '{encoding}'")
+    if not isinstance(message, str) or not isinstance(signature, str) or not isinstance(public_key, str):
+        return False
+    signature_bytes = _decode_verify_arg(signature.strip(), encoding, 64)
+    key_bytes = _decode_verify_arg(public_key.strip(), encoding, 32)
+    if signature_bytes is None or key_bytes is None:
+        return False
+    try:
+        Ed25519PublicKey.from_public_bytes(key_bytes).verify(signature_bytes, message.encode())
+    except (InvalidSignature, ValueError):
+        return False
+    return True

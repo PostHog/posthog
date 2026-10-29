@@ -22,7 +22,7 @@ from ..utils import (
     like,
     regex_extract,
 )
-from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacBase64Key, sha256HmacChain
+from .crypto import ed25519Verify, md5, sha1, sha1HmacChain, sha256, sha256HmacBase64Key, sha256HmacChain
 from .date import (
     formatDateTime,
     fromUnixTimestamp,
@@ -1122,6 +1122,13 @@ STL: dict[str, STLFunction] = {
         ),
         minArgs=2,
         maxArgs=3,
+    ),
+    "ed25519Verify": STLFunction(
+        fn=lambda args, team, stdout, timeout: ed25519Verify(
+            args[0], args[1], args[2], args[3] if len(args) > 3 and args[3] is not None else "hex"
+        ),
+        minArgs=3,
+        maxArgs=4,
     ),
     "isIPAddressInRange": STLFunction(
         fn=lambda args, team, stdout, timeout: isIPAddressInRange(args[0], args[1]), minArgs=2, maxArgs=2

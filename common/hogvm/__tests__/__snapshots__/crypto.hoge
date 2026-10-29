@@ -37,4 +37,16 @@
 "sha256HmacBase64Key(svix, 'base64'):", 36, 2, 36, 3, 32, "base64", 2, "sha256HmacBase64Key", 3, 2, "print", 2, 35, 32,
 "sha256HmacBase64Key(svix):", 36, 2, 36, 3, 2, "sha256HmacBase64Key", 2, 2, "print", 2, 35, 32,
 "sha256HmacBase64Key(unpadded):", 32, "YWI=", 32, "data", 2, "sha256HmacBase64Key", 2, 32, "YWI", 32, "data", 2,
-"sha256HmacBase64Key", 2, 11, 2, "print", 2, 35, 35, 35, 35, 35]
+"sha256HmacBase64Key", 2, 11, 2, "print", 2, 35, 32, "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+32,
+"92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+32, "ed25519Verify(rfc8032):", 32, "r", 36, 5, 36, 4, 2, "ed25519Verify", 3, 2, "print", 2, 35, 32,
+"ed25519Verify(base64):", 32, "r", 32,
+"kqAJqfDUyrhyDoILX2QlQKKye1QWUD+Ps3YiI+vbadoIWsHkPhWZbkWPNhPQ8R2MOHsurrQwKu6wDSkWErsMAA==", 32,
+"PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw=", 32, "base64", 2, "ed25519Verify", 4, 2, "print", 2, 35, 32,
+"ed25519Verify(tampered):", 32, "s", 36, 5, 36, 4, 2, "ed25519Verify", 3, 2, "print", 2, 35, 32,
+"ed25519Verify(wrong key):", 32, "r", 36, 5, 32, "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", 2,
+"ed25519Verify", 3, 2, "print", 2, 35, 32, "ed25519Verify(short key):", 32, "r", 36, 5, 36, 4, 33, 1, 33, 62, 2,
+"substring", 3, 2, "ed25519Verify", 3, 2, "print", 2, 35, 32, "ed25519Verify(not hex):", 32, "r", 36, 5, 32, "zz", 36,
+4, 33, 3, 33, 62, 2, "substring", 3, 2, "concat", 2, 2, "ed25519Verify", 3, 2, "print", 2, 35, 32,
+"ed25519Verify(null):", 31, 36, 5, 36, 4, 2, "ed25519Verify", 3, 2, "print", 2, 35, 35, 35, 35, 35, 35, 35]
