@@ -83,7 +83,6 @@ class PreparedFrame(BaseModel, frozen=True):
     small_media_asset_id: int | None = None
     object_id: str
     video_start_ms: int
-    rec_start_ms: int | None
 
 
 class PrepareObservationMediaOutput(BaseModel, frozen=True):

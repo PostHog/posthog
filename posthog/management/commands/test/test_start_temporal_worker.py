@@ -4,6 +4,8 @@ import pytest
 
 from django.conf import settings
 
+from posthog.hogql import parser as hogql_parser
+
 from posthog.management.commands.start_temporal_worker import (
     ACTIVITIES_DICT,
     AI_WORKFLOWS,
@@ -15,11 +17,17 @@ from posthog.management.commands.start_temporal_worker import (
     WEEKLY_DIGEST_WORKFLOWS,
     WORKFLOWS_DICT,
     _task_queue_specs,
+    apply_hogql_shadow_sample_rate_override,
     workflows_include_data_import_syncs,
 )
+from posthog.temporal.ai_observability import BatchTraceSummarizationWorkflow
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
 from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
 
+from products.ai_observability.backend.facade.temporal import (
+    ACTIVITIES as AI_OBSERVABILITY_ACTIVITIES,
+    WORKFLOWS as AI_OBSERVABILITY_WORKFLOWS,
+)
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
@@ -141,3 +149,39 @@ def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
     assert ALERT_AI_QUEUE_ACTIVITIES
     assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])
     assert set(INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES) <= set(entries[0])
+
+
+# The facade starts the trace summary on the LLMA queue by name. Registered elsewhere, every request would stay
+# pending until its entry expired.
+def test_trace_summary_runs_on_the_llma_queue() -> None:
+    entries = [
+        (queue, workflows, activities)
+        for queue, workflows, activities in _task_queue_specs
+        if all(workflow in workflows for workflow in AI_OBSERVABILITY_WORKFLOWS)
+    ]
+
+    assert len(entries) == 1
+    queue, workflows, activities = entries[0]
+    assert queue == settings.LLMA_TASK_QUEUE and BatchTraceSummarizationWorkflow in workflows
+    assert all(activity in activities for activity in AI_OBSERVABILITY_ACTIVITIES)
+
+
+@pytest.mark.parametrize(
+    "env_value, expected",
+    [
+        (None, 0.001),
+        ("0", 0.0),
+        ("0.25", 0.25),
+        ("off", 0.001),
+        ("2", 0.001),
+    ],
+)
+def test_hogql_shadow_sample_rate_override(
+    monkeypatch: pytest.MonkeyPatch, env_value: str | None, expected: float
+) -> None:
+    monkeypatch.delenv("HOGQL_PARSER_SHADOW_SAMPLE_RATE", raising=False)
+    if env_value is not None:
+        monkeypatch.setenv("HOGQL_PARSER_SHADOW_SAMPLE_RATE", env_value)
+    monkeypatch.setattr(hogql_parser, "_SHADOW_SAMPLE_RATE", 0.001)
+    apply_hogql_shadow_sample_rate_override()
+    assert hogql_parser._SHADOW_SAMPLE_RATE == expected

@@ -83,6 +83,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "paid_cost": "Estimated cost of the monthly paid search traffic, in USD cents.",
         },
     },
+    "site_metrics_daily": {
+        "description": (
+            "Daily backlink, Domain Rating, and organic search totals for the selected Site Audit project's target, "
+            "one row per day."
+        ),
+        "docs_url": "https://docs.ahrefs.com/en/api/reference/site-explorer/get-metrics",
+        "columns": {
+            "project_id": "Identifier of the selected Site Audit project.",
+            "target": "Target URL of the Site Audit project that the metrics report on.",
+            "date": "Date the metrics report on.",
+            "domain_rating": "Strength of the target's backlink profile compared to other websites, from 0 to 100.",
+            "ahrefs_rank": "Rank of the target's backlink profile among all websites in Ahrefs, where 1 is the strongest.",
+            "live_backlinks": "Total number of live links from other websites to the target.",
+            "live_refdomains": "Total number of unique domains with live links to the target.",
+            "org_keywords": "Number of keywords the target ranks for in the top 100 organic search results.",
+            "org_keywords_1_3": "Number of keywords the target ranks for in the top 3 organic search results.",
+            "org_traffic": "Estimated monthly visitors to the target from organic search.",
+            "org_cost": "Estimated value of the target's monthly organic search traffic, in USD cents.",
+        },
+    },
     "backlinks": {
         "description": "Live backlinks to the selected Site Audit project's target, strongest referring domains first.",
         "docs_url": "https://docs.ahrefs.com/en/api/reference/site-explorer/get-all-backlinks",

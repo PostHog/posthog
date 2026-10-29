@@ -1642,14 +1642,16 @@ class TestStickinessSeriesCustomNames(BaseTest):
         assert patched_response.results == expected_results
         assert was_modified is expect_modified
 
-    def test_a_cached_row_without_a_top_level_order_takes_it_from_action(self) -> None:
-        query = StickinessQuery(series=[EventsNode(event="$pageview"), EventsNode(event="sign up")])
+    def test_a_response_cached_by_an_older_runner_reads_like_a_fresh_one(self) -> None:
+        action = Action.objects.create(team=self.team, name="Signed up")
+        query = StickinessQuery(series=[EventsNode(event="$pageview"), ActionsNode(id=action.id)])
         cached_rows = [
             {"label": "$pageview", "data": [3], "action": {"order": 0, "name": "$pageview"}},
-            {"label": "sign up", "data": [1], "action": {"order": 1, "name": "sign up"}},
+            {"label": "Signed up", "data": [1], "action": {"order": 1, "name": "Signed up"}},
         ]
+        # An older runner cached rows without a top-level `order` and a response without `action_names`.
         with patch.object(
-            StickinessQueryRunner, "_calculate", return_value=StickinessQueryResponse(results=cached_rows)
+            StickinessQueryRunner, "calculate", return_value=StickinessQueryResponse(results=cached_rows)
         ):
             StickinessQueryRunner(query=query, team=self.team).run(
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
@@ -1661,6 +1663,7 @@ class TestStickinessSeriesCustomNames(BaseTest):
 
         assert isinstance(response, CachedStickinessQueryResponse)
         assert [row["order"] for row in response.results] == [0, 1]
+        assert response.action_names == {str(action.id): "Signed up"}
 
 
 class TestStickinessSeriesFanOut(BaseTest):

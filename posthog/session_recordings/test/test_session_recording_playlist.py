@@ -889,6 +889,34 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert {x["id"] for x in response.json()["results"]} == {recent_session}
 
+    def test_collection_recordings_respect_requested_limit(self) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="collection", created_by=self.user, type="collection"
+        )
+
+        sessions_newest_first = [f"collection-limit-{i}-{uuid4()}" for i in range(3)]
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
+
+        for hours_earlier, session_id in enumerate(sessions_newest_first):
+            timestamp = three_days_ago - timedelta(hours=hours_earlier)
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="123",
+                first_timestamp=timestamp,
+                last_timestamp=timestamp,
+            )
+            self.client.post(
+                f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_id}"
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings",
+            data={"limit": 2},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert {x["id"] for x in response.json()["results"]} == set(sessions_newest_first[:2])
+
     @parameterized.expand(
         [
             ("narrow_window_excludes", "-1d", False),

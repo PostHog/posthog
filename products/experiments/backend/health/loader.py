@@ -9,6 +9,7 @@ from products.experiments.backend.health.condition_set_traffic import load_condi
 from products.experiments.backend.health.context import HealthContext, load_health_context
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
+from products.experiments.backend.health.latest_calculation import load_latest_calculation
 from products.experiments.backend.health.metric_compiles import load_metric_compiles
 from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
@@ -34,9 +35,9 @@ class HealthInputs:
 def load_experiment_health_context(
     *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
 ) -> HealthContext:
-    """The context that the checks of the health endpoint read: the experiment, its flag, its linked metrics and the
-    compile of their queries, the changes of the flag since launch and the flag's recent calls, as far as
-    `reader_access` and `user`'s warehouse access allow."""
+    """The context that the checks of the health endpoint read: the experiment, its flag, its linked metrics, the
+    compile of their queries and their latest calculation, the changes of the flag since launch and the flag's recent
+    calls, as far as `reader_access` and `user`'s warehouse access allow."""
     return _health_context(_load_experiment(team_id, experiment_id), reader_access, user)
 
 
@@ -78,4 +79,5 @@ def _health_context(
         pause_history=load_pause_history(experiment, reader_access=reader_access),
         primary_metric=load_primary_metric(experiment),
         metric_compiles=load_metric_compiles(experiment, user=user),
+        latest_calculation=load_latest_calculation(experiment),
     )

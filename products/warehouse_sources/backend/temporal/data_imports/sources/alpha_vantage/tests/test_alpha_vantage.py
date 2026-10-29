@@ -21,6 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vant
     _normalize_key,
     _parse_corporate_action,
     _parse_earnings,
+    _parse_economic,
+    _parse_estimates,
+    _parse_etf_profile,
     _parse_insider,
     _parse_institutional,
     _parse_news,
@@ -195,11 +198,171 @@ class TestAlphaVantage:
             },
         ]
 
-    def test_parse_corporate_action_handles_splits_shape(self) -> None:
-        body = {"symbol": "IBM", "data": [{"effective_date": "2021-11-04", "split_factor": "1.0460"}]}
-        assert list(_parse_corporate_action(body, "IBM")) == [
-            {"symbol": "IBM", "effective_date": "2021-11-04", "split_factor": "1.0460"}
+    @parameterized.expand(
+        [
+            (
+                "splits",
+                {"symbol": "IBM", "data": [{"effective_date": "2021-11-04", "split_factor": "1.0460"}]},
+                {"symbol": "IBM", "effective_date": "2021-11-04", "split_factor": "1.0460"},
+            ),
+            (
+                "shares_outstanding",
+                {
+                    "symbol": "IBM",
+                    "status": "success",
+                    "data": [
+                        {
+                            "date": "2026-06-30",
+                            "shares_outstanding_diluted": "951000000",
+                            "shares_outstanding_basic": "None",
+                        }
+                    ],
+                },
+                {
+                    "symbol": "IBM",
+                    "date": "2026-06-30",
+                    "shares_outstanding_diluted": "951000000",
+                    "shares_outstanding_basic": None,
+                },
+            ),
         ]
+    )
+    def test_parse_corporate_action_handles_other_shapes(self, _name: str, body: dict, expected: dict) -> None:
+        assert list(_parse_corporate_action(body, "IBM")) == [expected]
+
+    def test_parse_estimates_keeps_both_horizons_for_one_date(self) -> None:
+        # A fiscal year and its last quarter share an end date, so both rows must survive with their horizon.
+        body = {
+            "symbol": "IBM",
+            "estimates": [
+                {"date": "2026-12-31", "horizon": "fiscal year", "eps_estimate_average": "12.40"},
+                {
+                    "date": "2026-12-31",
+                    "horizon": "fiscal quarter",
+                    "eps_estimate_average": "4.10",
+                    "eps_estimate_revision_down_trailing_7_days": None,
+                },
+                "not a dict",
+            ],
+        }
+        assert list(_parse_estimates(body, "IBM")) == [
+            {"symbol": "IBM", "date": "2026-12-31", "horizon": "fiscal year", "eps_estimate_average": "12.40"},
+            {
+                "symbol": "IBM",
+                "date": "2026-12-31",
+                "horizon": "fiscal quarter",
+                "eps_estimate_average": "4.10",
+                "eps_estimate_revision_down_trailing_7_days": None,
+            },
+        ]
+
+    @parameterized.expand(
+        [("missing_estimates", {"symbol": "IBM"}), ("not_a_list", {"symbol": "IBM", "estimates": {}})]
+    )
+    def test_parse_estimates_empty(self, _name: str, body: dict) -> None:
+        assert list(_parse_estimates(body, "IBM")) == []
+
+    def test_parse_etf_profile_yields_one_row_with_nested_arrays(self) -> None:
+        sectors = [{"sector": "INFORMATION TECHNOLOGY", "weight": "0.5"}]
+        holdings = [
+            {"symbol": "ABCD", "description": "EXAMPLE CORP", "weight": "0.08"},
+            {"symbol": "n/a", "description": "CASH", "weight": "0.01"},
+        ]
+        body = {
+            "net_assets": "1000000",
+            "dividend_yield": "None",
+            "inception_date": "2001-02-03",
+            "sectors": sectors,
+            "holdings": holdings,
+        }
+        assert list(_parse_etf_profile(body, "EXMP")) == [
+            {
+                "symbol": "EXMP",
+                "net_assets": "1000000",
+                "dividend_yield": None,
+                "inception_date": "2001-02-03",
+                "sectors": sectors,
+                "holdings": holdings,
+            }
+        ]
+
+    def test_parse_etf_profile_empty(self) -> None:
+        assert list(_parse_etf_profile({}, "IBM")) == []
+
+    @parameterized.expand(
+        [
+            ("value", "4.25", None, {"value": "4.25"}),
+            # FRED's placeholder for a period with no observation, verbatim from the live API.
+            ("fred_missing_marker", ".", None, {"value": None}),
+            ("null_placeholder", "None", None, {"value": None}),
+            ("maturity_tagged", "4.25", "10year", {"value": "4.25", "maturity": "10year"}),
+        ]
+    )
+    def test_parse_economic(self, _name: str, value: str, maturity: str | None, expected: dict) -> None:
+        body = {
+            "name": "Example Rate",
+            "interval": "monthly",
+            "unit": "percent",
+            "data": [{"date": "2026-09-01", "value": value}],
+        }
+        assert list(_parse_economic(body, maturity)) == [
+            {"name": "Example Rate", "interval": "monthly", "unit": "percent", "date": "2026-09-01", **expected}
+        ]
+
+    @parameterized.expand([("missing_data", {"name": "x"}), ("not_a_list", {"data": {}})])
+    def test_parse_economic_empty(self, _name: str, body: dict) -> None:
+        assert list(_parse_economic(body, None)) == []
+
+    @parameterized.expand(
+        [
+            ("real_gdp", "REAL_GDP", "quarterly", [None]),
+            ("cpi", "CPI", "monthly", [None]),
+            ("unemployment", "UNEMPLOYMENT", None, [None]),
+            ("federal_funds_rate", "FEDERAL_FUNDS_RATE", "daily", [None]),
+            ("treasury_yield", "TREASURY_YIELD", "daily", ["3month", "2year", "5year", "7year", "10year", "30year"]),
+        ]
+    )
+    def test_get_rows_requests_economic_series_once_per_maturity_without_symbols(
+        self, endpoint: str, function: str, interval: str | None, maturities: list[str | None]
+    ) -> None:
+        body = {
+            "name": "Series",
+            "interval": interval,
+            "unit": "percent",
+            "data": [{"date": "2026-09-01", "value": "1"}],
+        }
+        result = _driver("IBM, AAPL").run(endpoint, [ScriptedResponse(json=body) for _ in maturities])
+        assert result.raised is None
+        assert result.params("function") == [function] * len(maturities)
+        assert result.params("interval") == [interval] * len(maturities)
+        assert result.params("maturity") == maturities
+        assert result.params("symbol") == [None] * len(maturities)
+        assert [row.get("maturity") for row in result.rows] == maturities
+
+    def test_get_rows_fails_an_economic_series_on_error_message(self) -> None:
+        result = _driver().run("cpi", [ScriptedResponse(json={"Error Message": "Invalid API call"})])
+        assert isinstance(result.raised, AlphaVantageAPIError)
+        assert result.rows == []
+
+    @parameterized.expand(
+        [
+            ("shares_outstanding", "SHARES_OUTSTANDING", {"data": [{"date": "2026-06-30"}]}),
+            (
+                "earnings_estimates",
+                "EARNINGS_ESTIMATES",
+                {"estimates": [{"date": "2026-12-31", "horizon": "fiscal year"}]},
+            ),
+            ("etf_profile", "ETF_PROFILE", {"net_assets": "1"}),
+        ]
+    )
+    def test_get_rows_fans_new_symbol_tables_out_over_symbols(self, endpoint: str, function: str, body: dict) -> None:
+        result = _driver("EXMP, BADSYM").run(
+            endpoint, [ScriptedResponse(json=body), ScriptedResponse(json={"Error Message": "Invalid API call"})]
+        )
+        assert result.raised is None
+        assert result.params("function") == [function, function]
+        assert result.params("symbol") == ["EXMP", "BADSYM"]
+        assert [row["symbol"] for row in result.rows] == ["EXMP"]
 
     @parameterized.expand([("missing_data", {"symbol": "IBM"}), ("not_a_list", {"symbol": "IBM", "data": {}})])
     def test_parse_corporate_action_empty(self, _name: str, body: dict) -> None:
@@ -638,6 +801,12 @@ class TestAlphaVantage:
             ("news_sentiment", ["symbol", "url"], "time_published"),
             ("earnings_calendar", ["symbol", "reportDate", "fiscalDateEnding"], None),
             ("institutional_holdings", ["symbol", "holder_name", "last_reported", "shares_held"], None),
+            ("shares_outstanding", ["symbol", "date"], None),
+            ("earnings_estimates", ["symbol", "date", "horizon"], "date"),
+            ("etf_profile", ["symbol"], None),
+            ("real_gdp", ["date"], None),
+            ("treasury_yield", ["maturity", "date"], "date"),
+            ("federal_funds_rate", ["date"], None),
         ]
     )
     def test_alpha_vantage_source_maps_primary_keys_and_partitioning(

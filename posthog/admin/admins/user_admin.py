@@ -16,11 +16,13 @@ from django.db.models import CASCADE, PROTECT, RESTRICT, Model
 from django.db.models.deletion import get_candidate_relations_to_delete
 from django.db.models.fields.related import ForeignObject
 from django.db.models.fields.reverse_related import ForeignObjectRel
+from django.db.models.options import Options
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.http import urlencode
+from django.utils.safestring import mark_safe
 from django.utils.translation import (
     gettext,
     gettext_lazy as _,
@@ -242,9 +244,9 @@ class UserAdmin(DjangoUserAdmin):
     @admin.display(description="Email Verification")
     def email_verification_status(self, user: User):
         if user.is_email_verified:
-            return format_html('<p style="color: green;">✓ Verified</p>')
+            return mark_safe('<p style="color: green;">✓ Verified</p>')
         else:
-            return format_html(
+            return mark_safe(
                 '<p style="color: red;">✗ Not verified</p><br>'
                 '<a href="#" class="button" id="send_verification_email_button">Send verification email</a>'
             )
@@ -271,7 +273,7 @@ class UserAdmin(DjangoUserAdmin):
                 status_text,
             )
         else:
-            return format_html('<p style="color: gray;">✗ Not configured</p>')
+            return mark_safe('<p style="color: gray;">✗ Not configured</p>')
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         """Override change view to handle email verification button."""
@@ -378,8 +380,8 @@ class UserAdmin(DjangoUserAdmin):
         impersonated = get_impersonated_user(request)
         return impersonated is not None and obj.pk == impersonated.pk
 
-    def get_actions(self, request):
-        actions = super().get_actions(request)
+    def get_actions(self, request: HttpRequest, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        actions = super().get_actions(request, *args, **kwargs)
         # Bulk delete has nowhere to ask for a reason, and it would collect the cascade for every
         # selected account into one page.
         actions.pop("delete_selected", None)
@@ -405,7 +407,9 @@ class UserAdmin(DjangoUserAdmin):
         # cascade one step further, through a relation of a relation, means joining back through
         # every parent table, which is the unbounded work this page exists to avoid. The
         # confirmation page says the counts stop at the account's own rows.
-        relations = cast(Iterable[ForeignObjectRel], get_candidate_relations_to_delete(User._meta))
+        relations = cast(
+            Iterable[ForeignObjectRel], get_candidate_relations_to_delete(cast("Options[Model]", User._meta))
+        )
         for related in relations:
             field = related.field
             related_model = field.model

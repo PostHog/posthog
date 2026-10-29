@@ -1,4 +1,4 @@
-"""The scheduled anomaly scoring tick: a Temporal workflow that scores the due watched insights.
+"""The scheduled anomaly scoring tick: a Temporal workflow that scores the due active insights.
 
 The `anomaly-scoring` flag payload holds every lever, and a missing or malformed payload turns the
 tick off. Each insight activity scores one insight and writes its new buckets as `$anomaly_score` events.
@@ -11,6 +11,7 @@ import dataclasses
 from collections import Counter
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
@@ -51,6 +52,7 @@ from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
     InsightPick,
+    TeamCensus,
     mark_attempted,
     select_insights,
 )
@@ -93,6 +95,8 @@ _INSIGHT_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
 _CAPTURE_TIMEOUT = datetime.timedelta(minutes=1)
 # No batch of insights starts after this time. The picks that are left wait for a later tick.
 TICK_BUDGET = datetime.timedelta(minutes=10)
+# A census key lives past its UTC day, so a tick at the end of the day still reads it.
+_CENSUS_TTL = datetime.timedelta(days=2)
 # The last batch can start at the budget, and the summary capture runs after it.
 TICK_TIMEOUT = _PLAN_TIMEOUT + TICK_BUDGET + _INSIGHT_TIMEOUT + _CAPTURE_TIMEOUT
 
@@ -116,6 +120,8 @@ class AnomalyScoringTickPlan:
     scored_stale_model: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
+    active: int = 0
+    active_reasons: dict[str, int] | None = None
 
 
 @frozen
@@ -161,6 +167,9 @@ class AnomalyScoringTickResult:
     scored_stale_model: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
+    # Active insights of the eligible teams, and how many of them have each activity reason.
+    active: int = 0
+    active_reasons: dict[str, int] | None = None
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -171,6 +180,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         return AnomalyScoringTickPlan(enabled=False, picks=[], candidates=0, max_concurrency=config.max_concurrency)
     selection = select_insights(config, parse_selection_config(payload), now, limit)
     record_candidates(selection.candidates)
+    capture_census(selection.census, now)
     return AnomalyScoringTickPlan(
         enabled=True,
         picks=selection.picks,
@@ -183,6 +193,8 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         scored_stale_model=selection.scored_stale_model,
         train_backlog_soft=selection.train_backlog_soft,
         train_backlog_hard=selection.train_backlog_hard,
+        active=selection.active,
+        active_reasons=selection.active_reasons,
     )
 
 
@@ -231,6 +243,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
             duration_ms=duration_ms,
         )
         record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0, run=pick.run)
+        capture_pick(pick, status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, run=pick.run)
         if status is None:
             raise
         # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
@@ -252,7 +265,73 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         missing_series=result.missing_series,
     )
     record_pick(status=result.status, interval=interval, duration_ms=duration_ms, events=result.events, run=result.run)
+    capture_pick(
+        pick,
+        status=result.status,
+        interval=interval,
+        duration_ms=duration_ms,
+        run=result.run,
+        series=result.series,
+        events=result.events,
+    )
     return result
+
+
+def capture_pick(
+    pick: InsightPick,
+    *,
+    status: str,
+    interval: str,
+    duration_ms: int,
+    run: ScoringRun | None,
+    series: int = 0,
+    events: int = 0,
+) -> None:
+    """One event per pick, with the ids that the SDK metrics leave out, so cost and outcome break down per project."""
+    ph_background_capture()(
+        distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
+        event="anomaly scoring pick",
+        properties={
+            "deployment": settings.CLOUD_DEPLOYMENT,
+            "team_id": pick.team_id,
+            "insight_id": pick.insight_id,
+            "interval": interval,
+            "run": run,
+            "status": status,
+            "duration_ms": duration_ms,
+            "series": series,
+            "events": events,
+            "queries": pick.query_cost,
+        },
+    )
+
+
+def _census_key(team_id: int, day: datetime.date) -> str:
+    return f"signals:anomaly_scoring:census:{day.isoformat()}:{team_id}"
+
+
+def capture_census(census: list[TeamCensus], now: datetime.datetime) -> None:
+    """One event per eligible team per UTC day, from the first tick of the day that sees the team."""
+    day = now.astimezone(datetime.UTC).date()
+    sent = cache.get_many([_census_key(team.team_id, day) for team in census])
+    capture = ph_background_capture()
+    for team in census:
+        key = _census_key(team.team_id, day)
+        # `add` sets the key only when it is missing, so two ticks that overlap send one event.
+        if key in sent or not cache.add(key, True, timeout=_CENSUS_TTL.total_seconds()):
+            continue
+        capture(
+            distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
+            event="anomaly scoring team census",
+            properties={
+                "deployment": settings.CLOUD_DEPLOYMENT,
+                "team_id": team.team_id,
+                "day": day.isoformat(),
+                "active_insights": team.active,
+                **{f"active_{reason}": count for reason, count in team.active_reasons.items()},
+                **{f"interval_{interval}": count for interval, count in team.active_intervals.items()},
+            },
+        )
 
 
 def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsightResult:
@@ -342,6 +421,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         scored_stale_model=result.scored_stale_model,
         train_backlog_soft=result.train_backlog_soft,
         train_backlog_hard=result.train_backlog_hard,
+        active=result.active,
+        active_reasons=result.active_reasons,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -365,6 +446,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "scored_stale_model": result.scored_stale_model,
             "train_backlog_soft": result.train_backlog_soft,
             "train_backlog_hard": result.train_backlog_hard,
+            "active_insights": result.active,
+            **{f"active_{reason}": count for reason, count in (result.active_reasons or {}).items()},
         },
     )
 
@@ -460,6 +543,8 @@ class AnomalyScoringTickWorkflow:
             scored_stale_model=plan.scored_stale_model,
             train_backlog_soft=plan.train_backlog_soft,
             train_backlog_hard=plan.train_backlog_hard,
+            active=plan.active,
+            active_reasons=plan.active_reasons,
         )
         await workflow.execute_activity(
             capture_anomaly_scoring_tick_activity,
