@@ -490,6 +490,7 @@ export interface sourceWizardLogicValues {
         type: ManualLinkSourceType
     }[]
     manualLinkingProvider: ManualLinkSourceType | null
+    objectStorageSourcesEnabled: boolean
     modalTitle:
         | ''
         | 'Choose destinations'
@@ -926,6 +927,11 @@ export interface sourceWizardLogicMeta {
                 type: ManualLinkSourceType
             }[]
         ) => Breadcrumb[]
+        objectStorageSourcesEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        manualConnectors: (objectStorageSourcesEnabled: boolean) => {
+            name: string
+            type: ManualLinkSourceType
+        }[]
         hasWebhookSchemas: (databaseSchema: ExternalDataSourceSyncSchema[]) => boolean
         webhookStepComplete: (
             webhookResult: WebhookCreateResult | null,
@@ -1823,13 +1829,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }))
             },
         ],
+        // The managed object storage sources replace self-managed tables, so no new ones are created.
+        objectStorageSourcesEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES],
+        ],
         manualConnectors: [
-            () => [],
-            (): { name: string; type: ManualLinkSourceType }[] =>
-                manualLinkSources.map((source) => ({
-                    name: MANUAL_LINK_SOURCE_LABELS[source],
-                    type: source,
-                })),
+            (s) => [s.objectStorageSourcesEnabled],
+            (objectStorageSourcesEnabled: boolean): { name: string; type: ManualLinkSourceType }[] =>
+                objectStorageSourcesEnabled
+                    ? []
+                    : manualLinkSources.map((source) => ({
+                          name: MANUAL_LINK_SOURCE_LABELS[source],
+                          type: source,
+                      })),
         ],
         isSelfManagedSource: [
             (s) => [s.manualLinkingProvider],
@@ -2690,6 +2704,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
                 actions.selectConnector(FILE_UPLOAD_SOURCE_CONFIG)
                 actions.setStep(2)
+                return
+            }
+
+            if (values.objectStorageSourcesEnabled && manualLinkSources.some((type) => type === kind)) {
+                actions.selectConnector(null)
+                actions.setStep(1)
+                router.actions.replace(urls.dataWarehouseSourceNew())
                 return
             }
 

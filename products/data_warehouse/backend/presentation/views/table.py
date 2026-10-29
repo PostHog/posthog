@@ -1,6 +1,7 @@
 import re
 import uuid
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -68,6 +69,7 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     hosted_upload_in_use,
     is_legacy_upload_url,
     is_safe_upload_filename,
+    object_storage_sources_enabled,
     read_upload_in_place,
     replace_file_upload,
     sanitize_upload_filename,
@@ -117,6 +119,27 @@ _EVENT_SOURCE_TO_CREATED_VIA = {
     EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
     EventSource.WEBMCP: DataWarehouseTableCreatedVia.MCP,
 }
+
+
+SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
+    "You can't create self-managed tables when managed object storage sources are enabled. "
+    "Add {provider} as a source instead."
+)
+
+MANAGED_SOURCE_NAME_BY_HOST_SUFFIX = (
+    ("r2.cloudflarestorage.com", "Cloudflare R2"),
+    ("amazonaws.com", "Amazon S3"),
+    ("googleapis.com", "Google Cloud Storage"),
+    ("blob.core.windows.net", "Azure Blob Storage"),
+)
+
+
+def _managed_source_name_for_url(url_pattern: str | None) -> str:
+    host = (urlparse(url_pattern or "").hostname or "").lower()
+    for suffix, name in MANAGED_SOURCE_NAME_BY_HOST_SUFFIX:
+        if host == suffix or host.endswith(f".{suffix}"):
+            return name
+    return "your bucket's provider (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2)"
 
 
 def resolve_created_via(request: request.Request) -> str:
@@ -395,6 +418,13 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
     def create(self, validated_data):
         team_id = self.context["team_id"]
+
+        if object_storage_sources_enabled(team_id):
+            raise serializers.ValidationError(
+                SELF_MANAGED_CREATE_BLOCKED_MESSAGE.format(
+                    provider=_managed_source_name_for_url(validated_data.get("url_pattern"))
+                )
+            )
 
         validated_data["team_id"] = team_id
         validated_data["created_by"] = cast(User, self.context["request"].user)

@@ -163,6 +163,7 @@ export interface sourceCatalogLogicValues {
         name: string
         type: ManualLinkSourceType
     }[] // sourceWizardLogic
+    objectStorageSourcesEnabled: boolean // sourceWizardLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     user: UserType | null // userLogic
     catalogFuse: Fuse
@@ -220,6 +221,7 @@ export interface sourceCatalogLogicMeta {
                 type: ManualLinkSourceType
             }[],
             featureFlags: FeatureFlagsSet,
+            objectStorageSourcesEnabled: boolean,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             arg: ExternalDataSourceTypeEnumApi[] | undefined
         ) => CatalogItem[]
@@ -294,7 +296,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             availableSourcesLogic,
             ['availableSources'],
             sourceWizardLogic,
-            ['manualConnectors'],
+            ['manualConnectors', 'objectStorageSourcesEnabled'],
             featureFlagLogic,
             ['featureFlags'],
             userLogic,
@@ -354,6 +356,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 s.availableSources,
                 s.manualConnectors,
                 s.featureFlags,
+                s.objectStorageSourcesEnabled,
                 s.dataWarehouseSources,
                 (_, p: SourceCatalogLogicProps) => p.allowedSources,
             ],
@@ -364,6 +367,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     type: import('~/types').ManualLinkSourceType
                 }[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                objectStorageSourcesEnabled: boolean,
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
                 allowedSources: ExternalDataSourceTypeEnumApi[] | undefined
             ): CatalogItem[] => {
@@ -439,7 +443,8 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         status: 'stable',
                         releaseStatus: FILE_UPLOAD_SOURCE_CONFIG.releaseStatus,
                         url: fileUploadSourceUrl(format),
-                        selfManaged: true,
+                        // With managed object storage sources on, an upload becomes a managed source.
+                        selfManaged: !objectStorageSourcesEnabled,
                     })
                 )
 
@@ -626,6 +631,9 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         '*': (_, searchParams) => {
             const category = searchParams[CATEGORY_SEARCH_PARAM]
             if (!isSourceCategoryFilter(category) || category === values.selectedCategory) {
+                return
+            }
+            if (category === SELF_MANAGED_CATEGORY && values.objectStorageSourcesEnabled) {
                 return
             }
             actions.setSelectedCategory(category)
