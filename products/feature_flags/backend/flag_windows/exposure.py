@@ -152,8 +152,15 @@ def _edit_columns(index: int, edit: WatchedEdit) -> list[ast.Expr]:
         with_flag = parse_expr("JSONHas(properties, '$active_feature_flags')")
     else:
         with_flag = parse_expr("isNotNull({value})", placeholders={"value": value})
+    # A variant may be named "false", and the plain property read gives it the same 'false' as a flag that evaluated to
+    # false. The JSON functions keep the type on both events schemas, so a variant is a JSON string.
+    key = ast.Constant(value=f"$feature/{edit.flag_key}")
+    variant_value = parse_expr(
+        "if(JSONType(properties, {key}) = 'String', JSONExtractString(properties, {key}), '')",
+        placeholders={"key": key},
+    )
     if edit.variants:
-        exposed = parse_expr("coalesce({value}, '') NOT IN ('', 'false')", placeholders={"value": value})
+        exposed = parse_expr("{variant_value} != ''", placeholders={"variant_value": variant_value})
     else:
         exposed = parse_expr("{value} = 'true'", placeholders={"value": value})
 
@@ -173,7 +180,8 @@ def _edit_columns(index: int, edit: WatchedEdit) -> list[ast.Expr]:
             count(
                 f"variant_{position}",
                 parse_expr(
-                    "{value} = {variant}", placeholders={"value": value, "variant": ast.Constant(value=variant)}
+                    "{variant_value} = {variant}",
+                    placeholders={"variant_value": variant_value, "variant": ast.Constant(value=variant)},
                 ),
             )
             for position, variant in enumerate(edit.variants)

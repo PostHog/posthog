@@ -16,6 +16,10 @@ BOOLEAN = WatchedEdit(id="boolean", flag_key="new-checkout", group_type_index=No
 MULTIVARIATE = WatchedEdit(
     id="multivariate", flag_key="pricing-test", group_type_index=None, variants=("control", "test"), enables=False
 )
+# A variant may be named "false", and only its JSON type tells it apart from a flag that evaluated to false.
+FALSE_VARIANT = WatchedEdit(
+    id="false-variant", flag_key="pricing-test", group_type_index=None, variants=("control", "false"), enables=False
+)
 GROUP = WatchedEdit(id="group", flag_key="org-beta", group_type_index=0, variants=(), enables=False)
 ENABLED = WatchedEdit(id="enabled", flag_key="new-checkout", group_type_index=None, variants=(), enables=True)
 
@@ -60,6 +64,16 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-4", 4, {"$feature/pricing-test": False}),
                 ],
                 [(0, 4, 3, {"control": 1, "test": 2})],
+            ),
+            (
+                "a_variant_named_false_counts_apart_from_a_flag_that_evaluated_to_false",
+                FALSE_VARIANT,
+                [
+                    ("person-1", 1, {"$feature/pricing-test": "control"}),
+                    ("person-2", 2, {"$feature/pricing-test": "false"}),
+                    ("person-3", 3, {"$feature/pricing-test": False}),
+                ],
+                [(0, 3, 2, {"control": 1, "false": 1})],
             ),
             (
                 "group_flag_counts_groups_not_people",
