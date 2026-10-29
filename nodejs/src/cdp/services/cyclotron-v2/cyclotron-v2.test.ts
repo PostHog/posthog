@@ -11,7 +11,7 @@ import {
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager } from './manager'
+import { CyclotronJobConflictError, CyclotronV2Manager } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -612,14 +612,47 @@ describe('Cyclotron V2', () => {
             })
         })
 
-        it('backpressure throws when queue depth exceeds limit', async () => {
+        it('backpressure throws once a depth refresh sees a full queue, and inserts never wait for that refresh', async () => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
             await smallManager.connect()
+            const pool = (smallManager as unknown as { pool: Pool }).pool
+            const realQuery = pool.query.bind(pool) as (text: string, values?: unknown[]) => Promise<unknown>
+            let releaseDepthQuery!: () => void
+            const depthQueryGate = new Promise<void>((resolve) => {
+                releaseDepthQuery = resolve
+            })
+            const depthQueries: Promise<unknown>[] = []
+            const querySpy = jest.spyOn(pool, 'query')
             try {
+                await smallManager.bulkCreateJobs([
+                    { teamId: 1, queueName: QUEUE },
+                    { teamId: 1, queueName: QUEUE },
+                ])
+
+                querySpy.mockImplementation(((text: string, values?: unknown[]) => {
+                    if (typeof text === 'string' && text.includes('COUNT(*) AS count FROM cyclotron_jobs')) {
+                        const depthQuery = depthQueryGate.then(() => realQuery(text))
+                        depthQueries.push(depthQuery)
+                        return depthQuery
+                    }
+                    return realQuery(text, values)
+                }) as any)
+
                 await smallManager.createJob({ teamId: 1, queueName: QUEUE })
                 await smallManager.createJob({ teamId: 1, queueName: QUEUE })
-                await expect(smallManager.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
+                expect(depthQueries).toHaveLength(1)
+                expect(await totalJobCount()).toBe(4)
+
+                releaseDepthQuery()
+                await depthQueries[0]
+                await new Promise((resolve) => setImmediate(resolve))
+
+                await expect(smallManager.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(
+                    'Cyclotron V2 queue is full (depth limit: 2)'
+                )
+                expect(await totalJobCount()).toBe(4)
             } finally {
+                querySpy.mockRestore()
                 await smallManager.disconnect()
             }
         })
@@ -1999,36 +2032,57 @@ describe('Cyclotron V2', () => {
                 expect(await readTeamCounter(teamId)).toBe(3n)
             })
 
-            it('handles mixed-team bulk batches without crossing counters', async () => {
-                const ids = await manager.bulkCreateJobs([
-                    { teamId: 1, queueName: EMAIL_QUEUE },
-                    { teamId: 2, queueName: EMAIL_QUEUE },
-                    { teamId: 1, queueName: EMAIL_QUEUE },
-                    { teamId: 2, queueName: EMAIL_QUEUE },
-                ])
-                const seqs = await Promise.all(ids.map(readDequeueSeq))
+            it('assigns per-team counters in input order across consecutive mixed batches', async () => {
                 const BLOCK = BigInt(16_777_216)
+                const email = (teamId: number): CyclotronV2JobInit => ({ teamId, queueName: EMAIL_QUEUE })
+                const hog = (teamId: number): CyclotronV2JobInit => ({ teamId, queueName: 'hog' })
+                // Teams appear out of team_id order, interleaved with non-email jobs. A team's
+                // first batch starts at MAX(counter) + 1 across the table.
+                const batches: [CyclotronV2JobInit[], (bigint | null)[]][] = [
+                    [
+                        [email(9), email(4), hog(9), email(9), email(4), email(9)],
+                        [BLOCK + 9n, BLOCK + 4n, null, BLOCK * 2n + 9n, BLOCK * 2n + 4n, BLOCK * 3n + 9n],
+                    ],
+                    [
+                        [email(4), hog(6), email(9), email(4), email(6)],
+                        [BLOCK * 3n + 4n, null, BLOCK * 4n + 9n, BLOCK * 4n + 4n, BLOCK * 4n + 6n],
+                    ],
+                    [
+                        [email(6), email(6), email(9), email(1)],
+                        [BLOCK * 5n + 6n, BLOCK * 6n + 6n, BLOCK * 5n + 9n, BLOCK * 5n + 1n],
+                    ],
+                ]
 
-                // Team 1's two jobs use counter 1 and 2; same for team 2.
-                expect(seqs[0]).toBe(BLOCK + 1n) // team 1, counter 1
-                expect(seqs[1]).toBe(BLOCK + 2n) // team 2, counter 1
-                expect(seqs[2]).toBe(BLOCK * 2n + 1n) // team 1, counter 2
-                expect(seqs[3]).toBe(BLOCK * 2n + 2n) // team 2, counter 2
+                for (const [batch, expectedSeqs] of batches) {
+                    const ids = await manager.bulkCreateJobs(batch)
+                    expect(await Promise.all(ids.map(readDequeueSeq))).toEqual(expectedSeqs)
+                }
+
+                const counters = await Promise.all([9, 4, 6, 1].map(readTeamCounter))
+                expect(counters).toEqual([5n, 4n, 6n, 5n])
             })
 
-            it('leaves non-email jobs in a bulk batch with NULL dequeue_seq', async () => {
-                const ids = await manager.bulkCreateJobs([
-                    { teamId: 1, queueName: EMAIL_QUEUE },
-                    { teamId: 1, queueName: 'hog' },
-                    { teamId: 1, queueName: EMAIL_QUEUE },
-                ])
+            it.each([
+                ['resets a terminal email job and assigns it the next counter', true, BigInt(16_777_216) * 2n + 5n],
+                ['refuses an active email job and keeps its dequeue_seq', false, BigInt(16_777_216) + 5n],
+            ])('overwriteExisting %s', async (_, ackFirst, expectedSeq) => {
+                const [id] = await manager.bulkCreateJobs([{ teamId: 5, queueName: EMAIL_QUEUE }])
+                if (ackFirst) {
+                    const [job] = await dequeueOneBatch(createWorker(EMAIL_QUEUE))
+                    await job.ack()
+                }
 
-                const seqs = await Promise.all(ids.map(readDequeueSeq))
-                expect(seqs[0]).not.toBeNull() // email
-                expect(seqs[1]).toBeNull() // hog
-                expect(seqs[2]).not.toBeNull() // email
-                // Only the email jobs bumped the team counter.
-                expect(await readTeamCounter(1)).toBe(2n)
+                const rerun = manager.bulkCreateJobs([
+                    { id, teamId: 5, queueName: EMAIL_QUEUE, state: Buffer.from('rerun'), overwriteExisting: true },
+                ])
+                if (ackFirst) {
+                    await expect(rerun).resolves.toEqual([id])
+                    expect(await queryJob(id)).toMatchObject({ status: 'available', state: Buffer.from('rerun') })
+                } else {
+                    await expect(rerun).rejects.toBeInstanceOf(CyclotronJobConflictError)
+                    expect((await queryJob(id)).state).toBeNull()
+                }
+                expect(await readDequeueSeq(id)).toBe(expectedSeq)
             })
         })
 

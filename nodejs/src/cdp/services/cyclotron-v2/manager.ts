@@ -64,6 +64,102 @@ export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise
     return (counter * EMAIL_DEQUEUE_BLOCK_SIZE + BigInt(teamId)).toString()
 }
 
+/**
+ * One statement that bumps the per-team email counters and inserts the batch,
+ * so a batch that contains email jobs costs one round trip. Parameters $1-$12
+ * are the same as the plain bulk insert; $13 is `EMAIL_DEQUEUE_BLOCK_SIZE`.
+ *
+ * Email-queue jobs get `dequeue_seq = counter * BLOCK_SIZE + team_id`, where
+ * `counter` is the team's monotonic per-team sequence number. Sorting ascending
+ * by dequeue_seq interleaves teams: each team's first job sorts together, then
+ * each team's second job, etc. Non-email jobs in the batch get NULL, which
+ * leaves the FIFO ordering of other queues untouched.
+ *
+ * Each team's counter bumps once by the count of its email jobs in the batch.
+ * The k-th email job of a team (1-based, in input order) gets counter
+ * `newCounter - n + k`, so the team's jobs take the consecutive counters
+ * `newCounter - n + 1 .. newCounter` in input order. `WITH ORDINALITY` gives
+ * the input array position, because `unnest` keeps array order.
+ *
+ * A team's first-ever email starts at `MAX(counter) + 1` across the table
+ * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the system
+ * can't enqueue a burst that gets free priority over established tenants.
+ * Established tenants are already at `MAX`, so a new tenant's batch slots in
+ * at the same level and the round-robin interleaves them by team_id from
+ * there. New-team rows insert at `MAX + n`; existing-team rows add only `n`,
+ * because the ON CONFLICT branch subtracts the MAX shift back out. The
+ * `max_counter` CTE reads the statement snapshot, so MAX is computed once per
+ * batch and does not see this statement's own upsert.
+ *
+ * The team counter rows stay locked until the job insert finishes, because
+ * both writes are one statement. The upsert locks them in team_id order so
+ * that concurrent multi-team batches take the locks in the same order.
+ */
+function buildEmailBulkInsertSql(upsertClause: string): string {
+    return `WITH input AS (
+            SELECT *
+            FROM unnest(
+                $1::uuid[], $2::int[], $3::uuid[], $4::text[], $5::smallint[], $6::timestamptz[],
+                $7::text[], $8::bytea[], $9::text[], $10::text[], $11::text[]
+            ) WITH ORDINALITY AS t(
+                id, team_id, function_id, queue_name, priority, scheduled,
+                parent_run_id, state, distinct_id, person_id, action_id, ord
+            )
+        ),
+        email_jobs AS (
+            SELECT
+                ord,
+                team_id,
+                ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY ord) AS team_index,
+                COUNT(*) OVER (PARTITION BY team_id) AS team_count
+            FROM input
+            WHERE queue_name = 'email'
+        ),
+        max_counter AS (
+            SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
+        ),
+        team_counters AS (
+            INSERT INTO cyclotron_email_team_seq (team_id, counter)
+            SELECT team_id, COUNT(*) + (SELECT m FROM max_counter)
+            FROM email_jobs
+            GROUP BY team_id
+            ORDER BY team_id
+            ON CONFLICT (team_id) DO UPDATE
+               SET counter = cyclotron_email_team_seq.counter
+                           + (EXCLUDED.counter - (SELECT m FROM max_counter))
+            RETURNING team_id, counter
+        )
+        INSERT INTO cyclotron_jobs
+        (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+         lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+         parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
+        SELECT
+            input.id,
+            input.team_id,
+            input.function_id,
+            input.queue_name,
+            'available'::CyclotronJobStatus,
+            input.priority,
+            input.scheduled,
+            $12::timestamptz,
+            NULL::uuid,
+            NULL::timestamptz,
+            0::smallint,
+            0::smallint,
+            $12::timestamptz,
+            input.parent_run_id,
+            input.state,
+            input.distinct_id,
+            input.person_id,
+            input.action_id,
+            (team_counters.counter - email_jobs.team_count + email_jobs.team_index) * $13::bigint + input.team_id
+        FROM input
+        LEFT JOIN email_jobs ON email_jobs.ord = input.ord
+        LEFT JOIN team_counters ON team_counters.team_id = email_jobs.team_id
+        ORDER BY input.ord
+        ${upsertClause}`
+}
+
 // Counts Postgres write failures from createJob / bulkCreateJobs *after* input
 // validation has passed. Zod parse errors and the overwrite-conflict logical
 // error do not increment this counter. The `kind` label splits failures into:
@@ -123,8 +219,9 @@ export class CyclotronV2Manager {
     private pool: Pool
     private readonly depthLimit: number
     private readonly depthCheckIntervalMs: number
-    private depthCheckPromise: Promise<boolean> | null = null
-    private depthCheckExpiresAt = 0
+    private depthVerdict: boolean | null = null
+    private depthVerdictExpiresAt = 0
+    private depthRefresh: Promise<boolean> | null = null
     private readonly reschedule: {
         floorSeconds: number
         wakeRatePerSecond: number
@@ -276,11 +373,6 @@ export class CyclotronV2Manager {
             actionIds.push(job.actionId ?? null)
         }
 
-        // Fair-dequeue sort key for email-queue jobs. NULL for everything else.
-        // Atomically bumps the per-team counter (one UPSERT for the whole batch
-        // regardless of size) and then derives a unique dequeue_seq per job.
-        const dequeueSeqs = await this.computeEmailDequeueSeqs(jobs)
-
         const upsertClause = overwriteExisting
             ? `ON CONFLICT (id) DO UPDATE SET
                  status = 'available',
@@ -300,50 +392,58 @@ export class CyclotronV2Manager {
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
+        const params: unknown[] = [
+            ids,
+            teamIds,
+            functionIds,
+            queueNames,
+            priorities,
+            scheduleds,
+            parentRunIds,
+            states,
+            distinctIds,
+            personIds,
+            actionIds,
+            now,
+        ]
+        // Only batches with email jobs touch cyclotron_email_team_seq.
+        const hasEmailJobs = jobs.some((j) => j.queueName === 'email')
         let result: { rows: { id: string }[] }
         try {
-            result = await this.pool.query<{ id: string }>(
-                `INSERT INTO cyclotron_jobs
-                 (id, team_id, function_id, queue_name, status, priority, scheduled, created,
-                  lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-                  parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
-                 SELECT
-                    unnest($1::uuid[]),
-                    unnest($2::int[]),
-                    unnest($3::uuid[]),
-                    unnest($4::text[]),
-                    'available'::CyclotronJobStatus,
-                    unnest($5::smallint[]),
-                    unnest($6::timestamptz[]),
-                    $12::timestamptz,
-                    NULL::uuid,
-                    NULL::timestamptz,
-                    0::smallint,
-                    0::smallint,
-                    $12::timestamptz,
-                    unnest($7::text[]),
-                    unnest($8::bytea[]),
-                    unnest($9::text[]),
-                    unnest($10::text[]),
-                    unnest($11::text[]),
-                    unnest($13::bigint[])
-                 ${upsertClause}`,
-                [
-                    ids,
-                    teamIds,
-                    functionIds,
-                    queueNames,
-                    priorities,
-                    scheduleds,
-                    parentRunIds,
-                    states,
-                    distinctIds,
-                    personIds,
-                    actionIds,
-                    now,
-                    dequeueSeqs,
-                ]
-            )
+            if (hasEmailJobs) {
+                params.push(EMAIL_DEQUEUE_BLOCK_SIZE.toString())
+                result = await this.pool.query<{ id: string }>(buildEmailBulkInsertSql(upsertClause), params)
+            } else {
+                params.push(new Array(jobs.length).fill(null))
+                result = await this.pool.query<{ id: string }>(
+                    `INSERT INTO cyclotron_jobs
+                     (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                      lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+                      parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
+                     SELECT
+                        unnest($1::uuid[]),
+                        unnest($2::int[]),
+                        unnest($3::uuid[]),
+                        unnest($4::text[]),
+                        'available'::CyclotronJobStatus,
+                        unnest($5::smallint[]),
+                        unnest($6::timestamptz[]),
+                        $12::timestamptz,
+                        NULL::uuid,
+                        NULL::timestamptz,
+                        0::smallint,
+                        0::smallint,
+                        $12::timestamptz,
+                        unnest($7::text[]),
+                        unnest($8::bytea[]),
+                        unnest($9::text[]),
+                        unnest($10::text[]),
+                        unnest($11::text[]),
+                        unnest($13::bigint[])
+                     ${upsertClause}`,
+                    params
+                )
+            }
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
             throw err
@@ -358,93 +458,6 @@ export class CyclotronV2Manager {
         }
 
         return ids
-    }
-
-    /**
-     * Compute the per-job `dequeue_seq` array for a batch of jobs.
-     *
-     * Email-queue jobs get `counter * BLOCK_SIZE + team_id` where `counter`
-     * is the team's monotonic per-team sequence number. Sorting ascending by
-     * dequeue_seq interleaves teams: each team's first job sorts together,
-     * then each team's second job, etc.
-     *
-     * Non-email jobs get NULL (leaves the existing FIFO ordering untouched).
-     *
-     * One UPSERT for the whole batch regardless of job count — per-team
-     * counters bump by the count of email jobs from that team in this batch,
-     * and we derive each job's individual counter value in memory.
-     *
-     * A team's first-ever email starts at `MAX(counter) + 1` across the table
-     * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the
-     * system can't enqueue a burst that gets free priority over established
-     * tenants — established tenants are already at `MAX`, so a new tenant's
-     * batch slots in at the same level and the round-robin interleaves them
-     * by team_id from there. Continuing teams just keep incrementing.
-     */
-    private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
-        const indicesByTeam = new Map<number, number[]>()
-        for (let i = 0; i < jobs.length; i++) {
-            if (jobs[i].queueName !== 'email') {
-                continue
-            }
-            const indices = indicesByTeam.get(jobs[i].teamId)
-            if (indices) {
-                indices.push(i)
-            } else {
-                indicesByTeam.set(jobs[i].teamId, [i])
-            }
-        }
-
-        const dequeueSeqs: (string | null)[] = new Array(jobs.length).fill(null)
-        if (indicesByTeam.size === 0) {
-            return dequeueSeqs
-        }
-
-        const teamIds = [...indicesByTeam.keys()]
-        const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
-
-        // Atomic per-team UPSERT. Concurrent inserts for different teams don't
-        // contend; same-team inserts serialize briefly on the row. Returns the
-        // new counter value per team — we then derive individual job counters
-        // by subtracting back through the batch.
-        //
-        // Hatchet `p_max_assigned`: new-team rows insert at `MAX + increment`
-        // so they slot in next to established teams. Existing-team rows still
-        // add just `increment` (we subtract the MAX shift back out in the ON
-        // CONFLICT branch). MAX is computed once per batch via the CTE.
-        const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
-            `WITH max_counter AS (
-                 SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
-             )
-             INSERT INTO cyclotron_email_team_seq (team_id, counter)
-             SELECT team_id, increment + (SELECT m FROM max_counter)
-             FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
-             ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter
-                            + (EXCLUDED.counter - (SELECT m FROM max_counter))
-             RETURNING team_id, counter`,
-            [teamIds, increments]
-        )
-
-        const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
-
-        for (const [teamId, indices] of indicesByTeam) {
-            const newCounter = newCounters.get(teamId)
-            if (newCounter === undefined) {
-                // Should never happen — every team in indicesByTeam was UPSERTed.
-                logger.error('Missing counter after UPSERT in computeEmailDequeueSeqs', { teamId })
-                continue
-            }
-            const startCounter = newCounter - BigInt(indices.length) + 1n
-            const teamIdBigInt = BigInt(teamId)
-            for (let k = 0; k < indices.length; k++) {
-                const counterForThisJob = startCounter + BigInt(k)
-                // pg accepts BIGINT as string to avoid JS number precision loss
-                dequeueSeqs[indices[k]] = (counterForThisJob * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
-            }
-        }
-
-        return dequeueSeqs
     }
 
     // "In flight" = jobs still owned by the queue: parked waits/delays ('available' with a future
@@ -761,14 +774,33 @@ export class CyclotronV2Manager {
         }
     }
 
-    private isFull(): Promise<boolean> {
-        if (this.depthCheckPromise && Date.now() < this.depthCheckExpiresAt) {
-            return this.depthCheckPromise
+    // Stale-while-revalidate: an insert never waits for the depth COUNT once a
+    // verdict exists. An expired verdict starts one background refresh and the
+    // insert uses the old verdict. Only the first check of the process waits,
+    // because no verdict exists yet. Admitting inserts without a verdict would
+    // skip the guard after every restart, and restarts often happen while the
+    // queue is backed up.
+    private async isFull(): Promise<boolean> {
+        if (this.depthVerdict === null) {
+            return await this.refreshDepthVerdict()
         }
+        if (Date.now() >= this.depthVerdictExpiresAt) {
+            void this.refreshDepthVerdict()
+        }
+        return this.depthVerdict
+    }
 
-        this.depthCheckPromise = this.queryDepth()
-        this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
-        return this.depthCheckPromise
+    // Concurrent callers share the in-flight refresh. queryDepth catches its own
+    // errors and resolves to false (fail open), so this promise never rejects and
+    // a fire-and-forget call cannot cause an unhandled rejection.
+    private refreshDepthVerdict(): Promise<boolean> {
+        this.depthRefresh ??= this.queryDepth().then((full) => {
+            this.depthVerdict = full
+            this.depthVerdictExpiresAt = Date.now() + this.depthCheckIntervalMs
+            this.depthRefresh = null
+            return full
+        })
+        return this.depthRefresh
     }
 
     private async queryDepth(): Promise<boolean> {
