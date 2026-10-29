@@ -1,9 +1,11 @@
 import { act, cleanup, render } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { todayPanelChatSessionLogic } from '~/layout/today/todayPanelChatSessionLogic'
@@ -119,7 +121,7 @@ describe('useMaxTool', () => {
         panelChat.unmount()
     })
 
-    it('attaches only the last clicked tool context and keeps it current', () => {
+    it('attaches only the last clicked tool context, keeps it current, and releases it once a chat opens', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         const unmountContextStore = attachedContextLogic.mount()
         const openers: Record<string, UseMaxToolReturn['openMax']> = {}
@@ -146,6 +148,13 @@ describe('useMaxTool', () => {
         rerender(tools('select 2'))
         expect(toolContextValues()).toEqual([JSON.stringify({ query: 'select 2' })])
 
+        act(() => router.actions.push(urls.sqlEditor()))
+        expect(attachedContextLogic.values.contextItems[0]).toMatchObject({ type: 'page', key: urls.sqlEditor() })
+
+        act(() => runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-1' }))
+        expect(attachedContextLogic.values.contextItems).toEqual([])
+
+        act(() => openers.sql?.())
         unmount()
         expect(attachedContextLogic.values.contextItems).toEqual([])
         unmountContextStore()
