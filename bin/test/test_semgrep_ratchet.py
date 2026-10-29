@@ -9,14 +9,17 @@ import unittest
 
 from parameterized import parameterized
 
-from bin.semgrep_ratchet import compare, main, parse_baseline, render_baseline
+from bin.semgrep_ratchet import compare, error_paths, main, parse_baseline, render_baseline
 
 
-def semgrep_output(*paths: str) -> dict:
+def semgrep_output(*paths: str, errors: list[dict] | None = None) -> dict:
     return {
         "results": [{"path": path, "check_id": "rule", "start": {"line": 1}} for path in paths],
-        "errors": [],
+        "errors": errors or [],
     }
+
+
+TIMEOUT = {"type": "Timeout", "path": "a.py"}
 
 
 class TestSemgrepRatchet(unittest.TestCase):
@@ -47,7 +50,35 @@ class TestSemgrepRatchet(unittest.TestCase):
     ) -> None:
         result = compare(findings, baseline)
 
-        assert (result.over, result.stale) == (expected_over, expected_stale)
+        assert (result.over, result.stale, result.unchecked) == (expected_over, expected_stale, {})
+
+    @parameterized.expand(
+        [
+            ("fewer", Counter({"a.py": 1}), {"a.py": 2}, {}, {}, {"a.py": (1, 2)}),
+            ("none", Counter(), {"a.py": 2}, {}, {}, {"a.py": (0, 2)}),
+            ("more_still_fails", Counter({"a.py": 3}), {"a.py": 2}, {"a.py": (3, 2)}, {}, {}),
+            ("other_file_still_stale", Counter({"a.py": 2}), {"a.py": 2, "b.py": 2}, {}, {"b.py": (0, 2)}, {}),
+        ]
+    )
+    def test_compare_with_an_error_in_a_file(
+        self,
+        _name: str,
+        findings: Counter[str],
+        baseline: dict[str, int],
+        expected_over: dict[str, tuple[int, int]],
+        expected_stale: dict[str, tuple[int, int]],
+        expected_unchecked: dict[str, tuple[int, int]],
+    ) -> None:
+        result = compare(findings, baseline, incomplete=frozenset({"a.py"}))
+
+        assert (result.over, result.stale, result.unchecked) == (expected_over, expected_stale, expected_unchecked)
+
+    def test_error_paths_reads_the_path_and_the_spans(self) -> None:
+        output = semgrep_output(
+            errors=[TIMEOUT, {"type": "Syntax error", "spans": [{"file": "b.py"}, {"file": "c.py"}]}, {"type": "x"}]
+        )
+
+        assert error_paths(output) == frozenset({"a.py", "b.py", "c.py"})
 
     @parameterized.expand(
         [
@@ -72,13 +103,17 @@ class TestSemgrepRatchet(unittest.TestCase):
             ("matches", ("a.py", "a.py"), "a.py 2\n", 0),
             ("new_finding", ("a.py", "a.py", "b.py"), "a.py 2\n", 1),
             ("stale_entry", ("a.py",), "a.py 2\n", 1),
+            ("stale_entry_with_an_error", ("a.py",), "a.py 2\n", 0, [TIMEOUT]),
+            ("new_finding_with_an_error", ("a.py", "a.py", "a.py"), "a.py 2\n", 1, [TIMEOUT]),
         ]
     )
-    def test_main_exit_code(self, _name: str, paths: tuple[str, ...], baseline: str, expected: int) -> None:
+    def test_main_exit_code(
+        self, _name: str, paths: tuple[str, ...], baseline: str, expected: int, errors: list[dict] | None = None
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             findings_file = Path(directory) / "findings.json"
             baseline_file = Path(directory) / "baseline.txt"
-            findings_file.write_text(json.dumps(semgrep_output(*paths)))
+            findings_file.write_text(json.dumps(semgrep_output(*paths, errors=errors)))
             baseline_file.write_text(baseline)
 
             exit_code = main(["--findings", str(findings_file), "--baseline", str(baseline_file)])
@@ -98,3 +133,15 @@ class TestSemgrepRatchet(unittest.TestCase):
             written = baseline_file.read_text()
 
         assert (update_exit_code, check_exit_code, written) == (0, 0, "# header\na.py 2\nb.py 1\n")
+
+    def test_main_update_keeps_the_count_of_a_file_with_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            findings_file = Path(directory) / "findings.json"
+            baseline_file = Path(directory) / "baseline.txt"
+            findings_file.write_text(json.dumps(semgrep_output("b.py", errors=[TIMEOUT])))
+            baseline_file.write_text("a.py 3\nb.py 2\n")
+
+            main(["--findings", str(findings_file), "--baseline", str(baseline_file), "--update"])
+            written = baseline_file.read_text()
+
+        assert written == "a.py 3\nb.py 1\n"

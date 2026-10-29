@@ -22,6 +22,7 @@ from posthog.permissions import APIScopePermission, get_authenticator_scopes
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.onboarding import (
     InboxOnboarding,
+    InboxOnboardingPermissionError,
     InboxOnboardingValidationError,
     can_create_onboarding_scout,
     onboarding_first_report_statuses,
@@ -62,7 +63,16 @@ class InboxOnboardingSourceSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether this source should be enabled at activation.")
 
 
+class InboxActivationMode(models.TextChoices):
+    GITHUB_OPTIONAL = "github_optional", "GitHub optional"
+
+
 class InboxOnboardingDraftSerializer(serializers.Serializer):
+    activation_mode = serializers.ChoiceField(
+        choices=InboxActivationMode.choices,
+        required=False,
+        help_text="Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.",
+    )
     step = serializers.ChoiceField(choices=InboxOnboardingStep.choices, help_text="Step to resume after returning.")
     sources: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
         child=InboxOnboardingSourceSerializer(), max_length=50, help_text="Staged signal source choices."
@@ -135,6 +145,9 @@ class FirstReportStateSerializer(serializers.Serializer):
 
 @extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    github_optional_available = serializers.BooleanField(
+        required=False, help_text="Whether this project can activate Self-driving without connecting GitHub."
+    )
     first_report_completion_notification = serializers.BooleanField(
         required=False,
         help_text="Whether the current user can receive an in-app notification when this investigation finishes.",
@@ -226,7 +239,10 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = InboxOnboardingDraftSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return Response(self._service().save_draft(dict(serializer.data)))
+        try:
+            return Response(self._service().save_draft(dict(serializer.data)))
+        except InboxOnboardingValidationError as error:
+            raise serializers.ValidationError(str(error)) from error
 
     @extend_schema(request=InboxOnboardingDraftSerializer, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])
@@ -237,5 +253,7 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._check_scout_access(request)
         try:
             return Response(self._service().complete(dict(serializer.data)))
+        except InboxOnboardingPermissionError as error:
+            raise PermissionDenied(str(error)) from error
         except InboxOnboardingValidationError as error:
             raise serializers.ValidationError(str(error)) from error

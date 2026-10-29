@@ -18,7 +18,8 @@ UsageProvider = Callable[[int, int], Iterable[IntegrationUsage]]
 PRODUCT_MODULE = "integration_usages"
 PRODUCT_FUNCTION = "integration_usages"
 
-_lock = threading.Lock()
+# Reentrant: a provider module can call `register_usage_provider` while `_providers` imports it.
+_lock = threading.RLock()
 _registered: list[UsageProvider] = []
 _product_providers: list[UsageProvider] | None = None
 

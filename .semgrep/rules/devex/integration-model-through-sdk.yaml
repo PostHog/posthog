@@ -13,10 +13,11 @@ rules:
               IntegrationManager.any.get(team_id, integration_id)
 
           The integration rows move to a separate service. The SDK is the closed set of operations that
-          keeps working after the move, so code outside it must not import the model, query
-          `Integration.objects`, add a foreign key to it, join it with `select_related`,
-          `prefetch_related` or an `integration__` lookup, or call `.save()` on a row. For a DRF field,
-          use `IntegrationReferenceField` from `products/integrations/backend/presentation/fields.py`.
+          keeps working after the move, so code outside it must not import the model, use one of its
+          managers (`Integration.objects`, `_default_manager`, `_base_manager`), load it with
+          `apps.get_model`, add a relation field to it, join it with `select_related`, `prefetch_related`
+          or an `integration__` lookup, or call `.save()` on a row. For a DRF field, use
+          `IntegrationReferenceField` from `products/integrations/backend/presentation/fields.py`.
           See `products/integrations/backend/README.md`.
 
           After you move a file to the SDK, lower its count in
@@ -51,17 +52,40 @@ rules:
           - pattern: from posthog.models.integration import Integration
           - pattern: from posthog.models.integration.model import Integration
           - pattern: import posthog.models.integration.model
+          # A manager of the model. `IntegrationRecord` is the same class while the SDK returns models.
+          # `$MODULE.Integration` also matches an import alias such as `Integration as TeamIntegration`,
+          # because semgrep resolves the alias to its module path.
           - pattern: Integration.objects
           - pattern: $MODULE.Integration.objects
-          # A foreign key or a one-to-one field to the model.
-          - pattern: $MODELS.ForeignKey(Integration, ...)
-          - pattern: $MODELS.ForeignKey("posthog.Integration", ...)
-          - pattern: $MODELS.ForeignKey(..., to=Integration, ...)
-          - pattern: $MODELS.ForeignKey(..., to="posthog.Integration", ...)
-          - pattern: $MODELS.OneToOneField(Integration, ...)
-          - pattern: $MODELS.OneToOneField("posthog.Integration", ...)
-          - pattern: ForeignKey(Integration, ...)
-          - pattern: ForeignKey("posthog.Integration", ...)
+          - pattern: $MODULE.Integration._base_manager
+          - pattern: $MODULE.Integration._default_manager
+          - patterns:
+                - pattern-either:
+                      - pattern: $MODEL.objects
+                      - pattern: $MODEL._base_manager
+                      - pattern: $MODEL._default_manager
+                - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: ^(.*\.)?(Integration|IntegrationRecord)$
+          # The model class looked up by its label.
+          - patterns:
+                - pattern-either:
+                      - pattern: $APPS.get_model($APP, "$NAME")
+                      - pattern: $APPS.get_model("$NAME")
+                - metavariable-regex:
+                      metavariable: $NAME
+                      regex: ^(?i:(posthog\.)?integration)$
+          # A relation field to the model: the class, or its label in any letter case.
+          - patterns:
+                - pattern-either:
+                      - pattern: $FIELD($TARGET, ...)
+                      - pattern: $FIELD(..., to=$TARGET, ...)
+                - metavariable-regex:
+                      metavariable: $FIELD
+                      regex: ^(\w+\.)*(ForeignKey|OneToOneField|ManyToManyField)$
+                - metavariable-regex:
+                      metavariable: $TARGET
+                      regex: ^((\w+\.)*(Integration|IntegrationRecord)|["'](?i:posthog\.integration)["'])$
           # A join through an integration relation.
           - patterns:
                 - pattern-either:
@@ -80,6 +104,18 @@ rules:
                       - pattern: $QUERYSET.update(...)
                       - pattern: Q(...)
                 - pattern-regex: \b(?!\w*(user|org|organization)_integration__)(\w+__)?(\w+_)?integration__\w+\s*=
+          # The same lookup as a string, such as `values("integration__kind")` or `filter(**{"integration__kind": k})`.
+          - patterns:
+                - pattern-either:
+                      - pattern: $QUERYSET.filter(...)
+                      - pattern: $QUERYSET.exclude(...)
+                      - pattern: $QUERYSET.get(...)
+                      - pattern: $QUERYSET.values(...)
+                      - pattern: $QUERYSET.values_list(...)
+                      - pattern: $QUERYSET.order_by(...)
+                      - pattern: F(...)
+                      - pattern: Q(...)
+                - pattern-regex: '["'']-?(\w+__)*(?!(\w+_)?(user|org|organization)_integration__)(\w+_)?integration__\w+["'']'
           - pattern: $OBJECT.integration_set
           # A write to a row outside the SDK. Names only: `self.integration` and `org_integration` are
           # often a UserIntegration or an OrganizationIntegration.

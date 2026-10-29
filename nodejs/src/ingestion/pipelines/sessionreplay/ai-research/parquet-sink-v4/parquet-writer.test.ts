@@ -124,7 +124,7 @@ describe('indexRowsToParquet', () => {
         expect(fields).toEqual(SCHEMAS[index])
     })
 
-    it('reads back the values it writes, in row groups of the given size, with snappy on every column', async () => {
+    it('reads back the values it writes, in row groups of the given size, with zstd on every column', async () => {
         const image = {
             team_id: 7,
             key_month: '2026-10',
@@ -139,7 +139,7 @@ describe('indexRowsToParquet', () => {
             await indexRowsToParquet('images', Array(5).fill(image), 2)
         )
         expect(rowGroups).toBe(3)
-        expect(codecs).toEqual(Array(3 * 8).fill(CompressionCodec.SNAPPY))
+        expect(codecs).toEqual(Array(3 * 8).fill(CompressionCodec.ZSTD))
         expect(rows).toEqual(Array(5).fill({ ...image, team_id: 7n, byte_start: 0n, byte_end: 99n, byte_size: 60n }))
     })
 
@@ -168,8 +168,30 @@ describe('indexRowsToParquet', () => {
 
         const { rows } = await describeFile(file)
         expect((rows as Record<string, unknown>[])[0]).toMatchObject({ urls, urls_truncated: false })
-        // Snappy cannot shrink random base64, so the file is about one copy of the value.
+        // Zstd shrinks random base64 by about a quarter, so a second copy in the statistics would break this bound.
         expect(file.length).toBeLessThan(urls.length * 1.1)
+    })
+
+    it('writes blocks in (team_id, session_id, first_ts_ms) order, with a null first_ts_ms last', async () => {
+        const at = (team_id: number, session_id: string, first_ts_ms: number | null): Record<string, unknown> => ({
+            ...block([], []),
+            team_id,
+            session_id,
+            first_ts_ms,
+        })
+        const arrival = [at(10, 'a', 1), at(2, 'b', null), at(2, 'b', 30), at(2, 'a', 5), at(2, 'b', 4)]
+
+        const { rows } = await describeFile(await indexRowsToParquet('blocks', arrival, 1_000))
+
+        expect(
+            (rows as Record<string, unknown>[]).map((row) => [row.team_id, row.session_id, row.first_ts_ms ?? null])
+        ).toEqual([
+            [2n, 'a', 5n],
+            [2n, 'b', 4n],
+            [2n, 'b', 30n],
+            [2n, 'b', null],
+            [10n, 'a', 1n],
+        ])
     })
 
     it('reads moments back as a list of structs and the string lists as lists', async () => {

@@ -7,7 +7,7 @@ import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSessi
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
 import { SampleTraceFixture } from '../sampleFixtures/sampleTraceFixture'
-import { FIXTURE_EVAL_OUTCOMES, FIXTURE_EVALS_CHIP, FIXTURE_TRACE, withWidth } from '../storyFixtures'
+import { FIXTURE_EVAL_OUTCOMES, FIXTURE_EVALS_CHIP, FIXTURE_SUMMARY, FIXTURE_TRACE, withWidth } from '../storyFixtures'
 import { EvalRollupOutcome, EvalsChipData, NodeDetailTab, TraceMode } from '../types'
 import { TraceView } from './TraceView'
 
@@ -87,6 +87,16 @@ function Playground({ fixture, initialMode, initialNodeId, evals, evalOutcomes =
             thread={fixture.thread}
             timeline={fixture.timeline}
             evalOutcomes={evalOutcomes}
+            summaryMode={{
+                state: { status: 'ready', summary: FIXTURE_SUMMARY },
+                requesting: false,
+                requestError: null,
+                consentGiven: true,
+                onRequest: () => {},
+                onRegenerate: () => {},
+                onReload: () => {},
+                onSelectStep: selectAndShowSpans,
+            }}
         />
     )
 }

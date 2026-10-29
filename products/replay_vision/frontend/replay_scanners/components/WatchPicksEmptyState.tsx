@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -8,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { resolveWatchFeedEmptyReason } from '../watchFeedEmptyState'
+import { watchPicksLogic } from '../watchPicksLogic'
 import { WatchPicksBlockedState } from './WatchPicksBlockedState'
 import { WatchPicksQuietState } from './WatchPicksQuietState'
 import { WatchPicksReplayOffState } from './WatchPicksReplayOffState'
@@ -17,18 +19,29 @@ export function WatchPicksEmptyState({ size }: { size: 'small' | 'large' }): JSX
     const { scanners, scannersLoading } = useValues(visionScannersListLogic)
     const { quota, quotaLoading } = useValues(visionQuotaLogic)
     const { currentTeam } = useValues(teamLogic)
+    const picksLogic = useMountedLogic(watchPicksLogic)
+    const { emptyStateShown } = useActions(picksLogic)
     const large = size === 'large'
+    const loading = scannersLoading || quotaLoading
 
-    if (scannersLoading || quotaLoading) {
+    const reason = loading
+        ? null
+        : resolveWatchFeedEmptyReason({
+              scanners,
+              quota,
+              sessionRecordingOptIn: currentTeam?.session_recording_opt_in ?? null,
+              hasFeedFilters: false,
+          })
+
+    useEffect(() => {
+        if (reason) {
+            emptyStateShown(reason)
+        }
+    }, [reason, emptyStateShown])
+
+    if (!reason) {
         return <LemonSkeleton className={cn('w-full rounded', large ? 'h-64' : 'h-40')} />
     }
-
-    const reason = resolveWatchFeedEmptyReason({
-        scanners,
-        quota,
-        sessionRecordingOptIn: currentTeam?.session_recording_opt_in ?? null,
-        hasFeedFilters: false,
-    })
     if (reason === 'replay-off') {
         return <WatchPicksReplayOffState size={size} />
     }

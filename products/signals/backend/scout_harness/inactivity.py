@@ -133,6 +133,7 @@ _ENGAGED_REPORT_STATUSES: frozenset[str] = frozenset(
     {
         SignalReport.Status.RESOLVED,
         SignalReport.Status.MONITORING,
+        SignalReport.Status.CLOSED,
         SignalReport.Status.DELETED,
     }
 )
