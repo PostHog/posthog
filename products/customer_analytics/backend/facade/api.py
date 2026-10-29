@@ -125,6 +125,7 @@ from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
     account_search_q,
     apply_account_filters,
+    filter_valid_account_filters,
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
@@ -3203,10 +3204,13 @@ class _AccountTableDefinitions:
     relationships: dict[UUID, AccountRelationshipDefinition]
     custom_properties: dict[UUID, CustomPropertyDefinition]
 
-    def filter_known_definitions(
-        self, filters: tuple[contracts.AccountTableFilter, ...]
+    def filter_supported_filters(
+        self,
+        filters: tuple[contracts.AccountTableFilter, ...],
+        *,
+        ignore_invalid_custom_property_filters: bool,
     ) -> tuple[contracts.AccountTableFilter, ...]:
-        return tuple(
+        known_filters = tuple(
             filter_
             for filter_ in filters
             if (
@@ -3223,6 +3227,9 @@ class _AccountTableDefinitions:
                 )
             )
         )
+        if ignore_invalid_custom_property_filters:
+            return filter_valid_account_filters(known_filters, custom_property_display_types=self.display_types)
+        return known_filters
 
     @property
     def display_types(self) -> dict[UUID, DisplayType]:
@@ -3359,7 +3366,6 @@ def _apply_account_table_filters(
     custom_property_display_types: dict[UUID, DisplayType],
     include_churned: bool,
     include_ignored: bool,
-    ignore_invalid_custom_property_filters: bool = False,
 ) -> QuerySet[Account]:
     member_external_ids_by_query: dict[str, tuple[str, ...]] = {}
     for filter_ in filters:
@@ -3378,7 +3384,6 @@ def _apply_account_table_filters(
             filters=filters,
             custom_property_display_types=custom_property_display_types,
             member_external_ids_by_query=member_external_ids_by_query,
-            ignore_invalid_custom_property_filters=ignore_invalid_custom_property_filters,
         )
         if filter_groups:
             matching_groups = Q()
@@ -3394,7 +3399,6 @@ def _apply_account_table_filters(
                     team_id=team_id,
                     filters=group,
                     custom_property_display_types=custom_property_display_types,
-                    ignore_invalid_custom_property_filters=ignore_invalid_custom_property_filters,
                 )
                 matching_groups |= Q(pk__in=group_query.order_by().values("pk"))
             queryset = queryset.filter(matching_groups)
@@ -3525,8 +3529,18 @@ def query_accounts_metrics(
         sort=None,
         ignore_missing_definitions=ignore_missing_definitions,
     )
-    filters = definitions.filter_known_definitions(filters)
-    filter_groups = tuple(known for group in filter_groups if (known := definitions.filter_known_definitions(group)))
+    filters = definitions.filter_supported_filters(
+        filters, ignore_invalid_custom_property_filters=ignore_missing_definitions
+    )
+    filter_groups = tuple(
+        known
+        for group in filter_groups
+        if (
+            known := definitions.filter_supported_filters(
+                group, ignore_invalid_custom_property_filters=ignore_missing_definitions
+            )
+        )
+    )
     custom_property_display_types = definitions.display_types
     non_numeric_definition_ids = {
         definition_id
@@ -3551,7 +3565,6 @@ def query_accounts_metrics(
         custom_property_display_types=custom_property_display_types,
         include_churned=include_churned,
         include_ignored=include_ignored,
-        ignore_invalid_custom_property_filters=ignore_missing_definitions,
     )
     results: list[float | int | None] = [None] * len(metrics)
     for index, metric in enumerate(metrics):
@@ -3640,8 +3653,18 @@ def query_accounts_table(
         ignore_missing_definitions=ignore_missing_definitions,
     )
 
-    filters = definitions.filter_known_definitions(filters)
-    filter_groups = tuple(known for group in filter_groups if (known := definitions.filter_known_definitions(group)))
+    filters = definitions.filter_supported_filters(
+        filters, ignore_invalid_custom_property_filters=ignore_missing_definitions
+    )
+    filter_groups = tuple(
+        known
+        for group in filter_groups
+        if (
+            known := definitions.filter_supported_filters(
+                group, ignore_invalid_custom_property_filters=ignore_missing_definitions
+            )
+        )
+    )
     custom_property_display_types = definitions.display_types
     selection = definitions.selection
     sort = definitions.sort
@@ -3660,7 +3683,6 @@ def query_accounts_table(
         custom_property_display_types=custom_property_display_types,
         include_churned=include_churned,
         include_ignored=include_ignored,
-        ignore_invalid_custom_property_filters=ignore_missing_definitions,
     )
     queryset = _apply_account_table_sort(
         queryset,

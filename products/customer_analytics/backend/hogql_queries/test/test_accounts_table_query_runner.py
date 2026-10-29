@@ -433,6 +433,7 @@ class TestAccountsTableQueryRunner(BaseTest):
     @parameterized.expand(
         [
             ("comparison_on_text", DisplayType.TEXT, AccountsTableCustomPropertyOperator.GT, [10]),
+            ("equality_on_number", DisplayType.NUMBER, AccountsTableCustomPropertyOperator.EXACT, ["gold"]),
             ("contains_on_number", DisplayType.NUMBER, AccountsTableCustomPropertyOperator.ICONTAINS, ["large"]),
             ("date_on_text", DisplayType.TEXT, AccountsTableCustomPropertyOperator.IS_DATE_AFTER, ["2026-01-01"]),
         ]
@@ -446,7 +447,7 @@ class TestAccountsTableQueryRunner(BaseTest):
     ) -> None:
         definition = create_custom_property_definition(team_id=self.team.id, name="Changed", display_type=display_type)
         account = create_account(team_id=self.team.id, name="Visible")
-        create_account(team_id=self.team.id, name="Other")
+        other = create_account(team_id=self.team.id, name="Other")
         query = AccountsTableQuery(
             columns=[AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME)],
             filterGroups=[
@@ -466,10 +467,21 @@ class TestAccountsTableQueryRunner(BaseTest):
             self._run(query)
 
         query.ignoreMissingDefinitions = True
+        invalid_filter, valid_filter = query.filterGroups[0]
+        for split_groups in (False, True):
+            query.filterGroups = (
+                [[invalid_filter], [valid_filter]] if split_groups else [[invalid_filter, valid_filter]]
+            )
+            rows = self._run(query)
+            metrics = self._run(query.model_copy(update={"columns": [], "metrics": [AccountsTableCountMetric()]}))
+            assert [row.id for row in rows.results] == [str(account.id)]
+            assert metrics.metricsResults == [1]
+
+        query.filterGroups = [[invalid_filter]]
         rows = self._run(query)
         metrics = self._run(query.model_copy(update={"columns": [], "metrics": [AccountsTableCountMetric()]}))
-        assert [row.id for row in rows.results] == [str(account.id)]
-        assert metrics.metricsResults == [1]
+        assert {row.id for row in rows.results} == {str(account.id), str(other.id)}
+        assert metrics.metricsResults == [2]
 
     def test_hydrates_custom_properties_with_bounded_queries(self) -> None:
         definition = create_custom_property_definition(
