@@ -3359,6 +3359,7 @@ def _apply_account_table_filters(
     custom_property_display_types: dict[UUID, DisplayType],
     include_churned: bool,
     include_ignored: bool,
+    ignore_invalid_custom_property_filters: bool = False,
 ) -> QuerySet[Account]:
     member_external_ids_by_query: dict[str, tuple[str, ...]] = {}
     for filter_ in filters:
@@ -3377,6 +3378,7 @@ def _apply_account_table_filters(
             filters=filters,
             custom_property_display_types=custom_property_display_types,
             member_external_ids_by_query=member_external_ids_by_query,
+            ignore_invalid_custom_property_filters=ignore_invalid_custom_property_filters,
         )
         if filter_groups:
             matching_groups = Q()
@@ -3392,6 +3394,7 @@ def _apply_account_table_filters(
                     team_id=team_id,
                     filters=group,
                     custom_property_display_types=custom_property_display_types,
+                    ignore_invalid_custom_property_filters=ignore_invalid_custom_property_filters,
                 )
                 matching_groups |= Q(pk__in=group_query.order_by().values("pk"))
             queryset = queryset.filter(matching_groups)
@@ -3525,11 +3528,14 @@ def query_accounts_metrics(
     filters = definitions.filter_known_definitions(filters)
     filter_groups = tuple(known for group in filter_groups if (known := definitions.filter_known_definitions(group)))
     custom_property_display_types = definitions.display_types
-    for definition_id in definition_ids:
-        if definition_id not in custom_property_display_types:
-            continue
-        if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
-            raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
+    non_numeric_definition_ids = {
+        definition_id
+        for definition_id in definition_ids
+        if definition_id in custom_property_display_types
+        and DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC
+    }
+    if non_numeric_definition_ids and not ignore_missing_definitions:
+        raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
     accounts = _accounts_queryset(team_id, user_access_control)
     if not filter_groups:
@@ -3545,6 +3551,7 @@ def query_accounts_metrics(
         custom_property_display_types=custom_property_display_types,
         include_churned=include_churned,
         include_ignored=include_ignored,
+        ignore_invalid_custom_property_filters=ignore_missing_definitions,
     )
     results: list[float | int | None] = [None] * len(metrics)
     for index, metric in enumerate(metrics):
@@ -3554,9 +3561,9 @@ def query_accounts_metrics(
     aggregate_expressions: dict[str, Aggregate] = {}
     for index, metric in enumerate(metrics):
         alias = f"metric_{index}"
-        if (
-            isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric)
-            and metric.definition_id not in custom_property_display_types
+        if isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric) and (
+            metric.definition_id not in custom_property_display_types
+            or metric.definition_id in non_numeric_definition_ids
         ):
             continue
         if isinstance(metric, contracts.AccountTableAggregateMetric):
@@ -3653,6 +3660,7 @@ def query_accounts_table(
         custom_property_display_types=custom_property_display_types,
         include_churned=include_churned,
         include_ignored=include_ignored,
+        ignore_invalid_custom_property_filters=ignore_missing_definitions,
     )
     queryset = _apply_account_table_sort(
         queryset,
@@ -3766,7 +3774,20 @@ def query_accounts_table(
         )
         for account in accounts
     ]
-    workflow_references = _custom_property_references_by_definition_id(team_id) if definitions.custom_properties else {}
+    workflow_reference_ids: frozenset[str] = (
+        frozenset(
+            cast(
+                list[str],
+                cache.get_or_set(
+                    f"customer_analytics:account_table_workflow_references:{team_id}",
+                    lambda: list(_custom_property_references_by_definition_id(team_id)),
+                    timeout=60,
+                ),
+            )
+        )
+        if definitions.custom_properties
+        else frozenset()
+    )
     property_definitions = []
     for definition in definitions.custom_properties.values():
         try:
@@ -3781,7 +3802,7 @@ def query_accounts_table(
                 display_type=definition.display_type,
                 is_big_number=definition.is_big_number,
                 is_canonical=definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME,
-                has_workflow_reference=bool(workflow_references.get(str(definition.id))),
+                has_workflow_reference=str(definition.id) in workflow_reference_ids,
                 source_id=source_id,
                 options=definition.options,
             )

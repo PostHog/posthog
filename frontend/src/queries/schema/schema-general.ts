@@ -3450,6 +3450,7 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
     useDefaultColumns?: boolean
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
     ignoreMissingDefinitions?: boolean
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]

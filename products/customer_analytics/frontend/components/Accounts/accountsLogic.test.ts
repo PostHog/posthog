@@ -15,7 +15,9 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AccountsTableAccountField,
     AccountsTableAccountFieldOperator,
+    AccountsTableAggregation,
     AccountsTableCustomPropertyOperator,
+    AccountsTableThresholdOperator,
     type AccountsTableQuery,
     type AccountsTableQueryResponse,
     NodeKind,
@@ -421,9 +423,31 @@ describe('accountsLogic', () => {
         logic = accountsLogic()
         logic.mount()
         logic.actions.setAwaitingSavedView(false)
+        const tiles = accountsOverviewTilesLogic.findMounted()!
+        const columnExpression = `toFloatOrNull(accounts.custom_properties.values.\`${CSM_DEFINITION_ID}\`)`
+        tiles.actions.setTiles([
+            { id: 'saved-total', label: 'Total', metric: { type: 'sum', columnExpression, columnLabel: 'Amount' } },
+            {
+                id: 'saved-threshold',
+                label: 'Above threshold',
+                metric: { type: 'count_threshold', columnExpression, columnLabel: 'Amount', operator: '>', value: 10 },
+            },
+        ])
 
         expect(logic.values.accountsQuerySource?.useDefaultColumns).toBe(true)
-        expect(logic.values.metricsQuery).not.toBeNull()
+        expect(logic.values.metricsQuery?.metrics).toEqual([
+            {
+                kind: 'aggregate',
+                aggregation: AccountsTableAggregation.Sum,
+                column: { kind: 'custom_property', definitionId: CSM_DEFINITION_ID },
+            },
+            {
+                kind: 'count_threshold',
+                column: { kind: 'custom_property', definitionId: CSM_DEFINITION_ID },
+                operator: AccountsTableThresholdOperator.GreaterThan,
+                value: 10,
+            },
+        ])
         expect(mockDefinitionsList).not.toHaveBeenCalled()
         expect(mockCustomPropertiesList).not.toHaveBeenCalled()
     })
@@ -1396,11 +1420,35 @@ describe('accountsLogic', () => {
         it('resolves to the account even when the viewer has filters of their own', async () => {
             logic.actions.setSearchQuery('something else')
             logic.actions.setAssignedToFilter([99])
+            const customFilter = {
+                type: PropertyFilterType.AccountCustomProperty as const,
+                key: CSM_DEFINITION_ID,
+                operator: PropertyOperator.Exact,
+                value: 'saved filter',
+            }
+            logic.actions.setAccountFilters([customFilter])
+            logic.actions.setAccountFilterGroups([[customFilter]])
 
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.accountsQuerySource?.filters).toEqual([{ kind: 'account_id', accountId: ACCOUNT_ID }])
+            logic.actions.listLoadData(undefined, 'deep-link-response')
+            logic.actions.listLoadDataSuccess(
+                {
+                    kind: NodeKind.AccountsTableQuery,
+                    results: [],
+                    hasMore: false,
+                    limit: 100,
+                    offset: 0,
+                    columns: [],
+                    customPropertyDefinitions: [],
+                    relationshipDefinitions: [],
+                },
+                { queryId: 'deep-link-response', overrideQuery: undefined, pollOnly: true, refresh: undefined }
+            )
+            expect(logic.values.accountFilters).toEqual([customFilter])
+            expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
         })
 
         it('clears OR groups when opening an account hidden by the current filters', () => {

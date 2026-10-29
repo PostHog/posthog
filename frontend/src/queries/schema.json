@@ -755,6 +755,7 @@
                     "type": "array"
                 },
                 "ignoreMissingDefinitions": {
+                    "description": "Omit missing definitions and custom-property filters incompatible with their current types.",
                     "type": "boolean"
                 },
                 "includeChurned": {

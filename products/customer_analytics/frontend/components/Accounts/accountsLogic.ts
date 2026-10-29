@@ -1385,6 +1385,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 queryId,
                 datasetKey: values.listDatasetKey,
                 serverSortOrder: values.serverSortOrder,
+                validatesViewFilters: !values.accountIdFilter,
             }
             if (cache.awaitingCustomPropertyRefresh) {
                 cache.awaitingCustomPropertyRefresh = false
@@ -1422,7 +1423,11 @@ export const accountsLogic = kea<accountsLogicType>([
                 if ('columns' in response && 'kind' in response && response.kind === NodeKind.AccountsTableQuery) {
                     const tableResponse = response as AccountsTableQueryResponse
                     actions.hydrateTableDefinitions(tableResponse, values.querySelectColumns)
-                    if (tableResponse.customPropertyDefinitions && tableResponse.relationshipDefinitions) {
+                    if (
+                        requestState.validatesViewFilters &&
+                        tableResponse.customPropertyDefinitions &&
+                        tableResponse.relationshipDefinitions
+                    ) {
                         const customById = Object.fromEntries(
                             tableResponse.customPropertyDefinitions.map((definition) => [definition.id, definition])
                         )

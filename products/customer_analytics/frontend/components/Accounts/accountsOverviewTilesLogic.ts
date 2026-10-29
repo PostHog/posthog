@@ -238,18 +238,6 @@ export function parseTileValues(
     return values
 }
 
-function reconcileTilesAgainstSchema(
-    tiles: AccountsOverviewTile[],
-    numericExpressions: Set<string>
-): AccountsOverviewTile[] {
-    return tiles.filter((tile) => {
-        if (tile.metric.type === 'count') {
-            return true
-        }
-        return numericExpressions.has(tile.metric.columnExpression) && tileQueryMetric(tile) !== null
-    })
-}
-
 export function diffOverviewTiles(
     before: AccountsOverviewTile[],
     after: AccountsOverviewTile[]
@@ -312,7 +300,6 @@ export interface accountsOverviewTilesLogicValues {
     accountsResponseLoading: boolean // dataNodeLogic
     editorVisible: boolean
     metrics: AccountsTableMetric[]
-    numericColumnExpressions: Set<string>
     numericColumns: AccountColumnOption[]
     reconciledTiles: AccountsOverviewTile[]
     selectedTileId: string | null
@@ -377,11 +364,7 @@ export interface accountsOverviewTilesLogicActions {
 export interface accountsOverviewTilesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         numericColumns: (accountsColumnGroups: AccountColumnGroup[]) => AccountColumnOption[]
-        numericColumnExpressions: (numericColumns: AccountColumnOption[]) => Set<string>
-        reconciledTiles: (
-            tiles: AccountsOverviewTile[],
-            numericColumnExpressions: Set<string>
-        ) => AccountsOverviewTile[]
+        reconciledTiles: (tiles: AccountsOverviewTile[]) => AccountsOverviewTile[]
         metrics: (reconciledTiles: AccountsOverviewTile[]) => AccountsTableMetric[]
         tileValues: (
             accountsResponse:
@@ -488,14 +471,10 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             (s) => [s.accountsColumnGroups],
             (groups: AccountColumnGroup[]): AccountColumnOption[] => numericColumnOptions(groups),
         ],
-        numericColumnExpressions: [
-            (s) => [s.numericColumns],
-            (options: AccountColumnOption[]): Set<string> => new Set(options.map((o) => o.expression)),
-        ],
         reconciledTiles: [
-            (s) => [s.tiles, s.numericColumnExpressions],
-            (tiles: AccountsOverviewTile[], expressions: Set<string>): AccountsOverviewTile[] =>
-                reconcileTilesAgainstSchema(tiles, expressions),
+            (s) => [s.tiles],
+            (tiles: AccountsOverviewTile[]): AccountsOverviewTile[] =>
+                tiles.filter((tile) => tileQueryMetric(tile) !== null),
         ],
         metrics: [
             (s) => [s.reconciledTiles],

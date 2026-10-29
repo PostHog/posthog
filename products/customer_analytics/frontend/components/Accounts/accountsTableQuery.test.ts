@@ -362,24 +362,36 @@ describe('accountsTableQuery', () => {
         ])
     })
 
-    it.each([PropertyOperator.IContains, PropertyOperator.GreaterThan, PropertyOperator.IsDateBefore])(
-        'keeps filter transport independent of definition metadata for %s',
-        (operator) => {
-            const input = queryInput({ accountFilters: [customFilter({ operator }), relationshipFilter()] })
-            const known = buildAccountsTableQueryPlan(input)
-            const unknown = buildAccountsTableQueryPlan({
-                ...input,
-                customPropertyDefinitionsById: {},
-                relationshipDefinitionsById: {},
-            })
-            expect(unknown.query).toEqual(known.query)
-            expect(unknown.query.filters).toHaveLength(2)
-        }
-    )
+    it.each([
+        [PropertyOperator.IContains, 'text', 'standard'],
+        [PropertyOperator.GreaterThan, 'currency', 10],
+        [PropertyOperator.IsDateBefore, 'datetime', '2026-01-01'],
+    ] as const)('keeps filter transport independent of definition metadata for %s', (operator, displayType, value) => {
+        const input = queryInput({
+            accountFilters: [customFilter({ operator, value }), relationshipFilter()],
+            customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: { ...definition, display_type: displayType } },
+        })
+        const known = buildAccountsTableQueryPlan(input)
+        const unknown = buildAccountsTableQueryPlan({
+            ...input,
+            customPropertyDefinitionsById: {},
+            relationshipDefinitionsById: {},
+        })
+        expect(unknown.query).toEqual(known.query)
+        expect(unknown.query.filters).toHaveLength(2)
+    })
 
-    it('omits regex filters unsupported by the query schema', () => {
+    it.each([
+        ['regex', 'currency', PropertyOperator.Regex],
+        ['comparison on text', 'text', PropertyOperator.GreaterThan],
+        ['contains on number', 'number', PropertyOperator.IContains],
+        ['date on text', 'text', PropertyOperator.IsDateAfter],
+    ] as const)('omits unsupported %s filters', (_, displayType, operator) => {
         const plan = buildAccountsTableQueryPlan(
-            queryInput({ accountFilters: [customFilter({ operator: PropertyOperator.Regex })] })
+            queryInput({
+                customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: { ...definition, display_type: displayType } },
+                accountFilters: [customFilter({ operator })],
+            })
         )
         expect(plan.query.filters).toEqual([])
     })

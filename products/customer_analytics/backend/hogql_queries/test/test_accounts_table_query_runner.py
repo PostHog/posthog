@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -408,6 +409,68 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert remaining_response.results == []
         assert remaining_response.metricsResults == [12.5, 1]
 
+        definition.display_type = DisplayType.TEXT
+        definition.save(update_fields=["display_type"])
+        restored = self._run(
+            AccountsTableQuery(
+                columns=[],
+                ignoreMissingDefinitions=True,
+                metrics=[
+                    AccountsTableCountMetric(),
+                    AccountsTableAggregateMetric(aggregation=AccountsTableAggregation.SUM, column=column),
+                ],
+            )
+        )
+        assert restored.metricsResults == [3, None]
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    metrics=[AccountsTableAggregateMetric(aggregation=AccountsTableAggregation.SUM, column=column)],
+                )
+            )
+
+    @parameterized.expand(
+        [
+            ("comparison_on_text", DisplayType.TEXT, AccountsTableCustomPropertyOperator.GT, [10]),
+            ("contains_on_number", DisplayType.NUMBER, AccountsTableCustomPropertyOperator.ICONTAINS, ["large"]),
+            ("date_on_text", DisplayType.TEXT, AccountsTableCustomPropertyOperator.IS_DATE_AFTER, ["2026-01-01"]),
+        ]
+    )
+    def test_recovers_saved_filters_with_incompatible_property_types(
+        self,
+        _name: str,
+        display_type: DisplayType,
+        operator: AccountsTableCustomPropertyOperator,
+        values: list[int] | list[str],
+    ) -> None:
+        definition = create_custom_property_definition(team_id=self.team.id, name="Changed", display_type=display_type)
+        account = create_account(team_id=self.team.id, name="Visible")
+        create_account(team_id=self.team.id, name="Other")
+        query = AccountsTableQuery(
+            columns=[AccountsTableAccountFieldColumn(field=AccountsTableAccountField.NAME)],
+            filterGroups=[
+                [
+                    AccountsTableCustomPropertyFilter(
+                        definitionId=str(definition.id), operator=operator, values=values
+                    ),
+                    AccountsTableAccountFieldFilter(
+                        field=AccountsTableAccountField.NAME,
+                        operator=AccountsTableAccountFieldOperator.EXACT,
+                        values=["Visible"],
+                    ),
+                ]
+            ],
+        )
+        with self.assertRaises(ValidationError):
+            self._run(query)
+
+        query.ignoreMissingDefinitions = True
+        rows = self._run(query)
+        metrics = self._run(query.model_copy(update={"columns": [], "metrics": [AccountsTableCountMetric()]}))
+        assert [row.id for row in rows.results] == [str(account.id)]
+        assert metrics.metricsResults == [1]
+
     def test_hydrates_custom_properties_with_bounded_queries(self) -> None:
         definition = create_custom_property_definition(
             team_id=self.team.id,
@@ -423,8 +486,27 @@ class TestAccountsTableQueryRunner(BaseTest):
                 value_num=index,
             )
 
-        with self.assertNumQueries(9):
-            page = api.query_accounts_table(
+        cache.delete(f"customer_analytics:account_table_workflow_references:{self.team.id}")
+        with patch(
+            "products.customer_analytics.backend.facade.api._custom_property_references_by_definition_id",
+            wraps=api._custom_property_references_by_definition_id,
+        ) as references:
+            with self.assertNumQueries(9):
+                page = api.query_accounts_table(
+                    team_id=self.team.id,
+                    user_access_control=UserAccessControl(user=self.user, team=self.team),
+                    selection=contracts.AccountTableColumnSelection(
+                        custom_property_definition_ids=frozenset({definition.id})
+                    ),
+                    filters=(),
+                    sort=None,
+                    offset=0,
+                    limit=100,
+                )
+
+            assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
+
+            api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=UserAccessControl(user=self.user, team=self.team),
                 selection=contracts.AccountTableColumnSelection(
@@ -432,11 +514,10 @@ class TestAccountsTableQueryRunner(BaseTest):
                 ),
                 filters=(),
                 sort=None,
-                offset=0,
-                limit=100,
+                offset=1,
+                limit=1,
             )
-
-        assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
+            assert references.call_count == 1
 
     def test_resolves_the_logo_domain_from_account_properties(self) -> None:
         from_website_domain = create_account(

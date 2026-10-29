@@ -1,5 +1,6 @@
 import type { AssignmentStatus } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { isUUIDLike } from 'lib/utils/guards'
+import { chooseOperatorMap } from 'lib/utils/operators'
 
 import type {
     AccountsTableCustomPropertyDefinition,
@@ -39,6 +40,7 @@ import {
     AccountFilter,
     isAccountPropertyFilter,
     isAccountRelationshipFilter,
+    propertyTypeForDisplayType,
 } from './accountsPropertyFilters'
 
 const RELATIONSHIP_COLUMN_REGEX = /^accounts\.relationships\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/
@@ -227,13 +229,17 @@ function relationshipFilter(
 
 function customPropertyFilter(
     filter: AccountCustomPropertyFilter,
-    _definitionsById: Record<string, AccountsTableCustomPropertyDefinition>
+    definitionsById: Record<string, AccountsTableCustomPropertyDefinition>
 ): AccountsTableCustomPropertyFilter | null {
     if (!filter.key || !isUUIDLike(filter.key)) {
         return null
     }
     const operator = CUSTOM_PROPERTY_OPERATOR_MAP[filter.operator]
     if (!operator) {
+        return null
+    }
+    const definition = definitionsById[filter.key]
+    if (definition && !(filter.operator in chooseOperatorMap(propertyTypeForDisplayType(definition.display_type)))) {
         return null
     }
     const rawValues = Array.isArray(filter.value) ? filter.value : filter.value == null ? [] : [filter.value]

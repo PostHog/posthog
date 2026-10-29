@@ -293,6 +293,7 @@ def apply_account_filters(
     custom_property_display_types: dict[UUID, DisplayType],
     timezone_info: ZoneInfo | None = None,
     member_external_ids_by_query: Mapping[str, Collection[str]] | None = None,
+    ignore_invalid_custom_property_filters: bool = False,
 ) -> QuerySet[Account]:
     effective_timezone_info = timezone_info or UTC_TIMEZONE
     active_relationships = AccountRelationship.objects.for_team(team_id).filter(
@@ -341,9 +342,14 @@ def apply_account_filters(
             active_values = CustomPropertyValue.objects.for_team(team_id).filter(
                 account_id=OuterRef("pk"), definition_id=filter_.definition_id, is_deleted=False
             )
-            predicate, negate_exists = _custom_property_filter_predicate(
-                filter_, custom_property_display_types[filter_.definition_id], timezone_info=effective_timezone_info
-            )
+            try:
+                predicate, negate_exists = _custom_property_filter_predicate(
+                    filter_, custom_property_display_types[filter_.definition_id], timezone_info=effective_timezone_info
+                )
+            except InvalidAccountFilter:
+                if ignore_invalid_custom_property_filters:
+                    continue
+                raise
             matching_values = active_values.filter(predicate)
             queryset = queryset.filter(~Exists(matching_values) if negate_exists else Exists(matching_values))
     return queryset
