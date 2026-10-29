@@ -1,6 +1,9 @@
 from django import forms
 from django.contrib import admin
 
+from posthog.admin.inline_registry import register_admin_inline
+from posthog.models import Team
+
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
@@ -43,3 +46,8 @@ class TeamExperimentsConfigInline(admin.StackedInline):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+# Surface the inline on core's Team admin page without core importing the product.
+# TeamAdmin pulls it in via get_inlines(). See posthog.admin.inline_registry.
+register_admin_inline(Team, TeamExperimentsConfigInline)
