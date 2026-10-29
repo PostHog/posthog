@@ -339,7 +339,6 @@ export async function upload(
     const read = injected ? { pairs: injected.pairs, artifacts: injected.owners } : readPairs(jsOnly, options, skipped)
     read.pairs = read.pairs.filter((pair) => read.artifacts.get(pair)?.kind === 'js')
     let targets: { pair: SourcePair; target: CleanupTarget }[] = []
-    const chunkIds = new Map<SourcePair, string>()
     // posthog-cli stops before any cleanup when no bundle has an id to upload under.
     let jsUploadable = false
     const composed = selection.artifacts.filter(
@@ -391,7 +390,6 @@ export async function upload(
                 ? { force: true, skipOnConflict: false }
                 : { force: options.force, skipOnConflict: options.skipOnConflict }
         for (const { pair, upload: item } of prepared.uploads) {
-            chunkIds.set(pair, item.chunkId)
             planned.push({ artifact: read.artifacts.get(pair)!, upload: item, policy })
         }
     }
@@ -510,16 +508,17 @@ export async function upload(
             selection.roots.some((root, index) =>
                 isIgnored(root, realpathSync(rootPaths[index]!), realpathSync(mapPath))
             )
-        const cleanup = cleanUp(
-            [
-                // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
-                ...targets
-                    .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
-                    .map(({ target }) => target),
-                ...cssTargets(listFiles(selection.roots, selection.cwd), options.publicPathPrefix, warnings, ignored),
-            ],
-            rootPaths
-        )
+        const cleanup = cleanUp([
+            // Maps skipped as too large go too, as in posthog-cli, so they never ship with the build.
+            ...targets.map(({ target }) => target),
+            ...cssTargets(
+                listFiles(selection.roots, selection.cwd),
+                rootPaths,
+                options.publicPathPrefix,
+                warnings,
+                ignored
+            ),
+        ])
         deletedMaps = cleanup.deletedMaps.map((path) => relative(realpathSync(selection.cwd), path))
         warnings.push(...cleanup.warnings)
     }
