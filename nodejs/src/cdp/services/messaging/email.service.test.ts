@@ -1928,8 +1928,17 @@ describe('EmailService', () => {
                 expect(sentHtml).toContain('ph_id=')
             })
 
-            it('the step-level toggle wins over consent: tracking_enabled false is untracked even for opted-in recipients', async () => {
-                invocation.hogFunction.metadata = { message_category_type: 'marketing', tracking_enabled: false }
+            it.each([
+                {
+                    case: 'tracking_enabled false',
+                    metadata: { message_category_type: 'marketing', tracking_enabled: false },
+                },
+                {
+                    case: 'a sensitive transactional template',
+                    metadata: { message_category_type: 'transactional', sensitive: true },
+                },
+            ])('sends untracked for $case, even to opted-in recipients', async ({ metadata }) => {
+                invocation.hogFunction.metadata = metadata
                 setConsentState('opt_in', 'OPTED_IN')
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -2002,11 +2011,11 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject'],
-            ['a sensitive template', { sensitive: true }, undefined],
+            ['an ordinary template', {}, 'Test Subject', true],
+            ['a sensitive template', { sensitive: true }, undefined, false],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject) => {
+            async (_name, extraMetadata, subject, trackingEnabled) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
@@ -2025,7 +2034,7 @@ describe('EmailService', () => {
                         $workflow_id: invocation.functionId,
                         $workflow_action_id: invocation.state.actionId,
                         $email_to: 'test@example.com',
-                        $email_tracking_enabled: true,
+                        $email_tracking_enabled: trackingEnabled,
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)

@@ -916,6 +916,8 @@ export class EmailService {
     // 1. Message-level: `tracking_enabled` on the email step's config (via `hogFunction.metadata`,
     //    same as `message_category_type`). False is a hard off regardless of consent. Absent means
     //    tracked, so email destination hog functions (which have no such config) keep tracking.
+    //    A sensitive template is always untracked: its links carry one-time tokens, and click
+    //    tracking would route them through the tracking redirect.
     // 2. Recipient-level consent (marketing only; transactional exempt per CNIL): the team's
     //    consent mode combined with the recipient's stored $email_tracking preference.
     // Consent lookup failures resolve to untracked (fail closed): tracking without verifiable
@@ -924,10 +926,11 @@ export class EmailService {
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<boolean> {
-        if (invocation.hogFunction?.metadata?.tracking_enabled === false) {
+        const metadata = invocation.hogFunction?.metadata
+        if (metadata?.tracking_enabled === false || metadata?.sensitive === true) {
             return false
         }
-        if (invocation.hogFunction?.metadata?.message_category_type === 'transactional') {
+        if (metadata?.message_category_type === 'transactional') {
             return true
         }
 
