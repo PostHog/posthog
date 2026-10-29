@@ -7,7 +7,7 @@ import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
 import { McpCustomHarnessForm } from './McpCustomHarnessForm'
 
 export function McpCustomHarnessesSettings(): JSX.Element {
-    const { customHarnesses, customHarnessesLoading, editingHarnessId, deletingHarnessId } =
+    const { customHarnesses, customHarnessesLoading, editingHarnessId, deletingHarnessId, saveInProgressReason } =
         useValues(mcpCustomHarnessesLogic)
     const { startAddingHarness, startEditingHarness, deleteCustomHarness } = useActions(mcpCustomHarnessesLogic)
 
@@ -21,6 +21,7 @@ export function McpCustomHarnessesSettings(): JSX.Element {
                     type="secondary"
                     icon={<IconPlus />}
                     onClick={startAddingHarness}
+                    disabledReason={saveInProgressReason}
                     data-attr="mcp-custom-harness-add"
                 >
                     Add custom harness
@@ -54,6 +55,7 @@ export function McpCustomHarnessesSettings(): JSX.Element {
                                     tooltip="Edit"
                                     aria-label={`Edit ${harness.name}`}
                                     onClick={() => startEditingHarness(harness)}
+                                    disabledReason={saveInProgressReason}
                                     data-attr="mcp-custom-harness-edit"
                                 />
                                 <LemonButton
