@@ -1259,7 +1259,7 @@ def invalidate_has_person_email_cache(project_id: int) -> None:
 
 @tracer.start_as_current_span("template.frontend_apps")
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
+    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile, get_secret_fields
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
@@ -1281,9 +1281,7 @@ def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
     frontend_apps = {}
     for p in plugin_configs:
         config = p["pluginconfig__config"] or {}
-        config_schema = p["config_schema"] or {}
-        secret_fields = {field["key"] for field in config_schema if field.get("secret")}
-        for key in secret_fields:
+        for key in get_secret_fields(p["config_schema"] or {}):
             if key in config:
                 config[key] = "** SECRET FIELD **"
         frontend_apps[p["pluginconfig__id"]] = {
