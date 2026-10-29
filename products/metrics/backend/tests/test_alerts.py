@@ -36,7 +36,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.metrics.backend.alerts.evaluation import INFLIGHT_KEY, evaluate_metrics_alert_batch
+from products.metrics.backend.alerts.evaluation import ABSENT_RESOLVE_AFTER, INFLIGHT_KEY, evaluate_metrics_alert_batch
 from products.metrics.backend.alerts.freshness import evaluation_time, fetch_metrics_freshness
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
@@ -142,6 +142,20 @@ class TestMetricsFreshnessRead(ClickhouseTestMixin, APIBaseTest):
 
         assert fetch_metrics_freshness(self.team, max_execution_time=5) == now - timedelta(minutes=2)
 
+    def test_points_dated_ahead_cannot_rewind_the_read_to_an_older_service(self) -> None:
+        now = datetime.now(UTC).replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id, metric_name="lag", service_name="decoy", points=[(now - timedelta(minutes=14), 1.0)]
+        )
+        seed_metric(
+            team_id=self.team.id, metric_name="lag", service_name="live", points=[(now + timedelta(minutes=5), 1.0)]
+        )
+
+        freshness = fetch_metrics_freshness(self.team, max_execution_time=5)
+
+        assert freshness is not None
+        assert now - timedelta(seconds=5) <= freshness <= datetime.now(UTC)
+
 
 class TestMetricsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
@@ -192,7 +206,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def _kinds(self, outcome: PlatformAlertOutcome) -> dict[str, AlertEventKind]:
         return {json.loads(group.grouping_key)["group"]: group.kind for group in outcome.groups}
 
-    def test_a_series_fires_and_holds_when_it_vanishes_or_has_no_number(self) -> None:
+    def test_a_missing_series_holds_until_it_has_been_gone_an_hour_with_fresh_ingestion(self) -> None:
         self.freshness.return_value = self.due_at - timedelta(seconds=30)
         self.snuffle.return_value = _response(
             200, _vector(({"group": "a"}, "2000"), ({"group": "b"}, "3000"), ({"group": "c"}, "10"))
@@ -206,8 +220,22 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.snuffle.return_value = _response(
             200, _vector(({"group": "b"}, "NaN"), ({"group": "b"}, "10"), ({"group": "c"}, "10"))
         )
+        held = self._evaluate()
+
+        assert self._kinds(held) == {}
+
+        self._next_check(held)
+        self.cutoff += ABSENT_RESOLVE_AFTER
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(self.configuration_id, self.due_at)
+        self.snuffle.return_value = _response(200, _vector(({"group": "b"}, "NaN"), ({"group": "c"}, "10")))
+        self.freshness.return_value = None
 
         assert self._kinds(self._evaluate()) == {}
+
+        self.freshness.return_value = self.due_at - timedelta(seconds=30)
+
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
 
     @override_settings(ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES=1)
     def test_a_batch_over_the_pool_limit_stays_due_for_a_later_tick(self) -> None:

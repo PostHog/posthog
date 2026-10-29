@@ -33,19 +33,18 @@ from posthog.models import Team
 # The margin over the query's own limit lets the server's timeout error arrive first.
 _TRANSPORT_MARGIN_SECONDS: Final = 5
 
-# Reads the `service_freshness_by_hour` projection of `metrics4_samples`, so it scans one row per
-# service-hour. A point time is set by the sender, so a service whose clock runs ahead is left out.
-# A service more than 15 minutes behind is left out too, so a team that far behind gets no
-# freshness, and its alerts hold their missing series rather than judge them against old data.
+# Reads the `service_freshness_by_hour` projection of `metrics4_samples`, one row per service-hour.
+# The sender sets point times, so a service dated ahead is capped at now rather than dropped, which
+# would let it push live services out and rewind every check. A team over 15 minutes behind gets none.
 _TEAM_FRESHNESS_QUERY: Final = parse_select(
     """
-    SELECT maxOrNull(service_newest) FROM (
+    SELECT least(maxOrNull(service_newest), now()) FROM (
         SELECT service_name, max(arrayMax(timestamp_arr)) AS service_newest
         FROM posthog.metric_samples
-        WHERE time_bucket >= toStartOfHour(now() - toIntervalHour(1)) AND time_bucket <= now()
+        WHERE time_bucket >= toStartOfHour(now() - toIntervalHour(1)) AND time_bucket <= now() + toIntervalHour(1)
         GROUP BY service_name
     )
-    WHERE service_newest <= now() + toIntervalMinute(1) AND service_newest >= now() - toIntervalMinute(15)
+    WHERE service_newest >= now() - toIntervalMinute(15)
     """
 )
 

@@ -9,7 +9,9 @@ A series the query no longer returns keeps its group's state, and so does a seri
 not a number. Prometheus resolves a missing series, but a team's samples spread over ingestion
 partitions, and the freshness read cannot tell that every partition has caught up. So a missing
 series could be one a lagging partition has not written yet, and resolving it would read lag as
-recovery. Absence resolves again once a watermark covers every partition.
+recovery. The hold is bounded: a group missing for `ABSENT_RESOLVE_AFTER` while the team's
+ingestion is fresh resolves, which no lag that leaves the team fresh explains, and which frees its
+slot under `max_instances`. A watermark covering every partition would let it resolve at once.
 
 This reads and decides. It writes nothing, so a retried attempt reads the same due checks and makes
 the same decisions. The platform records the outcomes in its own activity.
@@ -49,6 +51,7 @@ from products.alerts_platform.backend.facade.grouping import (
     decide_groups,
     delivery_parts,
     muted_value,
+    not_breaching,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
@@ -96,6 +99,9 @@ BATCH_SLOT_LEASE_SECONDS: Final = 90
 # Ten times the most groups a configuration can hold. A query past it is refused before its series
 # are judged, so one high-cardinality expression cannot exhaust the worker.
 MAX_SERIES: Final = 1000
+# Far past any partition lag that leaves the team fresh, and short enough that groups which stopped
+# reporting cannot hold every instance slot.
+ABSENT_RESOLVE_AFTER: Final = timedelta(hours=1)
 
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
@@ -167,6 +173,7 @@ def _evaluate_admitted(
                 check,
                 at=at,
                 now=cutoff,
+                ingestion_fresh=freshness is not None,
                 query_seconds=min(MAX_QUERY_SECONDS, remaining),
                 muted=_in_quiet_hours(check, cutoff, team.timezone),
             )
@@ -200,6 +207,7 @@ def _evaluate(
     *,
     at: datetime,
     now: datetime,
+    ingestion_fresh: bool,
     query_seconds: float,
     muted: bool,
 ) -> Decision:
@@ -218,7 +226,7 @@ def _evaluate(
         return _failed(check, _UNEXPECTED_ERROR, transient=True, now=now, muted=muted)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
-    observations = _observations(check, config.condition, samples)
+    observations, unknown = _observations(check, config.condition, samples)
     decision = decide_groups(
         check,
         observations,
@@ -226,8 +234,7 @@ def _evaluate(
         policy=POLICY,
         now=now,
         muted=muted,
-        # A group this check has no number for keeps its state. The module docstring says why.
-        absent=lambda _key: None,
+        absent=lambda key: _absent(check, key, unknown=unknown, now=now, ingestion_fresh=ingestion_fresh),
     )
     for verdict in decision.verdicts:
         safe_record(increment_checks, SOURCE.value, verdict.outcome.notification.value)
@@ -297,10 +304,20 @@ def _breached(condition: MetricsPlatformAlertCondition, value: float | None) -> 
     return _COMPARE[condition.operator](value, condition.threshold)
 
 
+def _absent(
+    check: PlatformAlertCheckInput, key: str, *, unknown: frozenset[str], now: datetime, ingestion_fresh: bool
+) -> GroupObservation | None:
+    """A missing group's verdict: None holds its state, as the module docstring explains, until the hold runs out."""
+    last_seen_at = check.instance(key).last_seen_at
+    if key in unknown or not ingestion_fresh or last_seen_at is None or now - last_seen_at < ABSENT_RESOLVE_AFTER:
+        return None
+    return not_breaching(key)
+
+
 def _observations(
     check: PlatformAlertCheckInput, condition: MetricsPlatformAlertCondition, samples: Sequence[_Sample]
-) -> list[GroupObservation]:
-    """One observation per sample, leaving out the groups held without a verdict.
+) -> tuple[list[GroupObservation], frozenset[str]]:
+    """One observation per sample, leaving out the groups held without a verdict, and those groups' keys.
 
     A group with a sample that has no number is held, unless another of its samples breaches. A healthy
     sample beside it does not show that the unknown one recovered.
@@ -322,8 +339,8 @@ def _observations(
             GroupObservation(grouping_key=key, current_breached=breached, value=sample.value, labels=labels)
         )
     breaching = {observation.grouping_key for observation in observations if observation.current_breached}
-    held = unknown - breaching
-    return [observation for observation in observations if observation.grouping_key not in held]
+    held = frozenset(unknown - breaching)
+    return [observation for observation in observations if observation.grouping_key not in held], held
 
 
 def _grouping_key_of(labels: dict[str, str]) -> str:
