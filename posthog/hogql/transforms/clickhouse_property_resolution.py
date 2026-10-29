@@ -57,7 +57,7 @@ from posthog.hogql.type_system import (
     parse_sql_runtime_type,
     runtime_type_from_constant_type,
 )
-from posthog.hogql.utils import ilike_matches, like_matches
+from posthog.hogql.utils import ilike_matches, is_json_verbatim, like_matches
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.events_json import (
@@ -254,11 +254,6 @@ def resolve_property_group_source(
 # A `PropertyAccess`'s own type is just its value type (a nullable String), so everything this pass needs comes from the
 # node's structure instead: `node.expr` is the blob `Field` (its `.type` points at the table and column), and
 # `node.keys` is the key path (keys[0] is the property name; deeper keys index into the extracted value).
-
-
-def _is_json_verbatim(value: str) -> bool:
-    """True when JSON text stores the string unchanged: non-empty printable ASCII with no quote or backslash."""
-    return bool(value) and all(" " <= char <= "~" and char not in '"\\' for char in value)
 
 
 def _blob_field_type_of(node: ast.PropertyAccess) -> ast.FieldType | None:
@@ -1986,7 +1981,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         values = self._extract_string_constants(node.right)
         if not values or len(values) > PERSON_JSON_PREFILTER_MAX_NEEDLES:
             return None
-        if not all(_is_json_verbatim(value) for value in values):
+        if not all(is_json_verbatim(value) for value in values):
             return None
         return _call("multiSearchAny", [self.visit(access.expr), ast.Array(exprs=[_const(v) for v in values])])
 
