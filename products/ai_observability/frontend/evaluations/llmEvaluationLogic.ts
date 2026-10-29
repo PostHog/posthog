@@ -602,8 +602,8 @@ export interface llmEvaluationLogicMeta {
             evaluationId: string
         ) => boolean
         judgeMethod: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => JudgeMethod
-        includeMedia: (evaluation: EvaluationConfig | null) => boolean
         usesDecisionModel: (judgeMethod: JudgeMethod) => boolean
+        includeMedia: (evaluation: EvaluationConfig | null) => boolean
         selectedModelName: (
             byokModels: ModelOption[],
             selectedModel: string,
