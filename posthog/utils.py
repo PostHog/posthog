@@ -565,7 +565,7 @@ def flag_identity(
             "slug": organization.slug,
             # The serializer's datetime format.
             "created_at": organization.created_at.isoformat().replace("+00:00", "Z"),
-            "available_product_features": organization.available_product_features or [],
+            "available_product_features": organization.available_product_features,
             **({"member_count": member_count} if member_count is not None else {}),
             **({"project_count": project_count} if project_count is not None else {}),
             "instance_tag": settings.INSTANCE_TAG,

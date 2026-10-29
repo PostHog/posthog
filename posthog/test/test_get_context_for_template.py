@@ -264,6 +264,7 @@ class TestGetContextForTemplate(APIBaseTest):
         self.user.anonymize_data = anonymize_data
         self.user.save()
         self.organization.customer_id = "cus_123"
+        self.organization.available_product_features = None
         self.organization.save()
         request = RequestFactory().get("/")
         SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
@@ -297,7 +298,7 @@ class TestGetContextForTemplate(APIBaseTest):
             "name": self.organization.name,
             "slug": self.organization.slug,
             "created_at": mock.ANY,
-            "available_product_features": self.organization.available_product_features or [],
+            "available_product_features": None,
             "member_count": 1,
             "project_count": 1,
             "instance_tag": settings.INSTANCE_TAG,
