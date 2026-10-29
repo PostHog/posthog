@@ -85,12 +85,12 @@ export interface todayAnalyticsLogicActions {
 export interface todayAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         fromPostHog: (featureFlags: FeatureFlagsSet) => FromPostHogItem[]
-        freshRecentAnalytics: (recents: FileSystemEntry[], pinnedShortcutIds: any) => AnalyticsItem[]
+        freshRecentAnalytics: (recents: FileSystemEntry[], pinnedShortcutIds: Map<string, string>) => AnalyticsItem[]
         recentAnalytics: (
             recentsHasLoaded: boolean,
             freshRecentAnalytics: AnalyticsItem[],
             savedRecentAnalytics: AnalyticsItem[],
-            pinnedShortcutIds: any
+            pinnedShortcutIds: Map<string, string>
         ) => AnalyticsItem[]
     }
 }
