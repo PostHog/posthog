@@ -197,16 +197,16 @@ describe('buildSections', () => {
             ['results', 'loading-more'],
         ],
         [
-            'PostHog AI without waiting for slow person searches',
+            'no PostHog AI row while other rows match',
             { events: [dashboard('e', '8')] },
             false,
-            ['results', 'events', 'ask-ai', 'loading-more'],
+            ['results', 'events', 'loading-more'],
         ],
         [
-            'persons last, below PostHog AI, once they load',
+            'persons last, once they load',
             { events: [dashboard('e', '8')], persons: [dashboard('p', '9')] },
             false,
-            ['results', 'events', 'ask-ai', 'persons'],
+            ['results', 'events', 'persons'],
         ],
         [
             'only result skeletons while persons that go first load',
@@ -235,6 +235,35 @@ describe('buildSections', () => {
             })
         )
         expect(sections.map((section) => section.key)).toEqual(expectedKeys)
+    })
+
+    test.each([
+        [
+            'while persons load',
+            undefined,
+            [
+                ['ask-ai', ['ask-ai']],
+                ['loading-more', ['loading-more']],
+            ],
+        ],
+        ['when nothing else matches', [], [['ask-ai', ['ask-ai']]]],
+        ['unless persons match', [dashboard('p', '9')], [['persons', ['item']]]],
+    ])('offers PostHog AI %s', (_, persons, expected) => {
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { xyzzy: [] } }
+        remote.events = { cache: { xyzzy: [] } }
+        if (persons) {
+            remote.persons = { cache: { xyzzy: persons } }
+        }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'xyzzy', events: 'xyzzy', persons: 'xyzzy' },
+                localQuery: 'xyzzy',
+                askAiQuestion: 'xyzzy',
+            })
+        )
+        expect(sectionKinds(sections)).toEqual(expected)
     })
 
     it('ranks a person who matches every word of an email search above results that match fewer', () => {

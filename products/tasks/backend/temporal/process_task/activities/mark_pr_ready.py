@@ -62,7 +62,7 @@ def mark_pr_ready(input: MarkPrReadyInput) -> bool:
                 return False
 
             github = (
-                get_github_integration(context.github_integration_id)
+                get_github_integration(context.team_id, context.github_integration_id)
                 if context.github_integration_id
                 else get_user_github_integration(str(context.github_user_integration_id))
             )

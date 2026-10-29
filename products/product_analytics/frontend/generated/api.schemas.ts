@@ -7,6 +7,29 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface OrganizationEventsRetentionApi {
+    /**
+     * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+     * @nullable
+     */
+    readonly organization_retention_months: number | null
+    /** The longest window the organization's plan allows, in months. */
+    readonly plan_retention_months: number
+    /** The shortest window an admin can set, in months. */
+    readonly min_retention_months: number
+    /** The longest window an admin can set, in months. Never longer than the plan's window. */
+    readonly max_retention_months: number
+}
+
+export interface EventsRetentionUpdateApi {
+    /**
+     * The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window.
+     * @minimum 1
+     * @nullable
+     */
+    retention_months: number | null
+}
+
 /**
  * * `private` - Private (only visible to creator)
  * * `shared` - Shared with team
@@ -213,6 +236,17 @@ export interface ElementValueApi {
 
 export interface EventsRetentionApi {
     /**
+     * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+     * @nullable
+     */
+    readonly organization_retention_months: number | null
+    /** The longest window the organization's plan allows, in months. */
+    readonly plan_retention_months: number
+    /** The shortest window an admin can set, in months. */
+    readonly min_retention_months: number
+    /** The longest window an admin can set, in months. Never longer than the plan's window. */
+    readonly max_retention_months: number
+    /**
      * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
      * @nullable
      */
@@ -224,6 +258,11 @@ export interface EventsRetentionApi {
     readonly retained_from: string | null
     /** Where the events retention policy is documented. */
     readonly docs_url: string
+    /**
+     * The window, in months, set for this project. Null while the project uses the organization's window.
+     * @nullable
+     */
+    readonly project_retention_months: number | null
 }
 
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
