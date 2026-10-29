@@ -657,7 +657,7 @@ class RelativeDateTimeField(serializers.DateTimeField):
 
 def _owner_unavailable_message(owner: User | None, error: Exception) -> str:
     """The refusal for an enable the owner cannot run, naming the owner and the cause."""
-    return f"Can't enable this alert. {describe_owner_unavailable(owner, error)} Take ownership to enable it with your access instead."
+    return f"Can't enable this alert. {describe_owner_unavailable(owner, error)}"
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
