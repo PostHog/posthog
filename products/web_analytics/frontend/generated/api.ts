@@ -207,7 +207,7 @@ export const getAeoPromptsChecksUrl = (projectId: string, id: string, params?: A
 }
 
 /**
- * Lists every check of one prompt, newest first, one page at a time. Filter by engine or by prompt version. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran.
+ * Lists every check of one prompt, newest first, one page at a time. Filter by engine, by prompt version, or with since to see only checks from a point in time on. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran. Set include_answer_text=false to leave the answers out and page through history with smaller responses.
  * @summary List an AEO prompt's checks
  */
 export const aeoPromptsChecks = async (

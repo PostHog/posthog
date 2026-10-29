@@ -170,7 +170,7 @@ class AEOPromptCheckSerializer(DataclassSerializer):
             "top_cited_domains": {"help_text": "Distinct hosts across the cited URLs."},
             "search_queries": {"help_text": "Web searches the engine ran to answer the prompt."},
             "answer_text": {
-                "help_text": "The engine's answer as plain text, sanitized and truncated. Null when the check failed. "
+                "help_text": "The engine's answer as plain text, sanitized and truncated. Null when the check failed, and on every check when the request set include_answer_text=false. "
                 + THIRD_PARTY_TEXT_HELP
             },
             "prompt_version": {
@@ -195,6 +195,14 @@ class AEOPromptChecksQuerySerializer(serializers.Serializer):
         required=False,
         min_value=1,
         help_text="Only list checks that ran this version of the prompt.",
+    )
+    since = serializers.DateTimeField(
+        required=False,
+        help_text="Only list checks that ran at or after this time, in ISO 8601 (for example 2026-10-01T00:00:00Z).",
+    )
+    include_answer_text = serializers.BooleanField(
+        default=True,
+        help_text="Set to false to return answer_text as null on every check. Use it to page through history without the engines' answers.",
     )
 
 
@@ -565,7 +573,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=AEOPromptChecksQuerySerializer,
         operation_id="aeo_prompts_checks",
         summary="List an AEO prompt's checks",
-        description="Lists every check of one prompt, newest first, one page at a time. Filter by engine or by prompt version. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran.",
+        description="Lists every check of one prompt, newest first, one page at a time. Filter by engine, by prompt version, or with since to see only checks from a point in time on. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran. Set include_answer_text=false to leave the answers out and page through history with smaller responses.",
         responses={200: AEOPromptCheckSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -580,6 +588,8 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 offset=paginator.get_offset(request),
                 engine=request.validated_query_data.get("engine"),
                 version=request.validated_query_data.get("version"),
+                since=request.validated_query_data.get("since"),
+                include_answer_text=request.validated_query_data["include_answer_text"],
             )
         except PromptNotFoundError:
             raise NotFound()
