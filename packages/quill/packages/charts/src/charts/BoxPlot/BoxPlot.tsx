@@ -140,7 +140,6 @@ function BoxPlotInner<Meta = unknown>({
     } = config ?? {}
     const horizontal = axisOrientation === 'horizontal'
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
-    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
     const adaptedSeries = useMemo<Series<BoxPlotAdaptedMeta<Meta>>[]>(
         () =>
@@ -267,7 +266,7 @@ function BoxPlotInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
-            const axisLineStyle = axisLines.x || axisLines.y
+            const axisLineStyle = xAxisLine || yAxisLine
             if (showGrid) {
                 drawGrid(baseDrawCtx, {
                     gridColor: theme.gridColor,
@@ -308,12 +307,22 @@ function BoxPlotInner<Meta = unknown>({
             if (axisLineStyle) {
                 drawAxes(baseDrawCtx, {
                     axisColor: resolveAxisLineColor(theme),
-                    xLine: axisLines.x,
-                    yLine: axisLines.y,
+                    xLine: xAxisLine,
+                    yLine: yAxisLine,
                 })
             }
         },
-        [showGrid, axisLines, meanRadius, whiskerCapRatio, boxStrokeWidth, boxCornerRadius, axisOrientation, horizontal]
+        [
+            showGrid,
+            xAxisLine,
+            yAxisLine,
+            meanRadius,
+            whiskerCapRatio,
+            boxStrokeWidth,
+            boxCornerRadius,
+            axisOrientation,
+            horizontal,
+        ]
     )
 
     const drawHover = useCallback(
@@ -375,49 +384,43 @@ function BoxPlotInner<Meta = unknown>({
         [series, horizontal, boxCornerRadius]
     )
 
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>) => (
-            <BoxPlotTooltip<Meta>
-                ctx={ctx}
-                userTooltip={tooltip}
-                grouped={grouped}
-                valueFormatter={config?.tooltip?.valueFormatter}
-            />
-        ),
-        [tooltip, grouped, config?.tooltip?.valueFormatter]
+    const renderTooltip = (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>): React.ReactNode => (
+        <BoxPlotTooltip<Meta>
+            ctx={ctx}
+            userTooltip={tooltip}
+            grouped={grouped}
+            valueFormatter={config?.tooltip?.valueFormatter}
+        />
     )
 
-    const onPointClick = useCallback(
-        (data: PointClickData<BoxPlotAdaptedMeta<Meta>>): void => {
-            if (!onBoxClick) {
-                return
+    const onPointClick = (data: PointClickData<BoxPlotAdaptedMeta<Meta>>): void => {
+        if (!onBoxClick) {
+            return
+        }
+        const primaryDatums = data.series.meta?.datums
+        const datum = primaryDatums?.[data.dataIndex]
+        const primarySeries = seriesByKey.get(data.series.key)
+        if (!datum || !primarySeries) {
+            return
+        }
+        const crossSeriesData: BoxPlotClickData<Meta>['crossSeriesData'] = []
+        for (const entry of data.crossSeriesData) {
+            const ds = entry.series.meta?.datums?.[data.dataIndex]
+            const origin = seriesByKey.get(entry.series.key)
+            if (!ds || !origin) {
+                continue
             }
-            const primaryDatums = data.series.meta?.datums
-            const datum = primaryDatums?.[data.dataIndex]
-            const primarySeries = seriesByKey.get(data.series.key)
-            if (!datum || !primarySeries) {
-                return
-            }
-            const crossSeriesData: BoxPlotClickData<Meta>['crossSeriesData'] = []
-            for (const entry of data.crossSeriesData) {
-                const ds = entry.series.meta?.datums?.[data.dataIndex]
-                const origin = seriesByKey.get(entry.series.key)
-                if (!ds || !origin) {
-                    continue
-                }
-                crossSeriesData.push({ series: origin, datum: ds })
-            }
-            onBoxClick({
-                series: primarySeries,
-                seriesIndex: data.seriesIndex,
-                dataIndex: data.dataIndex,
-                label: data.label,
-                datum,
-                crossSeriesData,
-            })
-        },
-        [onBoxClick, seriesByKey]
-    )
+            crossSeriesData.push({ series: origin, datum: ds })
+        }
+        onBoxClick({
+            series: primarySeries,
+            seriesIndex: data.seriesIndex,
+            dataIndex: data.dataIndex,
+            label: data.label,
+            datum,
+            crossSeriesData,
+        })
+    }
 
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-box-plot-legend">
