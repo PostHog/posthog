@@ -9,13 +9,9 @@ export const TARGET_MONTHLY_SCANS = 300
 export const FREE_SCANNER_CREDIT_LIMIT = 1500
 export const BUDGET_PRESETS = [1000, 2500, 5000] as const
 const BURST_SWEEP_RESERVE_SCANS = 5
-// Not measured yet: replace with the pick share across teams once known.
-export const TYPICAL_PICK_SHARE = 0.015
-
 export interface WeeklyVolume {
     recorded: number
     hours: number | null
-    picks: number
 }
 
 export function weeklyVolume(
@@ -36,7 +32,7 @@ export function weeklyVolume(
         durations.length > 0
             ? (recorded * (durations.reduce((sum, duration) => sum + duration, 0) / durations.length)) / 3600
             : null
-    return { recorded, hours, picks: Math.max(1, Math.round(recorded * TYPICAL_PICK_SHARE)) }
+    return { recorded, hours }
 }
 export const QUICKSTART_SCANNER = {
     key: 'session_highlights',

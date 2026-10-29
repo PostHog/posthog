@@ -79,6 +79,5 @@ describe('highlightPicksStarter', () => {
             return
         }
         expect([volume?.recorded, volume?.hours]).toEqual(expected)
-        expect(volume?.picks).toBeGreaterThanOrEqual(1)
     })
 })

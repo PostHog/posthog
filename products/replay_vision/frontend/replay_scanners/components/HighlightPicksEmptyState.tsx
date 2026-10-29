@@ -49,8 +49,8 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
     if (reason === 'no-scanners') {
         return (
             <>
-                <HighlightPicksShadowPreview />
                 <HighlightPicksStarter size={size} />
+                <HighlightPicksShadowPreview />
             </>
         )
     }

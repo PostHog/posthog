@@ -4,7 +4,6 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
@@ -42,11 +41,10 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
             : freeAvailable
               ? 'A monthly budget you set. Free credits are used first.'
               : 'Free credits are used up, so this scanner needs a monthly limit.'
-    const tiles: [string, string, string, boolean][] | null = volume
+    const tiles: [string, string, string][] | null = volume
         ? [
-              ['Recorded', String(volume.recorded), 'this week', false],
-              ['To watch', volume.hours === null ? '-' : hoursLabel(volume.hours), 'at normal speed', false],
-              ['Worth watching', `~${volume.picks}`, 'typical at this volume', true],
+              ['Recorded', String(volume.recorded), 'this week'],
+              ['To watch', volume.hours === null ? '-' : hoursLabel(volume.hours), 'at normal speed'],
           ]
         : null
 
@@ -84,8 +82,8 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
                 <LemonSkeleton className="h-16 w-full rounded" />
             ) : tiles ? (
                 <>
-                    <div className="grid grid-cols-3 gap-1.5" data-attr="vision-highlight-picks-starter-volume">
-                        {tiles.map(([label, value, caption, accent]) => (
+                    <div className="grid grid-cols-2 gap-1.5" data-attr="vision-highlight-picks-starter-volume">
+                        {tiles.map(([label, value, caption]) => (
                             <div
                                 key={label}
                                 className="flex flex-col items-center gap-0.5 rounded border bg-bg-light px-1 py-2 text-center"
@@ -93,9 +91,7 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
                                 <span className="text-xxs font-bold uppercase tracking-wide text-secondary">
                                     {label}
                                 </span>
-                                <span className={cn('text-xl font-bold leading-tight', accent && 'text-accent')}>
-                                    {value}
-                                </span>
+                                <span className="text-xl font-bold leading-tight">{value}</span>
                                 <span className="text-xxs text-secondary">{caption}</span>
                             </div>
                         ))}
