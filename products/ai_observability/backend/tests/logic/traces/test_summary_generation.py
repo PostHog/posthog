@@ -160,24 +160,25 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
         text_repr = self.summarize.call_args.args[0]
         assert "answer" in text_repr and PRIVATE_NOTE not in text_repr
 
-    @parameterized.expand([("access_changed",), ("trace_not_found",)])
-    def test_refuses_without_calling_the_model(self, reason: TraceSummaryFailureReason) -> None:
-        job = self._job(trace_id="trace-2" if reason == "trace_not_found" else "trace-1")
-        if reason == "access_changed":
-            hide_event_property(self.team, self.user, "$ai_input")
+    def test_a_missing_trace_fails_without_calling_the_model(self) -> None:
+        job = self._job(trace_id="trace-2")
 
         run = generate_summary(job, final_attempt=True)
 
         self.summarize.assert_not_called()
         entry = read_summary(SummaryKey.for_job(job))
         assert run is not None and isinstance(entry, FailedSummary)
-        assert (entry.reason, run.failure_reason) == (reason, reason)
+        assert (entry.reason, run.failure_reason) == ("trace_not_found", "trace_not_found")
 
-    def test_access_changed_during_the_reads_fails_without_calling_the_model(self) -> None:
+    @parameterized.expand([("before the reads", False), ("during the reads", True)])
+    def test_an_access_change_drops_the_entry_without_calling_the_model(self, _name: str, during_reads: bool) -> None:
         job = self._job()
+        if not during_reads:
+            hide_event_property(self.team, self.user, "$ai_input")
 
         def hide_input_then_read(*args: Any, **kwargs: Any) -> Any:
-            hide_event_property(self.team, self.user, "$ai_input")
+            if during_reads:
+                hide_event_property(self.team, self.user, "$ai_input")
             return real_load_trace_nodes(*args, **kwargs)
 
         with patch(
@@ -187,8 +188,8 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
             run = generate_summary(job, final_attempt=True)
 
         self.summarize.assert_not_called()
-        entry = read_summary(SummaryKey.for_job(job))
-        assert run is not None and isinstance(entry, FailedSummary) and entry.reason == "access_changed"
+        assert read_summary(SummaryKey.for_job(job)) is None
+        assert run is not None and (run.status, run.failure_reason) == ("failed", "access_changed")
 
     @parameterized.expand(
         [
@@ -233,7 +234,7 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
                 "too_large",
             ),
             ("an outage on the last attempt", _status_error(503), True, "provider_error"),
-            ("a timeout on the last attempt", openai.APITimeoutError(request=REQUEST), True, "timeout"),
+            ("a timeout fails at once", openai.APITimeoutError(request=REQUEST), False, "timeout"),
         ]
     )
     def test_provider_failures(
@@ -252,7 +253,15 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
         assert run is not None and isinstance(entry, FailedSummary)
         assert (entry.reason, run.status) == (expected, "failed")
 
-    @parameterized.expand([("an outage", 503), ("a rate limit", 429), ("a cancelled request", 499)])
+    @parameterized.expand(
+        [
+            ("an outage", 503),
+            ("a rate limit", 429),
+            ("a cancelled request", 499),
+            ("a server timeout", 408),
+            ("a conflict", 409),
+        ]
+    )
     def test_a_transient_failure_with_a_retry_left_keeps_the_entry_pending(self, _name: str, status: int) -> None:
         self._provider_fails_with(_status_error(status))
         job = self._job()

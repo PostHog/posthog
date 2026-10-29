@@ -44,8 +44,9 @@ def failure_of(error: Exception) -> SummaryFailure:
         return SummaryFailure(reason="provider_error", retryable=True)
     # The summarization call raises its own error inside the handler of the provider's, which keeps it as context.
     provider_error = error.__context__ if isinstance(error, SummarizationFailedError) else error
+    # The SDK retries a timeout before it raises, so another attempt would only add more of the same waits.
     if isinstance(provider_error, APITimeoutError):
-        return SummaryFailure(reason="timeout", retryable=True)
+        return SummaryFailure(reason="timeout", retryable=False)
     if isinstance(provider_error, APIStatusError) and 400 <= provider_error.status_code < 500:
         if provider_error.code == "context_length_exceeded" or is_context_window_error_message(provider_error.message):
             return SummaryFailure(reason="too_large", retryable=False)
@@ -75,6 +76,12 @@ class _Run:
         # would show a stale reason, so the entry goes and the next request starts over.
         delete_summary(self.key)
         return self._report("failed", "not_approved", None)
+
+    def access_changed(self) -> TraceSummaryRun:
+        # Every viewer with the request's fingerprint shares the entry, so a failure kept here would tell viewers whose
+        # access did not change that theirs did.
+        delete_summary(self.key)
+        return self._report("failed", "access_changed", None)
 
     def _report(
         self,
@@ -122,7 +129,7 @@ def _generate(run: _Run, *, final_attempt: bool) -> TraceSummaryRun:
     # The entry is keyed by the fingerprint the request saw, so content the requester can no longer read must not
     # reach it.
     if requester_fingerprint(team.pk, requester) != job.fingerprint:
-        return run.failed("access_changed")
+        return run.access_changed()
     loaded = load_trace(team, requester, job.trace_id, job.timestamp_hint)
     if not loaded.rows:
         return run.failed("trace_not_found")
@@ -133,7 +140,7 @@ def _generate(run: _Run, *, final_attempt: bool) -> TraceSummaryRun:
     # Each read applies the restrictions in force when it runs. A change during the reads could put content under
     # an entry whose viewers may not read it.
     if requester_fingerprint(team.pk, requester) != job.fingerprint:
-        return run.failed("access_changed")
+        return run.access_changed()
     rendered = render_trace(trace, root.trace_event, steps, text_repr_budget())
     try:
         response = summarize(
