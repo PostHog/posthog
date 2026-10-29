@@ -23,6 +23,9 @@ tools:
             (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination,
             site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by
             popularity (number of active functions using each template).
+
+            Templates for email, SMS and push vendors (Customer.io, Braze, Klaviyo, Mailchimp, SendGrid and the rest)
+            have a PostHog Workflows alternative; read the note on cdp-functions-create before setting one up.
         response:
             include:
                 - id
