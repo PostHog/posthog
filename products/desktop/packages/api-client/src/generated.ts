@@ -12423,6 +12423,7 @@ export namespace Schemas {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
+     * * `Nango` - Nango
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13836,7 +13837,8 @@ export namespace Schemas {
         | "AwsS3Tables"
         | "Beacons"
         | "WooPayments"
-        | "Soniox";
+        | "Soniox"
+        | "Nango";
     /**
      * * `web` - web
      * * `api` - api
@@ -15259,6 +15261,7 @@ export namespace Schemas {
          * * `Beacons` - Beacons
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
+         * * `Nango` - Nango
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
