@@ -10,6 +10,8 @@ from django.utils import timezone
 
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.facade import contracts
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
 from products.warehouse_sources.backend.migration import service
@@ -133,7 +135,8 @@ def claim_migration_item(
 
     When an earlier attempt created the source and then failed or died, the claim links that source and
     applies the item, and returns it in `recovered_source_id` instead of letting the caller create another.
-    Raises `WarehouseMigrationTableOverrideError` when the table overrides do not fit the plan.
+    Raises `WarehouseMigrationTableOverrideError` when the table overrides do not fit the plan, and
+    `WarehouseMigrationEmptySourceError` when the earlier attempt left a source with no tables.
     """
     items = _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id, proposal__isnull=False)
     item = items.first()
@@ -168,8 +171,6 @@ def claim_migration_item(
         return None
     claimed = contracts.ClaimedWarehouseMigrationItem(
         id=item.id,
-        migration_id=item.migration_id,
-        name=item.name,
         caveats=list(item.caveats),
         source_type=proposal.source_type,
         prefix=prefix,
@@ -182,9 +183,13 @@ def claim_migration_item(
     leftover = _source_created_since_claim(item, proposal.source_type)
     if leftover is None:
         return claimed
+    if not leftover.has_tables:
+        error = _empty_leftover_error(leftover)
+        _set_failed(team_id, item.id, error)
+        raise contracts.WarehouseMigrationEmptySourceError(error)
     caveats = [*item.caveats, _LEFTOVER_CAVEAT]
-    finish_migration_item(team_id, item.id, source_id=leftover, caveats=caveats)
-    return dataclasses.replace(claimed, caveats=caveats, recovered_source_id=leftover)
+    finish_migration_item(team_id, item.id, source_id=leftover.id, caveats=caveats)
+    return dataclasses.replace(claimed, caveats=caveats, recovered_source_id=leftover.id)
 
 
 _LEFTOVER_CAVEAT = "An earlier attempt created this source but did not finish. Check its tables and sync schedule."
@@ -194,7 +199,20 @@ def _source_description(item: _WarehouseMigrationItem) -> str:
     return f"Imported from the migrated connection {item.name}."
 
 
-def _source_created_since_claim(item: _WarehouseMigrationItem, source_type: str) -> UUID | None:
+@frozen
+class _LeftoverSource:
+    id: UUID
+    prefix: str | None
+    # False when the attempt stopped before it created any table, so the source can never sync.
+    has_tables: bool
+
+
+def _empty_leftover_error(leftover: _LeftoverSource) -> str:
+    name = f"`{leftover.prefix}`" if leftover.prefix else "without a prefix"
+    return f"An earlier attempt created the source {name} but none of its tables. Delete that source, then apply again."
+
+
+def _source_created_since_claim(item: _WarehouseMigrationItem, source_type: str) -> _LeftoverSource | None:
     """The source an apply of this item created after its claim, if one exists. Apply is its only creator:
     the type, prefix and description match it, and the claim time rules out older sources."""
     if item.claimed_at is None:
@@ -209,7 +227,10 @@ def _source_created_since_claim(item: _WarehouseMigrationItem, source_type: str)
         sources = sources.filter(prefix=item.claimed_prefix)
     else:
         sources = sources.filter(Q(prefix__isnull=True) | Q(prefix=""))
-    return sources.order_by("created_at").values_list("id", flat=True).first()
+    source = sources.order_by("created_at").first()
+    if source is None:
+        return None
+    return _LeftoverSource(id=source.id, prefix=source.prefix, has_tables=source.schemas.exists())
 
 
 def plan_migration_schemas(
@@ -244,12 +265,14 @@ def fail_migration_item(team_id: int, item_id: UUID, error: str) -> None:
     except ValidationError:
         source_type = None
     leftover = _source_created_since_claim(item, source_type) if source_type else None
-    if leftover is not None:
-        caveat = (
-            f"Creating the source failed partway ({error}). The source exists, so check its tables and sync schedule."
-        )
-        finish_migration_item(team_id, item_id, source_id=leftover, caveats=[*item.caveats, caveat])
+    if leftover is not None and leftover.has_tables:
+        caveat = "Creating the source failed partway. The source exists, so check its tables and sync schedule."
+        finish_migration_item(team_id, item_id, source_id=leftover.id, caveats=[*item.caveats, caveat])
         return
+    _set_failed(team_id, item_id, _empty_leftover_error(leftover) if leftover is not None else error)
+
+
+def _set_failed(team_id: int, item_id: UUID, error: str) -> None:
     _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id).update(
         status=_WarehouseMigrationItem.Status.FAILED, error=error, updated_at=timezone.now()
     )

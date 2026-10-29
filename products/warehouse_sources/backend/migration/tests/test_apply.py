@@ -159,6 +159,8 @@ class TestTableOverrides(SimpleTestCase):
         [
             ("unknown_vendor_table", (_CONTACTS,), [("not_a_table", "x")], "not a Fivetran table"),
             ("two_tables_one_name", (_CONTACTS, _DEALS), [("deals", "contacts")], "maps to `contacts`"),
+            # The second entry would otherwise replace the first and drop the planned column exclusions.
+            ("same_table_twice", (_CONTACTS, _DEALS), [("deals", None), ("deals", "x")], "more than one"),
             ("default_tables_plan", None, [("contact", "x")], "default tables"),
         ]
     )
