@@ -13715,9 +13715,9 @@ snapshots:
     scenes-app-marketing-analytics-search-performance--landing-pages--light:
         hash: v1.k794b7964.dd554a599a0d095f78868c92fdfe331a84c6f6f138d4127cb0a5f8493730facc.vhQ-u2B_9Bejcm2aM7XDeekBubcBaRNMixO_gByXXFo
     scenes-app-marketing-analytics-search-performance--legacy-scene--dark:
-        hash: v1.k794b7964.b68f3a03428f261a9dbc14c038cc9f6693420a3049957b5f9cfe2aeb258a9ddb.UW1TOFyK8cespPMVROYzJE3pDFI8ww6qjaM4s-CRyng
+        hash: v1.k794b7964.f3a254ce8036d09cbf782f9a9a891a02fb9dbd30b6e6cd19675c3675872a715d.hI4SRpaVcQ5wuZqGAsl5LXaQMB4IfFSWtxAB5gweOUE
     scenes-app-marketing-analytics-search-performance--legacy-scene--light:
-        hash: v1.k794b7964.ba107f55bdfb248965a36fb4e67808ea327d14c9c8b15ba1705b7159464325dc.lor-I65zT0Jvg6YoJ4tWiqlQ9JejNTkkX9GHZpx1bxY
+        hash: v1.k794b7964.0766d7c2ff75bd794f784150b7de5dbe19c8accdb14b0e3c802e1afee1f6840f.Qe4Ux-Ujyu2u6ObujFYCVQLV2bdsr0wyjLTU875G-nw
     scenes-app-marketing-analytics-search-performance--loading--dark:
         hash: v1.k794b7964.7a36603ac510eb87c198b5f58af1e63790df5dba69b68ec4e029d31b8e039df8.5KMiknCw40jRDabVuNEY3-_UY6CcDHD8_4QomprfYZo
     scenes-app-marketing-analytics-search-performance--loading--light:
@@ -13877,7 +13877,7 @@ snapshots:
     scenes-app-marketing-analytics-source-onboarding--dashboard-with-search-console-only--dark:
         hash: v1.k794b7964.62fc7b40cf0b423324e846f884bc21fad88dc54d250f896b3d69fa6f2e0e9b0a.RIDkDHCVSorSDCWgKoX_igSfSMDfCVx3gRKJG6o6xOE
     scenes-app-marketing-analytics-source-onboarding--dashboard-with-search-console-only--light:
-        hash: v1.k794b7964.63017ee792898686c3c65125faf061c8898333ad3645a9a9b375d20d661739ac.HpO0hDbthkCitHdEx-vudVazsd2D38qOLqhGV8x669A
+        hash: v1.k794b7964.c43e9e2c0cd6c579542be4235893b6f1761c9c4f89c9b3cef07b050c5760cbdd.LRk3NePR2hduLNFMWOdLmJfdlek0gVRAEeOOe6nOUi8
     scenes-app-marketing-analytics-source-onboarding--manual-selection-with-search-console--dark:
         hash: v1.k794b7964.0ee7cb1c941059bbc2f9242f140abb2d089b3549d8743251bda7544d1aa5caee.QhIRzNLAn3xPaDv1CDEjpJRoKzSTfaB3kA5gBrE3HD4
     scenes-app-marketing-analytics-source-onboarding--manual-selection-with-search-console--light:
