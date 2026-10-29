@@ -516,7 +516,7 @@ class TestMarkJobCompleted:
 
         if expect_promotion:
             schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1", merge_source_cursors=ANY)
-            mock_resume.assert_called_once_with("schema-1", 1)
+            mock_resume.assert_called_once_with("schema-1", 1, "job-1")
         else:
             schema.promote_staged_incremental_values.assert_not_called()
             mock_finish_row_tracking.assert_not_awaited()

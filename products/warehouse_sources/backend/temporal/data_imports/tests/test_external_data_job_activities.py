@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.s
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
 
 
 class TestCustomerFacingError(SimpleTestCase):
@@ -201,7 +201,7 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
         ]
     )
     def test_resumes_a_schedule_paused_for_an_ad_hoc_run_only_on_completion(
-        self, _name: str, status: ExternalDataJob.Status, expect_resume: bool
+        self, _name: str, status: ExternalDataJobStatus, expect_resume: bool
     ) -> None:
         env = ActivityEnvironment()
         inputs = UpdateExternalDataJobStatusInputs(
@@ -233,7 +233,7 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
             asyncio.run(env.run(update_external_data_job_model, inputs))
 
         if expect_resume:
-            mock_resume.assert_called_once_with(inputs.schema_id, self.team.id)
+            mock_resume.assert_called_once_with(inputs.schema_id, self.team.id, inputs.job_id)
         else:
             mock_resume.assert_not_called()
 

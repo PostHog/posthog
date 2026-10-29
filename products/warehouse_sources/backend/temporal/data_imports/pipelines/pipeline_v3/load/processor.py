@@ -737,27 +737,6 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         _resume_schedule_after_ad_hoc_run(export_signal)
 
 
-def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> None:
-    try:
-        if resume_schedule_after_ad_hoc_run(export_signal.schema_id, export_signal.team_id):
-            logger.info(
-                "schedule_resumed_after_ad_hoc_run",
-                team_id=export_signal.team_id,
-                external_data_schema_id=export_signal.schema_id,
-                external_data_job_id=export_signal.job_id,
-            )
-    except Exception as e:
-        # The job is already Completed, so a failed unpause must not fail and retry the batch.
-        logger.error(
-            "failed_to_resume_schedule_after_ad_hoc_run",
-            team_id=export_signal.team_id,
-            external_data_schema_id=export_signal.schema_id,
-            external_data_job_id=export_signal.job_id,
-            exc_info=True,
-        )
-        capture_exception(e)
-
-
 # tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
 # surfaces it as status CANCELLED with the message "Timeout expired" — the client-side analog of
 # DEADLINE_EXCEEDED above — and a connection closed mid-request as CANCELLED with "operation was
@@ -784,6 +763,37 @@ def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
     # reach the Temporal frontend (DNS blip, connection refused/reset) surfaces as the Rust
     # bridge's untyped RuntimeError rather than an RPCError — treat it the same way.
     return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_temporal_rpc_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=5),
+    reraise=True,
+)
+def _resume_schedule_with_retry(export_signal: ExportSignalMessage) -> bool:
+    return resume_schedule_after_ad_hoc_run(export_signal.schema_id, export_signal.team_id, export_signal.job_id)
+
+
+def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> None:
+    try:
+        if _resume_schedule_with_retry(export_signal):
+            logger.info(
+                "schedule_resumed_after_ad_hoc_run",
+                team_id=export_signal.team_id,
+                external_data_schema_id=export_signal.schema_id,
+                external_data_job_id=export_signal.job_id,
+            )
+    except Exception as e:
+        # The job is already Completed, so a failed unpause must not fail and retry the batch.
+        logger.error(
+            "failed_to_resume_schedule_after_ad_hoc_run",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
 
 
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:

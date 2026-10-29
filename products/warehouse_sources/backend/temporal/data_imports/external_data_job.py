@@ -756,7 +756,9 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
     # set and the schedule stays paused — a human looks at it before resuming.
     if inputs.status == ExternalDataJob.Status.COMPLETED:
         try:
-            if await database_sync_to_async_pool(resume_schedule_after_ad_hoc_run)(inputs.schema_id, inputs.team_id):
+            if await database_sync_to_async_pool(resume_schedule_after_ad_hoc_run)(
+                inputs.schema_id, inputs.team_id, job_id
+            ):
                 logger.info(
                     f"Auto-unpaused schedule for schema {inputs.schema_id} after successful admin-triggered run"
                 )

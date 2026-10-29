@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.ad_hoc_sync import (
     resume_schedule_after_ad_hoc_run,
     trigger_ad_hoc_sync,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
@@ -64,35 +65,41 @@ def test_failed_start_rolls_back_the_pause_it_took(schema):
 
 
 @pytest.mark.parametrize(
-    "marker_set,unpause_error",
+    "marker,unpause_error,expect_resume",
     [
-        (True, None),
-        (False, None),
+        ("wf-ad-hoc", None, True),
+        (True, None, True),
+        (None, None, False),
+        ("wf-other-run", None, False),
         # The marker is the only record of the pause, so it stays until the unpause succeeds.
-        (True, RuntimeError("temporal down")),
+        ("wf-ad-hoc", RuntimeError("temporal down"), True),
     ],
-    ids=["marker_set", "no_marker", "unpause_fails"],
+    ids=["own_run", "legacy_marker", "no_marker", "other_run", "unpause_fails"],
 )
-def test_resume_schedule_after_ad_hoc_run(schema, marker_set, unpause_error):
+def test_resume_schedule_after_ad_hoc_run(schema, marker, unpause_error, expect_resume):
     schema.sync_type_config = {
         "reset_pipeline": True,
-        **({"admin_unpause_schedule_after_run": True} if marker_set else {}),
+        **({"admin_unpause_schedule_after_run": marker} if marker else {}),
     }
     schema.save()
+    job = ExternalDataJob.objects.create(
+        team_id=schema.team_id, pipeline=schema.source, schema=schema, status="Completed", workflow_id="wf-ad-hoc"
+    )
 
     with patch(f"{MODULE}.a_unpause_external_data_schedule", side_effect=unpause_error) as mock_unpause:
         if unpause_error:
             with pytest.raises(RuntimeError):
-                resume_schedule_after_ad_hoc_run(schema.id, schema.team_id)
+                resume_schedule_after_ad_hoc_run(schema.id, schema.team_id, job.id)
         else:
-            assert resume_schedule_after_ad_hoc_run(schema.id, schema.team_id) is marker_set
+            assert resume_schedule_after_ad_hoc_run(schema.id, schema.team_id, job.id) is expect_resume
 
-    if marker_set:
+    if expect_resume:
         mock_unpause.assert_called_once_with(str(schema.id))
     else:
         mock_unpause.assert_not_called()
     schema.refresh_from_db()
-    assert ("admin_unpause_schedule_after_run" in schema.sync_type_config) is bool(marker_set and unpause_error)
+    marker_kept = bool(marker) and (not expect_resume or unpause_error is not None)
+    assert ("admin_unpause_schedule_after_run" in schema.sync_type_config) is marker_kept
     assert schema.sync_type_config["reset_pipeline"] is True
 
 
