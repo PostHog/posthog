@@ -23,6 +23,12 @@ def effective_report_status(status: str, *, team_id: int, monitoring_enabled: bo
     return status if enabled else SignalReport.Status.RESOLVED
 
 
+def legacy_agent_checks_enabled(report: SignalReport) -> bool:
+    return report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING} and not (
+        team_report_monitoring_enabled(report.team_id)
+    )
+
+
 def disabled_monitoring_organizations(organization_ids: Iterable[UUID]) -> frozenset[UUID]:
     return frozenset(
         organization_id
@@ -31,9 +37,14 @@ def disabled_monitoring_organizations(organization_ids: Iterable[UUID]) -> froze
     )
 
 
-def check_monitoring_disabled_organizations(checks: "QuerySet[SignalReportCheck]") -> frozenset[UUID]:
+def check_monitoring_disabled_organizations(
+    checks: "QuerySet[SignalReportCheck]", *, include_resolved: bool = False
+) -> frozenset[UUID]:
+    statuses = [SignalReport.Status.MONITORING]
+    if include_resolved:
+        statuses.append(SignalReport.Status.RESOLVED)
     organization_ids = (
-        checks.filter(report__status=SignalReport.Status.MONITORING)
+        checks.filter(report__status__in=statuses)
         .order_by()
         .values_list("report__team__organization_id", flat=True)
         .distinct()

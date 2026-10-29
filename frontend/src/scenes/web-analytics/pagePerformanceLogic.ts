@@ -28,8 +28,6 @@ import {
     CompareFilter,
     CustomEventConversionGoal,
     DataTableNode,
-    EventsNode,
-    GroupNode,
     HogQLQuery,
     InsightVizNode,
     NodeKind,
@@ -42,16 +40,7 @@ import {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import { escapeHogQLString } from '~/queries/utils'
-import {
-    ActionType,
-    BaseMathType,
-    ChartDisplayType,
-    FilterLogicalOperator,
-    InsightLogicProps,
-    PropertyFilterType,
-    PropertyOperator,
-    TeamType,
-} from '~/types'
+import { ActionType, BaseMathType, ChartDisplayType, InsightLogicProps, TeamType } from '~/types'
 
 import {
     AI_VIEW,
@@ -63,6 +52,9 @@ import {
     PagePerformanceMetric,
     PagePerformanceWindow,
     RAW_PATH,
+    AI_CHANNEL_FILTER,
+    AI_CRAWLER_FILTERS,
+    aiCrawlerRequestSeries,
     buildBreakdownQuery,
     buildPagePerformancePathExpr,
     pageCandidatesPredicate,
@@ -73,7 +65,6 @@ import {
 
 import type { TeamPublicType } from '../../types'
 import {
-    BOT_ANALYTICS_EVENTS,
     TileId,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
@@ -661,7 +652,7 @@ export type pagePerformanceLogicType = MakeLogicType<
 export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<pagePerformanceLogicType>([
     props({} as WebAnalyticsLogicProps),
     key((props) => props.context ?? 'web-analytics'),
-    path((key) => ['scenes', key === 'page-visibility' ? 'pageVisibility' : 'webAnalytics', 'pagePerformanceLogic']),
+    path(['scenes', 'webAnalytics', 'pagePerformanceLogic']),
     connect((props: WebAnalyticsLogicProps) => ({
         actions: [dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }), ['reloadAll']],
         values: [
@@ -870,36 +861,8 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
                 const interval = dateFilter.interval
 
-                const referralFilters: WebAnalyticsPropertyFilters = [
-                    {
-                        key: '$channel_type',
-                        value: ['AI'],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Session,
-                    },
-                    ...webAnalyticsFilters,
-                ]
-                const crawlerFilters: WebAnalyticsPropertyFilters = [
-                    {
-                        key: '$virt_is_bot',
-                        value: ['true'],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Event,
-                    },
-                    {
-                        key: '$virt_bot_name',
-                        value: [''],
-                        operator: PropertyOperator.IsNot,
-                        type: PropertyFilterType.Event,
-                    },
-                    {
-                        key: '$virt_traffic_category',
-                        value: ['ai_crawler', 'ai_assistant', 'ai_search'],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Event,
-                    },
-                    ...webAnalyticsFilters,
-                ]
+                const referralFilters: WebAnalyticsPropertyFilters = [AI_CHANNEL_FILTER, ...webAnalyticsFilters]
+                const crawlerFilters: WebAnalyticsPropertyFilters = [...AI_CRAWLER_FILTERS, ...webAnalyticsFilters]
 
                 const referralColumns = [
                     'breakdown_value',
@@ -944,24 +907,6 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
                     embedded: false,
                 })
 
-                const crawlerRequestSeries: GroupNode[] = [
-                    {
-                        kind: NodeKind.GroupNode,
-                        name: BOT_ANALYTICS_EVENTS.join(', '),
-                        custom_name: 'Requests',
-                        operator: FilterLogicalOperator.Or,
-                        nodes: BOT_ANALYTICS_EVENTS.map(
-                            (event): EventsNode => ({
-                                event,
-                                kind: NodeKind.EventsNode as const,
-                                math: BaseMathType.TotalCount,
-                                name: event,
-                            })
-                        ),
-                        math: BaseMathType.TotalCount,
-                    },
-                ]
-
                 return {
                     referralTrend: {
                         kind: NodeKind.InsightVizNode,
@@ -997,7 +942,7 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
                             kind: NodeKind.TrendsQuery,
                             dateRange,
                             interval,
-                            series: crawlerRequestSeries,
+                            series: [aiCrawlerRequestSeries('Requests')],
                             trendsFilter: { display: ChartDisplayType.ActionsLineGraph } as TrendsFilter,
                             properties: crawlerFilters,
                             filterTestAccounts,

@@ -6,9 +6,12 @@ from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIA
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     CREDENTIAL_KIND_MAX_LENGTH,
     CREDENTIAL_KINDS_PATH,
+    ChangedFrozenValueError,
     compute_credential_kinds,
     default_credential_kind,
+    frozen_credential_kinds,
     kebab_case,
+    merge_append_only,
     oauth_kind_of,
     render_credential_kinds,
 )
@@ -128,8 +131,38 @@ def test_credential_kinds_are_unique() -> None:
     assert not shared, f"Source types that share one credential kind: {shared}"
 
 
+@pytest.mark.parametrize(
+    "_name,computed,allow_changed,expected",
+    [
+        ("unchanged", {"a": "x"}, False, {"a": "x"}),
+        ("new_key_is_added", {"a": "x", "b": "y"}, False, {"a": "x", "b": "y"}),
+        ("removed_key_stays", {}, False, {"a": "x"}),
+        ("changed_value_raises", {"a": "z"}, False, ChangedFrozenValueError),
+        ("changed_value_with_the_flag", {"a": "z"}, True, {"a": "z"}),
+    ],
+)
+def test_merge_append_only(
+    _name: str, computed: dict[str, str], allow_changed: bool, expected: dict[str, str] | type[Exception]
+) -> None:
+    if isinstance(expected, dict):
+        assert merge_append_only({"a": "x"}, computed, name="kinds", allow_changed=allow_changed) == expected
+    else:
+        with pytest.raises(expected, match="--allow-changed-defaults"):
+            merge_append_only({"a": "x"}, computed, name="kinds", allow_changed=allow_changed)
+
+
+def test_a_changed_kind_fails_the_generation() -> None:
+    stripe = type(ALL_SOURCES[ExternalDataSourceType.STRIPE])
+    with patch.object(stripe, "credential_kind", new_callable=PropertyMock, return_value="stripe-test"):
+        with pytest.raises(ChangedFrozenValueError, match="Stripe: 'stripe' -> 'stripe-test'"):
+            render_credential_kinds()
+        allowed = render_credential_kinds(allow_changed=True)
+
+    assert '    "Stripe": "stripe-test",' in allowed
+
+
 def test_credential_kinds_file_is_up_to_date() -> None:
-    assert dict(CREDENTIAL_KINDS) == compute_credential_kinds()
+    assert dict(CREDENTIAL_KINDS) == frozen_credential_kinds()
     assert CREDENTIAL_KINDS_PATH.read_text() == render_credential_kinds(), (
         "The frozen credential kinds are out of date. "
         "Run `python manage.py generate_source_field_classification` and commit the result."

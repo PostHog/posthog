@@ -40,6 +40,7 @@
   FROM "posthog_integration"
   WHERE ((("posthog_integration"."config" -> 'auth_type') IS NULL
           OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
   LIMIT 21
@@ -291,6 +292,7 @@
   FROM "posthog_integration"
   WHERE ((("posthog_integration"."config" -> 'auth_type') IS NULL
           OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
   LIMIT 21
@@ -458,6 +460,7 @@
   FROM "posthog_integration"
   WHERE ((("posthog_integration"."config" -> 'auth_type') IS NULL
           OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
   LIMIT 21
@@ -886,6 +889,7 @@
   FROM "posthog_integration"
   WHERE ((("posthog_integration"."config" -> 'auth_type') IS NULL
           OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
   LIMIT 21
@@ -1118,6 +1122,7 @@
   FROM "posthog_integration"
   WHERE ((("posthog_integration"."config" -> 'auth_type') IS NULL
           OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb)
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
   LIMIT 21

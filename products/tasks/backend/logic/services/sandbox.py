@@ -47,6 +47,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
 )
+from products.tasks.backend.logic.services.startup_failure import raise_startup_failure
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -686,6 +687,7 @@ class SandboxBase(ABC):
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
         sandbox_runtime: str | None = None,
+        before_launch: Callable[[], None] | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -906,6 +908,8 @@ def wait_for_health_check(
     """
     health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
     result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if result.exit_code != 0:
+        raise_startup_failure(result.stdout, sandbox_id)
     if "claude_credential_unavailable" in result.stdout:
         from products.tasks.backend.exceptions import ProcessTaskFatalError
 
@@ -954,15 +958,17 @@ def build_health_check_command(
         f"  body=$(curl -q -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
-        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
-        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "
         'ready = payload.get("status") == "ok" and payload.get("hasSession") is True; '
-        'sys.exit(0 if ready else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
+        'sys.exit(0 if ready else 3 if payload.get("readiness") == "failed" '
+        'else 2 if payload.get("initializationPhase") == "setup_hooks" else 1)'
         '\' "$body"; ready=$?; '
         '    if [ "$ready" = "0" ]; then echo "ok:$i"; exit 0; fi; '
+        '    if [ "$ready" = "3" ]; then printf "%s\\n" "$body"; exit 1; fi; '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
+        '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         f'    if [ "$ready" = "2" ]; then max_attempts={hooks_max_attempts}; budget={hooks_budget_seconds}; fi; '
         "  fi; "
         '  if [ "$i" -ge "$max_attempts" ] || [ "$SECONDS" -ge "$budget" ]; then exit 1; fi; '

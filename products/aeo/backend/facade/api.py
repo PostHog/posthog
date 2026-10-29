@@ -194,15 +194,6 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     prompt = _get_prompt_row(team_id, prompt_id)
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
     checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
-    # `mentioned` filters on the `cited` column, and an annotation named `cited` would shadow that
-    # column for every later annotation in the same call, so it must come first.
-    counts = {
-        "checks": Count("id"),
-        "mentioned": Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
-        "cited": Count("id", filter=Q(cited=True)),
-        "failed": Count("id", filter=Q(check_failed=True)),
-    }
-
     engines = tuple(
         PromptEngineStats(
             engine=row["engine"],
@@ -214,7 +205,16 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
             last_checked_at=row["last_checked_at"],
         )
         for row in checks.values("engine")
-        .annotate(**counts, first_checked_at=Min("created_at"), last_checked_at=Max("created_at"))
+        # `mentioned` filters on the `cited` column, and an annotation named `cited` would shadow that
+        # column for every later annotation in the same call, so it must come first.
+        .annotate(
+            checks=Count("id"),
+            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+            cited=Count("id", filter=Q(cited=True)),
+            failed=Count("id", filter=Q(check_failed=True)),
+            first_checked_at=Min("created_at"),
+            last_checked_at=Max("created_at"),
+        )
         .order_by("engine")
     )
 
@@ -234,7 +234,12 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
         )
         for row in in_window.annotate(date=TruncDate("created_at", tzinfo=tz))
         .values("date", "engine")
-        .annotate(**counts)
+        .annotate(
+            checks=Count("id"),
+            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+            cited=Count("id", filter=Q(cited=True)),
+            failed=Count("id", filter=Q(check_failed=True)),
+        )
         .order_by("date", "engine")
     )
     answered = in_window.filter(check_failed=False)

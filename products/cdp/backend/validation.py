@@ -96,8 +96,8 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    # `IntegrationManager.any` also reads warehouse source rows, which the named accessors skip.
-    rows = IntegrationManager.any.get_many(get_team().id, integration_ids).values()
+    # Warehouse source rows must be read too, so the guard below can reject them.
+    rows = IntegrationManager.any.with_source_rows().get_many(get_team().id, integration_ids).values()
     if any(row.kind == POSTHOG_CONNECT_KIND for row in rows):
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}

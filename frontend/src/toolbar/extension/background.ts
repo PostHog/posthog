@@ -1,3 +1,3 @@
-import { openPanelFromToolbarButton } from './extensionBrowser'
+import { openPanelFromToolbarButton } from './browser/extensionBrowser'
 
 openPanelFromToolbarButton()
