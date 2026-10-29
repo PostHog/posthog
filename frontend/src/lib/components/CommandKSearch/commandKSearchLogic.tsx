@@ -84,6 +84,7 @@ import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequ
 const REMOTE_DEBOUNCE_MS = 150
 const OBJECTS_DEBOUNCE_MS = 50
 const FAST_REQUESTS = ['objects', 'persons']
+const INPUT_HIGHLIGHT_KEY = 'input'
 
 export type CommitVia = 'tab' | 'enter' | 'space' | 'paste' | 'click' | 'typed' | 'see-all'
 
@@ -739,7 +740,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         highlightedRow: [
             (s) => [s.selectableRows, s.highlightedKey],
             (rows: CommandKRow[], highlightedKey: string | null): CommandKRow | null =>
-                rows.find((row) => row.key === highlightedKey) ?? rows[0] ?? null,
+                highlightedKey === INPUT_HIGHLIGHT_KEY
+                    ? null
+                    : (rows.find((row) => row.key === highlightedKey) ?? rows[0] ?? null),
         ],
         highlightIsFilterRow: [
             (s) => [s.highlightedRow],
@@ -982,12 +985,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     case 'edit-chip':
                         actions.editChip(intent.index)
                         break
-                    case 'clear-or-close':
-                        if (values.isPaletteEmpty) {
-                            actions.closeCommand()
-                        } else {
-                            actions.clearQuery()
-                        }
+                    case 'close':
+                        actions.closeCommand()
                         break
                 }
             },
@@ -997,7 +996,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     return
                 }
                 const currentIndex = values.highlightedRow ? rows.indexOf(values.highlightedRow) : -1
-                actions.setHighlightedKey(rows[(currentIndex + direction + rows.length) % rows.length].key)
+                const nextIndex = Math.min(currentIndex + direction, rows.length - 1)
+                actions.setHighlightedKey(nextIndex < 0 ? INPUT_HIGHLIGHT_KEY : rows[nextIndex].key)
             },
             activateRow: ({ row, newTab, via }) => {
                 if (row.kind === 'filter-key') {
