@@ -10953,6 +10953,23 @@ export namespace Schemas {
             name: string;
             data_type?: string | undefined;
             is_nullable?: boolean | undefined;
+            sensitivity?:
+                | (
+                      | (
+                            | "email"
+                            | "phone"
+                            | "name"
+                            | "address"
+                            | "date_of_birth"
+                            | "ip_address"
+                            | "token"
+                            | "secret"
+                            | "card_number"
+                            | "null"
+                        )
+                      | null
+                  )
+                | undefined;
         }>;
         /**
          * Whether exact source-side column metadata is available for safe source-query projection.

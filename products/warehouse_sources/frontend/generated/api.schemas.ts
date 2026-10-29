@@ -360,6 +360,26 @@ export interface RowFilterColumnApi {
     operators: string[]
 }
 
+/**
+ * The kind of personal or secret data the column's name and type suggest, or null.
+ * @nullable
+ */
+export type ExternalDataSchemaApiAvailableColumnsItemSensitivity =
+    | (typeof ExternalDataSchemaApiAvailableColumnsItemSensitivity)[keyof typeof ExternalDataSchemaApiAvailableColumnsItemSensitivity]
+    | null
+
+export const ExternalDataSchemaApiAvailableColumnsItemSensitivity = {
+    Email: 'email',
+    Phone: 'phone',
+    Name: 'name',
+    Address: 'address',
+    DateOfBirth: 'date_of_birth',
+    IpAddress: 'ip_address',
+    Token: 'token',
+    Secret: 'secret',
+    CardNumber: 'card_number',
+} as const
+
 export interface ExternalDataSourceApiVersionDeprecationApi {
     /** The deprecated vendor API version this source is pinned to. */
     version: string
@@ -389,6 +409,11 @@ export type ExternalDataSchemaApiAvailableColumnsItem = {
     name: string
     data_type?: string
     is_nullable?: boolean
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    sensitivity?: ExternalDataSchemaApiAvailableColumnsItemSensitivity
 }
 
 /**
@@ -580,10 +605,35 @@ export type PatchedExternalDataSchemaApiRowFiltersItem = {
     value: unknown
 }
 
+/**
+ * The kind of personal or secret data the column's name and type suggest, or null.
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity =
+    | (typeof PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity)[keyof typeof PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity]
+    | null
+
+export const PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity = {
+    Email: 'email',
+    Phone: 'phone',
+    Name: 'name',
+    Address: 'address',
+    DateOfBirth: 'date_of_birth',
+    IpAddress: 'ip_address',
+    Token: 'token',
+    Secret: 'secret',
+    CardNumber: 'card_number',
+} as const
+
 export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
     name: string
     data_type?: string
     is_nullable?: boolean
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    sensitivity?: PatchedExternalDataSchemaApiAvailableColumnsItemSensitivity
 }
 
 /**

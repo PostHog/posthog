@@ -51479,10 +51479,34 @@ export namespace Schemas {
       value: unknown;
     };
 
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    export type ExternalDataSchemaAvailableColumnsItemSensitivity = typeof ExternalDataSchemaAvailableColumnsItemSensitivity[keyof typeof ExternalDataSchemaAvailableColumnsItemSensitivity] | null;
+
+
+    export const ExternalDataSchemaAvailableColumnsItemSensitivity = {
+      Email: 'email',
+      Phone: 'phone',
+      Name: 'name',
+      Address: 'address',
+      DateOfBirth: 'date_of_birth',
+      IpAddress: 'ip_address',
+      Token: 'token',
+      Secret: 'secret',
+      CardNumber: 'card_number',
+    } as const;
+
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
       is_nullable?: boolean;
+      /**
+         * The kind of personal or secret data the column's name and type suggest, or null.
+         * @nullable
+         */
+      sensitivity?: ExternalDataSchemaAvailableColumnsItemSensitivity;
     };
 
     /**
@@ -87748,10 +87772,34 @@ export namespace Schemas {
       value: unknown;
     };
 
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaAvailableColumnsItemSensitivity = typeof PatchedExternalDataSchemaAvailableColumnsItemSensitivity[keyof typeof PatchedExternalDataSchemaAvailableColumnsItemSensitivity] | null;
+
+
+    export const PatchedExternalDataSchemaAvailableColumnsItemSensitivity = {
+      Email: 'email',
+      Phone: 'phone',
+      Name: 'name',
+      Address: 'address',
+      DateOfBirth: 'date_of_birth',
+      IpAddress: 'ip_address',
+      Token: 'token',
+      Secret: 'secret',
+      CardNumber: 'card_number',
+    } as const;
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
       is_nullable?: boolean;
+      /**
+         * The kind of personal or secret data the column's name and type suggest, or null.
+         * @nullable
+         */
+      sensitivity?: PatchedExternalDataSchemaAvailableColumnsItemSensitivity;
     };
 
     /**
