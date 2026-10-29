@@ -1,4 +1,6 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { EvalsState } from '../types'
 import { ErrorCallout } from './ErrorCallout'
@@ -17,7 +19,14 @@ export function EvalResultList({ evals, onSelectNode }: EvalResultListProps): JS
         return <ErrorCallout message={evals.errorMessage} />
     }
     if (evals.results.length === 0) {
-        return <p className="m-0 text-secondary">No evaluations ran on this step.</p>
+        return (
+            <p className="m-0 text-secondary">
+                <span>No evaluations ran on this step. </span>
+                <Link to={urls.aiObservabilityEvaluations()} data-attr="trace-view-evals-setup-link">
+                    Set up evaluations
+                </Link>
+            </p>
+        )
     }
     return (
         <ul className="m-0 list-none divide-y divide-primary rounded border border-primary bg-surface-primary p-0">

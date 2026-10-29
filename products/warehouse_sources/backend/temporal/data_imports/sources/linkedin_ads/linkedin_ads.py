@@ -28,9 +28,12 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 from .client import API_VERSION, LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
 from .schemas import (
+    CREATIVE_INLINE_LANDING_PAGE_TYPES,
+    CREATIVE_REFERENCE_CONTENT_TYPES,
     EPOCH_MS_VIRTUAL_COLUMNS,
     FLOAT_FIELDS,
     INT_FIELDS,
+    POST_URN_PREFIXES,
     RESOURCE_SCHEMAS,
     URN_COLUMNS,
     VIRTUAL_COLUMN_URN_MAPPING,
@@ -275,6 +278,10 @@ def linkedin_ads_source(
 
         try:
             for page, next_page_token in data_pages:
+                if resource == LinkedinAdsResource.Creatives and client.supports_creative_metadata():
+                    _add_creative_landing_pages(
+                        page, client, config.account_id, safe_point=resumable_source_manager.safe_point
+                    )
                 # None signals an unflattenable PK (malformed creative URN) — drop the row.
                 flattened_records = [
                     flat for record in page if (flat := _flatten_linkedin_record(record, schema)) is not None
@@ -311,6 +318,70 @@ def linkedin_ads_source(
         partition_format=schema.partition_format,
         partition_keys=schema.partition_keys,
     )
+
+
+def _inline_landing_page(content: dict[str, typing.Any]) -> str | None:
+    """Text and spotlight ads carry their landing page in the creative itself."""
+    for ad_type in CREATIVE_INLINE_LANDING_PAGE_TYPES:
+        ad_content = content.get(ad_type)
+        landing_page = ad_content.get("landingPage") if isinstance(ad_content, dict) else None
+        if isinstance(landing_page, str) and landing_page:
+            return landing_page
+    return None
+
+
+def _add_creative_landing_pages(
+    page: list[dict[str, typing.Any]],
+    client: LinkedinAdsClient,
+    account_id: str,
+    safe_point: collections.abc.Callable[[], None],
+) -> None:
+    """Look up the landing page of each creative that does not carry one inline, at most one request
+    per creative. The result goes into the record's `metadata`, the shape LinkedIn uses for it."""
+    for record in page:
+        creative_urn = record.get("id")
+        content = record.get("content")
+        if (
+            not isinstance(creative_urn, str)
+            # A draft never served, so no visit can come from it.
+            or record.get("intendedStatus") == "DRAFT"
+            or (isinstance(content, dict) and _inline_landing_page(content) is not None)
+        ):
+            continue
+        # Rows of this page sit after the staged cursor, so a resume reads them again.
+        safe_point()
+        record["metadata"] = {"landingPage": client.get_creative_landing_page(account_id, creative_urn)}
+
+
+def _creative_destination_columns(record: dict[str, typing.Any]) -> dict[str, str | None]:
+    """Hoist the sponsored post and the landing page out of a creative's nested `content`."""
+    content = record.get("content")
+    content = content if isinstance(content, dict) else {}
+
+    reference = content.get("reference")
+    if not isinstance(reference, str):
+        # From 202610 LinkedIn can return the reference inside a format-specific member.
+        reference = next(
+            (
+                nested["reference"]
+                for ad_type in CREATIVE_REFERENCE_CONTENT_TYPES
+                if isinstance(nested := content.get(ad_type), dict) and isinstance(nested.get("reference"), str)
+            ),
+            None,
+        )
+    reference = reference or None
+
+    post_url = None
+    if reference and reference.startswith(POST_URN_PREFIXES):
+        post_url = f"https://www.linkedin.com/feed/update/{reference}/"
+
+    landing_page = _inline_landing_page(content)
+    if landing_page is None:
+        metadata = record.get("metadata")
+        looked_up = metadata.get("landingPage") if isinstance(metadata, dict) else None
+        landing_page = looked_up if isinstance(looked_up, str) and looked_up else None
+
+    return {"content_reference": reference, "post_url": post_url, "landing_page_url": landing_page}
 
 
 def _convert_date_object_to_date(date_obj: dict[str, int] | None) -> dt.date | None:
@@ -417,6 +488,9 @@ def _flatten_linkedin_record(
             else:
                 flattened["value_amount"] = None
                 flattened["value_currency_code"] = None
+
+        elif field_name == "content":
+            flattened.update(_creative_destination_columns(record))
 
         elif field_name in URN_COLUMNS:
             urn_value = record.get(field_name)

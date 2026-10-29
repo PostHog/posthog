@@ -4,7 +4,7 @@ import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
-import { NodeDetailTab, TraceMode } from './types'
+import { FeedbackEntry, MatchDirection, NodeDetailTab, SummaryItemKind, TraceMode } from './types'
 
 type ReadyValues = Pick<
     traceViewAdapterLogicValues,
@@ -19,6 +19,22 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'evalsChip'
+    | 'evalOutcomesByNode'
+    | 'gitBranch'
+    | 'searchBox'
+    | 'matchingNodeIds'
+    | 'highlightQuery'
+    | 'matchStepCount'
+    | 'summaryState'
+    | 'summaryRequesting'
+    | 'summaryRequestError'
+    | 'summaryConsentGiven'
+    | 'feedbackChip'
+    | 'feedbackCount'
+    | 'feedbackCountByNodeId'
+    | 'feedbackMode'
+    | 'selectedStepFeedback'
 >
 
 interface ReadyActions {
@@ -28,6 +44,15 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    showFailingEvals: () => void
+    setQuery: (query: string) => void
+    stepMatch: (direction: MatchDirection) => void
+    summarize: () => void
+    regenerateSummary: () => void
+    loadSummary: () => void
+    summaryStepClicked: (nodeId: string, kind: SummaryItemKind) => void
+    showFeedback: (nodeId: string | null, entry: FeedbackEntry) => void
+    retryTraceFeedback: () => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -36,7 +61,14 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
     return {
         header: values.header,
-        summary: values.summary,
+        summary: {
+            ...values.summary,
+            evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
+            feedback: values.feedbackChip
+                ? { chip: values.feedbackChip, onClick: () => actions.showFeedback(null, 'chip') }
+                : null,
+            git: values.gitBranch,
+        },
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
@@ -51,10 +83,35 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
                   actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
+                  stepFeedback: values.selectedStepFeedback
+                      ? {
+                            feedback: values.selectedStepFeedback,
+                            onOpen: () => actions.showFeedback(values.selectedNodeId, 'step'),
+                        }
+                      : null,
               }
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        evalOutcomes: values.evalOutcomesByNode,
+        search: { ...values.searchBox, onQueryChange: actions.setQuery, onStep: actions.stepMatch },
+        matchingNodeIds: values.matchingNodeIds,
+        highlightQuery: values.highlightQuery,
+        matchStepCount: values.matchStepCount,
+        summaryMode: {
+            state: values.summaryState,
+            requesting: values.summaryRequesting,
+            requestError: values.summaryRequestError,
+            consentGiven: values.summaryConsentGiven,
+            onRequest: actions.summarize,
+            onRegenerate: actions.regenerateSummary,
+            onReload: actions.loadSummary,
+            onSelectStep: actions.summaryStepClicked,
+        },
+        feedbackMode: values.feedbackMode,
+        onRetryFeedback: actions.retryTraceFeedback,
+        feedbackCount: values.feedbackCount,
+        feedbackCountByNodeId: values.feedbackCountByNodeId,
     }
 }
 
@@ -77,6 +134,22 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        evalsChip,
+        evalOutcomesByNode,
+        gitBranch,
+        searchBox,
+        matchingNodeIds,
+        highlightQuery,
+        matchStepCount,
+        summaryState,
+        summaryRequesting,
+        summaryRequestError,
+        summaryConsentGiven,
+        feedbackChip,
+        feedbackCount,
+        feedbackCountByNodeId,
+        feedbackMode,
+        selectedStepFeedback,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -95,6 +168,22 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      evalsChip,
+                      evalOutcomesByNode,
+                      gitBranch,
+                      searchBox,
+                      matchingNodeIds,
+                      highlightQuery,
+                      matchStepCount,
+                      summaryState,
+                      summaryRequesting,
+                      summaryRequestError,
+                      summaryConsentGiven,
+                      feedbackChip,
+                      feedbackCount,
+                      feedbackCountByNodeId,
+                      feedbackMode,
+                      selectedStepFeedback,
                   },
                   actions
               )

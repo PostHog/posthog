@@ -1200,8 +1200,12 @@ describe('exec tool', () => {
 
         it.each([
             ['proposed', { status: 'proposed', is_drifted: false }, "'/data-catalog/metrics/{name}'"],
-            ['drifted proposed', { status: 'proposed', is_drifted: true }, 'Do not present this as the answer'],
-            ['drifted approved', { status: 'approved', is_drifted: true }, 'Do not present this as the answer'],
+            [
+                'drifted proposed',
+                { status: 'proposed', is_drifted: true },
+                '(<url>), not yet approved, and its source insight',
+            ],
+            ['drifted approved', { status: 'approved', is_drifted: true }, '(<url>), approved, and its source insight'],
             ['deprecated', { status: 'deprecated', is_drifted: false }, 'Do not present this as the answer'],
         ])('marks a %s metric result noncanonical', async (_label, envelope, guidance) => {
             const exec = metricRunExec({ ...envelope, results: [[42]] })
@@ -1888,6 +1892,41 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
                 /invalid regex pattern/i
             )
+        })
+
+        it.each(['search "project"', "search 'switch project'", 'search `switch-project`'])(
+            'ignores quotes around the query: %s',
+            async (command) => {
+                const exec = createExec([makeMockTool({ name: 'switch-project', title: 'Switch active project' })])
+                const result = JSON.parse((await exec.handler(mockContext, { command })) as string)
+                expect(Array.isArray(result) ? result : result.matches).toEqual(['switch-project'])
+            }
+        )
+
+        it('falls back to word ranking when a guessed tool name matches nothing', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(
+                [
+                    makeMockTool({ name: 'project-settings-update', title: 'Update project settings' }),
+                    makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' }),
+                ],
+                undefined,
+                { trackCommand: (meta) => tracked.push(meta) }
+            )
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search project-update' })) as string)
+            expect(result.matches).toEqual(['project-settings-update'])
+            expect(result.hint).toContain('No tool is named "project-update"')
+            expect(tracked.at(-1)).toMatchObject({
+                exec_search_match_count: 0,
+                exec_search_fallback_match_count: 1,
+            })
+        })
+
+        it('tells the agent to retry with plain words when nothing matches at all', async () => {
+            const exec = createExec([makeMockTool()])
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search zzz-qqq' })) as string)
+            expect(result.matches).toEqual([])
+            expect(result.hint).toContain('plain words')
         })
     })
 

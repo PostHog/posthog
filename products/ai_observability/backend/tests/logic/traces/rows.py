@@ -5,7 +5,7 @@ from typing import Any
 from posthog.models import Team
 
 from products.ai_observability.backend.logic.traces.evaluation_result_queries import EvaluationResultRow
-from products.ai_observability.backend.logic.traces.trace_queries import TraceEventRow
+from products.ai_observability.backend.logic.traces.trace_queries import FeedbackEventRow, TraceEventRow
 
 T0 = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
 EVALUATION_ID = "0192f2a4-5c1e-7000-8000-000000000e01"
@@ -34,8 +34,25 @@ def make_row(**overrides: Any) -> TraceEventRow:
         "is_error": False,
         "error_is_truthy": False,
         "ingestion_source": None,
+        "git_branch": None,
+        "git_repo": None,
     }
     return TraceEventRow(**{**fields, **overrides})
+
+
+def make_feedback_row(**overrides: Any) -> FeedbackEventRow:
+    fields: dict[str, Any] = {
+        "uuid": "event-1",
+        "event": "$ai_metric",
+        "timestamp": T0,
+        "parent_id": None,
+        "span_id": None,
+        "generation_id": None,
+        "metric_name": None,
+        "metric_value_json": "",
+        "feedback_text_json": "",
+    }
+    return FeedbackEventRow(**{**fields, **overrides})
 
 
 def make_evaluation_result_row(**overrides: Any) -> EvaluationResultRow:
@@ -55,6 +72,7 @@ def make_evaluation_result_row(**overrides: Any) -> EvaluationResultRow:
         "score": None,
         "categories": None,
         "backfill_id": None,
+        "start_time": None,
     }
     return EvaluationResultRow(**{**fields, **overrides})
 

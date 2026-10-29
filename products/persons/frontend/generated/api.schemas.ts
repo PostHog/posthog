@@ -537,6 +537,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -3932,11 +3934,18 @@ export interface PersonSplitResponseApi {
     success: boolean
 }
 
+/**
+ * Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event.
+ */
+export type PersonUpdatePropertyRequestApiProperties = { [key: string]: unknown }
+
 export interface PersonUpdatePropertyRequestApi {
-    /** The property key to set. */
-    key: string
+    /** The property key to set. Pair it with 'value' to set one property. */
+    key?: string
     /** The property value. Can be a string, number, boolean, or object. */
-    value: unknown
+    value?: unknown
+    /** Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event. */
+    properties?: PersonUpdatePropertyRequestApiProperties
 }
 
 export interface PersonBulkDeleteRequestApi {

@@ -80,6 +80,8 @@ export type IntegrationConnectSurface =
     | 'warehouse_source_reconnect'
     | 'onboarding_wizard'
     | 'inbox_welcome'
+    | 'inbox_report'
+    | 'inbox_triage'
     | 'signals_agent_setup'
     | 'task_composer'
     | 'visual_review_settings'

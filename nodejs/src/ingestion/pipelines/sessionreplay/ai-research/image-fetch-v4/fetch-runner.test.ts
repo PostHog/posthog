@@ -7,7 +7,7 @@ import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/top
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
 import { ConfigurationPolicyService, OriginPolicyDecision } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata } from './crawl-history'
-import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED } from './fetch-runner'
+import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED, URL_TOO_OLD } from './fetch-runner'
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
@@ -602,7 +602,7 @@ describe('FetchRunner', () => {
     it.each([
         ['a fetch pass', OPTIONS],
         ['the pod candidate pool', POOL_OPTIONS],
-    ])('marks an image publish failure as lost after all candidate work settles in %s', async (_mode, options) => {
+    ])('retries an image publish failure through the frontier in %s', async (_mode, options) => {
         const harness = build({ bytes: Buffer.from('image'), contentType: 'image/png' }, {}, 'queued', options)
         harness.publishImage.mockRejectedValue(
             new S3ServiceException({
@@ -620,9 +620,16 @@ describe('FetchRunner', () => {
         )
 
         expect(attempts).toEqual([
-            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: true }),
-            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: true }),
+            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: false }),
+            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: false }),
         ])
+        expect(harness.republish).toHaveBeenCalledTimes(2)
+        expect(harness.republish).toHaveBeenCalledWith(
+            expect.objectContaining({ lastBlockReason: 'transient_backoff' }),
+            expect.any(Object),
+            'retry',
+            60_000
+        )
         // One log for the burst, with the error name and status and nothing that names the image.
         const logged = warn.mock.calls.filter(([, event]) => event === 'ai_research_v4_image_fetch_storage_failed')
         expect(logged).toEqual([
@@ -777,15 +784,50 @@ describe('FetchRunner', () => {
         expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'not_ready', 600_000)
     })
 
-    it.each([
-        ['a fetch pass', OPTIONS],
-        ['the pod candidate pool', POOL_OPTIONS],
-    ])('returns pass-deadline work directly to the frontier from %s', async (_mode, options) => {
+    it.each<[string, FetchRunnerOptions, 'none' | 'transient' | 'retry_after_1h', string, number]>([
+        ['returns pass-deadline work directly to the frontier from a fetch pass', OPTIONS, 'none', 'pass_deadline', 0],
+        [
+            'returns pass-deadline work directly to the frontier from the pod pool',
+            POOL_OPTIONS,
+            'none',
+            'pass_deadline',
+            0,
+        ],
+        [
+            'delays pass-deadline work of a backed-off domain from a fetch pass',
+            OPTIONS,
+            'transient',
+            'not_ready',
+            60_000,
+        ],
+        [
+            'delays pass-deadline work of a backed-off domain from the pod pool',
+            POOL_OPTIONS,
+            'transient',
+            'not_ready',
+            60_000,
+        ],
+        [
+            'holds pass-deadline work of a long back-off in the ten-minute tier',
+            OPTIONS,
+            'retry_after_1h',
+            'not_ready',
+            600_000,
+        ],
+    ])('%s', async (_name, options, backOff, reason, waitMs) => {
         const harness = build({}, {}, 'queued', { ...options, batchBudgetMs: -1 })
+        if (backOff !== 'none') {
+            harness.budget.recordTransientFailure(
+                'example.com',
+                NOW_MS,
+                backOff === 'retry_after_1h' ? 3_600_000 : undefined
+            )
+        }
 
         await harness.runner.run([candidate()], new Map())
 
-        expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'pass_deadline', 0)
+        expect(harness.fetch).not.toHaveBeenCalled()
+        expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), reason, waitMs)
     })
 
     it('finishes a retry when its last hop was the failed request', async () => {
@@ -807,11 +849,14 @@ describe('FetchRunner', () => {
         expect(attempt).toMatchObject({ outcome: HOPS_EXHAUSTED, finished: true })
     })
 
-    it('records a terminal refusal when no delay topic can hold the wait', async () => {
-        const harness = build({ outcome: 'timeout' }, {}, 'refused_delay')
+    it.each([
+        ['no delay topic can hold the wait', 'refused_delay', DELAY_TOO_LONG],
+        ['the URL is past the age limit', 'refused_age', URL_TOO_OLD],
+    ] as const)('records a terminal refusal when %s', async (_name, republishResult, outcome) => {
+        const harness = build({ outcome: 'timeout' }, {}, republishResult)
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
-        expect(attempt).toMatchObject({ outcome: DELAY_TOO_LONG, finished: true })
+        expect(attempt).toMatchObject({ outcome, finished: true, history: { outcome } })
     })
 
     it('merges a 304 response into the previous cache metadata', async () => {

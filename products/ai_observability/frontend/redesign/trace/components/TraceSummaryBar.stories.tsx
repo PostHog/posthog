@@ -25,3 +25,18 @@ export const Anonymous: Story = { ...wide, args: { person: null } }
 export const ShortId: Story = { ...wide, args: { traceId: 'notes-run-42' } }
 export const LongSlugId: Story = { ...wide, args: { traceId: 'support-chat-session-2026-09-01-weekly-billing-review' } }
 export const Narrow: Story = { decorators: [withWidth(420)] }
+export const WithFeedback: Story = {
+    args: { feedback: { chip: { total: 6 }, onClick: () => {} } },
+    decorators: [withWidth(420)],
+}
+
+export const WithGitBranch: Story = {
+    ...wide,
+    args: { git: { branch: 'feat/billing-answers', repo: 'acme/support-bot' } },
+}
+export const NarrowWithLongGitBranch: Story = {
+    decorators: [withWidth(420)],
+    args: {
+        git: { branch: 'carol/feat-answer-billing-questions-with-invoice-history-and-seat-changes', repo: null },
+    },
+}
