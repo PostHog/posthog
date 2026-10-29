@@ -3158,9 +3158,9 @@ class ResolvedDateRangeResponse(BaseModel):
     read_from: AwareDatetime | None = Field(
         default=None,
         description=(
-            "The earliest timestamp the query reads, when it reads rows from before"
-            " date_from. Lifecycle sets it, because it reads the interval before the"
-            " range."
+            "The earliest timestamp the query reads, when only its first interval"
+            " depends on rows from before date_from. Lifecycle sets it to the start of"
+            " the interval before the range."
         ),
     )
 
