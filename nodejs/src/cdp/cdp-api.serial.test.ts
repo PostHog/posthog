@@ -2148,10 +2148,19 @@ describe('CDP API', () => {
                 .set(headers)
                 .send(payload)
 
+        let produceOutput: jest.SpyInstance
+        const emailStatusRows = (): Record<string, unknown>[] =>
+            produceOutput.mock.calls
+                .filter(([output]) => output === 'email_status')
+                .map(([, message]) => parseJSON(message.value.toString()))
+
         beforeEach(async () => {
+            produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
+            // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
+            jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
         })
 
         afterEach(() => {
@@ -2184,6 +2193,9 @@ describe('CDP API', () => {
                 expect.objectContaining({ app_source_id: hogFlow.id, metric_name: 'triggered', count: 1 }),
                 'hog_flow'
             )
+            expect(emailStatusRows()).toEqual([
+                expect.objectContaining({ team_id: team.id, message_id: res.body.invocation_id, status: 'queued' }),
+            ])
         })
 
         describe('with an idempotency key', () => {
@@ -2209,6 +2221,9 @@ describe('CDP API', () => {
                     replayed: true,
                 })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(emailStatusRows()).toEqual([
+                    expect.objectContaining({ message_id: first.body.invocation_id, status: 'queued' }),
+                ])
             })
 
             it('rejects the key for a different request', async () => {
@@ -2311,6 +2326,14 @@ describe('CDP API', () => {
                 'recipient_suppressed',
                 () => jest.spyOn(api['emailSuppressionService'], 'isSuppressed').mockResolvedValueOnce(true),
             ],
+            [
+                "the recipient's domain has no mail servers",
+                'recipient_unreachable',
+                () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockResolvedValueOnce('Skipping send: the domain has no reachable mail servers.'),
+            ],
         ] as const)('refuses a send the email worker would skip because %s', async (_desc, code, refuse) => {
             refuse()
             const refusedBefore = await outcomeCount(code)
@@ -2323,6 +2346,7 @@ describe('CDP API', () => {
             expect(refused.body).toEqual({ error: code })
             expect(await outcomeCount(code)).toEqual(refusedBefore + 1)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
+            expect(emailStatusRows()).toEqual([])
 
             const retry = await send(hogFlow.id, headers, keyed)
 

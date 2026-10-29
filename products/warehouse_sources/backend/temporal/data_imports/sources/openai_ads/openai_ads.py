@@ -1,12 +1,12 @@
 import re
 import json
 import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 from dateutil import parser
-from requests import Request, Response
+from requests import HTTPError, Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -44,6 +44,15 @@ NO_ACCESS_ERROR = (
 UNREACHABLE_ERROR = (
     "Couldn't reach OpenAI Ads to validate your API key. This is usually temporary, so try again in a moment."
 )
+SERVER_ERROR_MESSAGE = (
+    "OpenAI Ads had a temporary server error. This can also happen for a few minutes after you create an "
+    "API key. The next sync will try again automatically."
+)
+
+# `requests` writes this prefix for every 403. The source's non-retryable 403 entry matches it.
+_FORBIDDEN_PREFIX = "403 Client Error: Forbidden for url:"
+
+_T = TypeVar("_T")
 
 # OpenAI Ads keeps daily delivery reporting for the most recent 365 days and rejects an earlier
 # `since` with a 400 (https://developers.openai.com/ads/reporting). The window is one day shorter
@@ -114,6 +123,28 @@ class _ListPaginator(BasePaginator):
 
     def __str__(self) -> str:
         return "_ListPaginator()"
+
+
+class OpenAIAdsServerError(Exception):
+    """A 403 whose error body has the code `server_error`."""
+
+
+def _retry_forbidden_server_errors(pages: Iterable[_T]) -> Iterator[_T]:
+    """Re-raise a 403 with the body code `server_error` as a retryable error.
+
+    OpenAI Ads sends this 403 for a server fault, and for a new API key for some minutes after
+    it is created. The same key then works. The error text must not keep the `requests` 403
+    prefix, because the source's non-retryable 403 entry matches it and disables the schema.
+    """
+    try:
+        yield from pages
+    except HTTPError as error:
+        message = str(error)
+        status = error.response.status_code if error.response is not None else None
+        if status != 403 or "code=server_error" not in message:
+            raise
+        # Built from the message that is already redacted, not from the response URL.
+        raise OpenAIAdsServerError(message.replace(_FORBIDDEN_PREFIX, "Server error (HTTP 403) for", 1)) from error
 
 
 def _headers() -> dict[str, str]:
@@ -202,8 +233,8 @@ def _make_client(api_key: str) -> RESTClient:
 
 
 def _account_currency(api_key: str) -> str:
-    for page in _make_client(api_key).paginate(
-        path="/v1/ad_account", paginator=SinglePagePaginator(), data_selector="$"
+    for page in _retry_forbidden_server_errors(
+        _make_client(api_key).paginate(path="/v1/ad_account", paginator=SinglePagePaginator(), data_selector="$")
     ):
         for account in page:
             currency = account.get("currency_code")
@@ -279,9 +310,10 @@ def openai_ads_source(
         # Multi-level fan-out with query-param parents: hand-rolled over the tracked, retrying
         # RESTClient. Not resumable — a retry re-walks the hierarchy and full refresh replaces.
         client = _make_client(api_key)
-        return _source_response(config, lambda: _fan_out_rows(client, endpoint))
+        return _source_response(config, lambda: _retry_forbidden_server_errors(_fan_out_rows(client, endpoint)))
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    can_resume = resumable_source_manager.can_resume() and not config.single_object
+    resume = resumable_source_manager.load_state() if can_resume else None
 
     data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     if config.aggregation_level is not None:
@@ -301,12 +333,17 @@ def openai_ads_source(
                 {"type": "date_range", "since": window.start, "until": window.end, "timezone": "UTC"}
             ),
         }
+        if config.segment is not None:
+            params["segments[]"] = config.segment
         currency = _account_currency(api_key)
 
         def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
             return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
 
         data_map = enrich_insights
+    elif config.single_object:
+        window = SyncWindow(start="", end="")
+        params = {}
     else:
         window = SyncWindow(start="", end="")
         # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
@@ -326,8 +363,8 @@ def openai_ads_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    "data_selector": "data",
-                    "paginator": _ListPaginator(),
+                    "data_selector": "$" if config.single_object else "data",
+                    "paginator": SinglePagePaginator() if config.single_object else _ListPaginator(),
                 },
                 "data_map": data_map,
             }
@@ -357,4 +394,6 @@ def openai_ads_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return _source_response(config, lambda: resource, column_hints=resource.column_hints)
+    return _source_response(
+        config, lambda: _retry_forbidden_server_errors(resource), column_hints=resource.column_hints
+    )

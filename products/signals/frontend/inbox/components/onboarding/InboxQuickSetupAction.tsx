@@ -16,8 +16,15 @@ import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalH
 
 export function InboxQuickSetupAction(): JSX.Element {
     const { startSetup, connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
-    const { hasGithubIntegration, quickSetupReady, saving, error, shouldResumeQuickSetup, failedOperation } =
-        useValues(inboxSetupLogic)
+    const {
+        hasGithubIntegration,
+        isGithubOptionalSetup,
+        quickSetupReady,
+        saving,
+        error,
+        shouldResumeQuickSetup,
+        failedOperation,
+    } = useValues(inboxSetupLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const scoutDisabledReason = useScoutCreateDisabledReason()
     const restrictionReason = useRestrictedArea({
@@ -34,7 +41,7 @@ export function InboxQuickSetupAction(): JSX.Element {
 
     return (
         <div className="flex w-full flex-col items-start gap-3">
-            {hasGithubIntegration ? (
+            {hasGithubIntegration || isGithubOptionalSetup ? (
                 <LemonButton
                     type="primary"
                     status="alt"

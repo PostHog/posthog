@@ -135,6 +135,7 @@ export type FetchOptions = {
     // Requests with different groups never share an HTTP/2 session. APNs can reject a provider token from one developer
     // team on a session that already carried another team's token. Requires `allowH2`.
     http2ConnectionGroup?: string
+    maxResponseBytes?: number
 }
 
 export type FetchResponse = {
@@ -158,6 +159,13 @@ export class InvalidRequestError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'InvalidRequestError'
+    }
+}
+
+export class ResponseTooLargeError extends Error {
+    constructor(maxBytes: number) {
+        super(`Response body is larger than the ${maxBytes} byte limit`)
+        this.name = 'ResponseTooLargeError'
     }
 }
 
@@ -750,7 +758,18 @@ export async function _fetch(
 
     const readBody = (): Promise<string> => {
         if (!bodyPromise) {
-            bodyPromise = readAndDestroyBody(result.body).finally(() => lifecycle?.onBodyDone())
+            const maxBytes = options.maxResponseBytes
+            const read =
+                maxBytes === undefined
+                    ? readAndDestroyBody(result.body)
+                    : readCappedBody(result.body, maxBytes, false).then(({ bytes, overLimit }) => {
+                          if (overLimit) {
+                              throw new ResponseTooLargeError(maxBytes)
+                          }
+                          const text = bytes.toString('utf8')
+                          return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+                      })
+            bodyPromise = read.finally(() => lifecycle?.onBodyDone())
         }
         return bodyPromise
     }

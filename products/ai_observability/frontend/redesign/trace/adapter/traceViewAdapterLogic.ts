@@ -10,7 +10,7 @@ import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetButton'
 import type {
     TraceApi,
-    TraceEvaluationResultApi,
+    TraceEvaluationResultsApi,
     TraceNodeApi,
     TracePullRequestApi,
     TraceTimelineRowApi,
@@ -20,8 +20,17 @@ import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
 import { traceGitPullRequestLogic } from '../traceGitPullRequestLogic'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
-import { ConversationState, LabeledLink, NodeDetailTab, NodeLoad, TraceMode } from '../types'
+import {
+    ConversationState,
+    EvalRollupOutcome,
+    EvalsChipData,
+    LabeledLink,
+    NodeDetailTab,
+    NodeLoad,
+    TraceMode,
+} from '../types'
 import { toDatasetItemSource } from './toDatasetItemSource'
+import { firstFailingNodeId, toEvalOutcomesByNode, toEvalsChip } from './toEvalSummary'
 import { toGitPullRequestLink } from './toGitPullRequestLink'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
@@ -48,7 +57,7 @@ export interface traceViewAdapterLogicValues {
     createdAt: string | null // traceViewLogic
     defaultNodeId: string // traceViewLogic
     errorMessage: string // traceViewLogic
-    evaluationResults: TraceEvaluationResultApi[] | null // traceViewLogic
+    evaluationResults: TraceEvaluationResultsApi | null // traceViewLogic
     evaluationResultsFailed: boolean // traceViewLogic
     nodeIdsByAlias: Record<string, string> // traceViewLogic
     nodes: Record<string, NodeLoad> // traceViewLogic
@@ -70,6 +79,8 @@ export interface traceViewAdapterLogicValues {
     datasetItemSource: SaveToDatasetButtonProps | null
     detailData: NodeDetailData | null
     detailTab: NodeDetailTab
+    evalOutcomesByNode: Record<string, EvalRollupOutcome>
+    evalsChip: EvalsChipData | null
     gitBranch: GitBranchChipProps | null
     header: TraceHeaderProps
     mode: TraceMode
@@ -121,6 +132,9 @@ export interface traceViewAdapterLogicActions {
     setMode: (mode: TraceMode) => {
         mode: TraceMode
     }
+    showFailingEvals: () => {
+        value: true
+    }
     viewInThread: () => {
         value: true
     }
@@ -156,7 +170,7 @@ export interface traceViewAdapterLogicMeta {
             selectedTreeNode: TraceNodeApi | null,
             selectedNodeLoad: NodeLoad,
             tree: TraceNodeApi[],
-            evaluationResults: TraceEvaluationResultApi[] | null,
+            evaluationResults: TraceEvaluationResultsApi | null,
             evaluationResultsFailed: boolean,
             currentTeamId: number | null,
             personLabel: string | null,
@@ -176,6 +190,8 @@ export interface traceViewAdapterLogicMeta {
             currentTeamId: number | null,
             traceId: string
         ) => ConversationState
+        evalsChip: (evaluationResults: TraceEvaluationResultsApi | null) => EvalsChipData | null
+        evalOutcomesByNode: (evaluationResults: TraceEvaluationResultsApi | null) => Record<string, EvalRollupOutcome>
         gitBranch: (trace: TraceApi | null, pullRequest: TracePullRequestApi | null) => GitBranchChipProps | null
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
     }
@@ -243,6 +259,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
         selectAndShowSpans: (id: string) => ({ id }),
         viewInThread: true,
         prefetchNode: (id: string) => ({ id }),
+        showFailingEvals: true,
     }),
     reducers({
         mode: [
@@ -339,7 +356,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 node: TraceNodeApi | null,
                 load: NodeLoad,
                 tree: TraceNodeApi[],
-                evaluationResults: TraceEvaluationResultApi[] | null,
+                evaluationResults: TraceEvaluationResultsApi | null,
                 evaluationResultsFailed: boolean,
                 teamId: number | null,
                 person: string | null,
@@ -351,7 +368,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                           node,
                           load,
                           tree,
-                          evaluationResults,
+                          evaluationResults: evaluationResults?.results ?? null,
                           evaluationResultsFailed,
                           teamId,
                           person,
@@ -386,6 +403,16 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 return toThread({ traceId, createdAt, load, teamId })
             },
         ],
+        evalsChip: [
+            (s) => [s.evaluationResults],
+            (evaluationResults: TraceEvaluationResultsApi | null): EvalsChipData | null =>
+                evaluationResults ? toEvalsChip(evaluationResults.summary) : null,
+        ],
+        evalOutcomesByNode: [
+            (s) => [s.evaluationResults],
+            (evaluationResults: TraceEvaluationResultsApi | null): Record<string, EvalRollupOutcome> =>
+                evaluationResults ? toEvalOutcomesByNode(evaluationResults.summary) : {},
+        ],
         gitBranch: [
             (s) => [s.trace, s.pullRequest],
             (trace: TraceApi | null, pullRequest: TracePullRequestApi | null): GitBranchChipProps | null =>
@@ -399,7 +426,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 selectedNodeId === traceId || threadNodeIds.includes(selectedNodeId),
         ],
     }),
-    listeners(({ actions, props }) => {
+    listeners(({ actions, values, props }) => {
         // The click's read starts before the selection moves, so the selectedNodeId subscription's navigation read
         // for the same id is deduped and the load event reports a click. Selecting the node that is already
         // selected changes no value and the subscription does not fire, so this read also retries a failed node.
@@ -415,6 +442,10 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 actions.loadNode(id, 'prefetch')
             },
             loadTraceSuccess: ({ trace }) => actions.loadNeighbors(props.traceId, trace.createdAt),
+            showFailingEvals: () => {
+                actions.selectAndShowSpans(firstFailingNodeId(values.tree, values.evalOutcomesByNode) ?? props.traceId)
+                actions.setDetailTab('evals')
+            },
         }
     }),
     subscriptions(({ actions }) => ({

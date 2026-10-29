@@ -9,6 +9,7 @@ from posthog.dataclasses import frozen
 from products.cdp.backend.facade.models import HogFunction
 from products.data_warehouse.backend.facade.api import get_webhook_url, store_webhook_extra_inputs
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
@@ -124,14 +125,17 @@ class Command(BaseCommand):
                 inputs__source_id__value=str(source_model.id),
                 deleted=False,
             ).first()
-            if hog_function is None or not source_model.job_inputs:
+            if hog_function is None:
                 continue
 
-            webhook_url = get_webhook_url(str(hog_function.id))
-            target_api_version = source.resolve_api_version(source_model.api_version)
-
             try:
-                config = source.parse_config(source_model.job_inputs)
+                inputs = SourceInputsStore.load(source_model)
+                if not inputs:
+                    continue
+
+                webhook_url = get_webhook_url(str(hog_function.id))
+                target_api_version = source.resolve_api_version(source_model.api_version)
+                config = source.parse_config(inputs)
                 info = source.get_external_webhook_info(config, webhook_url, source_model.team_id)
             except Exception as e:
                 self.stdout.write(

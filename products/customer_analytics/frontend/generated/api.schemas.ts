@@ -1762,6 +1762,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -3618,6 +3620,23 @@ export interface CustomerTaskUpdateApi {
      */
     account_id?: string | null
     /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+    /**
      * Replacement task name.
      * @maxLength 400
      */
@@ -3627,6 +3646,14 @@ export interface CustomerTaskUpdateApi {
      * @nullable
      */
     description?: string | null
+}
+
+export interface PatchedCustomerTaskUpdateApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
     /**
      * Replacement assignee ID, or null to unassign.
      * @nullable
@@ -3644,14 +3671,6 @@ export interface CustomerTaskUpdateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
-}
-
-export interface PatchedCustomerTaskUpdateApi {
-    /**
-     * UUID of a visible account, or null to remove the account link.
-     * @nullable
-     */
-    account_id?: string | null
     /**
      * Replacement task name.
      * @maxLength 400
@@ -3662,23 +3681,6 @@ export interface PatchedCustomerTaskUpdateApi {
      * @nullable
      */
     description?: string | null
-    /**
-     * Replacement assignee ID, or null to unassign.
-     * @nullable
-     */
-    assigned_to_id?: number | null
-    /**
-     * Replacement ISO 8601 deadline, or null to clear it.
-     * @nullable
-     */
-    due_at?: string | null
-    /** Replacement task status.
-     *
-     * * `open` - Open
-     * * `in_progress` - In progress
-     * * `completed` - Completed
-     * * `canceled` - Canceled */
-    status?: CustomerTaskStatusEnumApi
 }
 
 /**
@@ -3749,6 +3751,54 @@ export interface CustomerTaskActivityPageApi {
     readonly previous: string | null
     /** Activities in this page. */
     readonly results: readonly CustomerTaskActivityApi[]
+}
+
+export interface CustomerTaskBulkPatchApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+    /** Archive tasks when true, or restore them when false. */
+    archived?: boolean
+}
+
+export interface CustomerTaskBulkUpdateApi {
+    /**
+     * UUIDs of up to 100 tasks to update together.
+     * @minItems 1
+     * @maxItems 100
+     */
+    task_ids: string[]
+    /** Changes to apply to every selected task. */
+    updates: CustomerTaskBulkPatchApi
+}
+
+export interface CustomerTaskBulkUpdateResultApi {
+    /** Number of tasks changed by this batch. */
+    readonly updated_count: number
+}
+
+export interface CustomerTaskBulkUpdateErrorApi {
+    /** Reason the batch could not be updated. */
+    readonly detail: string
 }
 
 /**

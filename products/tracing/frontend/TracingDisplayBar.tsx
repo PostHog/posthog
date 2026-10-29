@@ -38,13 +38,6 @@ export function TracingDisplayBar(): JSX.Element {
     // data-attrs keep the names from the two controls this one replaced, for analytics continuity.
     const displayModeOptions: LemonSegmentedButtonOption<TracingDisplayMode>[] = [
         {
-            value: 'traces',
-            label: 'Traces',
-            icon: <IconListTree />,
-            tooltip: 'Group matching spans by trace, one row per trace (its root span)',
-            'data-attr': 'tracing-view-mode-traces',
-        },
-        {
             value: 'spans',
             label: 'Spans',
             icon: <IconList />,
@@ -52,6 +45,13 @@ export function TracingDisplayBar(): JSX.Element {
             // The comparison table aggregates by operation, so span granularity has no effect there.
             disabledReason: compareActive ? 'Not available while comparing' : undefined,
             'data-attr': 'tracing-view-mode-spans',
+        },
+        {
+            value: 'traces',
+            label: 'Traces',
+            icon: <IconListTree />,
+            tooltip: 'Group matching spans by trace, one row per trace (its root span)',
+            'data-attr': 'tracing-view-mode-traces',
         },
         ...(operationsViewEnabled
             ? [

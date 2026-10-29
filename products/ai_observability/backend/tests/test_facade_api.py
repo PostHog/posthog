@@ -153,6 +153,36 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
 
         assert [(result.id, result.is_backfill) for result in results] == [(live, False), (backfill, True)]
 
+    def test_summarizes_the_latest_run_even_when_a_backfill_carries_an_earlier_event_time(self) -> None:
+        evaluation_id = self._detector()
+        bulk_create_events(
+            [
+                make_evaluation_result_event(
+                    uuid="00000000-0000-0000-0000-000000000001",
+                    team=self.team,
+                    timestamp=T0 + timedelta(minutes=5),
+                    properties={"$ai_evaluation_id": evaluation_id, "$ai_evaluation_result": False},
+                ),
+                make_evaluation_result_event(
+                    uuid="00000000-0000-0000-0000-000000000002",
+                    team=self.team,
+                    timestamp=T0 + timedelta(seconds=1),
+                    properties={
+                        "$ai_evaluation_id": evaluation_id,
+                        "$ai_evaluation_result": True,
+                        "$ai_evaluation_backfill_id": "backfill-1",
+                        "$ai_evaluation_start_time": (T0 + timedelta(days=20)).isoformat(),
+                    },
+                ),
+            ]
+        )
+
+        results = api.get_trace_evaluation_results(self.team, self.user, "trace-1")
+
+        assert len(results.results) == 2
+        assert (results.summary.passed, results.summary.failed, results.summary.unrated) == (0, 1, 0)
+        assert [(node.node_id, node.outcome) for node in results.summary.nodes] == [("trace-1", "fail")]
+
 
 class TestGetTracePullRequest:
     def _lookup(

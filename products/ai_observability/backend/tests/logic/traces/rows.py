@@ -57,6 +57,7 @@ def make_evaluation_result_row(**overrides: Any) -> EvaluationResultRow:
         "score": None,
         "categories": None,
         "backfill_id": None,
+        "start_time": None,
     }
     return EvaluationResultRow(**{**fields, **overrides})
 

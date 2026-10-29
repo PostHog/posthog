@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { replayListColumnLogic } from 'scenes/session-recordings/playlist/replayListColumnLogic'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -23,7 +24,7 @@ describe('watchPicksLogic', () => {
             viewed: false,
             scanner_result: keyMomentMs === undefined ? null : { model_output: { key_moment_ms: keyMomentMs } },
         },
-        reason: { kind: 'signal_emitted' },
+        reason: { kind: 'embedding_pick' },
     })
 
     beforeEach(() => {
@@ -169,6 +170,17 @@ describe('watchPicksLogic', () => {
             await mountList()
             expect(logic.values.effectiveListMode).toBe('recordings')
             expect(shownEvents()).toEqual([])
+        })
+
+        it('opens the Scans segment on every pick', async () => {
+            const column = replayListColumnLogic({ logicKey: 'test-picks' })
+            column.mount()
+            for (const position of [0, 1]) {
+                column.actions.setSegment('picks')
+                logic.actions.watchPick(logic.values.picks![position], position)
+                expect(column.values.segment).toBe('moments')
+            }
+            column.unmount()
         })
 
         it('selects the pick, seeks ahead of its key moment, and marks it viewed for this person', async () => {

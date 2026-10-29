@@ -398,17 +398,29 @@ def _dedupe_before_write(pa_table: pa.Table, primary_keys: list[str]) -> pa.Tabl
     return deduped
 
 
-def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: ExternalDataSchema) -> bool:
-    """Whether this batch feeds partial data loading (first-ever sync, Stripe only).
+def _partial_data_loading_applies(
+    export_signal: ExportSignalMessage, schema: ExternalDataSchema, job: ExternalDataJob
+) -> bool:
+    """Whether this batch feeds partial data loading (first-ever sync of a new table, Stripe only).
+
+    A reset or full refresh also loads the table from empty, but readers already query that
+    table. It keeps its served copy until the final batch publishes the complete new one, so a
+    reader never sees part of the rows. Only a table that this job created publishes each batch.
 
     Read before the write as well as after: `previous_file_uris` only exists to serve this
     feature, and collecting it means listing every file in the table.
     """
-    return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
+    if not export_signal.is_first_ever_sync or not supports_partial_data_loading(schema):
+        return False
+    served_table = schema.table
+    return served_table is None or served_table.created_at >= job.created_at
 
 
 def _rebuild_compaction_due(
-    export_signal: ExportSignalMessage, schema: ExternalDataSchema, members: list[tuple[str, int]]
+    export_signal: ExportSignalMessage,
+    schema: ExternalDataSchema,
+    job: ExternalDataJob,
+    members: list[tuple[str, int]],
 ) -> bool:
     """Whether this write of a rebuild run checks the table for compaction (see `compact_during_rebuild`).
 
@@ -421,7 +433,7 @@ def _rebuild_compaction_due(
     return (
         (export_signal.is_first_ever_sync or export_signal.sync_type == "full_refresh")
         and export_signal.cdc_write_mode is None
-        and not _partial_data_loading_applies(export_signal, schema)
+        and not _partial_data_loading_applies(export_signal, schema, job)
         and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members)
         and any(index > 0 and index % REBUILD_COMPACT_CHECK_EVERY == 0 for _, index in members)
         and is_schema_flag_enabled(schema, REBUILD_COMPACTION_FLAG)
@@ -437,7 +449,7 @@ async def _handle_partial_data_loading(
     internal_schema: HogQLSchema,
 ) -> None:
     """Make data available for querying during first-ever sync for Stripe sources."""
-    if not _partial_data_loading_applies(export_signal, schema):
+    if not _partial_data_loading_applies(export_signal, schema, job):
         return
 
     current_file_uris = delta_table.file_uris()
@@ -1537,7 +1549,7 @@ def _process_message_reported(
         # table can hold millions of files and every batch would pay to build a list nothing reads.
         previous_file_uris = (
             existing_delta_table.file_uris()
-            if existing_delta_table is not None and _partial_data_loading_applies(export_signal, schema)
+            if existing_delta_table is not None and _partial_data_loading_applies(export_signal, schema, job)
             else []
         )
 
@@ -1688,7 +1700,7 @@ def _process_message_reported(
         # sampled count needs that read only when the commit's own numbers cannot give it: batch 0
         # is a sample, so the read would otherwise cost each run a log listing.
         with timer.step("post_write"):
-            if (sample_file_count and file_count is None) or _partial_data_loading_applies(export_signal, schema):
+            if (sample_file_count and file_count is None) or _partial_data_loading_applies(export_signal, schema, job):
                 current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
                 if current_delta_table is not None:
                     delta_table = current_delta_table
@@ -1732,7 +1744,7 @@ def _process_message_reported(
             finals = final_run_signals(constituents)
         else:
             finals = [export_signal] if export_signal.is_final_batch else []
-        if not finals and _rebuild_compaction_due(export_signal, schema, members):
+        if not finals and _rebuild_compaction_due(export_signal, schema, job, members):
             _compact_during_rebuild(delta_table_ref, verify_ownership, timer)
         _promote_loaded_prefixes(constituents if constituents is not None else [export_signal], finals, schema)
         for run_signal in finals:
