@@ -195,6 +195,50 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
 
     @parameterized.expand(
         [
+            ("completed", ExternalDataJob.Status.COMPLETED, True),
+            ("failed", ExternalDataJob.Status.FAILED, False),
+            ("billing_limit", ExternalDataJob.Status.BILLING_LIMIT_REACHED, False),
+        ]
+    )
+    def test_resumes_a_schedule_paused_for_an_ad_hoc_run_only_on_completion(
+        self, _name: str, status: ExternalDataJob.Status, expect_resume: bool
+    ) -> None:
+        env = ActivityEnvironment()
+        inputs = UpdateExternalDataJobStatusInputs(
+            team_id=self.team.id,
+            job_id="019fde98-0727-0000-3f05-9991b4c84155",
+            schema_id="019fde98-0727-0000-3f05-9991b4c84156",
+            source_id="019fde98-0727-0000-3f05-9991b4c84157",
+            status=status,
+            internal_error=None,
+            latest_error=None,
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows",
+                return_value=0,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.resume_schedule_after_ad_hoc_run",
+                return_value=True,
+            ) as mock_resume,
+        ):
+            asyncio.run(env.run(update_external_data_job_model, inputs))
+
+        if expect_resume:
+            mock_resume.assert_called_once_with(inputs.schema_id, self.team.id)
+        else:
+            mock_resume.assert_not_called()
+
+    @parameterized.expand(
+        [
             ("handed_a_token", "run-token", ["update", "release"]),
             ("no_token", None, ["update"]),
         ]

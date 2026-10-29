@@ -23,6 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
+from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -731,6 +732,30 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         )
 
     _release_pipeline_lock_for_job(export_signal)
+
+    if job_completed:
+        _resume_schedule_after_ad_hoc_run(export_signal)
+
+
+def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> None:
+    try:
+        if resume_schedule_after_ad_hoc_run(export_signal.schema_id, export_signal.team_id):
+            logger.info(
+                "schedule_resumed_after_ad_hoc_run",
+                team_id=export_signal.team_id,
+                external_data_schema_id=export_signal.schema_id,
+                external_data_job_id=export_signal.job_id,
+            )
+    except Exception as e:
+        # The job is already Completed, so a failed unpause must not fail and retry the batch.
+        logger.error(
+            "failed_to_resume_schedule_after_ad_hoc_run",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
 
 
 # tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and

@@ -7,6 +7,7 @@ from posthog.api.test.test_team import create_team
 from products.warehouse_sources.backend.ad_hoc_sync import (
     SyncStillRunningError,
     WorkflowStartError,
+    resume_schedule_after_ad_hoc_run,
     trigger_ad_hoc_sync,
 )
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -60,6 +61,39 @@ def test_failed_start_rolls_back_the_pause_it_took(schema):
     mock_unpause.assert_called_once_with(str(schema.id))
     schema.refresh_from_db()
     assert "admin_unpause_schedule_after_run" not in schema.sync_type_config
+
+
+@pytest.mark.parametrize(
+    "marker_set,unpause_error",
+    [
+        (True, None),
+        (False, None),
+        # The marker is the only record of the pause, so it stays until the unpause succeeds.
+        (True, RuntimeError("temporal down")),
+    ],
+    ids=["marker_set", "no_marker", "unpause_fails"],
+)
+def test_resume_schedule_after_ad_hoc_run(schema, marker_set, unpause_error):
+    schema.sync_type_config = {
+        "reset_pipeline": True,
+        **({"admin_unpause_schedule_after_run": True} if marker_set else {}),
+    }
+    schema.save()
+
+    with patch(f"{MODULE}.a_unpause_external_data_schedule", side_effect=unpause_error) as mock_unpause:
+        if unpause_error:
+            with pytest.raises(RuntimeError):
+                resume_schedule_after_ad_hoc_run(schema.id, schema.team_id)
+        else:
+            assert resume_schedule_after_ad_hoc_run(schema.id, schema.team_id) is marker_set
+
+    if marker_set:
+        mock_unpause.assert_called_once_with(str(schema.id))
+    else:
+        mock_unpause.assert_not_called()
+    schema.refresh_from_db()
+    assert ("admin_unpause_schedule_after_run" in schema.sync_type_config) is bool(marker_set and unpause_error)
+    assert schema.sync_type_config["reset_pipeline"] is True
 
 
 def test_a_schedule_already_paused_is_left_paused(schema):
