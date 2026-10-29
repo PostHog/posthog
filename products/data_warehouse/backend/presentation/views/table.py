@@ -671,7 +671,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             .order_by(self.ordering)
         )
         if self.action == "list" and self.request.query_params.get("pending_source", "").lower() == "true":
-            queryset = queryset.filter(id__in=list(pending_source_ids_for_tables(self.team_id)))
+            queryset = queryset.filter(id__in=list(pending_source_ids_for_tables(self.team_id))).select_related(
+                "credential"
+            )
         return queryset
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:

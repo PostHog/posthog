@@ -714,6 +714,31 @@ class TestTable(APIBaseTest):
                 lambda t, s, other: ExternalDataSchema.objects.filter(pk=s.pk).update(team_id=other.pk),
                 False,
             ),
+            (
+                "table_url_edited_since_migration",
+                lambda t, s, other: DataWarehouseTable.objects.filter(pk=t.pk).update(
+                    url_pattern="https://example.com/elsewhere/*.parquet"
+                ),
+                False,
+            ),
+            (
+                "table_format_edited_since_migration",
+                lambda t, s, other: DataWarehouseTable.objects.filter(pk=t.pk).update(format="CSV"),
+                False,
+            ),
+            (
+                "schema_linked_to_replacement_table",
+                lambda t, s, other: ExternalDataSchema.objects.filter(pk=s.pk).update(
+                    table=DataWarehouseTable.objects.create(
+                        name="replacement",
+                        format="Parquet",
+                        team_id=t.team_id,
+                        url_pattern="https://example.com/replacement/*.parquet",
+                        external_data_source_id=s.source_id,
+                    )
+                ),
+                False,
+            ),
         ]
     )
     def test_pending_source_id(self, _name, mutate, expect_pending):

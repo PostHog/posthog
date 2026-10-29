@@ -538,8 +538,10 @@ def _resolve_allowed_table_ids(
 def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | None = None) -> dict[UUID, UUID]:
     """Map each self-managed table to the managed source that will import it on its first sync.
 
-    A table is pending when a live schema of a live source in the same team pins it and the
-    table has no source yet. `table_ids` of None checks every table in the team.
+    A table is pending when a live, still unlinked schema of a live source in the same team pins it,
+    and the table has no source yet and still reads the files the schema was pinned to. That matches
+    the conditions under which the first sync adopts the table rather than creating a new one.
+    `table_ids` of None checks every table in the team.
     """
     if table_ids is not None and not table_ids:
         return {}
@@ -547,6 +549,7 @@ def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | No
         _ExternalDataSchema.objects.filter(team_id=team_id, source__team_id=team_id)
         .exclude(deleted=True)
         .exclude(source__deleted=True)
+        .filter(table__isnull=True)
         .filter(sync_type_config__schema_metadata__has_key=SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY)
         .order_by("created_at", "id")
     )
@@ -554,18 +557,31 @@ def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | No
         pinned = pinned.filter(
             sync_type_config__schema_metadata__self_managed_table__table_id__in=[str(i) for i in table_ids]
         )
-    by_table: dict[UUID, UUID] = {}
+    by_table: dict[UUID, list[tuple[UUID, str, str]]] = {}
     for schema in pinned:
         ref = self_managed_table_ref(schema)
         if ref is None or ref.abandon_reason is not None or not UUIDT.is_valid_uuid(ref.table_id):
             continue
-        by_table.setdefault(UUID(ref.table_id), schema.source_id)
+        by_table.setdefault(UUID(ref.table_id), []).append((schema.source_id, ref.url_pattern, ref.format))
     if not by_table:
         return {}
     unsourced = _DataWarehouseTable.raw_objects.filter(
         team_id=team_id, id__in=list(by_table), external_data_source__isnull=True
-    ).values_list("id", flat=True)
-    return {table_id: by_table[table_id] for table_id in unsourced}
+    ).values_list("id", "url_pattern", "format")
+    found: dict[UUID, UUID] = {}
+    for table_id, url_pattern, table_format in unsourced:
+        # A table edited since the migration reads other files, so its sync creates a new table instead.
+        source_id = next(
+            (
+                sid
+                for sid, ref_url, ref_format in by_table[table_id]
+                if (ref_url, ref_format) == (url_pattern, table_format)
+            ),
+            None,
+        )
+        if source_id is not None:
+            found[table_id] = source_id
+    return found
 
 
 def denied_table_ids(team_id: int, user_access_control: "UserAccessControl") -> frozenset[UUID]:
