@@ -134,6 +134,19 @@ describe("run launch", () => {
         "https://us.posthog.com/project/2/ai?task=task-1",
       ],
       [
+        "the web chat for a browser task without provenance",
+        createTask({ origin_product: "posthog_ai" }),
+        "https://us.posthog.com/project/2/ai?task=task-1",
+      ],
+      [
+        "the desktop bridge for a PostHog AI task from desktop",
+        createTask({
+          origin_product: "posthog_ai",
+          client_provenance: "posthog_desktop",
+        }),
+        "https://us.posthog.com/code/task/task-1",
+      ],
+      [
         "the web chat for a mobile task",
         createTask({
           origin_product: "posthog_ai",

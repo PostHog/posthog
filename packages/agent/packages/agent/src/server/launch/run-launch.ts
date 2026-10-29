@@ -83,7 +83,7 @@ export function readProductLaunch(
     taskId: sources.payload.task_id,
     runId: sources.payload.run_id,
     originProduct: readInteractionOrigin(sources.env),
-    clientProvenance: sources.task?.client_provenance ?? undefined,
+    clientProvenance: readClientProvenance(sources.task),
     launchOptions: structuredClone(sources.taskRun?.state ?? {}),
     source: readTaskSource(sources),
   };
@@ -97,6 +97,15 @@ function readInteractionOrigin(
     env.CODE_INTERACTION_ORIGIN ??
     env.TWIG_INTERACTION_ORIGIN
   );
+}
+
+// The backend records provenance only for an OAuth client grant. A PostHog AI chat in the browser
+// uses session auth, so its tasks carry the posthog_ai origin and no provenance.
+function readClientProvenance(task: Task | null): string | undefined {
+  if (task?.client_provenance) {
+    return task.client_provenance;
+  }
+  return task?.origin_product === "posthog_ai" ? "posthog_web" : undefined;
 }
 
 function readRepositories(task: Task | null): string[] {
@@ -132,9 +141,10 @@ function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
   }
 
   const taskId = encodeURIComponent(sources.payload.task_id);
+  const clientProvenance = readClientProvenance(task);
   if (
-    task.client_provenance === "posthog_web" ||
-    task.client_provenance === "posthog_mobile"
+    clientProvenance === "posthog_web" ||
+    clientProvenance === "posthog_mobile"
   ) {
     return {
       label: "PostHog AI chat",
