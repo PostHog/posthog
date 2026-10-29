@@ -209,7 +209,15 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 ]
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
+const TERMINAL_TASK_CACHE_TTL_MS = 60000
 const REPORT_CHECK_TIMING_POLL_INTERVAL_MS = 60000
+
+function refreshSelectedReport(reportId: string): void {
+    const scene = inboxSceneLogic.findMounted()
+    if (scene?.values.selectedReportId === reportId && !scene.values.selectedReportLoading) {
+        scene.actions.loadSelectedReport({ id: reportId })
+    }
+}
 
 // PR CI checks refresh cadence while the detail is open — a running build's status stays current
 // without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
@@ -1018,6 +1026,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 // resolve each task. Mirrors desktop `useReportTasks`. Derives from the already-loaded
                 // `reportArtefacts` (re-run after each artefact load) rather than re-fetching them.
                 loadReportTasks: async () => {
+                    const snapshots: Map<string, { fetchedAt: number; artefactRunId?: string | null }> =
+                        (cache.reportTaskSnapshots ??= new Map())
                     const artefacts = values.reportArtefacts ?? []
                     const associations = new Map<
                         string,
@@ -1068,16 +1078,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const entries = await Promise.all(
                         [...associations.entries()].map(async ([taskId, meta]): Promise<ReportTaskEntry | null> => {
                             const cached = values.reportTasks?.find((entry) => entry.task.id === taskId)
+                            const snapshot = snapshots.get(taskId)
                             if (
                                 values.report?.status === SignalReportStatus.MONITORING &&
                                 cached?.task.latest_run &&
                                 TERMINAL_RUN_STATUSES.includes(cached.task.latest_run.status) &&
-                                (!meta.latestRunId || meta.latestRunId === cached.task.latest_run.id)
+                                snapshot?.artefactRunId === meta.latestRunId &&
+                                Date.now() - (snapshot?.fetchedAt ?? -Infinity) < TERMINAL_TASK_CACHE_TTL_MS
                             ) {
                                 return { task: cached.task, ...meta }
                             }
                             try {
                                 const task = await api.tasks.get(taskId)
+                                snapshots.set(taskId, { fetchedAt: Date.now(), artefactRunId: meta.latestRunId })
                                 return { task, ...meta }
                             } catch (error) {
                                 // A deleted/inaccessible task drops out of the list rather than failing the load.
@@ -2205,10 +2218,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             })
             if (settled) {
                 actions.loadReportChecks()
-                const scene = inboxSceneLogic.findMounted()
-                if (scene?.values.selectedReportId === props.reportId) {
-                    scene.actions.loadSelectedReport({ id: props.reportId })
-                }
+                refreshSelectedReport(props.reportId)
             }
         },
         // A PR task started from this pane is not in the artefact log the gate was computed from, so
@@ -2284,10 +2294,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (!values.reportArtefactsLoading) {
                         actions.loadReportArtefacts()
                     }
-                    const scene = inboxSceneLogic.findMounted()
-                    if (scene?.values.selectedReportId === props.reportId && !scene.values.selectedReportLoading) {
-                        scene.actions.loadSelectedReport({ id: props.reportId })
-                    }
+                    refreshSelectedReport(props.reportId)
                 }
                 if (
                     values.report?.status !== SignalReportStatus.RESOLVED &&

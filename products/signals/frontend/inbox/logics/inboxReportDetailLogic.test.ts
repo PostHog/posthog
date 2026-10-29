@@ -42,6 +42,9 @@ describe('inboxReportDetailLogic', () => {
         'orders report runs and refreshes settled tasks appropriately in %s',
         async (status) => {
             let latestRunId: string | null = null
+            let taskLatestRunId = 'old-run'
+            let now = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
             const taskRequests: string[] = []
             const runs = [
                 { taskId: 'implementation-old', type: 'implementation', startedAt: '2026-01-01T01:00:00Z' },
@@ -76,7 +79,7 @@ describe('inboxReportDetailLogic', () => {
                             {
                                 id: req.params.id,
                                 latest_run: {
-                                    id: req.params.id === runs[0].taskId ? (latestRunId ?? 'old-run') : 'old-run',
+                                    id: req.params.id === runs[0].taskId ? taskLatestRunId : 'old-run',
                                     status: TaskRunStatus.COMPLETED,
                                 },
                             },
@@ -101,10 +104,23 @@ describe('inboxReportDetailLogic', () => {
                 expect(taskRequests).toHaveLength(status === SignalReportStatus.MONITORING ? 4 : 8)
                 const beforeNewRun = taskRequests.length
                 latestRunId = 'replacement-run'
+                taskLatestRunId = latestRunId
                 logic.actions.loadReportArtefacts()
                 await expectLogic(logic).toFinishAllListeners()
                 expect(taskRequests).toHaveLength(beforeNewRun + (status === SignalReportStatus.MONITORING ? 1 : 4))
+                taskLatestRunId = 'run-without-artefact'
+                now += 60_000
+                logic.actions.loadReportArtefacts()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(
+                    logic.values.reportTasks?.find((entry) => entry.task.id === runs[0].taskId)?.task.latest_run?.id
+                ).toBe(taskLatestRunId)
+                const afterRefresh = taskRequests.length
+                logic.actions.loadReportArtefacts()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(taskRequests).toHaveLength(afterRefresh + (status === SignalReportStatus.MONITORING ? 0 : 4))
             } finally {
+                clock.mockRestore()
                 logic.unmount()
             }
         }
