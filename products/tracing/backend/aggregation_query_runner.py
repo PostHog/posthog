@@ -258,6 +258,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         self._limit = _ROW_LIMIT if limit is None else max(1, min(limit, _ROW_LIMIT))
         self._offset = max(0, offset)
         self._identity_keys = identity_keys
+        self._baseline_keys: list[tuple[str, str]] | None = None
 
     def get_cache_payload(self) -> dict:
         # Runner arguments, not query fields, so the base payload cannot see them.
@@ -276,20 +277,29 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             )
         return compare_range
 
+    def _run_with_compare(self) -> tuple[list, list | None]:
+        if not self.query.includeHealth:
+            return super()._run_with_compare()
+        compare_range = self._compare_query_date_range()
+        assert compare_range is not None
+        # Sequential: the baseline reads only the current page's rows, because their rank in the baseline can differ.
+        current_rows = self._run_period(self.query_date_range, self.timings)
+        if not current_rows:
+            return current_rows, []
+        self._baseline_keys = [(row.service_name, row.name) for row in current_rows]
+        return current_rows, self._run_period(compare_range, self.timings)
+
     def _calculate(self) -> TraceSpansAggregationQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
         if self.query.includeHealth:
             self._classify(current_rows, previous_rows or [])
-            if self.query.compareFilter and self.query.compareFilter.compare:
-                # The baseline ran unpaged, so cut it back to the page the caller asked for.
-                previous_rows = (previous_rows or [])[self._offset : self._offset + self._limit]
-            else:
+            if not (self.query.compareFilter and self.query.compareFilter.compare):
                 previous_rows = None
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
 
     def _classify(self, current_rows: list[AggregatedSpanRow], baseline_rows: list[AggregatedSpanRow]) -> None:
-        # shortcut: rows carry no last-seen time, so silent never fires, and a row past the baseline's top _ROW_LIMIT
-        # reads as new. Add a last_seen column if per-endpoint silence detection is needed.
+        # shortcut: rows carry no last-seen time, so silent never fires. Add a last_seen column if per-endpoint
+        # silence detection is needed.
         baseline = {(row.service_name, row.name): row for row in baseline_rows}
         window_from = self.query_date_range.date_from()
         window_to = min(self.query_date_range.date_to(), dt.datetime.now(tz=ZoneInfo("UTC")))
@@ -313,9 +323,23 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             where = ast.And(exprs=[where, _endpoint_scope_expr()])
             group_name = _endpoint_name_expr()
         limit, offset = self._limit, self._offset
-        if self.query.includeHealth and query_date_range is not self.query_date_range:
-            # A row's baseline rank differs from its current rank, so the baseline must not reuse the current page.
-            limit, offset = _ROW_LIMIT, 0
+        if self._baseline_keys is not None and query_date_range is not self.query_date_range:
+            keys = ast.Array(
+                exprs=[
+                    ast.Tuple(exprs=[ast.Constant(value=service), ast.Constant(value=name)])
+                    for service, name in self._baseline_keys
+                ]
+            )
+            where = ast.And(
+                exprs=[
+                    where,
+                    parse_expr(
+                        "has({keys}, tuple(service_name, {group_name}))",
+                        placeholders={"keys": keys, "group_name": group_name},
+                    ),
+                ]
+            )
+            limit, offset = len(self._baseline_keys), 0
         placeholders: dict[str, ast.Expr] = {
             "where": where,
             "group_name": group_name,

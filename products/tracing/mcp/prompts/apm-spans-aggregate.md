@@ -108,7 +108,7 @@ Set to `true` to get `health_status` and `health_reason` on every row. Each row 
 - `recovered` and `improved`: the error rate or p95 went down.
 - `ok`: none of the above.
 
-It runs a second window query. Without `compareFilter`, the response `compare` stays null.
+It runs a second window query for the routes on the current page. Without `compareFilter`, the response `compare` stays null. With `compareFilter`, `compare` holds the baseline rows for those same routes.
 
 # Examples
 

@@ -366,13 +366,18 @@ class TestTraceSpansAggregationHealth(_TraceSpansTestBase):
         )
         self.assertIsNone(response.compare)
 
-    def test_a_paged_row_keeps_its_baseline(self):
+    @parameterized.expand(
+        [("previous_period", None, None), ("compare_filter", CompareFilter(compare=True), ["GET /legacy"])]
+    )
+    def test_a_paged_row_keeps_its_baseline(self, _name, compare_filter, expected_compare):
         response = run_aggregation_query(
             team=self.team,
             date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            compare_filter=compare_filter,
             include_health=True,
             limit=1,
             offset=3,
         )
         self.assertEqual([row.name for row in response.results], ["GET /legacy"])
         self.assertNotEqual(response.results[0].health_status, "new")
+        self.assertEqual(None if response.compare is None else [row.name for row in response.compare], expected_compare)
