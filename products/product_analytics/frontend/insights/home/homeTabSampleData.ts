@@ -22,7 +22,6 @@ export function getHomeTabSampleStatData(metric: HomeTabMetricKey, query: Trends
     const step = interval === 'quarter' ? 3 : 1
     const end = (dateStringToDayJs(query.dateRange?.date_to ?? null) ?? dayjs()).startOf(unit)
     const days = values.map((_, index) => end.subtract((values.length - index) * step, unit).toISOString())
-    const series = query.series[0]
 
     return {
         results: Array.from({ length: query.compareFilter?.compare ? 2 : 1 }, (_, index): TrendResult => {
@@ -30,13 +29,7 @@ export function getHomeTabSampleStatData(metric: HomeTabMetricKey, query: Trends
             const total = data.reduce((sum, value) => sum + value, 0)
             const count = metric === 'session_duration' || metric === 'daily_active_users' ? total / data.length : total
             return {
-                action: {
-                    id: series.kind === NodeKind.EventsNode ? (series.event ?? null) : null,
-                    type: 'events',
-                    order: 0,
-                    name: 'Sample',
-                    math: series.math,
-                },
+                order: 0,
                 label: 'Sample',
                 count,
                 aggregated_value: count,
@@ -119,13 +112,7 @@ export function getHomeTabSampleData(
     }
 
     const results: TrendResult[] = breakdowns.map(([label, count]) => ({
-        action: {
-            id: source.series[0].kind === NodeKind.EventsNode ? (source.series[0].event ?? null) : null,
-            type: 'events',
-            order: 0,
-            name: 'Sample',
-            math: source.series[0].math,
-        },
+        order: 0,
         label,
         breakdown_value: label,
         count,

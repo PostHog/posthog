@@ -87,6 +87,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
 from products.signals.dags.inbox_ranking.training.examples import (
     STATE_LAG_LIMIT,
     Snapshot,
+    activity_vector_as_of,
     assemble_snapshot,
     birth_day_positives,
     build_examples,
@@ -472,6 +473,47 @@ def test_holdout_mask_cuts_by_report_not_by_row():
         }
     )
     assert holdout_mask(examples, holdout_days=7).tolist() == [False, False, True, True]
+
+
+ACTIVITY_AS_OF = datetime.datetime(2026, 8, 10, 12, 0, tzinfo=datetime.UTC)
+
+
+@pytest.mark.parametrize(
+    "generated_hours_before,expected_hours_before",
+    [
+        ([], None),
+        ([72, 24, 48], 24),
+        # A summary built after the scoring moment did not exist yet.
+        ([24, -1], 24),
+        ([24 * 8], None),
+    ],
+    ids=["no_vector_yet", "newest_of_several", "vector_after_the_moment", "stale_vector"],
+)
+def test_activity_vector_as_of_reads_the_newest_vector_before_the_moment(generated_hours_before, expected_hours_before):
+    generated_ats = [ACTIVITY_AS_OF - datetime.timedelta(hours=hours) for hours in generated_hours_before]
+    vectors = pd.DataFrame(
+        {
+            "team_id": [1] * len(generated_ats) + [2, 1],
+            "user_id": [7] * len(generated_ats) + [7, 8],
+            # Another team's user 7 and another user of team 1, both fresher than any of user 7's vectors.
+            "generated_at": pd.to_datetime(
+                generated_ats + [ACTIVITY_AS_OF - datetime.timedelta(hours=1)] * 2, utc=True
+            ),
+            "embedding_small": [[float(hours)] for hours in generated_hours_before] + [[-1.0], [-2.0]],
+        }
+    )
+
+    found = activity_vector_as_of(
+        vectors, team_id=1, user_id=7, as_of=ACTIVITY_AS_OF, max_age=datetime.timedelta(days=7)
+    )
+
+    if expected_hours_before is None:
+        assert found is None
+    else:
+        assert found is not None
+        assert found.embedding == [float(expected_hours_before)]
+        assert found.age == datetime.timedelta(hours=expected_hours_before)
+        assert found.generated_at == ACTIVITY_AS_OF - found.age
 
 
 class _FakeClient:

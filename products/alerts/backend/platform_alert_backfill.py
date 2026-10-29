@@ -14,6 +14,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
@@ -37,13 +38,20 @@ def is_sampled(alert_id: UUID, sample_percent: int) -> bool:
 
 
 def backfill_platform_insight_alert_configurations(
-    *, team_id: int | None = None, sample_percent: int = 100, alert_ids: Collection[UUID] | None = None
+    *,
+    team_id: int | None = None,
+    sample_percent: int = 100,
+    alert_ids: Collection[UUID] | None = None,
+    include_ai_detector: bool = False,
 ) -> BackfillCounts:
     """Copies every insight alert the platform evaluates in parallel, or one team's, or a sample, or named alerts.
 
     Every copy adds ClickHouse load beside production's, so a rollout copies a sample first and
     widens it while the parallel run's query load stays inside its budget. Named alerts let a
     rollout copy the ones a comparison still lacks evidence for.
+
+    AI detector alerts are left out unless `include_ai_detector` is set. Each of their checks makes
+    a model call that the project pays for, so a parallel copy doubles that cost.
     """
     if not 1 <= sample_percent <= 100:
         raise ValueError("sample_percent must be between 1 and 100")
@@ -58,7 +66,10 @@ def backfill_platform_insight_alert_configurations(
     skipped = 0
     failed = 0
     for alert in source.iterator():
-        upsert = platform_upsert_of(alert) if is_sampled(alert.id, sample_percent) else None
+        copied = is_sampled(alert.id, sample_percent) and (
+            include_ai_detector or not is_llm_detector_config(alert.detector_config)
+        )
+        upsert = platform_upsert_of(alert) if copied else None
         if upsert is None:
             skipped += 1
             continue
@@ -102,7 +113,12 @@ def follow_insight_alert(alert: AlertConfiguration) -> None:
 
     Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
     stay off the platform until the next backfill.
+
+    An AI detector alert is never followed. The backfill copies those only when an operator asks,
+    and a copy's stored detector is what records that request, so following would overwrite it.
     """
+    if is_llm_detector_config(alert.detector_config):
+        return
     upsert = platform_upsert_of(alert)
     if upsert is not None:
         upsert_if_running(upsert, revive=True)

@@ -1,0 +1,77 @@
+{% extends "admin/base_site.html" %}
+{% block extrastyle %}
+    {{ block.super }}
+    <style>
+        .suspension-filters input, .suspension-filters textarea, .suspension-filters select { box-sizing: border-box; max-width: 100%; }
+        .suspension-preview { overflow-x: auto; }
+        .suspension-preview table { min-width: 1100px; }
+        .suspension-preview td { vertical-align: top; }
+        .suspension-preview code { white-space: nowrap; }
+        .suspension-preview .reason { min-width: 200px; max-width: 600px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    </style>
+{% endblock %}
+{% block breadcrumbs %}
+    <div class="breadcrumbs">
+        <a href="{% url 'admin:index' %}">Home</a>
+        &rsaquo; <a href="{% url 'admin:data_modeling_dag_changelist' %}">DAGs</a>
+        &rsaquo; Clear node suspensions
+    </div>
+{% endblock %}
+{% block content %}
+    <p>
+        Select suspensions in this region and review the matches before clearing them.
+        Models can run on their next scheduled run. This action does not start a run.
+    </p>
+    <form method="post" class="suspension-filters js-disable-on-submit">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <input type="submit" value="Preview suspensions" class="default" />
+    </form>
+    {% if markers != None %}
+        <h2>{{ markers|length }} matching suspension(s)</h2>
+        {% if markers %}
+            <p>New or changed suspensions will not be cleared. Other engines will keep their suspensions.</p>
+            <p><strong>By / note:</strong> {{ resumed_by }}</p>
+            <div class="suspension-preview">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Team</th>
+                            <th>Node</th>
+                            <th>Saved query</th>
+                            <th>Engine</th>
+                            <th>Suspended at</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for marker in markers %}
+                            <tr>
+                                <td><a href="{% url 'admin:posthog_team_change' marker.node.team_id %}">{{ marker.node.team_id }}</a></td>
+                                <td>
+                                    {{ marker.node.name }}
+                                    <br />
+                                    <code>{{ marker.node.id }}</code>
+                                </td>
+                                <td>{{ marker.node.saved_query_id|default:"None" }}</td>
+                                <td>{{ marker.engine }}</td>
+                                <td>{{ marker.at }}</td>
+                                <td class="reason">{{ marker.reason }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <form method="post" class="js-disable-on-submit">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="clear" />
+                <input type="hidden" name="preview_token" value="{{ preview_token }}" />
+                <p>
+                    <input type="submit"
+                           value="Clear {{ markers|length }} suspension(s)"
+                           class="default" />
+                </p>
+            </form>
+        {% endif %}
+    {% endif %}
+{% endblock %}

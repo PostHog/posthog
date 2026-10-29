@@ -27,7 +27,15 @@ export function insightIsAddedToDashboard(input: Record<string, unknown> | null,
     return Array.isArray(input?.dashboards) && input.dashboards.some((id) => Number(id) === dashboardId)
 }
 
-export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX.Element | null {
+export function DashboardHeader({
+    loading = false,
+    extraActions,
+    reloadOnAIChanges = true,
+}: {
+    loading?: boolean
+    extraActions?: JSX.Element
+    reloadOnAIChanges?: boolean
+}): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, dashboardEditing, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
@@ -40,7 +48,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
     useMcpToolApplyBack({
         tools: ['insight-create', 'insight-update'],
         targetKey: `dashboard:${dashboard?.id ?? 'unloaded'}`,
-        active: !!dashboard && canEditDashboard,
+        active: reloadOnAIChanges && !!dashboard && canEditDashboard,
         onApply: (_event, { innerInput }) => {
             if (dashboard && insightIsAddedToDashboard(innerInput, dashboard.id)) {
                 loadDashboard({ action: DashboardLoadAction.Update })
@@ -116,7 +124,12 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
                           }
                         : undefined
                 }
-                actions={todayRailNav && dashboard ? <QuillDashboardHeaderActions /> : actions}
+                actions={
+                    <>
+                        {todayRailNav && dashboard ? <QuillDashboardHeaderActions /> : actions}
+                        {extraActions}
+                    </>
+                }
             />
         </>
     )

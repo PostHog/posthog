@@ -10,6 +10,7 @@ import {
     IconCopy,
     IconExternal,
     IconHide,
+    IconLeave,
     IconPeople,
     IconPullRequest,
     IconUndo,
@@ -31,6 +32,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
 import {
@@ -42,8 +45,14 @@ import {
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import { canCreateImplementationPr, canResolveReport, hasOpenImplementationPr } from '../../utils/reportActions'
+import {
+    canCreateImplementationPr,
+    canResolveReport,
+    canUnassignMe,
+    hasOpenImplementationPr,
+} from '../../utils/reportActions'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
+import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
@@ -126,13 +135,16 @@ function ReportContextMenuItems({
     /** Tells the menu a dialog is opening, so its close skips the focus restore. */
     onOpenDialog: () => void
 }): JSX.Element {
-    const { dismissReport, resolveReport, restoreReport } = useActions(
+    const { dismissReport, resolveReport, restoreReport, unassignMe } = useActions(
         reportListLogic(sectionListLogicProps(sectionKey))
     )
+    const { isScopedToMe } = useValues(inboxFiltersLogic)
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
-    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { createPrDisabledReason: globalPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { disabledReason: githubDisabledReason } = useValues(reportGithubAccessLogic({ report }))
+    const createPrDisabledReason = globalPrDisabledReason ?? githubDisabledReason
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
@@ -371,6 +383,44 @@ function ReportContextMenuItems({
                         <ReviewerSearchList report={report} surface="context_menu" />
                     </ContextMenuSubContent>
                 </ContextMenuSub>
+                {/* The picker removes without a reason, so the common case of stepping off gets its own
+                reasons, matching the reviewer menu in the detail pane. */}
+                {canUnassignMe(report, isScopedToMe) && (
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-remove-yourself">
+                            <ButtonPrimitive menuItem>
+                                <IconLeave />
+                                Remove yourself
+                                <IconChevronRight className="ml-auto size-3" />
+                            </ButtonPrimitive>
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent className="max-w-80">
+                            <ContextMenuGroup>
+                                {reviewerRemovalReasonOptions(true).map((option) => (
+                                    <ContextMenuItem asChild key={option.value}>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => unassignMe(report.id, 'context_menu', option.value)}
+                                            data-attr="inbox-report-context-menu-remove-yourself-reason"
+                                        >
+                                            {option.label}
+                                        </ButtonPrimitive>
+                                    </ContextMenuItem>
+                                ))}
+                                <ContextMenuSeparator />
+                                <ContextMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => unassignMe(report.id, 'context_menu')}
+                                        data-attr="inbox-report-context-menu-remove-yourself-no-reason"
+                                    >
+                                        Without a reason
+                                    </ButtonPrimitive>
+                                </ContextMenuItem>
+                            </ContextMenuGroup>
+                        </ContextMenuSubContent>
+                    </ContextMenuSub>
+                )}
             </ContextMenuGroup>
             {browserLinkItems}
         </>

@@ -29,6 +29,7 @@ import {
     DatabaseSchemaTable,
     DateRange,
     HogQLMetadata,
+    HogQLQuery,
     HogQLMetadataResponse,
     HogLanguage,
     NodeKind,
@@ -118,6 +119,7 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         colorBy: undefined,
         querySnapshot: undefined,
         catalogMetric: undefined,
+        catalogMetricContext: undefined,
         comparisonPeriod: undefined,
         rows: [],
         columns: [],
@@ -694,6 +696,13 @@ export interface biEditorLogicActions {
     setPanes: (panes: BIConfig['panes']) => {
         panes: BIPaneSettings | undefined
     }
+    setSnapshotParameters: (
+        source: HogQLQuery,
+        parameters: Record<string, boolean | number | string>
+    ) => {
+        parameters: Record<string, boolean | number | string>
+        source: HogQLQuery
+    }
     setSort: (sort: BISort | null) => {
         sort: BISort | null
     }
@@ -895,6 +904,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
             target,
         }),
         setChartType: (chartType: ChartDisplayType) => ({ chartType }),
+        setSnapshotParameters: (source: HogQLQuery, parameters: Record<string, string | number | boolean>) => ({
+            source,
+            parameters,
+        }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setMissingDates: (missingDates: BIConfig['missingDates']) => ({ missingDates }),
@@ -1052,6 +1065,20 @@ export const biEditorLogic = kea<biEditorLogicType>([
         config: [
             freshBIConfig(),
             {
+                setSnapshotParameters: (config, { source, parameters }) => {
+                    if (
+                        config.querySnapshot !== source ||
+                        Object.entries(parameters).some(
+                            ([name, value]) =>
+                                !Object.prototype.hasOwnProperty.call(source.values ?? {}, name) ||
+                                typeof value !== typeof source.values?.[name] ||
+                                (typeof value === 'number' && !Number.isFinite(value))
+                        )
+                    ) {
+                        return config
+                    }
+                    return { ...config, querySnapshot: { ...source, values: { ...source.values, ...parameters } } }
+                },
                 renameField: (config, { shelf, index, name }) => {
                     if (!name.trim()) {
                         return config
@@ -1712,6 +1739,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         removeFieldFromShelf: () => actions.runAfterChange(),
         setChartType: () => actions.runAfterChange(),
         setColorBy: () => actions.runAfterChange(),
+        setSnapshotParameters: () => actions.runAfterChange(),
         setDateRange: () => actions.runAfterChange(),
         setCompareFilter: () => actions.runAfterChange(),
         setMissingDates: () => actions.runAfterChange(),
