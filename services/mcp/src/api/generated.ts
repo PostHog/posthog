@@ -47493,6 +47493,8 @@ export namespace Schemas {
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -47518,6 +47520,8 @@ export namespace Schemas {
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      ExposureFilterOnDynamicCohort: 'exposure_filter_on_dynamic_cohort',
+      ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
@@ -47586,6 +47590,8 @@ export namespace Schemas {
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+       * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -47636,6 +47642,7 @@ export namespace Schemas {
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
@@ -47659,6 +47666,7 @@ export namespace Schemas {
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      ExposureFilters: 'exposure_filters',
       EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
       Srm: 'srm',
@@ -47698,6 +47706,7 @@ export namespace Schemas {
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `exposure_filters` - Exposure Filters
        * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
        * * `srm` - Srm

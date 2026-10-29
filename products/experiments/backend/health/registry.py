@@ -16,6 +16,7 @@ from products.experiments.backend.health.checks.bucketing_changed import bucketi
 from products.experiments.backend.health.checks.conditions_changed import release_conditions_changed_mid_run
 from products.experiments.backend.health.checks.early_significance import early_significance
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
+from products.experiments.backend.health.checks.exposure_filters import exposure_filters
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
@@ -105,6 +106,11 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
         name="Exposure criteria",
         run=exposure_criteria_cannot_match,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.EXPOSURE_FILTERS,
+        name="Cohorts and event filters in the exposure criteria",
+        run=exposure_filters,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EARLY_SIGNIFICANCE,
