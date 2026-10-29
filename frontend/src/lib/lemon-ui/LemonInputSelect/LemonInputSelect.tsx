@@ -239,22 +239,37 @@ export function LemonInputSelect<T = string>({
         values.splice(itemBeingEditedIndex, 1)
     }
 
+    // We stringify the objects to prevent wasteful recalculations (esp. Fuse). Note: labelComponent and non-string tooltips are not serializable
+    const optionsKey = JSON.stringify(options, (key, value) => {
+        if (key === 'labelComponent') {
+            return value?.name
+        }
+        if (key === 'tooltip' && typeof value !== 'string') {
+            return value?.type?.name
+        }
+        return value
+    })
+
     // Create lookup maps for O(1) performance - only recompute when options change
     const optionMaps = useMemo(() => {
         const valueToOption = new Map<T, LemonInputSelectOption<T>>()
         const keyToOption = new Map<string, LemonInputSelectOption<T>>()
-        const keySet = new Set<string>()
 
         for (const option of options) {
             if (option.value !== undefined) {
                 valueToOption.set(option.value, option)
             }
             keyToOption.set(option.key, option)
-            keySet.add(option.key)
         }
 
-        return { valueToOption, keyToOption, keySet }
+        return { valueToOption, keyToOption }
     }, [options])
+
+    const indexedOptionsRef = useRef({ key: optionsKey, options })
+    if (indexedOptionsRef.current.key !== optionsKey) {
+        indexedOptionsRef.current = { key: optionsKey, options }
+    }
+    const indexedOptions = indexedOptionsRef.current.options
 
     // Simple helper functions using O(1) lookups
     const getStringKey = useCallback(
@@ -299,29 +314,18 @@ export function LemonInputSelect<T = string>({
         [optionMaps]
     )
 
-    const fuseRef = useRef<Fuse<LemonInputSelectOption<T>>>(
-        createFuse(options, {
-            keys: ['label', 'key'],
-        })
-    )
+    const fuseRef = useRef<Fuse<LemonInputSelectOption<T>> | null>(null)
+    const fuse =
+        fuseRef.current ?? (fuseRef.current = createFuse<LemonInputSelectOption<T>>([], { keys: ['label', 'key'] }))
 
     const separateOnComma = allowCustomValues && mode === 'multiple' && !disableCommaSplitting
 
-    // We stringify the objects to prevent wasteful recalculations (esp. Fuse). Note: labelComponent and non-string tooltips are not serializable
-    const optionsKey = JSON.stringify(options, (key, value) => {
-        if (key === 'labelComponent') {
-            return value?.name
-        }
-        if (key === 'tooltip' && typeof value !== 'string') {
-            return value?.type?.name
-        }
-        return value
-    })
-    const stringKeys = values.map(getStringKey)
-    const valuesKey = JSON.stringify(stringKeys)
+    const valuesKey = JSON.stringify(values.map(getStringKey))
+    const stringKeys = useMemo(() => JSON.parse(valuesKey) as string[], [valuesKey])
     const allOptionsMap: Map<string, LemonInputSelectOption<T>> = useMemo(() => {
         // Custom values are values that are not in the options list - O(n) instead of O(n×m)
-        const customValues = stringKeys.filter((key) => !optionMaps.keySet.has(key))
+        const indexedKeys = new Set(indexedOptions.map((option) => option.key))
+        const customValues = stringKeys.filter((key) => !indexedKeys.has(key))
         // Custom values are shown as options before other options (Map guarantees preserves insertion order)
         const allOptionsMap = new Map<string, LemonInputSelectOption<T>>()
         for (const customValue of customValues) {
@@ -329,13 +333,13 @@ export function LemonInputSelect<T = string>({
             // but also when re-opening the dropdown after typing
             allOptionsMap.set(customValue, { key: customValue, label: customValue, __isCustomValue: true })
         }
-        for (const option of options) {
+        for (const option of indexedOptions) {
             allOptionsMap.set(option.key, option)
         }
         // The below is a side effect (boo!) - but it's fine, since it's idempotent
-        fuseRef.current.setCollection(Array.from(allOptionsMap.values()))
+        fuse.setCollection(Array.from(allOptionsMap.values()))
         return allOptionsMap
-    }, [optionsKey, valuesKey, optionMaps, options, stringKeys])
+    }, [indexedOptions, stringKeys])
 
     const visibleOptions = useMemo(() => {
         const ret: LemonInputSelectOption<T>[] = []
@@ -353,13 +357,16 @@ export function LemonInputSelect<T = string>({
         } else if (mode === 'single' && values.length > 0) {
             // In single-select mode, show the selected value at the top
             const firstKey = getStringKey(values[0])
-            ret.push(allOptionsMap.get(firstKey) ?? { key: firstKey, label: getDisplayLabel(values[0]) })
+            ret.push(
+                optionMaps.keyToOption.get(firstKey) ??
+                    allOptionsMap.get(firstKey) ?? { key: firstKey, label: getDisplayLabel(values[0]) }
+            )
         }
 
         let relevantOptions: LemonInputSelectOption<T>[]
         if (!disableFiltering && inputValue) {
             // If filtering is enabled and there's input, perform fuzzy search…
-            const results = fuseRef.current.search(inputValue)
+            const results = fuse.search(inputValue)
             relevantOptions = results.map((result) => result.item)
         } else {
             // …otherwise show all options
@@ -374,7 +381,7 @@ export function LemonInputSelect<T = string>({
                 // We've already added this option to the top earlier
                 continue
             }
-            ret.push(option)
+            ret.push(optionMaps.keyToOption.get(option.key) ?? option)
             if (ret.length >= 100 && !virtualized) {
                 // :HACKY: This is a quick fix to make the select dropdown work for large values, as it was getting slow when
                 // we'd load more than ~10k entries. Ideally we'd make this a virtualized list.
@@ -652,7 +659,8 @@ export function LemonInputSelect<T = string>({
         // For single mode with a selected value and no active input, show the value as prefix since
         // showing the entered value as placeholder was unintuitive
         if (mode === 'single' && values.length > 0 && !inputValue) {
-            const selectedOption = allOptionsMap.get(getStringKey(values[0]))
+            const selectedOption =
+                optionMaps.keyToOption.get(getStringKey(values[0])) ?? allOptionsMap.get(getStringKey(values[0]))
             const label = selectedOption?.label ?? getDisplayLabel(values[0])
             if (singleValueAsSnack) {
                 const canClear = allowCustomValues && !disableEditing && !disabled
