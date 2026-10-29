@@ -116,6 +116,16 @@ FROM debian:bookworm-slim AS runtime
 #   curl -fsS "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" | sha256sum
 ARG RDS_CA_BUNDLE_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
 
+# mmdbshrink losslessly shrinks the GeoLite2 database by merging identical subtrees of its search tree
+# (https://ipinfo.io/blog/how-made-mmdb-files-smaller). Services load the whole file into memory, so
+# a smaller file uses less memory. mmdbshrink compares 1M random addresses per IP family against the
+# original and fails on any difference, so keep the original on failure. The shrink runs in the same
+# layer as the download, so the image never stores both files.
+# To update: bump the version and copy the new hashes from the GitHub release assets.
+ARG MMDBSHRINK_VERSION=1.5.1
+ARG MMDBSHRINK_SHA256_AMD64=7a50c451947466ce9bdebd181c272ac3226b725af480447124db29b952c719fc
+ARG MMDBSHRINK_SHA256_ARM64=b9da4f6bfb79a6ccf782387adbfe4d0eb7cf947c1950ab8768a31f3f942858d2
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libssl-dev "ca-certificates" \
@@ -125,6 +135,19 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir share && \
     ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
+    ARCH="$(dpkg --print-architecture)" && \
+    case "$ARCH" in amd64) SHA="$MMDBSHRINK_SHA256_AMD64" ;; arm64) SHA="$MMDBSHRINK_SHA256_ARM64" ;; *) SHA="" ;; esac && \
+    if [ -n "$SHA" ] && \
+        curl -fsSL -o /tmp/mmdbshrink.tar.gz \
+            "https://github.com/ipinfo/mmdbctl/releases/download/mmdbctl-${MMDBSHRINK_VERSION}/mmdbshrink_${MMDBSHRINK_VERSION}_linux_${ARCH}.tar.gz" && \
+        echo "${SHA}  /tmp/mmdbshrink.tar.gz" | sha256sum -c - && \
+        tar -xzf /tmp/mmdbshrink.tar.gz -C /tmp && \
+        "/tmp/mmdbshrink_${MMDBSHRINK_VERSION}_linux_${ARCH}" ./share/GeoLite2-City.mmdb /tmp/GeoLite2-City.shrunk.mmdb; then \
+        mv /tmp/GeoLite2-City.shrunk.mmdb ./share/GeoLite2-City.mmdb; \
+    else \
+        echo "WARNING: mmdbshrink failed; keeping the original GeoLite2-City.mmdb" >&2; \
+    fi && \
+    rm -f /tmp/mmdbshrink* /tmp/GeoLite2-City.shrunk.mmdb && \
     chmod -R 755 ./share/GeoLite2-City.mmdb && \
     mkdir -p /app/share && \
     mv ./share/GeoLite2-City.mmdb /app/share/ && \
