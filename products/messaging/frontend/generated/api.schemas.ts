@@ -75,8 +75,29 @@ export interface SendEmailApi {
     identifiers?: TransactionalEmailIdentifiersApi
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendEmailApiMessageData
-    /** The transactional email template to send. */
-    template: SendEmailTemplateApi
+    /** The transactional email template to send. Send either `template` or `template_key`. */
+    template?: SendEmailTemplateApi
+    /**
+     * Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
+     * @maxLength 400
+     * @pattern ^[a-zA-Z0-9_-]+$
+     */
+    template_key?: string
+    /** Subject of the email your code rendered. */
+    subject?: string
+    /** HTML body of the email your code rendered. */
+    html?: string
+    /** Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`. */
+    text?: string
+    /**
+     * Addresses replies to the email your code rendered go to.
+     * @maxItems 10
+     */
+    reply_to?: string[]
+    /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+    capture_engagement?: boolean
+    /** Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender. */
+    from?: string
 }
 
 export interface SendTransactionalEmailResponseApi {

@@ -10,10 +10,17 @@
 import * as zod from 'zod'
 
 /**
- * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email to one recipient. Name a template made transactional in `template.id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
+
+export const messagingSendEmailCreateBodyTemplateKeyMax = 400
+
+export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
+export const messagingSendEmailCreateBodyReplyToMax = 10
+
+export const messagingSendEmailCreateBodyCaptureEngagementDefault = true
 
 export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
     to: zod.email().describe('Email address of the recipient.'),
@@ -39,7 +46,39 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .object({
             id: zod.uuid().describe('ID of the email template to send. The template must be made transactional first.'),
         })
-        .describe('The transactional email template to send.'),
+        .optional()
+        .describe('The transactional email template to send. Send either `template` or `template_key`.'),
+    template_key: zod
+        .string()
+        .max(messagingSendEmailCreateBodyTemplateKeyMax)
+        .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
+        .optional()
+        .describe(
+            'Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+        ),
+    subject: zod.string().optional().describe('Subject of the email your code rendered.'),
+    html: zod.string().optional().describe('HTML body of the email your code rendered.'),
+    text: zod
+        .string()
+        .optional()
+        .describe('Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`.'),
+    reply_to: zod
+        .array(zod.email())
+        .max(messagingSendEmailCreateBodyReplyToMax)
+        .optional()
+        .describe('Addresses replies to the email your code rendered go to.'),
+    capture_engagement: zod
+        .boolean()
+        .default(messagingSendEmailCreateBodyCaptureEngagementDefault)
+        .describe(
+            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
+        ),
+    from: zod
+        .string()
+        .optional()
+        .describe(
+            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender."
+        ),
 })
 
 export const messagingCategoriesCreateBodyKeyMax = 64
