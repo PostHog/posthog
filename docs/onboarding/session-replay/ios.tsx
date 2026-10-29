@@ -111,18 +111,9 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // requires SDK version 3.41.1 or higher.
                                             config.sessionReplayConfig.captureNetworkTelemetry = true
 
-                                            // Whether replays are created using high quality screenshots. Default is false.
-                                            // Required for SwiftUI.
-                                            // If disabled, replays are created using wireframes instead.
-                                            // The screenshot may contain sensitive information, so use with caution
-                                            config.sessionReplayConfig.screenshotMode = true
-
-                                            // Experimental. Only applies when \`screenshotMode\` is enabled.
-                                            // Moves screenshot rendering off the main thread, which reduces jank
-                                            // on high refresh rate (120Hz ProMotion) displays. May trigger Xcode's
-                                            // Main Thread Checker and briefly freeze the app on the first capture.
-                                            // Default is false. Requires SDK version 3.58.1 or higher.
-                                            config.sessionReplayConfig.screenshotModeBackgroundCapture = false
+                                            // Replays are recorded as masked screenshots, so mask anything sensitive.
+                                            // Before SDK version 4.0, also set config.sessionReplayConfig.screenshotMode = true,
+                                            // otherwise replays are recorded as wireframes and SwiftUI screens aren't recorded.
 
                                             // Minimum time (in seconds) between snapshots. Default is 1.0s.
                                             // Snapshots are taken when views lay out, so this caps how often one
@@ -156,8 +147,8 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                     </Markdown>
                     <CalloutBox type="fyi" title="SwiftUI support">
                         <Markdown>
-                            SwiftUI is only supported if the `screenshotMode` option is enabled. Custom views and
-                            WebViews also require screenshot mode for full support.
+                            SDK version 4.0 and later record SwiftUI, custom views and WebViews as screenshots. Earlier
+                            versions only support them if the `screenshotMode` option is enabled.
                         </Markdown>
                     </CalloutBox>
                 </>

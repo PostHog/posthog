@@ -96,12 +96,11 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             // requires SDK version 3.32.0 or higher.
                                             config.sessionReplayConfig.captureLogcat = true
 
-                                            // Whether replays are created using high quality screenshots. Default is false.
-                                            // If disabled, replays are created using wireframes instead.
-                                            // The screenshot may contain sensitive information, so use with caution
-                                            config.sessionReplayConfig.screenshot = false
+                                            // Replays are recorded as masked screenshots, so mask anything sensitive.
+                                            // Before SDK version 4.0, also set config.sessionReplayConfig.screenshot = true,
+                                            // otherwise replays are recorded as wireframes.
 
-                                            // Experimental screenshot settings require SDK 3.63.0+ and screenshot = true.
+                                            // Experimental screenshot settings require SDK version 3.63.0 or higher.
                                             // We recommend the values below to balance performance and image quality.
                                             // Lower resolution and RGB_565 reduce capture time and memory use.
 
