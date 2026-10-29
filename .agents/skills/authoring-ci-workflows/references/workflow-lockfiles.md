@@ -2,33 +2,39 @@
 
 Read this before changing a workflow listed in `.github/workflows/actions.lock`, its action dependencies, or the lockfile itself.
 
-Use the lockfile's `workflows` section to determine which workflows are onboarded. Keep maintenance scoped to those workflows; onboarding another workflow is a separate change. Unonboarded workflows and native Depot CI keep inline SHA pins. Dependency-update automation is not required for this trial.
+The lockfile's `workflows` section lists the onboarded workflows.
+Onboard another workflow in its own change, and add it to the Renovate exclusion in `.github/renovate.json5` in that change.
+Renovate cannot regenerate the lockfile.
 
 ## Update and verify
 
-Use the `gh-actions-lock` version pinned in `.github/workflows/ci-lint-workflows.yml`. After changing an onboarded workflow's action references, regenerate and verify only that workflow. For the trial:
+Use the `gh-actions-lock` version pinned in `.github/workflows/ci-lint-workflows.yml`.
+After changing an onboarded workflow's action references, regenerate and verify only that workflow:
 
 ```sh
-gh actions-lock .github/workflows/ci-paths-filter.yml
-gh actions-lock --verify .github/workflows/ci-paths-filter.yml
+gh actions-lock .github/workflows/<workflow>.yml
+gh actions-lock --verify .github/workflows/<workflow>.yml
 ```
 
-Include the workflow and generated lockfile changes in the same changeset. Run verification before reporting done, including for lockfile-only changes. `--verify-local` checks coverage offline; use `--verify` to check upstream provenance as well.
+Commit the workflow and the generated lockfile together.
 
-Preserve the trial's rule-specific `nosemgrep` annotations: Semgrep's mutable-action-tag rule does not read `actions.lock`. Keep these exceptions limited to references covered by the lockfile.
+Keep the rule-specific `nosemgrep` annotation on each locked tag reference.
+Semgrep's mutable-action-tag rule does not read `actions.lock`.
 
 Review the generated diff:
 
-- Confirm changed commits match the intended dependency update, and investigate changed repository or owner IDs.
-- Confirm no unrelated workflows were onboarded or shared actions rewritten.
-- Keep the trial workflow watching `actions.lock` so lockfile-only edits exercise it in CI.
+- Confirm that changed commits match the intended dependency update, and investigate changed repository or owner IDs.
+- Confirm that the run onboarded no other workflow and rewrote no shared action.
+- Keep `actions.lock` in the `paths` of `ci-paths-filter.yml`, so a lockfile-only change runs a workflow that uses the lockfile.
 
-Never hand-edit the lockfile or delete it to resolve an error. Restore a valid copy and regenerate. Do not run unscoped `gh actions-lock` during the trial, or use `--relock` or `--accept-moved` to silence a provenance error without reviewing the upstream change.
+Never delete the lockfile to resolve an error.
+Restore a valid copy and regenerate.
+Do not run `gh actions-lock` without a workflow path, because it onboards every workflow.
+Do not use `--relock` or `--accept-moved` to silence a provenance error before you review the upstream change.
 
 ## Coverage boundaries
 
-- Remote reusable-workflow calls at `jobs.<job_id>.uses` are not locked. Keep their inline SHA pins.
-- Workspace-local `./` actions are not traversed. Migrating them to `$/` changes which commit supplies the action; do not include that migration in incidental lockfile maintenance.
-- Container images and software downloaded by scripts need their own integrity checks.
+- The lockfile does not cover remote reusable-workflow calls at `jobs.<job_id>.uses`. Keep their inline SHA pins.
+- `gh-actions-lock` does not follow local `./` actions. A migration to `$/` changes which commit supplies the action, so keep it out of routine lockfile maintenance.
 
-See GitHub's [lockfile maintenance guide](https://docs.github.com/en/actions/how-tos/secure-your-work/lock-workflow-dependencies), [coverage limitations](https://github.com/github/gh-actions-lock#limitations), and [verification modes](https://github.com/github/gh-actions-lock#modes).
+See GitHub's [lockfile maintenance guide](https://docs.github.com/en/actions/how-tos/secure-your-work/lock-workflow-dependencies) and the [gh-actions-lock limitations](https://github.com/github/gh-actions-lock#limitations).
