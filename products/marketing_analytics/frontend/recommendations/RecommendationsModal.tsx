@@ -170,7 +170,7 @@ export function RecommendationsModal({
                 </div>
             }
             footer={
-                <p className="mb-0 mr-auto text-xs text-secondary">
+                <p className="mb-0 mr-auto text-xs text-secondary whitespace-normal">
                     These are suggestions from rules applied to your synced data, and impact figures are estimates. You
                     decide what to change, so check each one before you edit a campaign.
                 </p>
