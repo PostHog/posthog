@@ -188,7 +188,23 @@ export const SettingsEnvironmentSurveys: Story = { args: { sectionId: 'environme
 
 export const SettingsEnvironmentFeatureFlags: Story = { args: { sectionId: 'environment-feature-flags' } }
 
-export const SettingsEnvironmentErrorTracking: Story = { args: { sectionId: 'environment-error-tracking' } }
+export const SettingsEnvironmentErrorTracking: Story = {
+    args: { sectionId: 'environment-error-tracking' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/error_tracking/settings/retrieve_settings/': {
+                    project_rate_limit_value: null,
+                    project_rate_limit_bucket_size_minutes: null,
+                    per_issue_rate_limit_value: null,
+                    per_issue_rate_limit_bucket_size_minutes: null,
+                    ingestion_enabled: true,
+                    linear_status_sync_enabled: false,
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
     args: { sectionId: 'environment-error-tracking-configuration' },

@@ -32,15 +32,21 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
     def test_update_settings_with_session_auth(self):
         response = self.client.patch(
             f"{self._base_url()}/update_settings/",
-            {"project_rate_limit_value": 5000, "project_rate_limit_bucket_size_minutes": 60},
+            {
+                "project_rate_limit_value": 5000,
+                "project_rate_limit_bucket_size_minutes": 60,
+                "linear_status_sync_enabled": True,
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["project_rate_limit_value"], 5000)
+        self.assertEqual(response.json()["linear_status_sync_enabled"], True)
 
         settings = ErrorTrackingSettings.objects.get(team=self.team)
         self.assertEqual(settings.project_rate_limit_value, 5000)
         self.assertEqual(settings.project_rate_limit_bucket_size_minutes, 60)
+        self.assertTrue(settings.linear_status_sync_enabled)
 
     def test_update_settings_only_changes_provided_fields(self):
         setup_response = self.client.patch(

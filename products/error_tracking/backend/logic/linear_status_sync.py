@@ -3,6 +3,7 @@
 An issue resolves when every linked Linear ticket is closed and at least one of them is done. A
 canceled ticket alone never resolves an issue, because it means nobody fixed anything. A resolved
 issue becomes active again when a linked ticket moves from a closed state back to an open one.
+Only projects that turn on `linear_status_sync_enabled` in their error tracking settings take part.
 
 A delivery only says that one ticket changed state. The task reads the current state of every
 linked ticket from Linear before it decides, so a late or reordered delivery cannot apply a state
@@ -11,7 +12,7 @@ that the tickets no longer have.
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import structlog
@@ -27,7 +28,14 @@ from posthog.redis import get_client
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic.issue_mutations import transition_issue_status_by_automation
-from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
+from products.error_tracking.backend.models import (
+    ErrorTrackingExternalReference,
+    ErrorTrackingIssue,
+    ErrorTrackingSettings,
+)
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 # Linear groups every workflow state into one of these categories. A team can rename its states
 # and add more of them, but it cannot add a category, so the category is what the sync reads.
@@ -97,9 +105,11 @@ def delivery_ownership(payload: Mapping[str, Any]) -> DeliveryOwnership:
 
 
 def sync_status(job: contracts.LinearStatusSyncJob) -> None:
-    _refresh_moved_identifiers(job)
+    opted_in_team_ids = _opted_in_team_ids(job)
+    _refresh_moved_identifiers(job, opted_in_team_ids)
     issues = (
         ErrorTrackingIssue.objects.filter(
+            team_id__in=opted_in_team_ids,
             external_issue__integration__kind=Integration.IntegrationKind.LINEAR.value,
             external_issue__integration__integration_id=job.organization_id,
             external_issue__external_context__id__in=job.identifiers,
@@ -149,7 +159,19 @@ def _issue_lock(issue_id: UUID) -> Iterator[None]:
             lock.release()
 
 
-def _refresh_moved_identifiers(job: contracts.LinearStatusSyncJob) -> None:
+def _opted_in_team_ids(job: contracts.LinearStatusSyncJob) -> "QuerySet[ErrorTrackingSettings, int]":
+    """The projects that connect the job's Linear workspace and turned the sync on."""
+    return ErrorTrackingSettings.objects.filter(
+        linear_status_sync_enabled=True,
+        team_id__in=Integration.objects.filter(
+            kind=Integration.IntegrationKind.LINEAR.value, integration_id=job.organization_id
+        ).values("team_id"),
+    ).values_list("team_id", flat=True)
+
+
+def _refresh_moved_identifiers(
+    job: contracts.LinearStatusSyncJob, opted_in_team_ids: "QuerySet[ErrorTrackingSettings, int]"
+) -> None:
     """Point references that hold an identifier from before a team move at the ticket's current one.
 
     A reference stores only the identifier, and the state lookup finds a ticket by its current
@@ -160,6 +182,7 @@ def _refresh_moved_identifiers(job: contracts.LinearStatusSyncJob) -> None:
     if not previous:
         return
     stale = ErrorTrackingExternalReference.objects.filter(
+        issue__team_id__in=opted_in_team_ids,
         integration__kind=Integration.IntegrationKind.LINEAR.value,
         integration__integration_id=job.organization_id,
         external_context__id__in=previous,

@@ -11,6 +11,8 @@ import IconGitLab from 'public/services/gitlab.png'
 import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
 
+import { LinearStatusSyncSetting } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/linear_status_sync/LinearStatusSyncSetting'
+
 const NEXT_URL = urls.settings('environment-error-tracking', 'error-tracking-integrations')
 
 export function ErrorTrackingIntegrations(): JSX.Element {
@@ -21,7 +23,10 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                     <img src={IconLinear} alt="" className="w-5 h-5" />
                     Linear
                 </h3>
-                <LinearIntegration next={NEXT_URL} />
+                <div className="flex flex-col gap-y-4">
+                    <LinearIntegration next={NEXT_URL} />
+                    <LinearStatusSyncSetting />
+                </div>
             </div>
             <div>
                 <h3 className="flex items-center gap-2">
