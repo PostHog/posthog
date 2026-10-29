@@ -283,6 +283,12 @@ export const SignalsConfigCreateBody = () => zod.object({
         .describe(
             "The label name self-driving applies, at most 50 characters. Null or blank means 'self-driving'. The label is created in the repository when it does not exist yet. Only used while pull_request_label_enabled is true."
         ),
+    anomaly_scoring_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+        ),
 })
 
 export const SignalsReportsListParams = () => zod.object({

@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any
 
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import bump_stuck_counter_activity
+
 from products.replay_vision.backend.temporal.activities import (
     advance_backfill_cursor_activity,
     advance_scanner_watermark_activity,
@@ -88,6 +90,8 @@ WORKFLOWS = [
     VisionAlertCheckWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
+    # ApplyScannerWorkflow bumps the rasterizer's stuck counter on this queue when a render times out.
+    bump_stuck_counter_activity,
     discover_due_vision_alerts_activity,
     evaluate_vision_alert_batch_activity,
     drain_vision_alert_matches_activity,
