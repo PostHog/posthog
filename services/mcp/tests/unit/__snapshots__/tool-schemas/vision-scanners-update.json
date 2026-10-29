@@ -111,7 +111,129 @@
             "type": "string"
         },
         "query": {
-            "description": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user."
+            "additionalProperties": {},
+            "description": "Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.",
+            "properties": {
+                "actions": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`."
+                },
+                "console_log_filters": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`."
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event."
+                },
+                "filter_test_accounts": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Leave out recordings from internal and test accounts."
+                },
+                "having_predicates": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`."
+                },
+                "kind": {
+                    "const": "RecordingsQuery",
+                    "default": "RecordingsQuery",
+                    "type": "string"
+                },
+                "operand": {
+                    "anyOf": [
+                        {
+                            "enum": ["AND", "OR"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "`AND` (the default) keeps recordings that match every condition, `OR` keeps those that match any one."
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`."
+                }
+            },
+            "type": "object"
         },
         "sampling_mode": {
             "description": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",

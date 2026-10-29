@@ -568,12 +568,16 @@ tools:
             `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing
             sentence for them, not a step for you.
         exclude_params:
+            - query
             - id
             - scanner_version
             - last_swept_at
             - created_at
             - created_by
             - updated_at
+        param_overrides:
+            query:
+                input_schema: ScannerRecordingsFilterSchema
         requires_ai_consent: true
     vision-scanners-dashboard-create:
         operation: vision_scanners_create_dashboard_create
@@ -672,6 +676,11 @@ tools:
             `vision-scanners-create` and compare the *credit* figures (never raw observation counts) against `remaining`
             from `vision-quota-get`. These projections are per month while `remaining` covers only the rest of the
             current period, so prorate them by the days left between `period_start` and `period_end` before comparing.
+        exclude_params:
+            - query
+        param_overrides:
+            query:
+                input_schema: ScannerRecordingsFilterSchema
     vision-scanners-get:
         operation: vision_scanners_retrieve
         enabled: true
@@ -1016,12 +1025,16 @@ tools:
             projected spend with `vision-scanners-estimate` and remaining budget with `vision-quota-get` first — the
             scanner resumes sweeping every 5 minutes at the new, broader scope.
         exclude_params:
+            - query
             - id
             - scanner_version
             - last_swept_at
             - created_at
             - created_by
             - updated_at
+        param_overrides:
+            query:
+                input_schema: ScannerRecordingsFilterSchema
         requires_ai_consent: true
     vision-scanners-variants-list:
         operation: vision_scanners_variants_list

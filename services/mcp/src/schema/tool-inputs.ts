@@ -1497,3 +1497,39 @@ export const FlagRulesV2UpdateInputSchema = z.preprocess(
             .describe('The complete new configuration. It replaces the stored `filters`.'),
     })
 )
+
+// A scanner's recording filter, as the replay vision tools take it. The API validates the full
+// `RecordingsQuery`; inlining that schema in every scanner tool costs agents hundreds of kilobytes each,
+// so this names the parts a scanner filters on and lets each item through for the API to check.
+const RecordingFilterItemsSchema = z.array(z.record(z.string(), z.unknown()))
+
+export const ScannerRecordingsFilterSchema = z
+    .object({
+        kind: z.literal('RecordingsQuery').default('RecordingsQuery'),
+        events: RecordingFilterItemsSchema.nullish().describe(
+            'Events a recording must contain, such as `{"id": "$pageview", "type": "events", "order": 0}`. Each can carry `properties` that filter that event.'
+        ),
+        actions: RecordingFilterItemsSchema.nullish().describe(
+            'Saved actions a recording must contain, such as `{"id": 12, "type": "actions", "order": 0}`.'
+        ),
+        properties: RecordingFilterItemsSchema.nullish().describe(
+            'Recording, session, person and cohort filters, such as `{"type": "recording", "key": "visited_page", "value": "/checkout", "operator": "icontains"}` or `{"type": "cohort", "key": "id", "value": 7, "operator": "in"}`.'
+        ),
+        having_predicates: RecordingFilterItemsSchema.nullish().describe(
+            'Duration filters, such as `{"type": "recording", "key": "active_seconds", "value": 60, "operator": "gt"}`.'
+        ),
+        console_log_filters: RecordingFilterItemsSchema.nullish().describe(
+            'Console log filters, such as `{"type": "log_entry", "key": "level", "value": ["error"], "operator": "exact"}`.'
+        ),
+        // Null joins the conditions with OR, the way the recordings query builder reads it.
+        operand: z
+            .enum(['AND', 'OR'])
+            .nullish()
+            .describe('`AND` (the default) keeps recordings that match every condition, `OR` keeps those that match any one.'),
+        filter_test_accounts: z.boolean().nullish().describe('Leave out recordings from internal and test accounts.'),
+    })
+    .passthrough()
+    .optional()
+    .describe(
+        'Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.'
+    )

@@ -918,12 +918,6 @@ export const VisionScannersCreateBody = () => zod
             .describe(
                 'Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.'
             ),
-        query: zod
-            .unknown()
-            .optional()
-            .describe(
-                'Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`\/`date_to` are stripped on save — the schedule controls time, not the user.'
-            ),
         sampling_rate: zod
             .number()
             .min(visionScannersCreateBodySamplingRateMin)
@@ -1096,12 +1090,6 @@ export const VisionScannersPartialUpdateBody = () => zod
             .optional()
             .describe(
                 'Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.'
-            ),
-        query: zod
-            .unknown()
-            .optional()
-            .describe(
-                'Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`\/`date_to` are stripped on save — the schedule controls time, not the user.'
             ),
         sampling_rate: zod
             .number()
@@ -2183,12 +2171,6 @@ export const visionScannersEstimateCreateBodyExperimentOneVariantsItemMax = 400
 
 export const VisionScannersEstimateCreateBody = () => zod
     .object({
-        query: zod
-            .unknown()
-            .optional()
-            .describe(
-                'Proposed `RecordingsQuery` for the candidate filter. `date_from`\/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings.'
-            ),
         sampling_rate: zod
             .number()
             .min(visionScannersEstimateCreateBodySamplingRateMin)

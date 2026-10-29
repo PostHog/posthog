@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { ScannerRecordingsFilterSchema } from '@/schema/tool-inputs'
 import { castBooleanToString } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -891,7 +892,7 @@ const visionScannersCounts = (): ToolBase<
 
 const VisionScannersCreateSchema = () => {
     const VisionScannersCreateBody = orvalSchemas.VisionScannersCreateBody()
-    return VisionScannersCreateBody
+    return VisionScannersCreateBody.extend({ query: ScannerRecordingsFilterSchema })
 }
 
 const visionScannersCreate = (): ToolBase<
@@ -924,9 +925,6 @@ const visionScannersCreate = (): ToolBase<
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
         }
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
@@ -953,6 +951,9 @@ const visionScannersCreate = (): ToolBase<
         }
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
         }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'POST',
@@ -1063,7 +1064,7 @@ const visionScannersDuplicate = (): ToolBase<
 
 const VisionScannersEstimateSchema = () => {
     const VisionScannersEstimateCreateBody = orvalSchemas.VisionScannersEstimateCreateBody()
-    return VisionScannersEstimateCreateBody
+    return VisionScannersEstimateCreateBody.extend({ query: ScannerRecordingsFilterSchema })
 }
 
 const visionScannersEstimate = (): ToolBase<
@@ -1075,9 +1076,6 @@ const visionScannersEstimate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersEstimateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
@@ -1095,6 +1093,9 @@ const visionScannersEstimate = (): ToolBase<
         }
         if (params.experiment !== undefined) {
             body['experiment'] = params.experiment
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
         }
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
@@ -1593,7 +1594,9 @@ const visionScannersSelfDrivingStats = (): ToolBase<
 const VisionScannersUpdateSchema = () => {
     const VisionScannersPartialUpdateBody = orvalSchemas.VisionScannersPartialUpdateBody()
     const VisionScannersPartialUpdateParams = orvalSchemas.VisionScannersPartialUpdateParams()
-    return VisionScannersPartialUpdateParams.omit({ project_id: true }).extend(VisionScannersPartialUpdateBody.shape)
+    return VisionScannersPartialUpdateParams.omit({ project_id: true })
+        .extend(VisionScannersPartialUpdateBody.shape)
+        .extend({ query: ScannerRecordingsFilterSchema.optional() })
 }
 
 const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdateSchema>, Schemas.ReplayScanner> => ({
@@ -1623,9 +1626,6 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         if (params.scanner_config !== undefined) {
             body['scanner_config'] = params.scanner_config
         }
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
@@ -1652,6 +1652,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         }
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
         }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'PATCH',
