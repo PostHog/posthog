@@ -369,7 +369,8 @@ function lowerSections(
     if (!appendInOrder(REMOTE_SOURCES.filter((source) => source !== 'results' && !TRAILING_SOURCES.includes(source)))) {
         return loadingMore()
     }
-    if (input.askAiQuestion) {
+    const hasItems = shown.size > 0 || loaded().some((section) => section.rows.some((row) => row.kind === 'item'))
+    if (input.askAiQuestion && !hasItems) {
         sections.push({
             ...readySection('ask-ai', [{ kind: 'ask-ai', key: 'ask-ai/ask', question: input.askAiQuestion }]),
             state,
