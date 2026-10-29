@@ -16,7 +16,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER
 
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.facade.api import list_precomputation_enabled_team_ids
+from products.experiments.backend.facade.testing import set_team_experiments_config
 
 
 class TestDebugCHQuery(APIBaseTest):
@@ -497,9 +498,8 @@ class TestCacheTableStats(SimpleTestCase):
 class TestPrecomputationTeamsUpdate(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def test_staff_toggle_stamps_manual_provenance(self):
-        # A missing stamp would let the auto-enrollment job override a human's disable
-        # on its next run.
+    def test_staff_toggle_disables_precomputation(self):
+        set_team_experiments_config(team_id=self.team.id, experiment_precomputation_enabled=True)
         self.user.is_staff = True
         self.user.save()
 
@@ -509,6 +509,4 @@ class TestPrecomputationTeamsUpdate(APIBaseTest):
         )
         self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
 
-        config = TeamExperimentsConfig.objects.get(team=self.team)
-        self.assertFalse(config.experiment_precomputation_enabled)
-        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+        self.assertEqual(list_precomputation_enabled_team_ids([self.team.id]), set())
