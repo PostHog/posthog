@@ -471,14 +471,10 @@ class _SubscriptionWrite:
                     {"integration_id": ["A Slack integration is required for Slack subscriptions."]}
                 )
             try:
-                integration = IntegrationManager.any.get(self.team_id, integration_id)
+                integration = IntegrationManager.slack.oauth.get(self.team_id, integration_id)
             except IntegrationNotFound:
                 raise SubscriptionRequestInvalidError(
                     {"integration_id": ["This integration does not exist or does not belong to your team."]}
-                )
-            if integration.kind != "slack":
-                raise SubscriptionRequestInvalidError(
-                    {"integration_id": ["Slack subscriptions require a Slack integration."]}
                 )
             if gallery_enabled and SlackIntegration(integration).missing_scopes({"files:write"}):
                 raise SubscriptionRequestInvalidError(

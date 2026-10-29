@@ -198,7 +198,9 @@ class ProjectRepositories:
     def installations(self) -> list[InstallationSummary]:
         claims = {claim.installation_id: claim for claim in ReviewInstallationClaim.objects.for_team(self.team_id)}
         summaries: list[InstallationSummary] = []
-        for integration in self.integrations():
+        integrations = self.integrations()
+        creators = User.objects.in_bulk({row.created_by_id for row in integrations if row.created_by_id})
+        for integration in integrations:
             installation_id = integration.integration_id or ""
             all_claim = RepositoryOwnership.all_claim(installation_id)
             account = (integration.config or {}).get("account") or {}
@@ -206,7 +208,7 @@ class ProjectRepositories:
                 InstallationSummary(
                     installation_id=installation_id,
                     account_name=account.get("name") or installation_id,
-                    connected_by=integration.created_by,
+                    connected_by=creators.get(integration.created_by_id) if integration.created_by_id else None,
                     claim=claims.get(installation_id),
                     all_taken_by=(
                         self._project(all_claim.team_id)

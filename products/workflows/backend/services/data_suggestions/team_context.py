@@ -76,7 +76,7 @@ def push_integration_ids(team: Team) -> tuple[int, ...]:
 
 
 def slack_integration_id(team: Team) -> int | None:
-    row = IntegrationManager.slack.any.find(team.id)
+    row = IntegrationManager.slack.oauth.find(team.id)
     return row.id if row is not None else None
 
 

@@ -24,6 +24,7 @@ from posthog.slack.channels import SlackPostRefused, post_message, post_with_joi
 from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 from .digest import as_channel_paragraph
 
@@ -186,10 +187,9 @@ def post_digest_details(team_id: int, destination: Destination, summary: DigestS
     """
     if not thread_ts or not summary.prs:
         return
-    integration = IntegrationManager.slack.oauth.get_many(team_id, [destination.slack_integration_id]).get(
-        destination.slack_integration_id
-    )
-    if integration is None:
+    try:
+        integration = IntegrationManager.slack.oauth.get(team_id, destination.slack_integration_id)
+    except IntegrationNotFound:
         return
     try:
         post_message(
@@ -213,10 +213,9 @@ def post_digest_lead(team_id: int, destination: Destination, summary: DigestSumm
     sweeper finalizes. Without that order, a Slack-accepted digest reads as unposted, and the next
     run releases its merges and sends the same lead again.
     """
-    integration = IntegrationManager.slack.oauth.get_many(team_id, [destination.slack_integration_id]).get(
-        destination.slack_integration_id
-    )
-    if integration is None:
+    try:
+        integration = IntegrationManager.slack.oauth.get(team_id, destination.slack_integration_id)
+    except IntegrationNotFound:
         raise DigestSlackError(f"No slack integration {destination.slack_integration_id} for team {team_id}")
 
     try:

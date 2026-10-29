@@ -20,9 +20,8 @@ from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.integration import is_supported_external_issue_provider
+from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.integrations.backend.facade.kinds_generated import IntegrationKind
 from products.integrations.backend.presentation.fields import IntegrationReferenceField
 from products.signals.backend import contracts
@@ -400,6 +399,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
     )
     issue_tracking_integration = IntegrationReferenceField(
+        kinds=sorted(SUPPORTED_EXTERNAL_ISSUE_PROVIDERS),
         required=False,
         allow_null=True,
         help_text=(
@@ -558,15 +558,6 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                 )
             },
         }
-
-    def validate_issue_tracking_integration(self, value: IntegrationRecord | None) -> IntegrationRecord | None:
-        if value is None:
-            return None
-        if not is_supported_external_issue_provider(value.kind):
-            raise serializers.ValidationError(
-                f"'{value.kind}' cannot track issues. Connect GitHub, GitLab, Linear, or Jira."
-            )
-        return value
 
     def validate(self, attrs: dict) -> dict:
         attrs = super().validate(attrs)

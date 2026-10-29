@@ -21,6 +21,7 @@ from posthog.models.integration import (
 from products.error_tracking.backend.logic import get_issue_permalink_by_fingerprint
 from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
 from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.integrations.backend.facade.kinds_generated import IntegrationKind
 
 _EXTERNAL_ISSUE_INTEGRATIONS = IntegrationManager.kinds(
@@ -198,6 +199,22 @@ def get_external_reference(reference_id: UUID, team_id: int) -> ErrorTrackingExt
     return list_external_references(team_id=team_id).filter(id=reference_id).first()
 
 
+def _get_integration(team_id: int, integration_id: int) -> IntegrationRecord:
+    try:
+        return _EXTERNAL_ISSUE_INTEGRATIONS.get(team_id, integration_id)
+    except IntegrationNotFound:
+        pass
+    # A row of another kind gets the provider error below, as before. A supported kind with a
+    # non-default auth type stays "not found", because the provider code cannot use it.
+    try:
+        integration = IntegrationManager.any.get(team_id, integration_id)
+    except IntegrationNotFound:
+        raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
+    if is_supported_external_issue_provider(integration.kind):
+        raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
+    return integration
+
+
 def _get_issue_and_integration(
     team_id: int, issue_id: UUID, integration_id: int
 ) -> tuple[ErrorTrackingIssue, IntegrationRecord]:
@@ -205,11 +222,7 @@ def _get_issue_and_integration(
     if issue is None:
         raise ErrorTrackingExternalReferenceValidationError("Issue does not belong to this team.")
 
-    integration = _EXTERNAL_ISSUE_INTEGRATIONS.get_many(team_id, [integration_id]).get(integration_id)
-    if integration is None:
-        raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
-
-    return issue, integration
+    return issue, _get_integration(team_id, integration_id)
 
 
 def create_external_reference(
@@ -308,9 +321,7 @@ def search_external_issues(
     Each result is ``{id, title, url, external_context}`` where ``external_context`` is the
     exact payload to persist when the user selects it.
     """
-    integration = _EXTERNAL_ISSUE_INTEGRATIONS.get_many(team_id, [integration_id]).get(integration_id)
-    if integration is None:
-        raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
+    integration = _get_integration(team_id, integration_id)
 
     # Provider failures (expired tokens, rate limits) surface as validation errors so the
     # endpoint returns an actionable 400 instead of a 500.

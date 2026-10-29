@@ -11,10 +11,11 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models.github_integration_base import _is_safe_github_repo_path
-from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.signals.backend.models import SignalTeamConfig
 
 logger = structlog.get_logger(__name__)
@@ -39,7 +40,7 @@ class ResearchAccessPolicy:
         if not _is_safe_github_repo_path(repository):
             return None
         transient_error: Exception | None = None
-        for integration in Integration.objects.filter(team_id=team_id, kind="github"):
+        for integration in IntegrationManager.github.oauth.list(team_id):
             try:
                 github = GitHubIntegration(integration, source="signals_github_optional", priority=priority)
                 if github.installation_can_access_repository(repository, raise_on_transient=True):

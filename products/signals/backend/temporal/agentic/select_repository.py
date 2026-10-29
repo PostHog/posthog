@@ -8,13 +8,14 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.event_usage import groups
 from posthog.models import Organization
-from posthog.models.integration import GitHubIntegrationError, Integration
+from posthog.models.integration import GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
@@ -63,7 +64,7 @@ async def github_optional_pilot_activity(team_id: int) -> bool:
 
 
 def _pilot_code_availability(team_id: int) -> ReportResearchContext:
-    integrations = list(Integration.objects.filter(team_id=team_id, kind="github"))
+    integrations = IntegrationManager.github.oauth.list(team_id)
     if not integrations:
         return ReportResearchContext(mode="data_only", repository_status="no_integration")
     if all(item.repository_cache_updated_at and item.repository_cache == [] for item in integrations):

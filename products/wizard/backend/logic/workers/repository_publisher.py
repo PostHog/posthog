@@ -7,6 +7,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 
 from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.facade.sandbox import SandboxBase, sandbox_repo_path
 from products.wizard.backend.logic.workers.commands import bound_command_output
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest, SignedRepositoryCommit
@@ -218,8 +219,9 @@ def _commit_staged_changes(
 
 
 def _github_integration(team_id: int, integration_id: int, source: str) -> GitHubIntegration:
-    integration = IntegrationManager.github.oauth.get_many(team_id, [integration_id]).get(integration_id)
-    if integration is None:
+    try:
+        integration = IntegrationManager.github.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
         raise RepositoryPublishingError("GitHub integration is unavailable.")
     return GitHubIntegration(integration, source=source, priority=Priority.CRITICAL)
 
@@ -303,11 +305,7 @@ def create_pull_request(
     base_branch: str | None = None,
 ) -> RepositoryPullRequest:
     repository_name = _repository_parts(repository)
-    integration = IntegrationManager.github.oauth.get_many(team_id, [integration_id]).get(integration_id)
-    if integration is None:
-        raise RepositoryPublishingError("GitHub integration is unavailable.")
-
-    github = GitHubIntegration(integration, source=source, priority=Priority.CRITICAL)
+    github = _github_integration(team_id, integration_id, source)
     if github.organization().casefold() != repository_name.owner.casefold():
         raise RepositoryPublishingError("GitHub integration does not own the repository.")
 

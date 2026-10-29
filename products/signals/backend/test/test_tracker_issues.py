@@ -19,6 +19,7 @@ from posthog.models.integration import (
     LinearIntegration,
 )
 
+from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 from products.signals.backend.serializers import SignalTeamConfigSerializer
 from products.signals.backend.tasks import close_report_tracker_issue
@@ -431,6 +432,24 @@ def test_serializer_rejects_a_provider_that_cannot_hold_issues(team):
     integration = Integration.objects.create(team=team, kind="slack", integration_id="slack-1", config={})
     serializer = SignalTeamConfigSerializer(
         data={"issue_tracking_integration": integration.id},
+        partial=True,
+        context={"team_id": team.id},
+    )
+
+    assert not serializer.is_valid()
+    assert "issue_tracking_integration" in serializer.errors
+
+
+@pytest.mark.django_db
+def test_serializer_rejects_a_warehouse_source_row(team):
+    integration = Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="github-source",
+        config={**INTEGRATION_CONFIGS["github"], SOURCE_MARKER_CONFIG_KEY: "Github"},
+    )
+    serializer = SignalTeamConfigSerializer(
+        data={"issue_tracking_integration": integration.id, "issue_tracking_config": {"repository": "web"}},
         partial=True,
         context={"team_id": team.id},
     )
