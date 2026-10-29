@@ -41,6 +41,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.property_planner import (
     PropertyComparisonPlan,
     PropertyLiteralConversion,
@@ -85,7 +86,11 @@ def _normalize_snapshot_sql(sql: str) -> str:
 
 
 class _NewEventsSchemaArraySubcolumnsHelpers:
-    def _context(self, use_new_events_schema: bool | None = None) -> HogQLContext:
+    def _context(
+        self,
+        use_new_events_schema: bool | None = None,
+        event_properties: dict[str, dict[str, str | None]] | None = None,
+    ) -> HogQLContext:
         team = Team(id=1, project_id=1)
         context = HogQLContext(
             team_id=team.id,
@@ -95,7 +100,9 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
         )
         context.database = Database()
         context.restricted_properties = set()
-        context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, True)
+        if event_properties is not None:
+            context.property_metadata = PropertyMetadata(event_properties=event_properties)
+        context.property_swapper = PropertySwapper("UTC", event_properties or {}, {}, {}, context, True)
         return context
 
     def _print_select(
@@ -220,7 +227,7 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 PropertyGroupsMode.OPTIMIZED,
                 (
-                    f"JSONExtractRaw(if(empty(events.properties), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
+                    "JSONExtractRaw(events.properties, ",
                     f"JSONHas(if(empty(events.properties), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
                 ),
                 ("properties_group_feature_flags", "mapFilter("),
@@ -554,6 +561,39 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
+            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0]),
+            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0]),
+            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0]),
+            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1]),
+        ]
+    )
+    def test_numeric_property_compared_to_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int | None]
+    ) -> None:
+        context = self._context(event_properties={"step": {"type": "Numeric"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"step":"template"}',
+                    '{"step":"domain"}',
+                    '{"step":5}',
+                    '{"step":"5"}',
+                    "{}",
+                    '{"step":"nan"}',
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
             (name, property_name, value, escape_forward_slashes)
             for name, property_name, value in [
                 ("typed_array", "$exception_types", ["a", '"b"', "https://example.com/path", r"a\/b", r"a\\/b"]),
@@ -641,6 +681,65 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             },
         )
         assert row == ('{"project":"visible"}', None, "visible", 0, 0, 1)
+
+    def test_person_restriction_masks_set_containers_on_events(self) -> None:
+        context = self._context()
+        context.restricted_properties = {
+            RestrictedProperty(name=name, property_type=PropertyDefinition.Type.PERSON)
+            for name in ("email", "user.email")
+        }
+        query = parse_select(
+            """SELECT properties.$set,
+                properties.$set.email,
+                properties.$set."user%2Eemail" AS dotted_set,
+                properties.$set.name,
+                properties.$set_once.email,
+                properties.$set_once."user%2Eemail" AS dotted_set_once,
+                properties.email,
+                JSONHas(properties, '$set', 'email'),
+                JSONHas(properties, '$set', 'user%2Eemail'),
+                JSONExtractString(properties, '$set_once', 'email')
+            FROM events"""
+        )
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        [row] = sync_execute(
+            """WITH events_json AS (
+                SELECT 1 AS team_id, '$identify' AS event,
+                    CAST(%(document)s, %(event_type)s) AS properties,
+                    CAST('{}', %(person_type)s) AS person_properties,
+                    CAST(%(temporary_document)s, %(temporary_type)s) AS temporary_properties
+            ) """
+            + printed,
+            {
+                **context.values,
+                "document": '{"email":"event-level"}',
+                # The native cleaner stores $set and $set_once in temporary_properties, so a read of either
+                # container comes from that document.
+                "temporary_document": '{"$set":{"email":"hidden","user%2Eemail":"hidden","name":"visible"},"$set_once":{"email":"hidden","user%2Eemail":"hidden"}}',
+                "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
+            },
+        )
+        # `email` as an event property is a different property and stays readable.
+        assert row == ('{"name":"visible"}', None, None, "visible", None, None, "event-level", 0, 0, "")
+
+    def test_person_restriction_masks_set_containers_on_legacy_events(self) -> None:
+        context = self._context(use_new_events_schema=False)
+        context.restricted_properties = {RestrictedProperty(name="email", property_type=PropertyDefinition.Type.PERSON)}
+        query = parse_select("SELECT properties.$set.email, properties.$set, properties.email FROM events")
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        select_list = printed.split("FROM")[0]
+        # The nested read is a constant, never an extract that could reach the raw blob.
+        assert select_list.startswith("SELECT NULL AS `$set__email`,"), printed
+        # The container read comes from the scrubbed blob, which drops the nested path.
+        assert JSON_DROP_KEYS_CLICKHOUSE_NAME in select_list, printed
+        dropped = [value for value in context.values.values() if isinstance(value, list)]
+        assert any("$set.email" in value and "$set_once.email" in value for value in dropped), context.values
+        # The event-level `email` is unrestricted and still read from the blob.
+        assert "email" not in {key for value in dropped for key in value}, context.values
 
 
 class TestPropertyTypes(BaseTest):
@@ -1647,7 +1746,7 @@ class TestEventsSchemaStorageSemantics(ClickhouseTestMixin, HypothesisDjangoTest
 
         value = properties["dynamic_value"]
         encoded = json.dumps(value, ensure_ascii=False)
-        assert native[0] == ((value or None) if isinstance(value, str) else encoded)
+        assert native[0] == (value if isinstance(value, str) else encoded)
         assert legacy[0] == (encoded[1:-1] if isinstance(value, str) else encoded)
 
         browser = properties.get("$browser")

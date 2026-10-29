@@ -132,7 +132,7 @@ class PluralsightFlowSource(ResumableSource[PluralsightFlowSourceConfig, Plurals
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/pluralsight-flow",
             iconPath="/static/services/pluralsight_flow.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["pluralsight", "flow", "gitprime", "engineering"],
             fields=cast(
                 list[FieldType],

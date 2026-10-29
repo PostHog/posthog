@@ -187,8 +187,6 @@ def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
 class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
-    # Not sealed: the feature flag list endpoint prefetches team__cohort_set
-    # into available_cohorts.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(
@@ -335,6 +333,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
             # Backs `name__icontains` search (the cohort picker's server-side search).
             GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+            # Backs the stuck static cohort sweeps in posthog/tasks/calculate_cohort.py (order by created_at, limit N).
+            # Their WHERE clause must imply the condition, or the planner skips the index.
+            models.Index(
+                fields=["created_at"],
+                condition=Q(is_static=True, is_calculating=True, deleted=False),
+                name="cohort_static_calculating_idx",
+            ),
         ]
         db_table = "posthog_cohort"
 
@@ -349,19 +354,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         `cohort_type` isn't derived here — it's computed by the API serializer
         (`validate_filters_and_compute_realtime_support`) — so a direct `Cohort.objects.create(...)`
         gets a fresh `condition_type` but a stale/absent `cohort_type`."""
-        # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
-        # or as a keyword. Intercept it so _maintain_filter_shape_hashes can extend the frozen set.
-        update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
+        # Intercept update_fields so _maintain_filter_shape_hashes can extend the frozen set.
+        update_fields = kwargs.get("update_fields")
         if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
             if update_fields is not None and "condition_type" not in update_fields:
                 update_fields = [*update_fields, "condition_type"]
 
-        maintained_update_fields = self._maintain_filter_shape_hashes(update_fields)
-        if len(args) > 3:
-            args = (*args[:3], maintained_update_fields, *args[4:])
-        else:
-            kwargs["update_fields"] = maintained_update_fields
+        kwargs["update_fields"] = self._maintain_filter_shape_hashes(update_fields)
         super().save(*args, **kwargs)
 
     def _maintain_filter_shape_hashes(self, update_fields: Iterable[str] | None) -> set[str] | None:

@@ -80,6 +80,42 @@ class BaseUserAccessControlTest(BaseTest):
 
 @pytest.mark.ee
 class TestUserAccessControl(BaseUserAccessControlTest):
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_preloaded_users_match_single_user_permissions(self, most_specific: bool, entitled: bool) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        if not entitled:
+            self.organization.available_product_features = []
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        dashboard = Dashboard.objects.create(team=self.team)
+        self._create_access_control(resource="dashboard", resource_id=str(dashboard.id), access_level="none")
+        self._create_access_control(
+            resource="dashboard", resource_id=str(dashboard.id), access_level="viewer", role=self.role_a
+        )
+        member = OrganizationMembership.objects.get(organization=self.organization, user=self.other_user)
+        self._create_access_control(
+            resource="dashboard", resource_id=str(dashboard.id), access_level="editor", organization_member=member
+        )
+        other_org = Organization.objects.create(name="Other organization")
+        outsider = User.objects.create_and_join(other_org, "outside@example.com", "testtest")
+        foreign_member = OrganizationMembership.objects.get(organization=other_org, user=outsider)
+        foreign_role = Role.objects.create(name="Other role", organization=other_org)
+        RoleMembership.objects.create(user=self.user_with_no_role, role=foreign_role)
+        RoleMembership.objects.create(user=self.user_with_no_role, role=self.role_a, organization_member=foreign_member)
+        self._create_access_control(
+            resource="dashboard", resource_id=str(dashboard.id), access_level="manager", role=foreign_role
+        )
+        users = [self.user, self.other_user, self.user_with_no_role]
+        access_by_user = UserAccessControl.for_user_ids(
+            user_ids=[user.id for user in users] + [outsider.id], team=self.team
+        )
+        assert set(access_by_user) == {user.id for user in users}
+        for user in users:
+            assert access_by_user[user.id].get_user_access_level(dashboard) == UserAccessControl(
+                user=user, team=self.team
+            ).get_user_access_level(dashboard)
+
     def test_no_organization_id_passed(self):
         # Create a user without an organization
         user_without_org = User.objects.create(email="no-org@posthog.com", password="testtest")
@@ -1302,6 +1338,10 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
         access_level = self.user_access_control.specific_access_level_for_object(feature_flag)
         assert access_level == "viewer"
+        deferred_flag = FeatureFlag.objects.only("id", "created_by").get(id=feature_flag.id)
+        with self.assertNumQueries(0):
+            assert self.user_access_control.get_user_access_level(deferred_flag) == "viewer"
+        assert "team_id" in deferred_flag.get_deferred_fields()
 
     def test_notebook_specific_access_control(self):
         """Test notebook-specific access controls"""

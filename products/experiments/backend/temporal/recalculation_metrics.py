@@ -23,6 +23,7 @@ from temporalio.worker import (
 )
 
 from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder
+from posthog.temporal.common.metrics import record_schedule_to_start_latency
 
 from products.experiments.backend.temporal.models import METRICS_RECALCULATION_WORKFLOW_NAME
 
@@ -31,6 +32,7 @@ _RECALCULATION_ACTIVITY_TYPES = {
     "discover_experiment_metrics",
     "calculate_experiment_metric_for_recalculation",
     "update_recalculation_progress",
+    "record_metric_out_of_time_failure",
 }
 
 EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS = (
@@ -126,16 +128,19 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
         )
         # Queue-pressure signal (see bucket comment above). Per-attempt scheduling time, so retry backoff
         # (including the intentional quota-wait delays) doesn't read as queue pressure.
-        if info.current_attempt_scheduled_time and info.started_time:
-            # A retry attempt waits on the queue after its backoff, so splitting it out separates retry waves
-            # from fresh fan-out that waits for a free slot.
-            meter.with_additional_attributes(
-                {"attempt_kind": "first" if info.attempt == 1 else "retry"}
-            ).create_histogram_timedelta(
-                name="experiment_metrics_recalculation_activity_schedule_to_start_latency",
-                description="Time between the current attempt's scheduling and start (task queue wait).",
-                unit="ms",
-            ).record(info.started_time - info.current_attempt_scheduled_time)
+        # A retry attempt waits on the queue after its backoff, so splitting it out separates retry waves
+        # from fresh fan-out that waits for a free slot.
+        record_schedule_to_start_latency(
+            "experiment_metrics_recalculation_activity_schedule_to_start_latency",
+            scheduled_time=info.current_attempt_scheduled_time,
+            started_time=info.started_time,
+            description="Time between the current attempt's scheduling and start (task queue wait).",
+            attributes={
+                "activity_type": activity_type,
+                "workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME,
+                "attempt_kind": "first" if info.attempt == 1 else "retry",
+            },
+        )
         # Fires on every attempt (first run + each retry). Comparing this to `_activity_successes` reveals
         # retry rate; without it a transient ClickHouse blip is indistinguishable from a healthy first-try
         # success. Pattern mirrors batch_exports' `batch_exports_activity_attempts`.
@@ -207,8 +212,12 @@ class ExperimentsRecalculationMetricsInterceptor(Interceptor):
 
     # Required by `is_task_queue_supported` in `posthog/temporal/common/interceptor.py` — without this attribute
     # the interceptor is filtered out of every worker and the metrics never emit. The recalc workflow + activities
-    # are registered on this queue in `posthog/management/commands/start_temporal_worker.py`.
-    task_queue = settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE
+    # run on the first queue, and the metric calculation activity also runs on the second. Both registrations are in
+    # `posthog/management/commands/start_temporal_worker.py`.
+    task_queue = (
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+    )
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _ActivityInboundInterceptor(super().intercept_activity(next))

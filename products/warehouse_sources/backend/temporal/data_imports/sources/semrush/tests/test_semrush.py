@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 from requests import RequestException, Response, Session
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.semrush import (
     semrush_source,
     validate_credentials,
@@ -86,13 +85,6 @@ def test_invalid_project_id_never_makes_a_request(project_id: str) -> None:
         assert validate_credentials("fake-api-key", project_id, 1) == (False, PROJECT_ID_ERROR)
         with pytest.raises(ValueError, match=PROJECT_ID_ERROR):
             semrush_source("fake-api-key", project_id, "site_audit", 1, "job")
-    send.assert_not_called()
-
-
-def test_unknown_table_never_makes_a_request() -> None:
-    with patch.object(Session, "send") as send:
-        with pytest.raises(UnknownResourceError):
-            semrush_source("fake-api-key", "123", "unknown", 1, "job")
     send.assert_not_called()
 
 

@@ -13,6 +13,11 @@ pub const TEMP_BUCKET_READ_DURATION_SECONDS: &str =
 pub const STAGED_PLAINTEXT_CEILING_TRIPPED: &str =
     "batch_import_staged_plaintext_ceiling_tripped_total";
 pub const PART_CLEANUP_TOTAL: &str = "batch_import_part_cleanup_total";
+pub const JOB_COMPLETION_TOTAL: &str = "batch_import_job_completion_total";
+pub const COMPLETED_JOB_EVENTS: &str = "batch_import_completed_job_events";
+pub const COMPLETED_JOB_PARTS: &str = "batch_import_completed_job_parts";
+pub const OPERATOR_STOP_TOTAL: &str = "batch_import_operator_stop_total";
+pub const INTERRUPTED_COMMIT_PAUSED_TOTAL: &str = "batch_import_interrupted_commit_paused_total";
 
 use metrics::{counter, gauge, histogram};
 
@@ -23,6 +28,17 @@ pub fn backoff_event(delay_secs: f64) {
 
 pub fn unpause_event() {
     counter!(UNPAUSE_TOTAL).increment(1);
+}
+
+/// Count jobs a worker stopped because the row left the running status, by commit stage
+/// ("before_send" / "after_send").
+pub fn operator_stop(stage: &'static str) {
+    counter!(OPERATOR_STOP_TOTAL, "stage" => stage).increment(1);
+}
+
+/// Count jobs paused at claim because an earlier worker stopped mid-commit.
+pub fn interrupted_commit_paused() {
+    counter!(INTERRUPTED_COMMIT_PAUSED_TOTAL).increment(1);
 }
 
 pub fn staging_sweep_removed(count: u64) {
@@ -64,4 +80,16 @@ pub fn staged_plaintext_ceiling_tripped() {
 /// A failed cleanup leaks only transient storage (reclaimed by job cleanup / bucket TTL).
 pub fn part_cleanup(outcome: &'static str) {
     counter!(PART_CLEANUP_TOTAL, "outcome" => outcome).increment(1);
+}
+
+/// Count a job that reached the end of its parts, by outcome: "completed",
+/// "completed_empty" (no events emitted) or "blocked" (paused instead of completed).
+pub fn job_completion(outcome: &'static str) {
+    counter!(JOB_COMPLETION_TOTAL, "outcome" => outcome).increment(1);
+}
+
+/// Record the size of a completed job, so silent partial imports show up as outliers.
+pub fn completed_job_size(parts: usize, events: u64) {
+    histogram!(COMPLETED_JOB_PARTS).record(parts as f64);
+    histogram!(COMPLETED_JOB_EVENTS).record(events as f64);
 }

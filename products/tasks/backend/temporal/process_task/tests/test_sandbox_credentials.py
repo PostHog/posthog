@@ -241,16 +241,17 @@ class TestGitHubSandboxCredential:
         assert outcome.refreshed is True
 
     def test_scheduled_refresh_skips_when_sandbox_bound_to_different_actor(self):
-        # A per-message actor transition rebound this sandbox to another actor. The scheduled
-        # refresh resolves the actor from the startup context, so it carries the owner's token;
-        # applying it would resurrect the owner's identity over the current actor's session.
+        # Applying the token this refresh resolved would resurrect the owner's identity over the
+        # current actor's session, so it must stop before resolving one at all.
         from products.tasks.backend.temporal.process_task.utils import mark_sandbox_github_identity
 
         sandbox = MagicMock()
+        sandbox.id = "sb-transition"
         task = MagicMock()
         task.github_integration_id = 123
         task.created_by_id = 2  # run owner
-        mark_sandbox_github_identity("run-transition", 99)  # transitioned to a different actor
+        task.created_by.id = 2
+        mark_sandbox_github_identity("sb-transition", 99)  # transitioned to a different actor
 
         with patch(f"{MODULE}.get_sandbox_github_token") as resolve:
             outcome = GitHubSandboxCredential().refresh(sandbox, _context(run_id="run-transition"), task)
@@ -259,6 +260,39 @@ class TestGitHubSandboxCredential:
         resolve.assert_not_called()  # never resolved or applied the owner's token
         sandbox.execute.assert_not_called()
         sandbox.write_file.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "state,stays_alive",
+        [
+            ({"interaction_origin": "slack", "slack_actor_user_id": 2}, True),
+            ({}, False),
+        ],
+    )
+    def test_actor_without_github_access_keeps_the_loop_alive_only_on_slack(self, state, stays_alive):
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+        from products.tasks.backend.temporal.process_task.utils import PrAuthorshipMode
+
+        sandbox = MagicMock()
+        sandbox.id = "sb-actor-without-access"
+        task = MagicMock()
+        task.github_integration_id = 123
+        task.created_by_id = 2
+        task.created_by.id = 2
+
+        with (
+            patch(f"{MODULE}.get_pr_authorship_mode", return_value=PrAuthorshipMode.BOT),
+            patch(f"{MODULE}.is_caller_token_run", return_value=False),
+            patch(f"{MODULE}.get_sandbox_github_token", side_effect=ReauthorizationRequired("no access")),
+        ):
+            if stays_alive:
+                outcome = GitHubSandboxCredential().refresh(sandbox, _context(state=state), task)
+                assert outcome.refreshed is False
+                assert outcome.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+            else:
+                with pytest.raises(CredentialUnavailableError):
+                    GitHubSandboxCredential().refresh(sandbox, _context(state=state), task)
 
 
 class TestBuildSandboxCredentials:
@@ -378,7 +412,7 @@ class TestSharedUserIntegrationRefresh:
             apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], "ghu_caller")
 
 
-class TestApplyOwnerTokenLocked:
+class TestApplyTokenLocked:
     def _lock(self, stack, *, acquired):
         lock = MagicMock()
         lock.acquire.return_value = acquired
@@ -386,10 +420,10 @@ class TestApplyOwnerTokenLocked:
         get_client.return_value.lock.return_value = lock
         return lock
 
-    def test_applies_while_sandbox_still_bound_to_owner(self):
+    def test_applies_while_sandbox_still_bound_to_the_token_owner(self):
         import contextlib
 
-        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_owner_token_locked
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_token_locked
 
         with contextlib.ExitStack() as stack:
             self._lock(stack, acquired=True)
@@ -398,13 +432,13 @@ class TestApplyOwnerTokenLocked:
             sandbox = MagicMock()
             sandbox.id = "sb-1"
 
-            assert _apply_owner_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", {}, 7) is True
+            assert _apply_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", 7) is True
             apply.assert_called_once_with(sandbox, ["org/repo"], "ghu_x")
 
     def test_skips_when_a_transition_rebound_the_sandbox_to_another_actor(self):
         import contextlib
 
-        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_owner_token_locked
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_token_locked
 
         with contextlib.ExitStack() as stack:
             self._lock(stack, acquired=True)
@@ -414,13 +448,13 @@ class TestApplyOwnerTokenLocked:
             sandbox = MagicMock()
             sandbox.id = "sb-1"
 
-            assert _apply_owner_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", {}, 7) is False
+            assert _apply_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", 7) is False
             apply.assert_not_called()
 
     def test_fails_closed_without_applying_when_the_lock_is_contended(self):
         import contextlib
 
-        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_owner_token_locked
+        from products.tasks.backend.temporal.process_task.sandbox_credentials import _apply_token_locked
 
         with contextlib.ExitStack() as stack:
             lock = self._lock(stack, acquired=False)
@@ -428,7 +462,7 @@ class TestApplyOwnerTokenLocked:
             sandbox = MagicMock()
             sandbox.id = "sb-1"
 
-            assert _apply_owner_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", {}, 7) is False
+            assert _apply_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", 7) is False
             apply.assert_not_called()
             lock.release.assert_not_called()
 
@@ -441,7 +475,7 @@ class TestApplyOwnerTokenLocked:
 
         from products.tasks.backend.temporal.process_task.sandbox_credentials import (
             _CREDENTIAL_LOCK_TTL_SECONDS,
-            _apply_owner_token_locked,
+            _apply_token_locked,
         )
 
         assert _CREDENTIAL_LOCK_TTL_SECONDS == 5 * 60
@@ -457,7 +491,7 @@ class TestApplyOwnerTokenLocked:
             sandbox = MagicMock()
             sandbox.id = "sb-1"
 
-            _apply_owner_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", {}, 7)
+            _apply_token_locked(sandbox, ["org/repo"], "ghu_x", "run-1", 7)
 
             # The lock is leased for the full worst-case write, not the old 30s.
             get_client.return_value.lock.assert_called_once()

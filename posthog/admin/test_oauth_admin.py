@@ -95,6 +95,92 @@ class TestOAuthApplicationAdmin(BaseTest):
 
     @parameterized.expand(
         [
+            ("public_partner_pays", OAuthApplication.CLIENT_PUBLIC, None, True, {}, "pays_for_customers", True),
+            (
+                "client_secret_partner_pays",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                None,
+                True,
+                {},
+                "pays_for_customers",
+                True,
+            ),
+            (
+                "public_partner_creates_accounts",
+                OAuthApplication.CLIENT_PUBLIC,
+                None,
+                True,
+                {},
+                "can_create_accounts",
+                True,
+            ),
+            (
+                "private_key_jwt_partner",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                "https://example.com/.well-known/jwks.json",
+                True,
+                {},
+                "pays_for_customers",
+                False,
+            ),
+            # Never authenticates through provisioning auth, like the HMAC-signed Stripe Projects app.
+            (
+                "not_a_provisioning_partner",
+                OAuthApplication.CLIENT_CONFIDENTIAL,
+                None,
+                False,
+                {},
+                "pays_for_customers",
+                False,
+            ),
+            # Already refused at runtime, like a CIMD partner whose metadata dropped its key. Staff must
+            # still be able to save it, for example to switch it off.
+            (
+                "already_paying_without_a_key",
+                OAuthApplication.CLIENT_PUBLIC,
+                None,
+                True,
+                {"pays_for_customers": True},
+                "pays_for_customers",
+                False,
+            ),
+        ]
+    )
+    def test_partner_that_must_sign_needs_a_private_key(
+        self,
+        name: str,
+        client_type: str,
+        jwks_uri: str | None,
+        is_partner: bool,
+        stored_config: dict,
+        ticked_capability: str,
+        expects_error: bool,
+    ) -> None:
+        app = OAuthApplication.objects.create(
+            name=f"Signing App {name}",
+            client_id=f"signing_client_id_{name}",
+            client_secret="secret",
+            client_type=client_type,
+            jwks_uri=jwks_uri,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=is_partner,
+            _provisioning_config=stored_config,
+        )
+        fields = {f"provisioning_{ticked_capability}": "on"}
+        if is_partner:
+            fields["is_provisioning_partner"] = "on"
+        if jwks_uri:
+            fields["jwks_uri"] = jwks_uri
+
+        form = self._provisioning_form(app, **fields)
+
+        assert form.is_valid() is not expects_error, form.errors
+        assert (f"provisioning_{ticked_capability}" in form.errors) is expects_error
+
+    @parameterized.expand(
+        [
             ("client_secret", OAuthApplication.CLIENT_CONFIDENTIAL, None, True),
             ("public", OAuthApplication.CLIENT_PUBLIC, None, False),
             # Confidential, but a jwks_uri means it authenticates by signed assertion, so a

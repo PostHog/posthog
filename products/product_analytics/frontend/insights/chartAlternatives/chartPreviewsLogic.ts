@@ -92,8 +92,7 @@ export interface chartPreviewsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
-            | undefined,
+            | import('~/queries/schema').TraceSpansTreeQueryResponse,
         payload?:
             | {
                   overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
@@ -125,7 +124,6 @@ export interface chartPreviewsLogicActions {
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
             | import('~/queries/schema').TraceSpansTreeQueryResponse
-            | undefined
     } // insightVizDataLogic
     setInsightData: (
         response:

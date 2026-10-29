@@ -1,6 +1,11 @@
 import re
-from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit
+import json
+import math
+import hashlib
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import parse_qs, urlsplit
 
 from requests import HTTPError, PreparedRequest, Response, Session
 
@@ -8,22 +13,36 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_meraki.settings import (
     AUTH_ERROR,
+    CLIENT_USAGE_BATCH_SIZE,
+    CLIENT_USAGE_MIN_TIMESPAN_SECONDS,
+    CLIENTS_TIMESPAN_SECONDS,
     ENDPOINTS,
+    EVENT_LOG_FLOOR,
+    EVENT_PRODUCT_TYPES,
     NOT_FOUND_ERROR,
     ORGANIZATION_ERROR,
     PERMISSION_ERROR,
     REGION_ERROR,
     REGION_HOSTS,
+    UPLINK_USAGE_MAX_TIMESPAN_SECONDS,
+    UPLINK_USAGE_MIN_TIMESPAN_SECONDS,
+    MerakiEndpoint,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    HeaderLinkPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
@@ -40,6 +59,11 @@ if TYPE_CHECKING:
 class CiscoMerakiResumeConfig:
     next_url: str | None = None
     completed: bool = False
+    # Network-level tables resume by network: the child paths already synced, the one in progress, and its
+    # paginator state. See `common.rest_source.__init__._make_paginate_dependent_resource`.
+    completed_paths: list[str] | None = None
+    current_path: str | None = None
+    child_state: dict[str, Any] | None = None
 
 
 class _MerakiSession(Session):
@@ -73,13 +97,17 @@ def client_config(config: "CiscoMerakiSourceConfig", api_version: str) -> Client
 
     allowed_domain = host.removeprefix("api.")
     return {
-        "base_url": f"https://{host}/api/{api_version}/organizations/{config.organization_id}/",
+        "base_url": f"https://{host}/api/{api_version}/",
         # Meraki supports this header across shard redirects, where requests removes bearer authentication.
         "auth": {"type": "api_key", "name": "X-Cisco-Meraki-API-Key", "api_key": config.api_key, "location": "header"},
         "paginator": "header_link",
         "session": _MerakiSession(allowed_domain, config.api_key),
         "request_timeout": (10, 60),
     }
+
+
+def _organization_path(path: str, config: "CiscoMerakiSourceConfig") -> str:
+    return path.replace("{organization_id}", config.organization_id)
 
 
 def validate_credentials(
@@ -91,6 +119,9 @@ def validate_credentials(
         return False, str(error)
 
     endpoint = schema_for_resource(ENDPOINTS, schema_name) if schema_name is not None else None
+    if endpoint is not None and endpoint.fanout is not None:
+        # Network-level tables need the same read access as the networks they fan out over.
+        endpoint = ENDPOINTS[endpoint.fanout.parent_name]
     client = RESTClient(
         base_url=settings["base_url"],
         auth=APIKeyAuth(api_key=config.api_key, name="X-Cisco-Meraki-API-Key"),
@@ -101,7 +132,7 @@ def validate_credentials(
     try:
         next(
             client.paginate(
-                path=endpoint.path if endpoint else settings["base_url"].rstrip("/"),
+                path=_organization_path(endpoint.path if endpoint else "organizations/{organization_id}", config),
                 params={"perPage": 4} if endpoint else {},
             )
         )
@@ -117,6 +148,256 @@ def validate_credentials(
     return True, None
 
 
+class _EventLogPaginator(HeaderLinkPaginator):
+    """Walks a network event log from the newest page to older pages, which is the order Meraki pages it in.
+
+    Meraki pages the log by time window, so an empty page can still link to older events. The walk stops when a
+    page reaches past the watermark, or when the older page starts before the watermark or the log floor.
+    """
+
+    def __init__(self, stop_before: datetime | None) -> None:
+        super().__init__(links_next_key="prev")
+        self._stop_before = stop_before or EVENT_LOG_FLOOR
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        if data and self._reaches_watermark(data):
+            self._has_next_page = False
+            return
+        prev_link = response.links.get("prev")
+        ending_before = _ending_before(prev_link.get("url")) if prev_link else None
+        if ending_before is None and not data:
+            # An empty page whose older link carries no time cannot show that the walk moves toward the floor.
+            self._has_next_page = False
+            return
+        if ending_before is not None and ending_before < self._stop_before:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+
+    def _reaches_watermark(self, events: list[Any]) -> bool:
+        for event in events:
+            occurred_at = parse_datetime_value(event.get("occurredAt")) if isinstance(event, dict) else None
+            if occurred_at is not None and occurred_at < self._stop_before:
+                return True
+        return False
+
+
+def _ending_before(url: str | None) -> datetime | None:
+    values = parse_qs(urlsplit(url).query).get("endingBefore") if url else None
+    return parse_datetime_value(values[0]) if values else None
+
+
+def _network_product_types(network: dict[str, Any]) -> list[dict[str, Any]]:
+    product_types = network.get("productTypes") or []
+    return [
+        {**network, "productType": product_type}
+        for product_type in product_types
+        if product_type in EVENT_PRODUCT_TYPES
+    ]
+
+
+def _appliance_networks(network: dict[str, Any]) -> list[dict[str, Any]]:
+    # Only security appliance networks have uplink usage. Other networks reject the request.
+    return [network] if "appliance" in (network.get("productTypes") or []) else []
+
+
+def _timespan_since(last_value: Any, minimum: int, maximum: int) -> int:
+    since = parse_datetime_value(last_value) if last_value is not None else None
+    if since is None:
+        return maximum
+    elapsed = math.ceil((datetime.now(UTC) - since).total_seconds())
+    return max(minimum, min(maximum, elapsed))
+
+
+def _with_event_id(event: dict[str, Any]) -> dict[str, Any]:
+    content = json.dumps(event, sort_keys=True, separators=(",", ":"), default=str)
+    return {"id": hashlib.sha256(content.encode()).hexdigest(), **event}
+
+
+def _network_source(
+    config: "CiscoMerakiSourceConfig",
+    endpoint: MerakiEndpoint,
+    api_version: str,
+    team_id: int,
+    job_id: str,
+    manager: "ResumableSourceManager[CiscoMerakiResumeConfig]",
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> SourceResponse:
+    assert endpoint.fanout is not None
+    resume = manager.load_state() if manager.can_resume() else None
+    initial_state = (
+        {"completed": resume.completed_paths or [], "current": resume.current_path, "child_state": resume.child_state}
+        if resume is not None and (resume.completed_paths or resume.current_path)
+        else None
+    )
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state is not None:
+            manager.save_state(
+                CiscoMerakiResumeConfig(
+                    completed_paths=state.get("completed"),
+                    current_path=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    is_event_log = endpoint.name == "network_events"
+    is_uplink_usage = endpoint.name == "uplink_usage_history"
+    incremental = bool(endpoint.incremental_fields) and should_use_incremental_field
+    last_value = db_incremental_field_last_value if incremental else None
+    child_endpoint_extra: dict[str, Any] = {"data_selector": endpoint.data_selector}
+    if is_event_log:
+        child_endpoint_extra["paginator"] = _EventLogPaginator(parse_datetime_value(last_value))
+    if not endpoint.paginated:
+        child_endpoint_extra["paginator"] = "single_page"
+    child_params_extra = (
+        {"timespan": _timespan_since(last_value, UPLINK_USAGE_MIN_TIMESPAN_SECONDS, UPLINK_USAGE_MAX_TIMESPAN_SECONDS)}
+        if is_uplink_usage
+        else None
+    )
+    parent_data_map = _network_product_types if is_event_log else _appliance_networks if is_uplink_usage else None
+
+    resource = cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=ENDPOINTS,
+            child_endpoint=endpoint.name,
+            fanout=endpoint.fanout,
+            client_config=client_config(config, api_version),
+            path_format_values={"organization_id": config.organization_id},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            should_use_incremental_field=incremental,
+            # The event log paginator and the uplink usage timespan bound an incremental read instead.
+            incremental_config_factory=lambda _field: None,
+            parent_endpoint_extra={"data_selector": "$"},
+            child_endpoint_extra=cast(Any, child_endpoint_extra),
+            child_params_extra=child_params_extra,
+            parent_data_map=parent_data_map,
+            page_size_param="perPage" if endpoint.paginated else None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+    if is_event_log:
+        resource = resource.add_map(_with_event_id)
+
+    return SourceResponse(
+        name=endpoint.name,
+        items=lambda: resource,
+        primary_keys=list(endpoint.primary_keys),
+        on_complete=manager.clear_state,
+        # Each network's event log arrives newest first, so the watermark advances only when the sync completes.
+        # Uplink usage arrives as one series for each network, so it has no order across the table.
+        sort_mode="desc" if is_event_log else None if is_uplink_usage else "asc",
+        **_partitioning(endpoint),
+    )
+
+
+def _partitioning(endpoint: MerakiEndpoint) -> dict[str, Any]:
+    if endpoint.partition_key is None:
+        return {}
+    return {"partition_mode": "datetime", "partition_format": "month", "partition_keys": [endpoint.partition_key]}
+
+
+def _usage_history_rows(network_id: str, histories: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "networkId": network_id,
+            "clientId": history.get("clientId"),
+            "clientIp": history.get("clientIp"),
+            "clientMac": history.get("clientMac"),
+            **usage,
+        }
+        for history in histories
+        if isinstance(history, dict)
+        for usage in history.get("usageHistory") or []
+        if isinstance(usage, dict)
+    ]
+
+
+def _client_usage_pages(
+    config: "CiscoMerakiSourceConfig",
+    endpoint: MerakiEndpoint,
+    api_version: str,
+    manager: "ResumableSourceManager[CiscoMerakiResumeConfig]",
+    timespan: int,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read usage histories for the clients of each network, a batch of client keys at a time.
+
+    The endpoint returns usage only for the clients that a request names, so the network clients
+    listing supplies the keys. The resume state is the list of networks that are complete.
+    """
+    settings = client_config(config, api_version)
+    client = RESTClient(
+        base_url=settings["base_url"],
+        auth=APIKeyAuth(api_key=config.api_key, name="X-Cisco-Meraki-API-Key"),
+        paginator=HeaderLinkPaginator(),
+        session=settings["session"],
+        request_timeout=settings["request_timeout"],
+    )
+    resume = manager.load_state() if manager.can_resume() else None
+    completed = list(resume.completed_paths or []) if resume is not None else []
+    networks = ENDPOINTS["networks"]
+
+    for network_page in client.paginate(
+        _organization_path(networks.path, config), params={"perPage": networks.page_size}
+    ):
+        manager.safe_point()
+        for network in network_page:
+            network_id = str(network["id"])
+            path = endpoint.path.replace("{networkId}", network_id)
+            if path in completed:
+                continue
+            manager.save_state(CiscoMerakiResumeConfig(completed_paths=list(completed)))
+            manager.safe_point()
+            for client_page in client.paginate(
+                f"networks/{network_id}/clients", params={"perPage": endpoint.page_size, "timespan": timespan}
+            ):
+                keys = [str(row["id"]) for row in client_page if isinstance(row, dict) and row.get("id")]
+                if not keys:
+                    manager.safe_point()
+                for start in range(0, len(keys), CLIENT_USAGE_BATCH_SIZE):
+                    params = {
+                        "clients": ",".join(keys[start : start + CLIENT_USAGE_BATCH_SIZE]),
+                        "perPage": endpoint.page_size,
+                        "timespan": timespan,
+                    }
+                    for history_page in client.paginate(path, params=params):
+                        rows = _usage_history_rows(network_id, history_page)
+                        if rows:
+                            yield rows
+                        else:
+                            manager.safe_point()
+            completed.append(path)
+
+
+def _client_usage_source(
+    config: "CiscoMerakiSourceConfig",
+    endpoint: MerakiEndpoint,
+    api_version: str,
+    manager: "ResumableSourceManager[CiscoMerakiResumeConfig]",
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> SourceResponse:
+    timespan = _timespan_since(
+        db_incremental_field_last_value if should_use_incremental_field else None,
+        CLIENT_USAGE_MIN_TIMESPAN_SECONDS,
+        CLIENTS_TIMESPAN_SECONDS,
+    )
+    return SourceResponse(
+        name=endpoint.name,
+        items=lambda: _client_usage_pages(config, endpoint, api_version, manager, timespan),
+        primary_keys=list(endpoint.primary_keys),
+        on_complete=manager.clear_state,
+        # Usage arrives as one series for each batch of clients, so it has no order across the table.
+        sort_mode=None,
+        **_partitioning(endpoint),
+    )
+
+
 def cisco_meraki_source(
     config: "CiscoMerakiSourceConfig",
     endpoint_name: str,
@@ -124,14 +405,36 @@ def cisco_meraki_source(
     team_id: int,
     job_id: str,
     manager: "ResumableSourceManager[CiscoMerakiResumeConfig]",
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     endpoint = schema_for_resource(ENDPOINTS, endpoint_name)
+    if endpoint.name == "client_usage_histories":
+        return _client_usage_source(
+            config, endpoint, api_version, manager, should_use_incremental_field, db_incremental_field_last_value
+        )
+    if endpoint.fanout is not None:
+        return _network_source(
+            config,
+            endpoint,
+            api_version,
+            team_id,
+            job_id,
+            manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+
     rest_config: RESTAPIConfig = {
         "client": client_config(config, api_version),
         "resources": [
             {
                 "name": endpoint_name,
-                "endpoint": {"path": endpoint.path, "data_selector": "$", "params": {"perPage": endpoint.page_size}},
+                "endpoint": {
+                    "path": _organization_path(endpoint.path, config),
+                    "data_selector": "$",
+                    "params": {"perPage": endpoint.page_size},
+                },
             }
         ],
     }
@@ -140,7 +443,7 @@ def cisco_meraki_source(
         return SourceResponse(
             name=endpoint_name,
             items=lambda: iter(()),
-            primary_keys=[endpoint.primary_key],
+            primary_keys=list(endpoint.primary_keys),
             on_complete=manager.clear_state,
         )
 
@@ -162,6 +465,6 @@ def cisco_meraki_source(
     return SourceResponse(
         name=endpoint_name,
         items=lambda: resource,
-        primary_keys=[endpoint.primary_key],
+        primary_keys=list(endpoint.primary_keys),
         on_complete=manager.clear_state,
     )

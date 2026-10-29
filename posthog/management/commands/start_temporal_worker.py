@@ -8,6 +8,7 @@ import threading
 import faulthandler
 import collections.abc
 from collections import defaultdict
+from enum import StrEnum
 
 import structlog
 from temporalio import workflow
@@ -18,6 +19,8 @@ from posthog.temporal.common.open_telemetry import initialize_otel
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand, CommandError
+
+from posthog.hogql import parser as hogql_parser
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
@@ -42,6 +45,10 @@ from posthog.temporal.backfill_materialized_property import (
     ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
     BackfillMaterializedPropertiesBatchWorkflow,
 )
+from posthog.temporal.billing_active_sync import (
+    ACTIVITIES as BILLING_ACTIVE_SYNC_ACTIVITIES,
+    WORKFLOWS as BILLING_ACTIVE_SYNC_WORKFLOWS,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -51,7 +58,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
-from posthog.temporal.common.worker import ActivityWorkerConfig, ManagedWorker, create_worker
+from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
@@ -107,6 +114,7 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
+from posthog.temporal.session_replay.copy_recording import COPY_RECORDING_ACTIVITIES, COPY_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.count_playlist_items import (
     COUNT_PLAYLIST_ITEMS_ACTIVITIES,
     COUNT_PLAYLIST_ITEMS_WORKFLOWS,
@@ -151,7 +159,16 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.aeo.backend.facade.temporal import (
+    ACTIVITIES as AEO_BRAND_SENTIMENT_ACTIVITIES,
+    WORKFLOWS as AEO_BRAND_SENTIMENT_WORKFLOWS,
+)
+from products.ai_observability.backend.facade.temporal import (
+    ACTIVITIES as AI_OBSERVABILITY_PRODUCT_ACTIVITIES,
+    WORKFLOWS as AI_OBSERVABILITY_PRODUCT_WORKFLOWS,
+)
 from products.alerts.backend.facade.temporal import (
+    PLATFORM_AI_QUEUE_ACTIVITIES as INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     PLATFORM_EVALUATION_ACTIVITIES as INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
     PLATFORM_EVALUATION_WORKFLOWS as INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
 )
@@ -173,6 +190,8 @@ from products.batch_exports.backend.facade.temporal import (
 )
 from products.billing_alerts.backend.temporal import (
     ACTIVITIES as BILLING_ALERTS_ACTIVITIES,
+    PLATFORM_EVALUATION_ACTIVITIES as BILLING_PLATFORM_EVALUATION_ACTIVITIES,
+    PLATFORM_EVALUATION_WORKFLOWS as BILLING_PLATFORM_EVALUATION_WORKFLOWS,
     WORKFLOWS as BILLING_ALERTS_WORKFLOWS,
 )
 from products.business_knowledge.backend.temporal import (
@@ -223,13 +242,10 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
-)
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
@@ -252,6 +268,10 @@ from products.logs.backend.temporal.retention_entitlements import (
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
+)
+from products.messaging.backend.facade.temporal import (
+    ACTIVITIES as MESSAGING_IMPORT_ACTIVITIES,
+    WORKFLOWS as MESSAGING_IMPORT_WORKFLOWS,
 )
 from products.metrics.backend.facade.temporal import (
     ACTIVITIES as METRICS_ACTIVITIES,
@@ -304,6 +324,10 @@ from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
 )
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -320,6 +344,8 @@ from products.warehouse_sources.backend.facade.temporal import (
     PERSON_PROPERTY_BACKFILL_WORKFLOWS,
     PERSON_PROPERTY_SYNC_ACTIVITIES,
     PERSON_PROPERTY_SYNC_WORKFLOWS,
+    WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
+    WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
 )
@@ -340,8 +366,9 @@ from products.wizard.backend.facade.temporal import (
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
-# When adding modules to a queue, also add their paths to that fleet's filter in the
-# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
+# When adding modules to a queue, also add their paths to that fleet's filter: the
+# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml, or
+# .github/shared-image-releases.yaml for fleets published through their own channel
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -454,10 +481,24 @@ _task_queue_specs = [
         CANVAS_BUILD_WORKFLOWS,
         CANVAS_BUILD_ACTIVITIES,
     ),
+    # Messaging provider imports. MESSAGING_IMPORT_TASK_QUEUE defaults to the general-purpose queue name (so it
+    # merges into that fleet until a dedicated worker exists).
+    (
+        settings.MESSAGING_IMPORT_TASK_QUEUE,
+        MESSAGING_IMPORT_WORKFLOWS,
+        MESSAGING_IMPORT_ACTIVITIES,
+    ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
         EXPERIMENTS_RECALCULATION_WORKFLOWS,
         EXPERIMENTS_RECALCULATION_ACTIVITIES,
+    ),
+    # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+    # recalculation ClickHouse queries run at the same time.
+    (
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -493,7 +534,7 @@ _task_queue_specs = [
     (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
-        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
+        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES + INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     ),
     (
         settings.TEST_TASK_QUEUE,
@@ -502,12 +543,18 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS + BILLING_ALERTS_WORKFLOWS,
+        QUOTA_LIMITING_WORKFLOWS
+        + SALESFORCE_ENRICHMENT_WORKFLOWS
+        + USAGE_REPORTS_WORKFLOWS
+        + BILLING_ALERTS_WORKFLOWS
+        + BILLING_ACTIVE_SYNC_WORKFLOWS,
         QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
-        + BILLING_ALERTS_ACTIVITIES,
+        + BILLING_ALERTS_ACTIVITIES
+        + BILLING_ACTIVE_SYNC_ACTIVITIES,
     ),
+    (settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE, [], USAGE_REPORTS_AGGREGATION_ACTIVITIES),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
         SIGNALS_PRODUCT_WORKFLOWS
@@ -526,6 +573,7 @@ _task_queue_specs = [
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
         COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + COPY_RECORDING_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
@@ -533,6 +581,7 @@ _task_queue_specs = [
         + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
@@ -554,14 +603,15 @@ _task_queue_specs = [
         WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
     ),
     (
+        # AEO brand sentiment rides this queue because its image is the one that carries the ONNX sentiment model.
         settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
+        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS + AEO_BRAND_SENTIMENT_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES + AEO_BRAND_SENTIMENT_ACTIVITIES,
     ),
     (
         settings.LLMA_TASK_QUEUE,
-        LLM_ANALYTICS_WORKFLOWS,
-        LLM_ANALYTICS_ACTIVITIES,
+        LLM_ANALYTICS_WORKFLOWS + AI_OBSERVABILITY_PRODUCT_WORKFLOWS,
+        LLM_ANALYTICS_ACTIVITIES + AI_OBSERVABILITY_PRODUCT_ACTIVITIES,
     ),
     (
         # MCP analytics clustering. MCPA_TASK_QUEUE defaults to the
@@ -626,10 +676,16 @@ _task_queue_specs = [
     ),
     (
         settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        ALERTS_PLATFORM_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS + INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
+        ALERTS_PLATFORM_EVALUATION_WORKFLOWS
+        + LOGS_SOURCE_EVALUATION_WORKFLOWS
+        + INSIGHT_PLATFORM_EVALUATION_WORKFLOWS
+        + BILLING_PLATFORM_EVALUATION_WORKFLOWS
+        + WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
         ALERTS_PLATFORM_EVALUATION_ACTIVITIES
         + LOGS_SOURCE_EVALUATION_ACTIVITIES
-        + INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
+        + INSIGHT_PLATFORM_EVALUATION_ACTIVITIES
+        + BILLING_PLATFORM_EVALUATION_ACTIVITIES
+        + WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
     ),
     (
         settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
@@ -651,15 +707,6 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
-ACTIVITY_WORKER_CONFIGS = {
-    settings.BILLING_TASK_QUEUE: (
-        ActivityWorkerConfig(
-            task_queue=settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE,
-            activities=USAGE_REPORTS_AGGREGATION_ACTIVITIES,
-            max_concurrent_activities=1,
-        ),
-    ),
-}
 
 
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
@@ -667,7 +714,7 @@ def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
-if settings.DEBUG:
+if settings.DEBUG or settings.TEMPORAL_USE_SINGLE_TASK_QUEUE:
     TASK_QUEUE_METRIC_PREFIXES = {}
 else:
     TASK_QUEUE_METRIC_PREFIXES = {
@@ -675,6 +722,33 @@ else:
     }
 
 LOGGER = get_logger(__name__)
+
+
+class WorkerRole(StrEnum):
+    ALL = "all"
+    WORKFLOWS = "workflows"
+    ACTIVITIES = "activities"
+
+
+def apply_hogql_shadow_sample_rate_override() -> None:
+    """Sets HogQL's cpp shadow parse rate for this worker from `HOGQL_PARSER_SHADOW_SAMPLE_RATE`.
+
+    The cpp shadow parse holds the GIL for the whole parse, and on a large expression that stalls
+    workflow tasks past Temporal's 2s deadlock detector. Remove this once the parser reads the
+    variable itself.
+    """
+    raw = os.environ.get("HOGQL_PARSER_SHADOW_SAMPLE_RATE")
+    if raw is None:
+        return
+    try:
+        rate = float(raw)
+    except ValueError:
+        LOGGER.warning("Ignoring invalid HOGQL_PARSER_SHADOW_SAMPLE_RATE", value=raw)
+        return
+    if not 0.0 <= rate <= 1.0:
+        LOGGER.warning("Ignoring invalid HOGQL_PARSER_SHADOW_SAMPLE_RATE", value=raw)
+        return
+    hogql_parser._SHADOW_SAMPLE_RATE = rate
 
 
 class Command(BaseCommand):
@@ -738,6 +812,12 @@ class Command(BaseCommand):
             type=int,
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
+        )
+        parser.add_argument(
+            "--worker-role",
+            choices=[role.value for role in WorkerRole],
+            default=settings.TEMPORAL_WORKER_ROLE,
+            help="Poll only the workflow tasks or only the activity tasks of the task queue, or both",
         )
         parser.add_argument(
             "--use-pydantic-converter",
@@ -817,6 +897,15 @@ class Command(BaseCommand):
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
 
+        # Temporal keeps workflow tasks and activity tasks apart even on one queue name, so a workflows
+        # worker and an activities worker on the same queue split its work between them. This runs after
+        # the source preload, because an activities-only data-sync worker still runs the syncs.
+        worker_role = WorkerRole(options["worker_role"])
+        if worker_role == WorkerRole.WORKFLOWS:
+            activities = []
+        elif worker_role == WorkerRole.ACTIVITIES:
+            workflows = []
+
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
 
@@ -824,6 +913,10 @@ class Command(BaseCommand):
 
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
+        # `kill -USR1 <pid>` dumps every thread's stack to stderr and leaves the worker running. It
+        # works while a thread holds the GIL, and in containers where py-spy cannot ptrace.
+        faulthandler.register(signal.SIGUSR1)
+        apply_hogql_shadow_sample_rate_override()
 
         metrics_port = int(options["metrics_port"])
 
@@ -916,6 +1009,7 @@ class Command(BaseCommand):
                 port=temporal_port,
                 namespace=namespace,
                 task_queue=task_queue,
+                worker_role=worker_role,
                 graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
@@ -969,7 +1063,6 @@ class Command(BaseCommand):
                     ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
-                    activity_worker_configs=ACTIVITY_WORKER_CONFIGS.get(task_queue, ()),
                 )
             )
 

@@ -17,6 +17,10 @@ class InvalidRepositoryError(Exception):
     pass
 
 
+class InvalidBranchError(Exception):
+    pass
+
+
 class WizardProgramNotAvailableError(Exception):
     pass
 

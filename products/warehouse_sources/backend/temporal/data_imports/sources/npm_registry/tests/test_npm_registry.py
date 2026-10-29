@@ -159,6 +159,47 @@ class TestGetRowsVersions:
         assert result.rows == []
 
 
+class TestGetRowsVersionDownloads:
+    @pytest.mark.parametrize(
+        "response,expected_rows",
+        [
+            (
+                ScriptedResponse(json={"package": "react", "downloads": {"1.0.0": 12, "1.0.1": 0, "1.0.2": None}}),
+                [
+                    {"package": "react", "version": "1.0.0", "downloads": 12},
+                    {"package": "react", "version": "1.0.1", "downloads": 0},
+                ],
+            ),
+            # An unknown package returns 200 with an empty map.
+            (ScriptedResponse(json={"package": "react", "downloads": {}}), []),
+            (ScriptedResponse(json={"error": "not found"}), []),
+            (ScriptedResponse(status=404), []),
+        ],
+    )
+    def test_row_shaping(self, response: ScriptedResponse, expected_rows: list[dict]) -> None:
+        result = _driver().run("VersionDownloads", [response])
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == ["/versions/react/last-week"]
+
+    def test_walks_every_package_and_encodes_scoped_names(self) -> None:
+        result = _driver("@scope/name\nlodash").run(
+            "VersionDownloads",
+            [
+                ScriptedResponse(json={"package": "@scope/name", "downloads": {"1.0.0": 3}}),
+                ScriptedResponse(json={"package": "lodash", "downloads": {"4.0.0": 9}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/versions/%40scope%2Fname/last-week", "/versions/lodash/last-week"]
+        assert result.rows == [
+            {"package": "@scope/name", "version": "1.0.0", "downloads": 3},
+            {"package": "lodash", "version": "4.0.0", "downloads": 9},
+        ]
+
+
 class TestFetchJson:
     def _session(self, *, status: int, chunks: list[bytes]) -> mock.MagicMock:
         response = mock.MagicMock()

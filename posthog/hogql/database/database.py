@@ -98,10 +98,7 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
-from posthog.hogql.database.schema.information_schema import (
-    direct_connection_information_schema_node,
-    disable_data_quality,
-)
+from posthog.hogql.database.schema.information_schema import direct_connection_information_schema_node
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -110,6 +107,7 @@ from posthog.hogql.database.schema.log_entries import (
 from posthog.hogql.database.schema.logs import (
     LogAttributesTable,
     LogsKafkaMetricsTable,
+    LogsPatternBucketsTable,
     LogsTable,
     LogsVolumeBucketsTable,
 )
@@ -250,7 +248,6 @@ class HogQLDatabaseSources:
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
-    is_data_quality_enabled: bool
     is_billing_usage_records_enabled: bool
     # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
     include_flag_evaluations_table: bool
@@ -457,7 +454,7 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
 # GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
 # inserts would raise RuntimeError mid-iteration.
-_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "data-quality-checks"})
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets"})
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
 _TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
@@ -585,9 +582,10 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     **clone_root_tables(),
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
+                    "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     # Pruned per org in _build_from_sources; see is_flag_evaluations_table_enabled.
-                    # The flag check must stay out of this cached, process-global tree.
+                    # The organization mode check must stay out of this cached, process-global tree.
                     "flag_evaluations": TableNode(name="flag_evaluations", table=FlagEvaluationsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
@@ -882,7 +880,8 @@ class Database(BaseModel):
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
-        self._week_start_day = week_start_day
+        # The team model stores a plain integer, and printers read the enum's members.
+        self._week_start_day = WeekStartDay(week_start_day) if week_start_day is not None else None
         self._warehouse_table_names = []
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []
@@ -1789,10 +1788,13 @@ class Database(BaseModel):
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
+        include_flag_evaluations_table: bool | None = None,
     ) -> Database:
         """Build a query catalog, or a reduced catalog for schema serialization only.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
+        ``include_flag_evaluations_table`` overrides the organization's flag_evaluations mode, which decides
+        whether ``posthog.flag_evaluations`` is in the catalog. None follows the mode.
         """
         build_started = time.perf_counter()
 
@@ -1852,6 +1854,11 @@ class Database(BaseModel):
             sources = dataclasses.replace(
                 sources,
                 is_hogql_warehouse_access_control_enabled=_evaluate_warehouse_access_control_flag(cast("Team", team)),
+            )
+        if include_flag_evaluations_table is not None:
+            # A direct-connection catalog has no "posthog" node to hold the table.
+            sources = dataclasses.replace(
+                sources, include_flag_evaluations_table=include_flag_evaluations_table and connection_id is None
             )
 
         with _OTEL_DATABASE.timed_histogram_twin(
@@ -1922,14 +1929,13 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=False,
             is_hogql_warehouse_access_control_enabled=False,
-            is_data_quality_enabled=False,
             is_billing_usage_records_enabled=False,
             bypass_warehouse_access_control=False,
             direct_connection_metadata=None,
             user_access_control=None,
             denied_system_table_names=set(_scoped_system_tables()) | set(_system_table_required_features()),
-            # Resolving the org gate needs a feature-flag check, which is exactly the I/O this path
-            # exists to avoid, so the table is pruned here as the other gated tables are.
+            # Resolving the org gate needs a Postgres read. This path exists to avoid that I/O,
+            # so it prunes the table as it prunes the other gated tables.
             include_flag_evaluations_table=False,
             group_types=[],
             saved_queries=[],
@@ -1977,6 +1983,9 @@ class Database(BaseModel):
             DataWarehouseTable,
             ExternalDataSource,
         )
+        from products.warehouse_sources.backend.facade.source_inputs import (  # noqa: PLC0415 - avoids the model import cycle
+            SourceInputsStore,
+        )
         from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode  # noqa: PLC0415
 
         with timings.measure("team", emit_span=True):
@@ -2023,12 +2032,8 @@ class Database(BaseModel):
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
             from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled  # noqa: PLC0415
 
-            data_quality_enabled = _cached_team_flag(
-                "data-quality-checks", team, lambda: is_data_quality_checks_enabled(team)
-            )
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
 
@@ -2188,7 +2193,7 @@ class Database(BaseModel):
                 warehouse_tables: list[DataWarehouseTable] = []
                 # The virtual builder reads job_inputs (deferred above); hydrate it here so the
                 # build phase stays query-free.
-                _ = virtual_source.job_inputs
+                SourceInputsStore.load(virtual_source)
                 with timings.measure("select_virtual_schemas", emit_span=True):
                     # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
                     from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
@@ -2292,7 +2297,6 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            is_data_quality_enabled=data_quality_enabled,
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             include_flag_evaluations_table=include_flag_evaluations_table,
@@ -2356,22 +2360,13 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
-            if not sources.is_data_quality_enabled:
-                system_node = database.tables.children.get("system")
-                info_schema = (
-                    system_node.children.get("information_schema")
-                    if system_node is not None and hasattr(system_node, "children")
-                    else None
-                )
-                if info_schema is not None and hasattr(info_schema, "children"):
-                    disable_data_quality(info_schema)
             if not sources.is_billing_usage_records_enabled:
                 posthog_node = database.tables.children.get("posthog")
                 if posthog_node is not None:
                     posthog_node.children.pop("billing_usage_records", None)
 
-        # Removing the node, rather than denying the table at query time, is what keeps an org that
-        # lacks the flag from learning it exists: serialize(), information_schema and get_table()
+        # Removing the node, rather than denying the table at query time, keeps an org whose mode
+        # hides the table from learning that it exists. serialize(), information_schema and get_table()
         # all read this tree. Must run before apply_schema_scope(), which snapshots the table names.
         # The "posthog" node is absent on a direct-connection catalog.
         if not sources.include_flag_evaluations_table:
@@ -2468,6 +2463,13 @@ class Database(BaseModel):
                     resolver=REPLAY_TO_SESSIONS_V3,
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
+
+            if not database._is_direct_query() and database.has_table(["posthog", "flag_evaluations"]):
+                # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the
+                # source table. Copying the events join keeps the sessions table version that the team's modifiers chose.
+                database.get_table(["posthog", "flag_evaluations"]).fields["session"] = cast(
+                    LazyJoin, database.get_table("events").fields["session"]
+                ).model_copy()
 
         with timings.measure("virtual_fields", emit_span=True):
             if not database._is_direct_query():
@@ -3192,6 +3194,13 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     persons_table = database.get_table("persons")
     groups_table = database.get_table("groups")
     poe = cast(VirtualTable, events_table.fields["poe"])
+    # A flag call stores the event and person properties blobs that these fields read. A team's test account filters
+    # can read them.
+    flag_evaluations = (
+        database.get_table(["posthog", "flag_evaluations"])
+        if database.has_table(["posthog", "flag_evaluations"])
+        else None
+    )
 
     with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
@@ -3212,6 +3221,10 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             timings=timings,
             properties_path=["poe", "properties"],
         )
+    if flag_evaluations is not None:
+        flag_evaluations_poe = cast(VirtualTable, flag_evaluations.fields["poe"])
+        for field_name in ("$virt_initial_referring_domain_type", "$virt_initial_channel_type"):
+            flag_evaluations_poe.fields[field_name] = poe.fields[field_name].model_copy()
 
     with timings.measure("traffic_type_virtual_fields"):
         from posthog.hogql.database.schema.traffic_type import (
@@ -3230,6 +3243,20 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             ("$virt_bot_operator", create_bot_operator_field),
         ]:
             events_table.fields[field_name] = factory_fn(name=field_name)
+            if flag_evaluations is not None:
+                flag_evaluations.fields[field_name] = events_table.fields[field_name].model_copy(
+                    update={"hidden": True}
+                )
+
+    with timings.measure("mcp_harness_virtual_field"):
+        from products.mcp_analytics.backend.facade.api import mcp_harness_virtual_field_expr
+
+        events_table.fields["$virt_mcp_harness"] = ExpressionField(
+            name="$virt_mcp_harness",
+            expr=mcp_harness_virtual_field_expr(),
+            isolate_scope=True,
+            description="MCP client label computed from this event's client identity signals.",
+        )
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):

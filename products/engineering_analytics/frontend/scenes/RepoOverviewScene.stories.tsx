@@ -29,6 +29,10 @@ const OVERVIEW: RepoOverviewApi = {
     rerun_cycles_prev: 30,
     merged_pr_count: 56,
     merged_pr_count_prev: 49,
+    reverting_pr_count: 3,
+    reverting_pr_count_prev: 1,
+    revert_share: 3 / 56,
+    revert_share_prev: 1 / 49,
     median_open_to_merge_seconds: 14 * 3600,
     median_open_to_merge_seconds_prev: 19 * 3600,
     median_ready_to_merge_seconds: 9 * 3600,
@@ -79,6 +83,8 @@ const OVERVIEW: RepoOverviewApi = {
     open_to_merge_series_granularity: 'day',
     ready_to_merge_series: [],
     ready_to_merge_series_granularity: 'day',
+    revert_share_series: [],
+    revert_share_series_granularity: 'day',
     delivery_pipeline: {
         merged_pr_count: 52,
         stages: [

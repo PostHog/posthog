@@ -4,11 +4,11 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
-MAX_RECALCULATION_TIMES = 2
-MIN_RECALCULATION_GAP_HOURS = 6
+from products.experiments.backend.facade.enums import MAX_RECALCULATION_TIMES, MIN_RECALCULATION_GAP_HOURS
 
 RECALCULATION_TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):00:00$")
 
@@ -39,7 +39,7 @@ def validate_recalculation_times(value: object) -> None:
                 )
 
 
-class TeamExperimentsConfig(models.Model):
+class TeamExperimentsConfig(ModelActivityMixin, models.Model):
     class PrecomputationEnabledSetBy(models.TextChoices):
         MANUAL = "manual", "Manual"
         AUTO = "auto", "Auto"

@@ -76,7 +76,7 @@ class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]
             name=ExternalDataSourceType.SCALEWAY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Scaleway",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Scaleway API secret key and Organization ID to pull your Scaleway data into the PostHog Data warehouse.
 
 Create an API key from the [IAM > API keys](https://console.scaleway.com/iam/api-keys) page in the Scaleway console, and find your Organization ID under [Organization settings](https://console.scaleway.com/organization/settings).
@@ -84,13 +84,15 @@ Create an API key from the [IAM > API keys](https://console.scaleway.com/iam/api
 Grant the key the read permission sets for the data you want to sync, for example:
 - `IAMReadOnly` for users, applications, groups, policies, API keys and SSH keys
 - `ProjectReadOnly` for projects
-- `BillingReadOnly` for invoices
+- `BillingReadOnly` for invoices and billing consumptions
 - `AuditTrailReadOnly` for audit trail events
 - `InstancesReadOnly` for instance servers
+- `KubernetesReadOnly` for Kubernetes clusters, pools and nodes
+- `RelationalDatabasesReadOnly` for database instances
 """,
             iconPath="/static/services/scaleway.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/scaleway",
-            keywords=["cloud", "billing", "infrastructure", "invoices", "iam"],
+            keywords=["cloud", "billing", "infrastructure", "invoices", "iam", "kubernetes"],
             fields=cast(
                 list[FieldType],
                 [

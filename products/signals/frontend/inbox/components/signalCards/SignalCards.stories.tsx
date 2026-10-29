@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { HttpResponse } from 'msw'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -33,6 +32,8 @@ function makeSignal(
 ): SignalNode {
     return {
         signal_id: `sig-${overrides.source_product}`,
+        total_spend: null,
+        spend_accounting_failed_stages: [],
         content: 'The user retried the upload three times before leaving the page.',
         source_type: 'issue',
         source_id: 'src-1',
@@ -401,8 +402,6 @@ const meta: Meta = {
         layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        // The evidence links and previews are part of the redesign.
-        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
     },
     decorators: [
         mswDecorator({

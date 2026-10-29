@@ -19,7 +19,6 @@ drip/drip.py::_campaign_subscriber_pages
 dynatrace/dynatrace.py::_endpoint_pages
 emailoctopus/emailoctopus.py::_fan_out_items
 fintoc/fintoc.py::FintocAPI.rows
-flutterwave/flutterwave.py::get_rows
 freshservice/freshservice.py::_approvals_source.items
 fusionauth/fusionauth.py::fusionauth_source.pages
 gainsight_px/gainsight_px.py::_event_pages
@@ -38,7 +37,6 @@ newsdata/newsdata.py::get_rows
 noaa_cdo/noaa_cdo.py::noaa_cdo_source.items
 okendo/okendo.py::okendo_source.items
 okta/okta.py::okta_source.items
-pagerduty/pagerduty.py::pagerduty_source.items
 paymongo/paymongo.py::pull_rows
 pipeliner/pipeliner.py::pipeliner_source.items
 plunk/plunk.py::plunk_source.items

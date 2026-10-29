@@ -5,12 +5,14 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
+from posthog.hogql.errors import QueryError
+from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.transforms.trino.limits import TrinoCompilationBudget
-from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
+from posthog.hogql.transforms.trino.query_wrappers import _AggregateFunctionFinder, lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 _T_AST = TypeVar("_T_AST", bound=ast.AST | None)
@@ -257,12 +259,29 @@ class TrinoScalarCTELowerer(CloningVisitor):
         return super().visit_field(node)
 
 
+class _QualifiedFieldFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.qualifiers: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) > 1 and isinstance(node.chain[0], str):
+            self.qualifiers.add(node.chain[0])
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+
 class TrinoSelectAliasLowerer(CloningVisitor):
-    def __init__(self, budget: TrinoCompilationBudget) -> None:
+    def __init__(self, context: HogQLContext, budget: TrinoCompilationBudget) -> None:
         super().__init__(clear_types=False)
+        self.context = context
+        self.lambda_scopes: list[ast.SelectQueryType | None] = []
         self.aliases: dict[str, ast.Expr] = {}
         self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
+        self.in_order_by = False
+        self.in_window = False
         self.expansion_budget = budget
 
     def visit(self, node: _T_AST) -> _T_AST:
@@ -272,6 +291,10 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_aliases = self.aliases
         outer_alias_positions = self.alias_positions
+        outer_in_order_by = self.in_order_by
+        outer_in_window = self.in_window
+        self.in_order_by = False
+        self.in_window = False
         self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
         self.alias_positions = {
             expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
@@ -317,12 +340,38 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 order.expr = ast.PositionalRef(index=self.alias_positions[order_expression.chain[-1]])
         self.aliases = outer_aliases
         self.alias_positions = outer_alias_positions
+        self.in_order_by = outer_in_order_by
+        self.in_window = outer_in_window
         return lowered
+
+    def visit_order_expr(self, node: ast.OrderExpr) -> ast.OrderExpr:
+        outer_in_order_by = self.in_order_by
+        # Only a query's own ORDER BY sees output aliases; a window's OVER (ORDER BY ...) does not.
+        self.in_order_by = not self.in_window
+        try:
+            return super().visit_order_expr(node)
+        finally:
+            self.in_order_by = outer_in_order_by
+
+    def visit_window_expr(self, node: ast.WindowExpr) -> ast.WindowExpr:
+        outer_in_order_by, outer_in_window = self.in_order_by, self.in_window
+        self.in_order_by, self.in_window = False, True
+        try:
+            return super().visit_window_expr(node)
+        finally:
+            self.in_order_by, self.in_window = outer_in_order_by, outer_in_window
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         if node.hidden:
             self.expansion_budget.visit(node)
-            return clone_expr(node, clear_types=False)
+            cloned = clone_expr(node, clear_types=False)
+            inner = cloned
+            while isinstance(inner.expr, ast.Alias) and inner.expr.hidden:
+                inner = inner.expr
+            qualified = self._qualified_shadowed_column(inner.expr)
+            if qualified is not None:
+                inner.expr = qualified
+            return cloned
         already_expanding = node.alias in self.expanding
         self.expanding.add(node.alias)
         try:
@@ -330,6 +379,13 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         finally:
             if not already_expanding:
                 self.expanding.remove(node.alias)
+
+    def visit_lambda(self, node: ast.Lambda) -> ast.Lambda:
+        self.lambda_scopes.append(node.type if isinstance(node.type, ast.SelectQueryType) else None)
+        try:
+            return super().visit_lambda(node)
+        finally:
+            self.lambda_scopes.pop()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         outer_aliases = self.aliases
@@ -361,10 +417,71 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             alias = node.chain[0]
             self.expanding.add(alias)
             try:
-                return self.visit(self.aliases[alias])
+                expanded = self.visit(self.aliases[alias])
             finally:
                 self.expanding.remove(alias)
+            # Trino resolves ORDER BY names against output columns first, so a qualifier that is also a projection
+            # alias would read that output column. The output column itself already holds this value.
+            if self.in_order_by and self._has_qualifier_named_like_an_alias(expanded):
+                return clone_expr(node, clear_types=False)
+            return expanded
+        qualified = self._qualified_shadowed_column(node)
+        if qualified is not None:
+            return qualified
         return super().visit_field(node)
+
+    def _has_qualifier_named_like_an_alias(self, node: ast.Expr) -> bool:
+        finder = _QualifiedFieldFinder()
+        finder.visit(node)
+        return any(qualifier in self.aliases for qualifier in finder.qualifiers)
+
+    def _qualified_shadowed_column(self, node: ast.Expr) -> ast.Field | None:
+        # After alias inlining, a later resolver pass would bind a bare column named like a projection alias to the
+        # alias. Qualifying it keeps the column the first pass chose.
+        if not (
+            isinstance(node, ast.Field)
+            and len(node.chain) == 1
+            and isinstance(node.chain[0], str)
+            and node.chain[0] in self.aliases
+            and isinstance(node.type, ast.FieldType)
+        ):
+            return None
+        table_type = node.type.table_type
+        if isinstance(table_type, (ast.TableAliasType, ast.CTETableAliasType, ast.SelectQueryAliasType)):
+            qualifier = table_type.alias
+        elif isinstance(table_type, ast.CTETableType):
+            qualifier = table_type.name
+        else:
+            return None
+        if self.lambda_scopes and self._lambda_reads_qualifier_as_field(qualifier):
+            raise TrinoLoweringError(
+                "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",
+                "a lambda reading a column shadowed by a projection alias",
+                node,
+                detail=(
+                    f"Inside a lambda, the table alias `{qualifier}` also names a column or alias, "
+                    "so the Trino query could read the wrong value. Rename the table alias."
+                ),
+            )
+        return ast.Field(
+            start=node.start,
+            end=node.end,
+            chain=[qualifier, node.chain[0]],
+            type=node.type,
+            from_asterisk=node.from_asterisk,
+        )
+
+    def _lambda_reads_qualifier_as_field(self, qualifier: str) -> bool:
+        # Inside a lambda the resolver looks up the head of a chain as a field before it tries table aliases, so the
+        # second pass would bind `qualifier.column` to a field named like the qualifier. Without a lambda scope to
+        # check, assume a collision.
+        scope = self.lambda_scopes[-1]
+        if scope is None:
+            return True
+        try:
+            return lookup_field_by_name(scope, qualifier, self.context) is not None
+        except QueryError:
+            return True
 
 
 class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
@@ -447,7 +564,20 @@ class TrinoNormalizer(TraversingVisitor):
             node.prewhere = None
         node.settings = None
         self._lower_array_join(node)
+        self._lower_row_filter_having(node)
         super().visit_select_query(node)
+
+    def _lower_row_filter_having(self, node: ast.SelectQuery) -> None:
+        # ClickHouse reads HAVING without GROUP BY or aggregates as a row filter; Trino makes it a global aggregation.
+        if node.having is None or node.group_by:
+            return
+        finder = _AggregateFunctionFinder()
+        for expr in [*node.select, node.having, *(order.expr for order in node.order_by or [])]:
+            finder.visit(expr)
+        if finder.found:
+            return
+        node.where = ast.And(exprs=[node.where, node.having]) if node.where is not None else node.having
+        node.having = None
 
     def _lower_array_join(self, node: ast.SelectQuery) -> None:
         if node.array_join_op is None and not node.array_join_list:
@@ -594,7 +724,7 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names:
     lowered = TrinoAsOfJoinLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered, physical_names=physical_names)
     lowered = lower_trino_query_wrappers(lowered)
-    lowered = TrinoSelectAliasLowerer(budget).visit(lowered)
+    lowered = TrinoSelectAliasLowerer(context, budget).visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)
     TrinoNormalizer(context).visit(lowered)
     return lowered

@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BillingAPIErrorCodes, billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -18,7 +19,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BillingProductV2Type, BillingProvider, BillingType } from '~/types'
+import { BillingProductV2Type, BillingProvider, BillingType, StartupProgramLabel } from '~/types'
 
 const creditOverviewResponse = {
     eligible: false,
@@ -34,6 +35,10 @@ const creditOverviewResponse = {
 const EXTERNAL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'
 const HOSTED_INVOICE_URL = 'https://invoice.stripe.com/i/acct_example/test_example'
 const UNSUBSCRIBE_ERROR_DETAIL = 'Pay your open invoices first.'
+const VERCEL_NOTICE =
+    'Billing for this organization is managed by Vercel, including the payment method and invoices. To cap your spend, set a billing limit on each product on this page.'
+const VERCEL_DISABLED_REASON =
+    'Billing for this organization is managed by Vercel. Contact support to change your plan.'
 
 const productWithUsage = (
     percentageUsage: number,
@@ -235,6 +240,11 @@ describe('billingLogic', () => {
             expectedMessage:
                 'You have reached the usage limit for Product analytics. Data loss may occur. Billing for this organization is managed by Example Partner. Contact them to change your plan or payment details.',
         },
+        {
+            name: 'Vercel-managed billing without an active subscription',
+            billing: { billing_provider: BillingProvider.Vercel, has_active_subscription: false },
+            expectedMessage: `You have reached the usage limit for Product analytics. Data loss may occur. ${VERCEL_DISABLED_REASON}`,
+        },
     ])('treats exactly 100% usage as a reached limit alert with $name', async ({ billing, expectedMessage }) => {
         billingState = { ...billingWithProducts([productWithUsage(1, { subscribed: false })]), ...billing }
         billingLogic.mount()
@@ -263,6 +273,92 @@ describe('billingLogic', () => {
         }).toFinishAllListeners()
 
         expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(false)
+    })
+
+    it.each([
+        {
+            name: 'YC credits left that renew',
+            label: StartupProgramLabel.YC,
+            credits: '100.00',
+            renew: true,
+            expected: 'renewing',
+        },
+        {
+            name: 'YC credits used that renew',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: true,
+            expected: 'used_until_renewal',
+        },
+        {
+            name: 'YC credits left that do not renew',
+            label: StartupProgramLabel.YC,
+            credits: '100.00',
+            renew: false,
+            expected: 'ending',
+        },
+        {
+            name: 'YC credits used that do not renew',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: false,
+            expected: 'ended',
+        },
+        {
+            name: 'a YC response without the renewal field',
+            label: StartupProgramLabel.YC,
+            credits: undefined,
+            renew: undefined,
+            expected: 'used_until_renewal',
+        },
+        {
+            name: 'Startup credits used',
+            label: StartupProgramLabel.Startup,
+            credits: undefined,
+            renew: false,
+            expected: null,
+        },
+    ])('derives the YC credits state for $name', async ({ label, credits, renew, expected }) => {
+        billingState = {
+            ...billingWithProducts([productWithUsage(0.5)]),
+            startup_program_label: label,
+            discount_amount_usd: credits,
+            startup_program_credits_renew: renew,
+        }
+        billingLogic.mount()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.ycCreditsState).toBe(expected)
+    })
+
+    it.each([
+        { name: 'keeps the date for YC credits', label: StartupProgramLabel.YC, expected: '2024-03-15T12:00:00Z' },
+        {
+            name: 'moves the date to the period end for other credits',
+            label: StartupProgramLabel.Startup,
+            expected: '2024-03-31T00:00:00Z',
+        },
+    ])('$name that expire mid-period', async ({ label, expected }) => {
+        billingState = {
+            ...billingWithProducts([productWithUsage(0.5)]),
+            startup_program_label: label,
+            amount_off_expires_at: dayjs('2024-03-15T12:00:00Z'),
+            billing_period: {
+                current_period_start: dayjs('2024-03-01T00:00:00Z'),
+                current_period_end: dayjs('2024-03-31T00:00:00Z'),
+                interval: 'month',
+            },
+        }
+        billingLogic.mount()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billing?.amount_off_expires_at?.toISOString()).toBe(new Date(expected).toISOString())
     })
 
     it.each([
@@ -296,6 +392,70 @@ describe('billingLogic', () => {
             })
         }
     )
+
+    it.each<{
+        name: string
+        answer: [number, Partial<BillingType> | null]
+        expected: {
+            isBillingManagedByVercel: boolean
+            billingManagedByVercelNotice: string | null
+            billingManagedByVercelDisabledReason: string | null
+            showBillingHero: boolean
+        }
+    }>([
+        {
+            name: 'Vercel with an active subscription',
+            answer: [200, { ...billingJson, billing_provider: BillingProvider.Vercel, has_active_subscription: true }],
+            expected: {
+                isBillingManagedByVercel: true,
+                billingManagedByVercelNotice: VERCEL_NOTICE,
+                billingManagedByVercelDisabledReason: null,
+                showBillingHero: true,
+            },
+        },
+        {
+            name: 'Vercel with no active subscription',
+            answer: [200, { ...billingJson, billing_provider: BillingProvider.Vercel, has_active_subscription: false }],
+            expected: {
+                isBillingManagedByVercel: true,
+                billingManagedByVercelNotice: VERCEL_DISABLED_REASON,
+                billingManagedByVercelDisabledReason: VERCEL_DISABLED_REASON,
+                showBillingHero: false,
+            },
+        },
+        {
+            name: 'PostHog with no active subscription',
+            answer: [
+                200,
+                { ...billingJson, billing_provider: BillingProvider.PostHog, has_active_subscription: false },
+            ],
+            expected: {
+                isBillingManagedByVercel: false,
+                billingManagedByVercelNotice: null,
+                billingManagedByVercelDisabledReason: null,
+                showBillingHero: true,
+            },
+        },
+        {
+            name: 'no billing loaded',
+            answer: [200, null],
+            expected: {
+                isBillingManagedByVercel: false,
+                billingManagedByVercelNotice: null,
+                billingManagedByVercelDisabledReason: null,
+                showBillingHero: false,
+            },
+        },
+    ])('sets the Vercel billing selectors for $name', async ({ answer, expected }) => {
+        billingAnswer = answer
+        billingLogic.mount()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values).toMatchObject(expected)
+    })
 
     // A companion has no billing limit, so its usage percentage must not raise a limit banner.
     it.each([

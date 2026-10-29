@@ -27,8 +27,9 @@ The scheduled task is additionally gated per team by the `aeo-citation-tracking`
 ## Usage
 
 ```bash
-# 1. Seed the prompt set from a CSV (a `prompt` header column, or one prompt
-#    per line). Use --csv-source manual for a hand-written set:
+# 1. Seed the prompt set from a CSV (a `prompt` header column with an optional
+#    `topic` column, or one prompt per line). Use --csv-source manual for a
+#    hand-written set:
 python manage.py seed_aeo_prompts --team-id <id> --csv control_prompts.csv --csv-source manual
 
 # 2. Smoke test — 3 prompts, real engine calls, nothing captured:
@@ -38,6 +39,38 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 python manage.py run_aeo_citation_checks --team-id <id>
 ```
 
+### Import over the API
+
+`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=` and `?active=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, and its `current_version` and `version_count`), lists topics with `GET topics/`, returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
+
+```bash
+curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
+  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" -H "Content-Type: application/json" \
+  -d '{"prompts": [{"prompt": "Best open source session replay?", "topic": "Session replay", "external_visibility": 42}]}'
+```
+
+- A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
+- A re-import matches prompts by the normalized text of their current version. It updates the topic and the evidence, and keeps each prompt's on/off state. A new text creates a prompt with version 1.
+- A re-import of an archived prompt's text leaves it archived and counts it as `skipped`.
+- The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list` and `aeo-prompts-stats-get`.
+- `external_visibility` (0-100) is the share of answers that mention the brand, as reported by the tool the set came from. It is kept in the prompt's evidence to benchmark against our own rates.
+
+### Editing, versions and archiving
+
+A prompt keeps its id, so its checks, stats and detail view stay in one place. Its text lives in numbered versions (`posthog_aeo_prompt_version`), and `current_version` points at the one the runner sends. Version rows never change.
+
+- `PATCH {"active": false}` turns a prompt off, and `PATCH {"topic": "..."}` changes its topic in place. Past checks keep the topic they ran with.
+- `PATCH {"prompt": "...", "version_description": "..."}` adds the next version and makes it current. A change of case or whitespace only adds no version. The edit fails with 409 when another prompt in the set, archived ones included, already has the text.
+- `PATCH {"current_version": 1}` makes an existing version current again, for example to roll back a reword. It fails with 400 when the version does not exist.
+- `DELETE` or `PATCH {"archived": true}` archives a prompt: it is turned off, never runs, and keeps its versions and checks. `PATCH {"archived": false}` restores it, and it stays off unless the same request sends `"active": true`. An archived prompt accepts no other change until it is restored.
+- Each check records the version that ran in `prompt_version`. Checks recorded before versions existed have none.
+
+### Which prompts a run takes
+
+A run takes the whole prompt set, up to `AEO_MAX_PROMPTS_PER_RUN` (default 2,000), and checks `AEO_RUN_CONCURRENCY` prompts at a time (default 16).
+It takes one prompt per topic in turn, so a capped run still samples every topic.
+Within a topic, prompts never checked come first, then the least recently checked, so a set larger than one run rotates, and a run cut short by a worker restart resumes on the next dispatch.
+
 ## The table
 
 `system.aeo_citation_checks` — one row per prompt × engine × run, read-only in HogQL:
@@ -45,6 +78,8 @@ python manage.py run_aeo_citation_checks --team-id <id>
 | Column                                                                   | Meaning                                                                                                             |
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
+| `prompt_version`                                                         | The prompt version that ran. Null for checks recorded before prompts had versions.                                  |
+| `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
 | `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
 | `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
 | `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
@@ -78,12 +113,14 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
 
 ## Content autopilot
 
-Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
+Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. A "Show archived" switch adds archived prompts to the list. Clicking a prompt opens its detail: its current version, citation rate per engine, a 30-day grid of results, the latest answer per engine, its versions when it has more than one, and the full check history with the version each check ran. The detail can archive and restore the prompt. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
 
 ## Cost
 
-Roughly \$2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search fees + tokens (attributed as `$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event) plus Exa at \$5 per 1,000 requests (`cost_usd` on the check event).
+Measured in October 2026: about \$0.06 per OpenAI check and \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
+A daily run of 1,000 prompts on both engines is about \$200.
+Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
 
 ## Out of scope
 
-Seeding prompts from first-party data, a UI for the prompt set, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.
+Seeding prompts from first-party data, editing the prompt set in the UI, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.

@@ -20,6 +20,20 @@ describe('LiquidRenderer', () => {
         expect(LiquidRenderer.resolves(expression, context)).toBe(expected)
     })
 
+    it('formats money with the currency filter, like the worker does at send time', () => {
+        expect(LiquidRenderer.render('{{ amount | currency: "USD" }}', { amount: 1234.5 })).toBe('$1,234.50')
+    })
+
+    it.each(['{% unsubscribe_url %}', '{%- unsubscribe_url -%}'])(
+        'renders the Customer.io tag %s like the unsubscribe_url variable',
+        (tag) => {
+            const unsubscribe = { unsubscribe_url: 'https://example.com/preferences?token=abc&team=1' }
+            expect(LiquidRenderer.render(`<a href="${tag}">x</a>`, unsubscribe)).toBe(
+                LiquidRenderer.render('<a href="{{ unsubscribe_url }}">x</a>', unsubscribe)
+            )
+        }
+    )
+
     it('treats an unparseable expression as unresolved rather than throwing', () => {
         expect(LiquidRenderer.resolves('person.properties[', context)).toBe(false)
     })

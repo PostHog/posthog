@@ -6,14 +6,16 @@ import graphlib
 from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
-from urllib.parse import quote, quote_plus, urlparse
+from urllib.parse import parse_qsl, quote, quote_plus, urlparse, urlsplit, urlunsplit
 
 from django.db import IntegrityError
 
 import structlog
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from requests import PreparedRequest, Response, Timeout
+from requests import PreparedRequest, Request, RequestException, Response, Timeout
+from urllib3.exceptions import LocationParseError
+from urllib3.util import parse_url
 from urllib3.util.retry import Retry
 
 from posthog.cloud_utils import is_cloud
@@ -26,6 +28,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.custom_oauth2_integration import (
     CustomOAuth2Integration,
     get_custom_oauth2_integration,
@@ -228,9 +231,8 @@ class _ManifestResource(BaseModel):
     name: str = Field(min_length=1)
     endpoint: _ManifestEndpoint
     # How the upstream API orders this resource's rows. Incremental syncs commit
-    # the high-watermark per batch for "asc"; for a source whose order is
-    # unknown or descending, declaring "desc" here avoids skipping rows on a
-    # resumed sync. Defaults to "asc" when omitted.
+    # the high-watermark per batch for "asc", so declare "asc" only when the API
+    # guarantees that order. When omitted, the rows have no declared order.
     sort_mode: Literal["asc", "desc"] | None = None
 
 
@@ -619,8 +621,13 @@ def _has_wrapping_quote(url: str) -> bool:
 
 
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
-    # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
-    # validator can't be fooled into vetting a different host than the request reaches.
+    # `_url_hostname` returns the host the HTTP client connects to, so the validator can't be
+    # fooled into vetting a different host than the request reaches.
+    if _has_ambiguous_authority(url):
+        return (
+            False,
+            "Remove the backslash (\\ or %5C) from the URL's host and enter just the address (for example, https://api.example.com).",
+        )
     hostname = _url_hostname(url)
     if not hostname:
         if _has_leading_http_method(url):
@@ -745,24 +752,69 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     if token_url is not None:
         urls.append(token_url)
 
-    # `_url_hostname` returns an already-lowercased host.
-    hosts = {host for url in urls if (host := _url_hostname(url))}
+    hosts: set[str] = set()
+    for url in urls:
+        if _has_ambiguous_authority(url):
+            # Fail closed: a URL whose host depends on the parser counts as a new destination.
+            hosts.add(f"{_AMBIGUOUS_HOST_MARKER}{url}")
+        elif host := _url_hostname(url):
+            hosts.add(host)
     return frozenset(hosts)
 
 
-def _url_hostname(url: str) -> str | None:
-    """The host the HTTP client will actually connect to.
+# Prefix for a `manifest_request_hosts` entry that stands in for a URL with no single host.
+# It can't match a real hostname, so the re-entry gate always sees that URL as a new destination.
+_AMBIGUOUS_HOST_MARKER = "ambiguous-url:"
 
-    `urlparse` treats a backslash — and its ``%5c`` encoding — as ordinary
-    userinfo, so ``https://evil.example\\@trusted.example/`` parses as host
-    ``trusted.example`` here, while requests/urllib3 (per the WHATWG URL rules)
-    treat ``\\`` as a path separator and connect to ``evil.example``. Normalizing
-    those to ``/`` before parsing keeps the retarget guard aligned with the real
-    destination, so an ambiguous-authority URL can't smuggle the credential to a
-    new host while appearing unchanged.
+
+def _transport_hostname(url: str) -> str | None:
+    """The host urllib3 reads from ``url``. requests prepares and connects with this parser."""
+    try:
+        # requests strips leading whitespace before it parses the URL.
+        host = parse_url(url.lstrip()).host
+    except LocationParseError:
+        return None
+    return host.lower().strip("[]") if host else None
+
+
+def _has_ambiguous_authority(url: str) -> bool:
+    """True when ``urlparse`` and the HTTP client could read a different host from ``url``.
+
+    ``urlparse`` reads a backslash in the authority as userinfo, but urllib3 ends the authority
+    there: ``https://evil.example\\@trusted.example/`` connects to ``evil.example``. A
+    percent-encoded backslash stays userinfo for both parsers, but a client that decodes first
+    splits on it. No rewrite of these forms matches every parser, so such a URL is rejected.
+    Any other host disagreement between the two parsers is rejected the same way.
     """
-    normalized = url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
-    return urlparse(normalized).hostname
+    try:
+        parsed = urlparse(url)
+        netloc = parsed.netloc.lower()
+        hostname = parsed.hostname
+    except ValueError:
+        return True
+    if "\\" in netloc or "%5c" in netloc:
+        return True
+    if hostname is None:
+        # No host for urlparse means no host for the validator either; `_check_url` rejects it.
+        return False
+    if not hostname.isascii():
+        # urllib3 sends the IDNA (punycode) form of an internationalized host.
+        try:
+            hostname = hostname.encode("idna").decode("ascii")
+        except UnicodeError:
+            return True
+    return hostname != _transport_hostname(url)
+
+
+def _url_hostname(url: str) -> str | None:
+    """The lowercased host the HTTP client will actually connect to.
+
+    ``None`` when the URL has no host, or when its host depends on which parser reads it
+    (see :func:`_has_ambiguous_authority`).
+    """
+    if _has_ambiguous_authority(url):
+        return None
+    return _transport_hostname(url) if urlparse(url).hostname else None
 
 
 # Probe values substituted for a fan-out child's resolve placeholder to test
@@ -825,6 +877,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CUSTOM
 
+    @property
+    def credential_kind(self) -> str | None:
+        # Custom keeps its own `job_inputs`, and its OAuth rows are not `Integration` rows.
+        return None
+
     # Custom REST sources are capped per team to keep abuse of the arbitrary-URL fetcher bounded.
     max_instances_per_team = MAX_CUSTOM_SOURCES_PER_TEAM
 
@@ -875,7 +932,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # first sync's trust-on-first-use claim, closing the window where another create by the same
         # user (matching the same unbound row) could adopt it. The guarded filter makes a lost race
         # a no-op; sync-time authorization remains the backstop.
-        oauth2_integration_id = (source_model.job_inputs or {}).get("auth_oauth2_integration_id")
+        oauth2_integration_id = SourceInputsStore.load(source_model).get("auth_oauth2_integration_id")
         if oauth2_integration_id:
             CustomOAuth2Integration.objects.for_team(team_id).filter(
                 id=oauth2_integration_id, external_data_source__isnull=True
@@ -1198,17 +1255,30 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # dependency map (not a local copy of its resolve-param detection) tells
         # us which resources are children.
         probeable = [resource for resource in manifest["resources"] if resolved.get(resource.get("name")) is None]
+        vetted_hosts = manifest_request_hosts(manifest)
         for resource in probeable[:PROBE_MAX_RESOURCES]:
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
             # Resolve via the shared helper so the probe hits the same host the sync will.
             url = resolve_request_url(base_url, path)
+            display_url = _url_without_query(url)
             # Replay the configured query params and request body so the probe
             # matches what the sync sends — an endpoint that needs them shouldn't
             # answer differently at probe vs sync time.
             probe_params = _static_probe_params(endpoint.get("params"))
             probe_json = endpoint.get("json")
+            # Check the host of the URL requests will actually send, before the credential goes out.
+            try:
+                prepared_url = Request(method, url, params=probe_params or None).prepare().url
+            except (RequestException, ValueError):
+                prepared_url = None
+            prepared_host = _url_hostname(prepared_url) if prepared_url else None
+            if prepared_host is None or prepared_host not in vetted_hosts:
+                return False, (
+                    f"Resource {resource['name']!r}: {display_url} does not point to a host in this manifest. "
+                    "Check the URL and try again."
+                )
             try:
                 # stream=True so the body isn't buffered into memory; only a 401/403
                 # snippet is read below, and the response is always closed.
@@ -1225,13 +1295,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 # str(exc) here is the raw urllib3 "HTTPSConnectionPool(...): Read timed out" dump,
                 # which isn't actionable — surface the configured timeouts instead.
                 return False, (
-                    f"Resource {resource['name']!r}: timed out reaching {url} "
+                    f"Resource {resource['name']!r}: timed out reaching {display_url} "
                     f"(connect timeout {PROBE_CONNECT_TIMEOUT}s, read timeout {PROBE_READ_TIMEOUT}s). "
                     "The endpoint may be slow or temporarily unreachable — check the URL and try again."
                 )
             except Exception:
                 return False, (
-                    f"Resource {resource['name']!r}: could not reach {url}. "
+                    f"Resource {resource['name']!r}: could not reach {display_url}. "
                     "Check that the URL is correct and the endpoint is reachable."
                 )
 
@@ -1244,12 +1314,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 if response.status_code in (401, 403):
                     message = (
                         f"Resource {resource['name']!r}: the upstream API rejected the request with "
-                        f"HTTP {response.status_code} from {url} — check the configured auth credentials."
+                        f"HTTP {response.status_code} from {display_url} — check the configured auth credentials."
                     )
                     # Redact the credential from the echoed body before surfacing it: an upstream
                     # could reflect the sent credential (e.g. an OAuth2 bearer token minted above) in
                     # its 401/403 error, and the snippet would otherwise leak it into a user message.
-                    snippet = _redact_secrets(_read_capped_text(response), auth_secret_values(probe_auth))
+                    snippet = _redact_secrets(
+                        _read_capped_text(response),
+                        (*auth_secret_values(probe_auth), *_url_embedded_secrets(url, probe_params)),
+                    )
                     if snippet:
                         message += f" The upstream responded: {snippet}"
                     return False, message
@@ -1373,9 +1446,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         else:
             primary_keys = None
 
-        # The manifest declares the upstream's row ordering; default "asc" to
-        # match PostHog's other REST sources. An incorrect "asc" assumption on a
-        # non-ascending API can skip rows on a resumed incremental sync.
+        # The manifest declares the upstream's row ordering. A manifest with no
+        # value gets no order: an incorrect "asc" on a non-ascending API can skip
+        # rows on a resumed incremental sync.
         #
         # "desc" only defers committing the high-watermark until the run finishes
         # (so a partial run can't advance the cursor past rows it never reached on
@@ -1392,7 +1465,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # rows arrive grouped per parent, never globally cursor-ascending, so an
         # "asc" per-batch commit after an interruption would set the watermark past
         # later parents' older rows and permanently skip them.
-        sort_mode: SortMode = "desc" if (chain.is_fanout_child or chosen.get("sort_mode") == "desc") else "asc"
+        declared_sort_mode = chosen.get("sort_mode")
+        sort_mode: SortMode | None
+        if chain.is_fanout_child or declared_sort_mode == "desc":
+            sort_mode = "desc"
+        elif declared_sort_mode == "asc":
+            sort_mode = "asc"
+        else:
+            sort_mode = None
 
         return SourceResponse(
             name=inputs.schema_name,
@@ -1692,6 +1772,34 @@ def _infer_columns(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
             if key not in columns or columns[key] == "null":
                 columns[key] = _json_type_label(value)
     return [{"name": name, "type": type_label} for name, type_label in columns.items()]
+
+
+def _url_without_query(url: str) -> str:
+    # A URL can carry a credential in its userinfo or query string (`?access_token=...`). Those values
+    # are not auth secrets that `_redact_secrets` knows about, so drop both from echoed URLs.
+    parts = urlsplit(url)
+    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2], query="", fragment=""))
+
+
+_URL_SECRET_PARAM_MARKERS = ("token", "key", "secret", "password", "auth", "sig")
+
+
+def _url_embedded_secrets(url: str, params: dict[str, Any] | None = None) -> tuple[str, ...]:
+    # Only credential-looking params: redacting every query value would mangle the snippet wherever a
+    # short value such as `1` appears. Static endpoint params are merged into the sent URL, so they
+    # can be echoed back the same way as a query string typed into the path.
+    parts = urlsplit(url)
+    pairs = list(parse_qsl(parts.query))
+    for key, value in (params or {}).items():
+        for item in value if isinstance(value, list | tuple) else (value,):
+            if item is not None:
+                pairs.append((str(key), str(item)))
+    secrets = [
+        value for key, value in pairs if value and any(marker in key.lower() for marker in _URL_SECRET_PARAM_MARKERS)
+    ]
+    # Either half of the userinfo can be the credential (`https://<api_key>@host` is common).
+    secrets.extend(part for part in (parts.username, parts.password) if part)
+    return tuple(secrets)
 
 
 def _redact_secrets(text: str, secrets: tuple[str, ...]) -> str:

@@ -37,7 +37,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, FunnelVizType, InsightShortId, InsightType } from '~/types'
+import { ChartDisplayType, FilterLogicalOperator, FunnelVizType, InsightShortId, InsightType } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -663,6 +663,91 @@ describe('insightDataLogic', () => {
                 .toDispatchActions(['renameInsightSuccess'])
 
             expect(patchSpy).toHaveBeenCalledTimes(1)
+        })
+
+        describe('on a filtered dashboard tile', () => {
+            const storedProperties = {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [{ key: 'id', type: 'cohort', value: 1 }] }],
+            }
+            const storedQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    properties: storedProperties,
+                    dateRange: { date_from: '-30d' },
+                } as TrendsQuery,
+            }
+            const dashboardFilteredQuery: InsightVizNode = {
+                ...storedQuery,
+                source: {
+                    ...storedQuery.source,
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            storedProperties,
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ key: 'platform', type: 'event', value: ['ios'], operator: 'exact' }],
+                            },
+                        ],
+                    },
+                    dateRange: { date_from: '-7d' },
+                    interval: 'week',
+                } as TrendsQuery,
+            }
+            const worldMapBreakdown = { breakdown: '$geoip_country_code', breakdown_type: 'event' } as const
+            const tileEdit: InsightVizNode = {
+                ...dashboardFilteredQuery,
+                source: {
+                    ...dashboardFilteredQuery.source,
+                    trendsFilter: { display: ChartDisplayType.WorldMap },
+                    breakdownFilter: worldMapBreakdown,
+                } as TrendsQuery,
+            }
+
+            let tileLogic: ReturnType<typeof insightDataLogic.build>
+            let patchedBody: Record<string, any>
+
+            beforeEach(async () => {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/insights/': () => [
+                            200,
+                            { results: [{ id: insightId, short_id: Insight42, query: storedQuery }] },
+                        ],
+                    },
+                })
+                patchSpy.mockImplementationOnce(async ({ request }: { request: Request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return [200, { id: insightId, short_id: Insight42, ...patchedBody }]
+                })
+                const props = {
+                    dashboardItemId: Insight42,
+                    dashboardId: 7,
+                    cachedInsight: { id: insightId, short_id: Insight42, query: dashboardFilteredQuery } as any,
+                }
+                insightLogic(props).mount()
+                tileLogic = insightDataLogic(props)
+                tileLogic.mount()
+
+                await expectLogic(tileLogic, () => {
+                    tileLogic.actions.persistDisplayOptions(tileEdit)
+                }).toFinishAllListeners()
+            })
+
+            it('saves the stored filters with the changes the tile made', () => {
+                expect(patchedBody.query.source).toEqual({
+                    ...storedQuery.source,
+                    trendsFilter: { display: ChartDisplayType.WorldMap },
+                    breakdownFilter: worldMapBreakdown,
+                })
+            })
+
+            it('keeps the dashboard-filtered query on the tile after saving', () => {
+                expect(tileLogic.values.savedInsight.query).toEqual(tileEdit)
+            })
         })
 
         it('skips the PATCH when the query is unchanged from the saved insight', async () => {

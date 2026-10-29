@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_EMAIL_STATUS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -104,6 +105,13 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FREQUENCY_CAP_VALKEY_PASSWORD: string
     CDP_FREQUENCY_CAP_VALKEY_TLS: boolean
 
+    // Valkey for caller-supplied idempotency keys, such as an `Idempotency-Key` header. When it is
+    // unset, each route decides what a request with a key does.
+    CDP_IDEMPOTENCY_VALKEY_HOST: string
+    CDP_IDEMPOTENCY_VALKEY_PORT: number
+    CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
+    CDP_IDEMPOTENCY_VALKEY_TLS: boolean
+
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
@@ -126,6 +134,10 @@ export type CdpConfig = ClickhouseConfig & {
     // "Assets" tab.
     MESSAGE_ASSETS_TOPIC: string
     MESSAGE_ASSETS_PRODUCER: CdpProducerName
+    // One row per status change of a transactional email, for the email_status ClickHouse table.
+    EMAIL_STATUS_TOPIC: string
+    EMAIL_STATUS_PRODUCER: CdpProducerName
+    EMAIL_STATUS_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -220,6 +232,9 @@ export type CdpConfig = ClickhouseConfig & {
     // workflow step). Its own key: the Celery and Temporal workers mint it, no other tier does.
     // Same comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOWS_STEP_RESUME_JWT_SECRET: string
+    // Scoped JWT keys verifying Django's transactional email sends. Its own key: only Django
+    // mints it. Same comma-separated rotation and fail-closed-when-empty semantics.
+    WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
     // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
     TASKS_CREATE_JWT_SECRET: string
@@ -229,6 +244,13 @@ export type CdpConfig = ClickhouseConfig & {
     WORKFLOW_SCOUT_RUN_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's classify calls to Django. Its own key, for the same reason.
     WORKFLOW_CLASSIFY_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's Replay Vision scan calls to Django. Its own key for the
+    // same reason as the run-scout one, with the same rotation and fail-closed-when-empty semantics.
+    WORKFLOW_VISION_REQUEST_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's "Add to static cohort" calls to Django. Its own key, for the same reason.
+    WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's "Opt out of messages" calls to Django. Its own key, for the same reason.
+    WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -326,6 +348,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FREQUENCY_CAP_VALKEY_PASSWORD: '',
         CDP_FREQUENCY_CAP_VALKEY_TLS: false,
 
+        CDP_IDEMPOTENCY_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
+        CDP_IDEMPOTENCY_VALKEY_TLS: false,
+
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
         CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
@@ -352,6 +379,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
         // consumes message_assets from the warpstream_cyclotron named collection.
         MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        EMAIL_STATUS_TOPIC: KAFKA_EMAIL_STATUS,
+        // ClickHouse consumes email_status from the warpstream_cyclotron named collection.
+        EMAIL_STATUS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        // Off by default in production, so that writes start only once the email_status table exists.
+        EMAIL_STATUS_ENABLED: isDevEnv() || isTestEnv(),
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
@@ -432,11 +464,20 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_STEP_RESUME_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflows-step-resume-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflows-transactional-email-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
         TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_SCOUT_RUN_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-scout-run-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_CLASSIFY_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-classify-jwt' : '',
+        WORKFLOW_VISION_REQUEST_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-vision-request-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflow-add-to-static-cohort-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-message-opt-out-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,

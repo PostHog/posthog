@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, cast
 
 from posthog.schema import (
@@ -20,7 +21,6 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 

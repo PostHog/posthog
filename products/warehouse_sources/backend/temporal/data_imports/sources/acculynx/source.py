@@ -56,7 +56,7 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
             label="AccuLynx",
             iconPath="/static/services/acculynx.png",
             docsUrl="https://posthog.com/docs/cdp/sources/acculynx",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create an API key in [AccuLynx API settings](https://my.acculynx.com/apikeys) "
             "with a company or location administrator account. Tables use full refresh. "
             "Jobs include leads. Calendar appointments cover the date range below.",
@@ -73,6 +73,7 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="appointment_start_date",
+                        sync_setting=True,
                         label="Appointment start date",
                         caption="Optional. Defaults to 2000-01-01. Use YYYY-MM-DD.",
                         type=SourceFieldInputConfigType.TEXT,
@@ -82,6 +83,7 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="appointment_end_date",
+                        sync_setting=True,
                         label="Appointment end date",
                         caption="Optional. Defaults to 90 days from today. Use YYYY-MM-DD.",
                         type=SourceFieldInputConfigType.TEXT,

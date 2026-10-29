@@ -12,6 +12,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
+from posthog.hogql.placeholders import replace_placeholders
 
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
@@ -28,6 +29,7 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
     SessionFetchOutcome,
     _count_session_events,
     _SessionEventCount,
+    _sum_session_payload_bytes,
     build_session_hog_globals,
     execute_session_hog_eval_activity,
     execute_session_llm_judge_activity,
@@ -234,6 +236,20 @@ class TestCountSessionEvents:
         assert result.event_count == 7
         assert result.first_seen == first_seen
         assert mock_query_ai_events.call_args.kwargs["fall_back_to_events"] is False
+
+    @pytest.mark.parametrize(
+        "fetch, rows",
+        [(_count_session_events, [[7, datetime(2026, 7, 1, tzinfo=UTC)]]), (_sum_session_payload_bytes, [[100]])],
+    )
+    def test_reads_the_session_traces_with_global_in(self, fetch, rows):
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
+            return_value=Mock(results=rows),
+        ) as mock_query_ai_events:
+            fetch(Mock(), "s-1", FROZEN_NOW, FROZEN_NOW)
+
+        kwargs = mock_query_ai_events.call_args.kwargs
+        assert "globalIn(trace_id, (SELECT" in replace_placeholders(kwargs["query"], kwargs["placeholders"]).to_hogql()
 
 
 class TestRunHogEvalOverRecentSessions:

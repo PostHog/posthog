@@ -18,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { isFileUploadSource, sourceTypeLabel } from '../fileUploadSources'
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
@@ -84,7 +85,7 @@ export function ManagedSourcesTable(): JSX.Element {
                         render: (_, source) => (
                             <LemonTableLink
                                 to={urls.dataWarehouseSource(`managed-${source.id}`)}
-                                title={availableSources?.[source.source_type]?.label ?? source.source_type}
+                                title={sourceTypeLabel(source.source_type, availableSources)}
                                 description={source.description}
                             />
                         ),
@@ -148,7 +149,10 @@ export function ManagedSourcesTable(): JSX.Element {
                             if (!source.status) {
                                 return null
                             }
-                            const syncingSchemas = source.schemas.filter((s) => s.should_sync)
+                            // A file upload schema never syncs on a schedule, so its imports still count.
+                            const syncingSchemas = isFileUploadSource(source)
+                                ? source.schemas
+                                : source.schemas.filter((s) => s.should_sync)
                             const counts = SCHEMA_STATUS_ORDER.map((status) => ({
                                 status,
                                 schemas: syncingSchemas.filter((s) => s.status === status),
@@ -216,27 +220,29 @@ export function ManagedSourcesTable(): JSX.Element {
                                         <More
                                             overlay={
                                                 <>
-                                                    <AccessControlAction
-                                                        resourceType={AccessControlResourceType.ExternalDataSource}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        userAccessLevel={source.user_access_level}
-                                                    >
-                                                        {({ disabledReason }) => (
-                                                            <Tooltip title="Start the data import for this schema again">
-                                                                <LemonButton
-                                                                    type="tertiary"
-                                                                    data-attr={`reload-data-warehouse-${source.source_type}`}
-                                                                    key={`reload-data-warehouse-${source.source_type}`}
-                                                                    onClick={() => {
-                                                                        reloadSource(source)
-                                                                    }}
-                                                                    disabledReason={disabledReason}
-                                                                >
-                                                                    Reload
-                                                                </LemonButton>
-                                                            </Tooltip>
-                                                        )}
-                                                    </AccessControlAction>
+                                                    {!isFileUploadSource(source) && (
+                                                        <AccessControlAction
+                                                            resourceType={AccessControlResourceType.ExternalDataSource}
+                                                            minAccessLevel={AccessControlLevel.Editor}
+                                                            userAccessLevel={source.user_access_level}
+                                                        >
+                                                            {({ disabledReason }) => (
+                                                                <Tooltip title="Start the data import for this schema again">
+                                                                    <LemonButton
+                                                                        type="tertiary"
+                                                                        data-attr={`reload-data-warehouse-${source.source_type}`}
+                                                                        key={`reload-data-warehouse-${source.source_type}`}
+                                                                        onClick={() => {
+                                                                            reloadSource(source)
+                                                                        }}
+                                                                        disabledReason={disabledReason}
+                                                                    >
+                                                                        Reload
+                                                                    </LemonButton>
+                                                                </Tooltip>
+                                                            )}
+                                                        </AccessControlAction>
+                                                    )}
 
                                                     <AccessControlAction
                                                         resourceType={AccessControlResourceType.ExternalDataSource}

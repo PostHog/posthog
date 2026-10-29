@@ -15,13 +15,14 @@ from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import AuthType, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.psycopg_helpers import (
     is_resolvable_hostname,
     is_temporary_resolution_failure,
     prefer_routable_addresses,
     resolve_psycopg_hostaddr_with_timeout,
 )
+from posthog.security.oob_domains import matched_oob_domain
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_instance_region
 
@@ -137,20 +138,28 @@ class HostResolution:
     addresses: tuple[str, ...] = ()
 
 
-def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
+def _is_host_safe(
+    host: str, team_id: int, *, port: int | None = None, source_type: str | None = None
+) -> tuple[bool, str | None]:
     """Whether a host is safe to connect to. See `resolve_safe_host` for the policy.
+
+    `port` and `source_type` narrow the managed-warehouse exemption to the listener that source
+    type is served on. A caller that omits them still gets a safe answer: the exemption is then
+    unavailable, which is the refusal direction.
 
     Callers that go on to open the connection themselves should use `resolve_safe_host` and
     connect to the address it returns, so that the address checked is the address used.
     """
     try:
-        resolution = resolve_safe_host(host, team_id)
+        resolution = resolve_safe_host(host, team_id, port=port, source_type=source_type)
     except TemporaryHostResolutionError as e:
         return False, str(e)
     return resolution.connect_host is not None, resolution.error
 
 
-def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
+def resolve_safe_host(
+    host: str, team_id: int | None, *, port: int | None = None, source_type: str | None = None
+) -> HostResolution:
     """Resolve a host to the address a connection should actually be made to.
 
     Only enforced on cloud deployments — self-hosted instances are allowed
@@ -173,7 +182,13 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     A client that cannot dial a bare address, because it needs the name for SNI or dials several
     addresses in turn, resolves the host itself and passes the answer to
     `check_resolved_addresses` instead, so the set it validates is the set it dials.
+
+    A managed-warehouse host is resolved and then checked against the address it answers with, so
+    the exemption is never granted on the name alone. `port` and `source_type` select the listener
+    that exemption applies to, and omitting either leaves the host on the ordinary path.
     """
+    note_oob_domain(host, team_id)
+
     if is_cloud() and (guard_error := _single_host_error(host)) is not None:
         _log_host_check(host, team_id, "block", "malformed_host", guard_error)
         return HostResolution(connect_host=None, error=guard_error)
@@ -196,13 +211,32 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     except ValueError:
         pass
 
+    resolved_ips = _resolve_host_addresses(host)
+
+    # The managed-warehouse check runs on the addresses this function just resolved, and only
+    # then. A managed host answers with a private address by design, so it can never pass the
+    # public-address check below, and it must never pass on its name alone either.
+    if _managed_warehouse_exemption(host, team_id, port, source_type, resolved_ips) is not None:
+        _log_host_check(host, team_id, "allow", "postwh_managed", None, resolved_ips)
+        routable = prefer_routable_addresses(resolved_ips)
+        return HostResolution(connect_host=routable[0], error=None, addresses=tuple(routable))
+
+    return _check_resolved_ips(host, team_id, resolved_ips)
+
+
+def _resolve_host_addresses(host: str) -> list[str]:
+    """Every address `host` answers with, in resolver order.
+
+    A lookup that cannot answer raises `TemporaryHostResolutionError` so the caller retries; a
+    name that does not exist answers with an empty list, which `_check_resolved_ips` refuses.
+    """
     try:
         addrinfo = run_with_deadline(
             lambda: socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP),
             timeout_seconds=HOST_RESOLUTION_TIMEOUT_SECONDS,
             thread_name="host-check-resolve",
         )
-        resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
+        return [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
     except DeadlineExceededError as e:
         # A resolver that does not answer is a blip too, and `getaddrinfo` has no timeout of its own.
         raise TemporaryHostResolutionError(host) from e
@@ -210,17 +244,22 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
         # A resolver blip is not a verdict on the host; refusing it would disable the schema.
         if is_temporary_resolution_failure(e):
             raise TemporaryHostResolutionError(host) from e
-        resolved_ips = []
+        return []
     except UnicodeError:
         # getaddrinfo IDNA-encodes the host, so a malformed hostname (e.g. a DNS label over 63
         # bytes) raises UnicodeError ("label too long") instead of gaierror. Either way the host
         # can't be resolved — return the actionable message rather than crashing.
-        resolved_ips = []
-
-    return _check_resolved_ips(host, team_id, resolved_ips)
+        return []
 
 
-def check_resolved_addresses(host: str, addresses: Sequence[str], team_id: int | None) -> HostResolution:
+def check_resolved_addresses(
+    host: str,
+    addresses: Sequence[str],
+    team_id: int | None,
+    *,
+    port: int | None = None,
+    source_type: str | None = None,
+) -> HostResolution:
     """Apply the `resolve_safe_host` policy to addresses the caller resolved itself.
 
     For a client that looks `host` up on its own and dials that answer. `resolve_safe_host`
@@ -229,10 +268,16 @@ def check_resolved_addresses(host: str, addresses: Sequence[str], team_id: int |
     guarantee: the set it validates is the set it dials, so a record that answers public on one
     lookup and private on the next has no second lookup to slip past.
 
-    The same exemptions as `resolve_safe_host` apply, and `addresses` is returned whole so an
-    exempt caller still dials what it resolved. An empty `addresses` is a failed lookup and is
+    The same policy as `resolve_safe_host` applies, and `addresses` is returned whole so an
+    approved caller still dials what it resolved. An empty `addresses` is a failed lookup and is
     refused, because letting the connection library resolve again would reopen the gap.
+
+    A managed-warehouse host is approved only when the addresses the caller is about to dial are
+    all configured ingress addresses, so an answer the caller resolved itself is checked exactly
+    as one this module resolved would be.
     """
+    note_oob_domain(host, team_id, stage="oob_domain_resolved")
+
     if is_cloud() and (guard_error := _single_host_error(host)) is not None:
         _log_host_check(host, team_id, "block", "malformed_host", guard_error)
         return HostResolution(connect_host=None, error=guard_error)
@@ -242,13 +287,25 @@ def check_resolved_addresses(host: str, addresses: Sequence[str], team_id: int |
         _log_host_check(host, team_id, "allow", exempt_stage, None)
         return HostResolution(connect_host=host, error=None, addresses=tuple(addresses))
 
-    return _check_resolved_ips(host, team_id, list(addresses))
+    checked = list(addresses)
+    if _managed_warehouse_exemption(host, team_id, port, source_type, checked) is not None:
+        _log_host_check(host, team_id, "allow", "postwh_managed", None, checked)
+        return HostResolution(connect_host=host, error=None, addresses=tuple(checked))
+
+    return _check_resolved_ips(host, team_id, checked)
 
 
 _resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
 
 
-def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
+def pinned_host_kwargs(
+    host: str,
+    *,
+    port: int,
+    connect_timeout: float,
+    team_id: int | None,
+    source_type: str | None = None,
+) -> dict[str, str]:
     """Resolve `host` once, validate the answer, and return the libpq `host`/`hostaddr` pair that
     dials exactly those addresses.
 
@@ -263,6 +320,8 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
     lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
     lookup is skipped there, as in `_get_sslmode`.
     """
+    note_oob_domain(host, team_id)
+
     if host_lookup_is_skipped():
         return {"host": host}
 
@@ -273,7 +332,7 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
         return {"host": host}
 
     addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout, raise_on_temporary_failure=True) or []
-    resolution = check_resolved_addresses(host, addresses, team_id)
+    resolution = check_resolved_addresses(host, addresses, team_id, port=port, source_type=source_type)
     if resolution.connect_host is None:
         raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or _INTERNAL_IP_ERROR}")
     if not resolution.addresses:
@@ -326,6 +385,11 @@ def bracket_host(host: str) -> str:
     return f"[{stripped}]" if parsed.version == 6 else host
 
 
+# A DNS-1123 label. Stricter than `_HOST_LABEL`, which admits an underscore because some
+# providers publish records with one. A managed warehouse host is a name PostHog issues, so
+# nothing outside the strict set can be one.
+_DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)\Z")
+
 _HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)\Z")
 
 
@@ -365,7 +429,12 @@ def _single_host_error(host: str) -> str | None:
 
 
 def _host_check_exemption(host: str, team_id: int | None) -> str | None:
-    """Return the stage name that exempts this host from the check, or None when it applies."""
+    """Return the stage name that skips the address check entirely, or None when it applies.
+
+    Only stages that do not depend on where the name resolves live here. A managed-warehouse host
+    is checked against the address it resolves to instead, in `_managed_warehouse_exemption`, so
+    that an exemption can never be granted on a name alone.
+    """
     if not is_cloud():
         return "not_cloud"
 
@@ -375,12 +444,125 @@ def _host_check_exemption(host: str, team_id: int | None) -> str | None:
     if team_id is not None and is_team_allowlisted_for_internal_hosts(team_id):
         return "team_allowlist"
 
-    # PostHog-managed DuckLake hosts resolve to internal IPs but are safe. A suffix test is
-    # enough only because callers refuse anything that is not one hostname before asking.
-    if _normalize_host(host).endswith(".postwh.com"):
-        return "postwh_managed"
-
     return None
+
+
+def _managed_warehouse_exemption(
+    host: str,
+    team_id: int | None,
+    port: int | None,
+    source_type: str | None,
+    addresses: list[str],
+) -> str | None:
+    """Whether `host` is this team's own managed warehouse at `addresses`, or None when it is not.
+
+    The exemption the guard grants here is narrower than "this is a PostHog hostname". Every part
+    of the destination has to agree with what the control plane says the team owns:
+
+    - the host equals the control plane's host for the team's organization, so a guessed tenant
+      label is refused and a source cannot reach a neighbour's warehouse;
+    - the port is one the managed warehouse serves this source type on, so a Postgres source
+      cannot be pointed at the gateway listener;
+    - every resolved address is one of the configured ingress addresses, so a `postwh.com` record
+      that is dangling or has been taken over cannot redirect the connection elsewhere.
+
+    A missing port or source type denies, because the check cannot then confirm the destination
+    is one the managed warehouse serves.
+    """
+    if not is_cloud():
+        return None
+    if port is None or source_type is None:
+        return None
+    if not _is_managed_warehouse_host(host):
+        return None
+
+    from products.managed_warehouse.backend.facade.api import (
+        get_managed_warehouse_target,  # noqa: PLC0415
+        managed_warehouse_ingress_ips,  # noqa: PLC0415
+    )
+    from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX  # noqa: PLC0415
+
+    organization_id = _managed_warehouse_organization_id(team_id)
+    if organization_id is None:
+        return None
+
+    target = get_managed_warehouse_target(organization_id, source_type=source_type)
+    if target is None:
+        return None
+    if not target.accepts(_normalize_host(host), port, addresses, managed_warehouse_ingress_ips()):
+        return None
+
+    logger.info(
+        "data_imports.managed_warehouse_exemption",
+        host=host,
+        port=port,
+        source_type=source_type,
+        team_id=team_id,
+        prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+    )
+    return "postwh_managed"
+
+
+def _is_managed_warehouse_host(host: str) -> bool:
+    """Whether `host` has the shape of a managed warehouse tenant endpoint.
+
+    This is a cheap prefilter in front of the control-plane read, never an authorization on its
+    own. It matches exactly one DNS label under one of the deployment's `dw` zones: the apex, a
+    nested subdomain and a trailing dot all fail.
+    """
+    normalized = _normalize_host(host)
+    if normalized != host:
+        # The comparison in `_managed_warehouse_exemption` uses the normalized form, so a host
+        # that differs from it is refused here rather than normalized twice.
+        return False
+    for suffix in _managed_warehouse_host_suffixes():
+        if not normalized.endswith(suffix):
+            continue
+        label = normalized[: -len(suffix)]
+        if _DNS_LABEL.match(label):
+            return True
+    return False
+
+
+def _managed_warehouse_host_suffixes() -> tuple[str, ...]:
+    """The `dw` zones this deployment serves managed warehouses under."""
+    from products.managed_warehouse.backend.facade.api import managed_warehouse_domain  # noqa: PLC0415
+
+    return (f".dw.{managed_warehouse_domain()}",)
+
+
+def _managed_warehouse_organization_id(team_id: int | None) -> str | None:
+    if team_id is None:
+        return None
+    from products.managed_warehouse.backend.facade.api import get_org_id_for_team  # noqa: PLC0415
+
+    try:
+        return get_org_id_for_team(team_id)
+    except Exception:
+        # A team lookup that fails denies the exemption rather than failing the connect.
+        logger.exception("data_imports.managed_warehouse_team_lookup_failed", team_id=team_id)
+        return None
+
+
+def note_oob_domain(host: str, team_id: int | None, stage: str = "oob_domain") -> None:
+    """Record a lookup of an out-of-band interaction domain, without refusing it.
+
+    Runs before the exemptions, so an allowlisted team is recorded too, and before the resolve,
+    because the lookup alone confirms the path to whoever runs the collaborator. `stage` tells a
+    reader which call site produced the line, so a count does not double on the pinned paths.
+    """
+    if not is_cloud():
+        return
+
+    try:
+        oob_domain = matched_oob_domain(unbracket_host(host))
+    except Exception:
+        # Detection never refuses a connection, so a fault here stays invisible to the customer.
+        logger.exception("data_imports.oob_domain_check_failed", host=host, team_id=team_id)
+        return
+
+    if oob_domain is not None:
+        _log_host_check(host, team_id, "allow", stage, oob_domain)
 
 
 def _check_resolved_ips(host: str, team_id: int | None, resolved_ips: list[str]) -> HostResolution:
@@ -521,9 +703,16 @@ def _require_loopback(host: str) -> str:
     return host
 
 
-def _checked_connect_host(host: str, team_id: int | None, refusal_prefix: str) -> str:
+def _checked_connect_host(
+    host: str,
+    team_id: int | None,
+    refusal_prefix: str,
+    *,
+    port: int | None = None,
+    source_type: str | None = None,
+) -> str:
     """Return the address `resolve_safe_host` approves for `host`, or raise `HostNotAllowedError`."""
-    resolution = resolve_safe_host(host, team_id)
+    resolution = resolve_safe_host(host, team_id, port=port, source_type=source_type)
     if resolution.connect_host is None:
         raise HostNotAllowedError(f"{refusal_prefix}: {resolution.error or _INTERNAL_IP_ERROR}")
     return resolution.connect_host
@@ -574,7 +763,7 @@ def pinned_connect_host(host: str, team_id: int | None) -> DialTarget:
     )
 
 
-def _check_direct_host(config, team_id: int | None) -> None:
+def _check_direct_host(config, team_id: int | None, source_type: str | None = None) -> None:
     """Refuse a direct database connection to a host that resolves somewhere internal.
 
     The connect-time counterpart to `is_database_host_valid`, which runs at the API layer on
@@ -601,7 +790,9 @@ def _check_direct_host(config, team_id: int | None) -> None:
     The resolve inside `resolve_safe_host` stops at `HOST_RESOLUTION_TIMEOUT_SECONDS`, so a stalled
     resolver fails fast and retryably.
     """
-    _checked_connect_host(config.host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR)
+    _checked_connect_host(
+        config.host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR, port=config.port, source_type=source_type
+    )
 
 
 # sshtunnel reports every failure to reach the gateway with the same wording. `_create_tunnels`
@@ -612,6 +803,15 @@ def _check_direct_host(config, team_id: int | None) -> None:
 # The budget is bounded, so a wrong credential or a host that is really gone reaches the same
 # classification it reaches today, about 14 seconds later.
 _SSH_TUNNEL_CONNECT_BACKOFF_SECONDS: tuple[float, ...] = (2.0, 4.0, 8.0)
+
+# paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP connection
+# but closes it during the handshake itself — a non-SSH service on the port, a bastion refusing
+# PostHog's IPs, or a proxy resetting the stream. sshtunnel doesn't wrap it (it only translates
+# *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty `str()`, matching
+# no non-retryable rule and retrying forever. Translate it into this stable, classifiable message
+# instead. Postgres registers it in `PostgresSource.get_non_retryable_errors`; other sources using
+# this mixin at least get a readable message in place of a bare "EOFError".
+SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
 
 
 def _release_failed_forwarder(forwarder: SSHTunnelForwarder) -> None:
@@ -673,12 +873,17 @@ def _connected_ssh_tunnel(ssh_tunnel: SSHTunnel, config, *, ssh_host: str) -> Ge
                 )
                 time.sleep(_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS[attempt])
                 continue
+            except EOFError as e:
+                # Not one of the retried gateway-connect failures above, and retrying a dead
+                # handshake would just re-dial a port that isn't speaking SSH.
+                _release_failed_forwarder(forwarder)
+                raise Exception(SSH_HANDSHAKE_EOF_ERROR) from e
             yield tunnel
             return
 
 
 @contextmanager
-def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, int]]:
+def open_ssh_tunnel(config, team_id: int | None = None, source_type: str | None = None) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
     with _logged_connection(config, team_id):
         ssh_config = _enabled_ssh_tunnel(config)
@@ -691,12 +896,12 @@ def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, 
 
                 yield _require_loopback(tunnel.local_bind_host), tunnel.local_bind_port
         else:
-            _check_direct_host(config, team_id)
+            _check_direct_host(config, team_id, source_type)
             yield config.host, config.port
 
 
 def make_ssh_tunnel_factory(
-    config, team_id: int | None = None
+    config, team_id: int | None = None, source_type: str | None = None
 ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
     """Return a zero-arg factory that opens a fresh `open_ssh_tunnel(config)` context each call.
 
@@ -726,7 +931,7 @@ def make_ssh_tunnel_factory(
         with _logged_connection(config, team_id):
             # Checked per reopen, not once when the factory is built, so a long-running
             # sync that reconnects re-checks the host each time.
-            _check_direct_host(config, team_id)
+            _check_direct_host(config, team_id, source_type)
             yield config.host, config.port
 
     return without_ssh_func
@@ -735,13 +940,15 @@ def make_ssh_tunnel_factory(
 class SSHTunnelMixin:
     """Mixin for sources that support SSH tunnels"""
 
-    def with_ssh_tunnel(self, config, team_id: int | None = None) -> _GeneratorContextManager[tuple[str, int]]:
-        return open_ssh_tunnel(config, team_id)
+    def with_ssh_tunnel(
+        self, config, team_id: int | None = None, source_type: str | None = None
+    ) -> _GeneratorContextManager[tuple[str, int]]:
+        return open_ssh_tunnel(config, team_id, source_type)
 
     def make_ssh_tunnel_func(
-        self, config, team_id: int | None = None
+        self, config, team_id: int | None = None, source_type: str | None = None
     ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
-        return make_ssh_tunnel_factory(config, team_id)
+        return make_ssh_tunnel_factory(config, team_id, source_type)
 
     def ssh_tunnel_enabled(self, config) -> bool:
         """Whether the tunnel helpers above will tunnel rather than connect directly.
@@ -797,7 +1004,7 @@ def _integration_fetch_backoff_sleep(attempt: int) -> None:
 class OAuthMixin:
     """Mixin for OAuth-based sources"""
 
-    def get_oauth_integration(self, integration_id: int, team_id: int) -> Integration:
+    def get_oauth_integration(self, integration_id: int, team_id: int) -> IntegrationRecord:
         """Get OAuth integration from integration ID.
 
         Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
@@ -808,7 +1015,7 @@ class OAuthMixin:
         marks its connection unusable, so ``close_old_connections()`` evicts it between attempts and
         the next attempt runs on a fresh one; the sleep lets a saturated pool drain. A genuinely
         missing integration is surfaced as the stable, non-retryable ``ValueError`` and is not
-        retried.
+        retried. A row that is not an OAuth row counts as missing.
         """
         if not integration_id:
             raise ValueError(f"Missing integration ID")
@@ -816,8 +1023,8 @@ class OAuthMixin:
         attempt = 0
         while True:
             try:
-                return Integration.objects.get(id=integration_id, team_id=team_id)
-            except Integration.DoesNotExist:
+                integration = IntegrationManager.any.get(team_id, integration_id)
+            except IntegrationNotFound:
                 raise ValueError(f"Integration not found: {integration_id}") from None
             except OperationalError:
                 attempt += 1
@@ -825,6 +1032,12 @@ class OAuthMixin:
                     raise
                 close_old_connections()
                 _integration_fetch_backoff_sleep(attempt)
+                continue
+            # The reference does not name its kind here, so the read covers every kind. A row of another
+            # auth type (for example a token row of an OAuth kind) has no OAuth tokens to read or refresh.
+            if integration.auth_type != AuthType.OAUTH:
+                raise ValueError(f"Integration not found: {integration_id}")
+            return integration
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
@@ -863,12 +1076,18 @@ class ValidateDatabaseHostMixin:
     """Mixin for database-based sources to validate connection host"""
 
     def is_database_host_valid(
-        self, host: str, team_id: int, using_ssh_tunnel: bool = False
+        self,
+        host: str,
+        team_id: int,
+        using_ssh_tunnel: bool = False,
+        *,
+        port: int | None = None,
+        source_type: str | None = None,
     ) -> tuple[bool, str | None]:
         if using_ssh_tunnel:
             return True, None
 
-        is_valid, error = _is_host_safe(host, team_id)
+        is_valid, error = _is_host_safe(host, team_id, port=port, source_type=source_type)
         if not is_valid and error == _INTERNAL_IP_ERROR:
             # Direct (non-tunneled) connection, so reaching a private database through a public
             # SSH bastion is a genuine workaround worth pointing at.

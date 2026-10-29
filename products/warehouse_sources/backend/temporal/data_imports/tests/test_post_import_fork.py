@@ -657,3 +657,108 @@ def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team,
     )
 
     assert ctx == PostImportContext(steps=[])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "source_type, superseded, job_status, expect_step",
+    [
+        pytest.param("FileUpload", True, "Completed", True, id="replaced_upload_waits"),
+        pytest.param("FileUpload", False, "Completed", False, id="nothing_replaced"),
+        # The old file must outlive a failed sync of the new one.
+        pytest.param("FileUpload", True, "Failed", False, id="failed_sync_keeps_the_old_file"),
+        pytest.param("Stripe", True, "Completed", False, id="other_sources_never_clean_up"),
+    ],
+)
+def test_source_cleanup_runs_only_when_the_source_has_work(
+    team, source_type, superseded, job_status, expect_step, _no_close_old_connections
+):
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        SOURCE_CLEANUP_STEP,
+        PostImportWorkflowInputs,
+        resolve_post_import_context_activity,
+    )
+
+    source, schema, job = _create_job(team, status=job_status, schema_snapshot={}, schema_last_synced_at=None)
+    source.source_type = source_type
+    source.connection_metadata = {
+        "file_upload": {
+            "superseded": [
+                {
+                    "upload_id": "11111111-2222-4333-8444-555555555555",
+                    "filename": "orders.csv",
+                    "superseded_at": "2026-01-01T00:00:00+00:00",
+                }
+            ]
+            if superseded
+            else []
+        }
+    }
+    source.save()
+
+    ctx = resolve_post_import_context_activity(
+        PostImportWorkflowInputs(
+            team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+        )
+    )
+
+    assert (SOURCE_CLEANUP_STEP in (ctx.steps or [])) is expect_step
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("source_deleted", [False, True])
+def test_the_cleanup_activity_deletes_an_upload_replaced_before_the_sync(
+    team, source_deleted, _no_close_old_connections
+):
+    from django.test import override_settings
+
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        PostImportWorkflowInputs,
+        cleanup_source_after_sync_activity,
+    )
+
+    source, schema, job = _create_job(
+        team, status=ExternalDataJob.Status.COMPLETED, schema_snapshot={}, schema_last_synced_at=None
+    )
+    source.source_type = "FileUpload"
+    source.deleted = source_deleted
+    source.job_inputs = {
+        "upload_id": "22222222-2222-4333-8444-555555555555",
+        "filename": "orders_v2.csv",
+        "file_format": "csv",
+        "schema_name": "Customer",
+    }
+    source.connection_metadata = {
+        "file_upload": {
+            "superseded": [
+                {
+                    "upload_id": "11111111-2222-4333-8444-555555555555",
+                    "filename": "orders.csv",
+                    "superseded_at": "2020-01-01T00:00:00+00:00",
+                }
+            ]
+        }
+    }
+    source.save()
+    s3 = mock.MagicMock()
+
+    with (
+        override_settings(DATAWAREHOUSE_BUCKET="ph-warehouse", DATAWAREHOUSE_BUCKET_DOMAIN="warehouse.example.com"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage.get_s3_client",
+            return_value=s3,
+        ),
+    ):
+        cleanup_source_after_sync_activity(
+            PostImportWorkflowInputs(
+                team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+            )
+        )
+
+    if source_deleted:
+        s3.rm.assert_not_called()
+    else:
+        s3.rm.assert_called_once_with(
+            f"ph-warehouse/file_uploads/team_{team.pk}/11111111-2222-4333-8444-555555555555/orders.csv"
+        )

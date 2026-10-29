@@ -12,28 +12,30 @@ use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
 use crate::consumer::FlushBatch;
-use crate::kafka::PersonConsumer;
+use crate::kafka::{PersonConsumer, Source};
 use crate::store::{BatchOutcome, PersonDb, PersonWriteStore};
 
 /// The offset-commit and assignment surface the writer needs from Kafka.
 /// Abstracted so the retry loop is testable without a broker.
 pub trait OffsetCommitter: Send + Sync {
-    fn commit_offsets(&self, offsets: &HashMap<i32, i64>)
-        -> Result<(), rdkafka::error::KafkaError>;
+    fn commit_offsets(
+        &self,
+        offsets: &HashMap<Source, i64>,
+    ) -> Result<(), rdkafka::error::KafkaError>;
 
     /// `None` while the consumer has not joined its group yet.
-    fn assigned_partitions(&self) -> Result<Option<HashSet<i32>>, rdkafka::error::KafkaError>;
+    fn assigned_partitions(&self) -> Result<Option<HashSet<Source>>, rdkafka::error::KafkaError>;
 }
 
 impl OffsetCommitter for PersonConsumer {
     fn commit_offsets(
         &self,
-        offsets: &HashMap<i32, i64>,
+        offsets: &HashMap<Source, i64>,
     ) -> Result<(), rdkafka::error::KafkaError> {
         PersonConsumer::commit_offsets(self, offsets)
     }
 
-    fn assigned_partitions(&self) -> Result<Option<HashSet<i32>>, rdkafka::error::KafkaError> {
+    fn assigned_partitions(&self) -> Result<Option<HashSet<Source>>, rdkafka::error::KafkaError> {
         PersonConsumer::assigned_partitions(self)
     }
 }
@@ -147,8 +149,8 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
             Ok(None) => {}
             Ok(Some(assigned)) => {
                 let before = persons.len();
-                persons.retain(|row| assigned.contains(&row.partition));
-                offsets.retain(|partition, _| assigned.contains(partition));
+                persons.retain(|row| assigned.contains(&row.source));
+                offsets.retain(|source, _| assigned.contains(source));
                 let dropped = before - persons.len();
                 if dropped > 0 {
                     counter!("personhog_writer_revoked_rows_dropped_total", "stage" => "queued")
@@ -269,7 +271,7 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
         }
     }
 
-    fn finish(&mut self, rows: usize, offsets: &HashMap<i32, i64>, oldest_ts_ms: Option<i64>) {
+    fn finish(&mut self, rows: usize, offsets: &HashMap<Source, i64>, oldest_ts_ms: Option<i64>) {
         self.consecutive_failures = 0;
         self.liveness.report_healthy();
         self.commit_and_record(offsets, oldest_ts_ms, rows);
@@ -277,7 +279,7 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
 
     fn commit_and_record(
         &self,
-        offsets: &HashMap<i32, i64>,
+        offsets: &HashMap<Source, i64>,
         oldest_ts_ms: Option<i64>,
         rows_written: usize,
     ) {
@@ -345,16 +347,23 @@ mod tests {
         }
     }
 
+    fn source(partition: i32) -> Source {
+        Source {
+            topic: Arc::from("personhog_updates"),
+            partition,
+        }
+    }
+
     struct RecordingCommitter {
-        commits: Mutex<Vec<HashMap<i32, i64>>>,
-        assigned: Option<HashSet<i32>>,
+        commits: Mutex<Vec<HashMap<Source, i64>>>,
+        assigned: Option<HashSet<Source>>,
     }
 
     impl RecordingCommitter {
         fn owning(partitions: &[i32]) -> Self {
             Self {
                 commits: Mutex::default(),
-                assigned: Some(partitions.iter().copied().collect()),
+                assigned: Some(partitions.iter().map(|p| source(*p)).collect()),
             }
         }
 
@@ -375,13 +384,15 @@ mod tests {
     impl OffsetCommitter for RecordingCommitter {
         fn commit_offsets(
             &self,
-            offsets: &HashMap<i32, i64>,
+            offsets: &HashMap<Source, i64>,
         ) -> Result<(), rdkafka::error::KafkaError> {
             self.commits.lock().unwrap().push(offsets.clone());
             Ok(())
         }
 
-        fn assigned_partitions(&self) -> Result<Option<HashSet<i32>>, rdkafka::error::KafkaError> {
+        fn assigned_partitions(
+            &self,
+        ) -> Result<Option<HashSet<Source>>, rdkafka::error::KafkaError> {
             Ok(self.assigned.clone())
         }
     }
@@ -424,7 +435,7 @@ mod tests {
 
     fn row(partition: i32, id: i64) -> BufferedPerson {
         BufferedPerson {
-            partition,
+            source: source(partition),
             person: Person {
                 id,
                 team_id: 1,
@@ -437,7 +448,7 @@ mod tests {
     fn batch(rows: i64) -> FlushBatch {
         FlushBatch {
             persons: (0..rows).map(|id| row(0, id)).collect(),
-            offsets: HashMap::from([(0, rows - 1)]),
+            offsets: HashMap::from([(source(0), rows - 1)]),
             oldest_message_ts_ms: None,
         }
     }
@@ -470,13 +481,13 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn queued_batch_is_filtered_by_the_current_assignment() {
-        let both: HashMap<i32, i64> = HashMap::from([(0, 1), (1, 4)]);
+        let both: HashMap<Source, i64> = HashMap::from([(source(0), 1), (source(1), 4)]);
         let cases = vec![
             (
                 "owns 0",
                 RecordingCommitter::owning(&[0]),
                 2,
-                vec![HashMap::from([(0, 1)])],
+                vec![HashMap::from([(source(0), 1)])],
             ),
             (
                 "owns both",
@@ -492,7 +503,7 @@ mod tests {
                 scripted_writer_with(committer, vec![]);
             let mut queued = batch(2);
             queued.persons.push(row(1, 7));
-            queued.offsets.insert(1, 4);
+            queued.offsets.insert(source(1), 4);
 
             let flow = writer.process_batch(queued).await;
 

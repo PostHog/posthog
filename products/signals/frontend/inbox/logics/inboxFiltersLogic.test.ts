@@ -58,7 +58,7 @@ describe('inboxFiltersLogic', () => {
         })
 
         it('leads with the ranking field for a model sort', () => {
-            expect(buildSignalReportListOrdering('ranking_fixed', 'desc')).toBe('-ranking_fixed,status,-updated_at')
+            expect(buildSignalReportListOrdering('ranking_fix', 'desc')).toBe('-ranking_fix,status,-updated_at')
         })
 
         // The server ignores the `sort` preset whenever `ordering` is present.
@@ -107,6 +107,7 @@ describe('inboxFiltersLogic', () => {
                 { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
+            ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
@@ -125,7 +126,7 @@ describe('inboxFiltersLogic', () => {
                     scope: 'teammate:not-a-uuid',
                     source: 'error_tracking,bogus_source',
                     priority: 'P9,P1',
-                    state: 'monitoring,bogus-state',
+                    state: 'monitoring,closed,bogus-state',
                     // priority:desc has a valid field and direction but is not one of the offered sort options.
                     sort: 'priority:desc',
                 })
@@ -154,6 +155,13 @@ describe('inboxFiltersLogic', () => {
                 'asc',
             ],
             ['keeps an explicit Priority first from a shared link', 'priority:asc', false, 'priority', 'asc'],
+            [
+                'moves a link with the old Fix sort name to the current one',
+                'ranking_fixed:desc',
+                true,
+                'ranking_fix',
+                'desc',
+            ],
         ] as const)('%s', (_name, sort, modelSortAvailable, sortField, sortDirection) => {
             expect(parseFilterSearchParams({ sort }, { modelSortAvailable })).toEqual({
                 ...DEFAULT_STATE,
@@ -213,10 +221,7 @@ describe('inboxFiltersLogic', () => {
 
         // The flat Reports list has no `?view=` sub-view, so a query change on it must attribute to
         // the `reports` tab and agree with the `tab` that `Inbox viewed` sends for the same visit.
-        it('attributes a redesigned Reports query change to the reports tab', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            })
+        it('attributes a Reports query change to the reports tab', async () => {
             router.actions.push(urls.inbox('reports'))
             logic.actions.toggleState('needs-decision')
             await expectLogic(logic).toFinishAllListeners()
@@ -286,13 +291,13 @@ describe('inboxFiltersLogic', () => {
                 'asc',
             ],
             [
-                'resets the stored sort for a non-staff user',
+                'keeps a stored model sort for a non-staff user with the flag',
                 'ranking_action',
                 true,
                 false,
-                'recommended',
-                'recommended',
-                'asc',
+                'ranking_action',
+                'ranking_action',
+                'desc',
             ],
             [
                 'falls back to the default for a stored head the menu no longer offers',

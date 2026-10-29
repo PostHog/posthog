@@ -29,6 +29,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.scout_note_actor import render_actor
 from products.signals.backend.test.test_billing import _make_pr_run
 from products.skills.backend.models.skills import LLMSkill
 
@@ -117,6 +118,8 @@ class TestDismissalScoutNotes(APIBaseTest):
         assert "the cited code path is unreachable" in note.content
         assert "analysis_wrong" in note.content
         assert str(report.id) in note.content
+        # Scouts weigh a dismissal by who made it, so the dismisser is named in the active voice.
+        assert note.content.startswith(f"Inbox feedback: {render_actor(self.user)} dismissed report `{report.id}`")
         assert note.expires_at is not None
 
     def test_a_repeat_dismissal_still_forwards_its_note(self) -> None:
@@ -186,6 +189,18 @@ class TestDismissalScoutNotes(APIBaseTest):
         self._dismiss(report, **body)
 
         assert self._notes() == []
+
+    def test_wrong_assignee_dismissal_forwards_without_prose(self) -> None:
+        self._create_scout_skill()
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+
+        self._dismiss(report, dismissal_reason="wrong_assignee")
+
+        note = self._notes()[0]
+        assert note.skill_name == SCOUT_SKILL
+        assert "wrong_assignee" in note.content
+        assert "The note left with it" not in note.content
 
     @parameterized.expand(
         [
@@ -373,6 +388,10 @@ class TestDismissalScoutNotes(APIBaseTest):
         # The scout's note names every report it authored so the pattern is visible in one read.
         for report in authored:
             assert str(report.id) in notes[SCOUT_SKILL].content
+        assert (
+            f"{render_actor(self.user)} dismissed 3 reports in the inbox with the same note"
+            in notes[SCOUT_SKILL].content
+        )
         assert str(unauthored.id) in notes[""].content
 
     def test_restore_out_of_the_archive_is_not_described_as_a_snooze(self) -> None:
@@ -392,7 +411,7 @@ class TestDismissalScoutNotes(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.READY
         content = self._notes()[0].content
-        assert "restored to ready" in content
+        assert f'restored report `{report.id}` ("{report.title}") to ready in the inbox' in content
         assert "snoozed" not in content
 
     def test_dismissal_still_succeeds_when_the_note_cannot_be_written(self) -> None:

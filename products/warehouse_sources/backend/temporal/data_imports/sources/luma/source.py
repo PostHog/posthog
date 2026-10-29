@@ -46,7 +46,7 @@ class LumaSource(ResumableSource[LumaSourceConfig, LumaResumeConfig]):
             name=ExternalDataSourceType.LUMA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Luma",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Luma API key to pull your events, guests, and people into the PostHog Data warehouse.
 
 You can create an API key under **Settings → Developer** in [Luma](https://luma.com) — API access requires a Luma Plus subscription. Calendar API keys are scoped to a single calendar; use an organization API key to import across calendars.

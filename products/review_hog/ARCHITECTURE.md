@@ -5,7 +5,7 @@
 **PostHog Review** is the product name on every outward surface: GitHub comments, MCP tools, API docs, and UI prose.
 **Code review** is the name of the in-app page and its nav entry only.
 **ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
-The `posthog-review` label starts a review. The legacy `reviewhog` label still works as an alias.
+The `posthog-review` label starts a review.
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 
@@ -287,7 +287,7 @@ flowchart TD
 
 A Flash turn runs one of two designs, picked by the fetch activity (`select_review_design`, `reviewer/constants.py`).
 The **single-agent design** (`reviewhog-flash-2-3`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
-sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all returning `SingleAgentReview`:
+sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
 
 - **The main session** (`single_agent_review_activity`) reviews the whole PR. Its system prompt is `core.md` (the
   DevEx-owned rubric, adapted from OpenAI's Codex review rubric). A failed main session fails the turn.
@@ -301,6 +301,18 @@ sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all retur
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
+
+**Arm sets.** `SINGLE_AGENT_ARM_SETS` (`reviewer/constants.py`) names each set of arms the sessions can run on: one arm
+for the main session, one for every lens session. The `control` set runs every session on `SINGLE_AGENT_FLASH_ARM`
+(`gpt-6.1-sol` @ medium). The multivariate `reviewhog-single-agent-arms` flag, keyed by the PR like the splits in the
+push gate, picks a set by its variant; no variant, an unknown variant, an evaluation failure, or a coordinated PR gives
+`control`, so turning the flag off is the kill switch. The fetch activity records the name on `ReviewMeta.arm_set`, and
+every session of the turn reads it from `SandboxStageInput.arm_set`. A set's name keeps its meaning: another model or
+effort gets a new name. A session on another arm than the control arm whose agent fails runs once more on the control
+arm, so an outage of that model never costs the review. Each result is stamped with the arm that ran it, and dedup
+reads each session's result under its own arm, else the control arm. The started, completed, and failed events carry
+`single_agent_arm_set`; the completed event also counts `flash_arm_fallbacks`. Session cost is on `$ai_generation` by
+`$ai_model` and `ai_stage`.
 
 The fetch activity records the number of lens parts on `ReviewMeta.lens_chunk_count`; each lens activity rebuilds its
 part from the PR snapshot. The task prompt (`prompt.jinja`) carries the title, description, numbered diff, earlier
@@ -363,6 +375,18 @@ already has its Standard review, so only a Deep review runs on it again. A turn 
 everything would otherwise refill it. Pull requests split into two arms by a hash of the repository and number
 (`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on `reviewhog_review_completed` and
 `reviewhog_finding_outcome` splits the measurement.
+
+The same module counts review rounds (`ReviewRound`): the turns that published on the pull request before this one, by
+any mode and trigger, plus one. From round `ROUND_CAP` (3) on, a review that posts findings ends with a line that names
+the round and asks the author to reconsider the approach, because an author and a reviewer that fix one finding at a
+time loop, and most of what a late round flags was already there in the first. A clean turn carries no note. Every
+`reviewhog_review_completed` event carries `review_round`, so convergence (how many rounds a pull request takes before
+a clean turn) reads from the events.
+
+The first review that posts findings on a pull request ends with one more note (`first_review_note` in
+`backend/label_reviews.py`). It links the report in the PostHog Review UI (`report_deep_link`). On a Standard review,
+where comment commands run, it also offers `@posthog review --deep`. A label review leaves the command out, because
+its own footer already names it. Later reviews do not repeat the note: the published watermark is set after the first post.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
@@ -486,6 +510,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     The 👀 is a cue for people only. The per-head review state is review_hog's public read API, `facade/review_status.py::review_status_for_head` (contract `HeadReviewStatus` in `facade/contracts.py`, implemented by `head_review_status.py`). Stamphog cannot import it (ReviewHog depends on stamphog, never the reverse), so `receivers.connect()` registers `review_evidence_for_stamphog`, a thin adapter onto stamphog's `facade/review_evidence.py` registry, with the reviewer named "PostHog Review".
     It answers per head: pending while a request for the head waits in the queue (the queue workflow's `requested_heads` query) or a turn on the head runs, through its publish; completed with the kind, the valid findings count, the published flag, the merge base the diff was taken against and the skipped files (filtered files, files GitHub sent without a patch, and the files of every pipeline chunk that no review unit finished, because a turn completes when only some of its units fail); failed when the turn for the head failed; None for any other head or a repository no project owns.
     When a publishing turn ends, after publish or after the failure is recorded, `nudge_stamphog_activity` calls stamphog's `request_rereview_after_external_review` (behind the `reviewhog-nudge-stamphog-2026-10` patch, fail-open). Stamphog decides whether a WAIT at that head runs again.
+    After the completed or failed analytics event, the same activity calls every callback in `facade/finished_review_hooks.py` with the turn's outcome, the valid findings count and the review's deep link. The commands product registers one to post the result in the Slack thread that asked for the review. A product that depends on review_hog registers there instead of being imported, and a callback that raises is logged and never fails the turn.
     **Standard turns post no status comment** (the same patch): the 👀 shows the turn runs, and the outcome is the review, a 👍 on the PR when nothing is publishable, or one failure comment per head (`post_failure_comment`, hidden `reviewhog:failed` marker) posted by `fail_status_comment_activity`.
     A later publish with findings, in either mode, first removes the app's own 👍 (`remove_own_pr_reactions`, matched with `is_app_bot_author`). The 👍 does not come back: a clean turn adds it only while no turn of the PR published findings (`published_head_sha` unset).
     A clean Standard turn that a person asked for (`REQUESTED_TRIGGERS`: the label, a comment, the UI, or the CLI) also posts a one-line review that says it found nothing, because the 👍 is easy to miss next to other bots' reactions. It has a hidden `reviewhog:clean-reply:<report>:<head>` marker, so each head gets one reply, also when a workflow retry starts a new turn. A second request on the same head reuses the findings stored for that head (`load_perspective_results`), runs no sandbox and posts nothing new, because the first reply already answers it. Automatic and inbox turns keep only the 👍.
@@ -594,6 +619,9 @@ The agent returns JSON at the end of each turn; the caller validates it and ends
    failure `start` ends its own session and raises, so the helper logs and returns **`None`**. There is no
    `output_path` / `_error.txt` and no manual JSON extraction — persistence is the caller's job. The runner
    persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
+   Each task also gets an `origin_key` of `{random}:{workflow_id_prefix}` (the prefix holds `owner/repo:pr_number`),
+   which lands on `$ai_generation` as `task_origin_key` so review cost can be summed per PR.
+   The key caps at 128 characters: only the step text is cut, and an owner/repo too long to fit becomes a stable digest, so the PR number always survives.
 
 The perspective review (the blind-spot sweep rides the same activity) runs on a different model family than the
 rest — **OpenAI Codex `gpt-6.1-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
@@ -920,7 +948,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 4. Set the project rule (automatic Flash for everyone, for listed people, or opt-in only) and the bot rule.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`posthog-review` **label** (or the legacy `reviewhog` label) on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
+`posthog-review` **label** on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving, resolve-only, and **Flash** variants; Flash pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
@@ -939,7 +967,7 @@ The webhook handler reads only the cached ownership summary, so the task checks 
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
 The turn rechecks ownership and the rules before starting. Flash publishes every kept finding (it records `consider` as the turn's threshold) and never starts resolution.
 **No Flash after Full:** once a PR has a published Full review, automatic dispatch skips it (`full_review_published`), the turn's recheck refuses it, and a manual Flash request answers 409 `flash_after_full`.
-The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes by action through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`): `labeled` with the `posthog-review` or legacy `reviewhog` label queues `process_label_event`.
+The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes by action through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`): `labeled` with the `posthog-review` label queues `process_label_event`.
 That task finds the owning project and accepts a person or `stamphog[bot]` (Stamphog's hand-off) as the labeler; another bot's label gets an explaining comment, and the app token removes the label that the event named.
 The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; the workflow removes both labels when the run ends, and a running resolution leaves the label for a later retry.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_label_review_total`, keyed by outcome.
@@ -959,13 +987,17 @@ An explicit Full request remains pending during an active Flash turn and runs if
 Automatic pushes coalesce to the latest head; a rule change that stops the author's automatic review prevents pending automatic reviews from starting without canceling a running turn.
 `automatic_reviewed_head_sha` advances only after publication succeeds or finds nothing to publish, so a failed publication can retry and an empty review does not repeat.
 An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first runs the push gate (`reviewer/push_gate.py`) on the PR's own commits since that head.
-Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `reviewhog_commits_only` (the ReviewHog app authored every new commit, such as resolution fixes; this includes the PostHog app's commits on self-driving PRs, which share the app identity), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`), `draft` (the PR is a draft and no earlier rule skips the push), `next_push_likely` (the PR is not a draft, no earlier rule matched, and the chance of another automatic follow-up is at least `NEXT_PUSH_SKIP_AT`), and `throttled` (the PR spent its review budget).
+Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `reviewhog_commits_only` (the ReviewHog app authored every new commit, such as resolution fixes; this includes the PostHog app's commits on self-driving PRs, which share the app identity), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), `small_change` (the compare of the last reviewed head and the push head changes 1 to `SMALL_CHANGE_MAX_NET_CODE_LINES` code lines; a per-PR Redis counter allows `SMALL_CHANGE_MAX_DEFERRALS` deferrals in a row, then the next small push runs the review), `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`), `draft` (the PR is a draft and no earlier rule skips the push), `late_follow_up` (the push would start review number `LATE_FOLLOW_UP_RUN_INDEX` or a later one), `small_pr` (the PR has fewer than `SMALL_PR_REVIEWABLE_LINES_BELOW` reviewable lines, the size the lens parts use), `quiet_small_push` (the last review kept no finding and the push changes at most `QUIET_PUSH_MAX_OWN_CODE_LINES` own code lines; skipped pushes add up until one crosses the limit), `next_push_likely` (the PR is not a draft, no earlier rule matched, and the chance of another automatic follow-up is at least `NEXT_PUSH_SKIP_AT`), and `throttled` (the PR spent its review budget).
 The `draft` rule reads the draft state from the turn's own PR snapshot: every turn fetches the PR before the gate and the snapshot load is latest-wins, so a PR marked ready at an unchanged head reads as ready. A draft skip reads the PR from GitHub again after the gate's other reads: a PR marked ready while the turn runs sends a ready request that the queue drops, because it asks for the head the running turn gates. If the PR is ready by then, the gate uses the decision of the rules before `draft`. A failed read reviews the push. Only a PR marked ready between that read and the end of the turn keeps its changes unreviewed until the next trigger. A draft decision keeps the System One answer and `own_code_lines` of the rules that ran before it.
 The `throttled` rule keeps a token bucket per PR in Redis (`PUSH_BUDGET`): it holds two reviews and gets one back every 30 minutes. Only a push that every earlier rule lets through takes a token, so a draft push or a merge from the base costs nothing. A push that finds the bucket empty waits for the next trigger like any other skip. A Redis failure reviews the push. A head pays once: a turn that runs again at the same head, as an activity retry or a retried `review-pr` child, does not take a second token. A retry after a denial asks the bucket again, so it cannot get past the budget. The first review and human triggers never reach the gate, so they neither take nor need a token.
+Two per-PR splits run on top of these rules. Their flags are keyed like the coordinator flag, and a flag that is off puts every PR in the control arm.
+`reviewhog-zero-change-skip` adds the `zero_change` rule after `quiet_small_push`: the gate compares the stored single-agent PR snapshots of the last automatically reviewed head and this head (`ChangedSinceReview`), and a PR whose reviewed files did not change skips in the treatment arm. `merge_only` already skips a push whose whole PR diff is unchanged (a base merge, a rebase, an amend), so this rule catches pushes that change only files the review leaves out, such as generated files and snapshots. The snapshots leave lockfiles out too, so a PR with a lockfile at either head never matches, and neither does a PR with a file whose patch GitHub left out (`PRChange.comparable`). The control arm reviews the push and records the match, so it is the audit. A missing snapshot never matches. A skipped push does not move the baseline, so the next comparison covers it.
+`reviewhog-delta-band` lets a turn that passes every rule review only what changed: from run `DELTA_BAND_FIRST_RUN_INDEX` (3) on, with changed reviewable lines at most `DELTA_BAND_MAX_CHANGE_SHARE` (3%) of the PR's reviewable lines, no dependency file changed, and a comparison the snapshots show in full: no lockfile in the PR, no file without a patch, and no file that left the PR (`plan_delta_review`). The first follow-up always reviews the whole PR. A delta turn passes the baseline head to its sessions (`SandboxStageInput.delta_since_head_sha`), runs one session per lens, and each prompt shows only the changed files with the diff blocks around the changed lines (`delta_files`), plus the earlier findings, the full repository at the head, and the git command for the whole diff since the baseline, which also shows code the PR no longer changes. A gate failure, or a baseline snapshot that is gone when the prompt is built, gives the whole-PR prompt, also in each lens session.
+The gate event carries `pr_changed_lines`, both arms, `coordinator`, `delta_eligible` and `delta_review`; every completed event carries `zero_change_skip_arm`, `delta_band_arm` and `delta_review`, so each split compares by arm over PR lifecycles. A coordinated PR always records the control arm of the delta split, so a delta comparison leaves out gate events with `coordinator` set.
 The `next_push_likely` chance comes from a table fitted offline on closed PRs and refitted by hand. Its key is the follow-up number, capped at 8, and the PR size band (additions plus deletions: up to 200, up to 1000, more). A size cell with fewer than 10 PRs falls back to the chance for the follow-up number alone. The follow-up number is `run_index - 1`, so it also counts label and UI turns, which the fit left out.
-Each rule has a `SKIP_*` switch. `no_new_commits`, `reviewhog_commits_only`, `merge_only`, `draft`, and `throttled` skip; `docs_only`, System One, and `next_push_likely` (`SKIP_NEXT_PUSH`) only record a shadow decision until production data confirms them.
+Each rule has a `SKIP_*` switch. `no_new_commits`, `reviewhog_commits_only`, `merge_only`, `draft`, `late_follow_up`, `small_pr`, `quiet_small_push`, and `throttled` skip; the three value rules also take over a shadow match of an earlier rule, but never a gate failure, and they do not run on a retry of a turn that already finalized its head; `docs_only`, `small_change`, System One, and `next_push_likely` (`SKIP_NEXT_PUSH`) only record a shadow decision until production data confirms them.
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
-Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, the System One probability and model, `own_code_lines`, the lines the new own commits change in code files (empty when GitHub could not list every file of a commit), `pr_draft`, the draft state the gate used (null when the snapshot is unavailable), and `next_push_probability` (null on a draft and when the snapshot is unavailable; set on every other decision, also when another rule decided); the event key includes it and the reason, so a draft or throttle skip and a later review at the same head stay two events, so skip rules that weigh push size can be calibrated offline.
+Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, the System One probability and model, `own_code_lines`, the lines the new own commits change in code files (empty when GitHub could not list every file of a commit), `net_code_lines` and `small_change_deferrals` (empty when the gate did not read them), `pr_draft`, the draft state the gate used (null when the snapshot is unavailable), `reviewable_lines` and `previous_findings`, the inputs of the value rules (null when the gate could not read them), and `next_push_probability` (null on a draft and when the snapshot is unavailable; set on every other decision, also when another rule decided); the event key includes it and the reason, so a draft or throttle skip and a later review at the same head stay two events, so skip rules that weigh push size can be calibrated offline.
 The first automatic review and every label, UI, inbox, and manual trigger never reach the gate.
 An automatic review of a draft that posts findings ends with a note: it is the only automatic review while the PR is a draft, `@posthog review` (or the `posthog-review` label when `github-commands` is off) reviews new changes sooner, and marking the PR ready reviews them otherwise. Label and UI reviews leave the note out, because they also run for authors without automatic reviews.
 Reviews start only from a trigger (a push, the label, the UI, the inbox, or a manual run) and run right away.

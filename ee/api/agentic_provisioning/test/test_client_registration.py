@@ -12,7 +12,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.api.oauth.cimd import apply_provisioning_defaults
-from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER, ClientAssertionError
+from posthog.api.oauth.client_assertion import (
+    CLIENT_ASSERTION_TYPE_JWT_BEARER,
+    PRIVATE_KEY_REQUIRED_MESSAGE,
+    ClientAssertionError,
+)
 from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
@@ -47,7 +51,7 @@ class TestClientRegistration(ProvisioningTestBase):
         super().setUp()
         cache.clear()
 
-    def _document(self, *, com_posthog: object = _DECLARES_PROVISIONING) -> dict:
+    def _document(self, *, com_posthog: object = _DECLARES_PROVISIONING, signs: bool = True) -> dict:
         """The document a client wanting to register publishes. Passing com_posthog=None leaves
         the namespace out, which is the shape of a third party that never asked for any of
         this."""
@@ -57,9 +61,10 @@ class TestClientRegistration(ProvisioningTestBase):
             "redirect_uris": ["https://newpartner.example.com/callback"],
             "grant_types": ["authorization_code"],
             "response_types": ["code"],
-            "token_endpoint_auth_method": "private_key_jwt",
-            "jwks_uri": JWKS_URI,
+            "token_endpoint_auth_method": "private_key_jwt" if signs else "none",
         }
+        if signs:
+            document["jwks_uri"] = JWKS_URI
         if com_posthog is not None:
             document["com.posthog"] = com_posthog
         return document
@@ -157,10 +162,25 @@ class TestClientRegistration(ProvisioningTestBase):
         assert body["registered"] is True
         assert body["client_id"] == CIMD_URL
         assert body["token_endpoint_auth_method"] == "private_key_jwt"
-        assert body["capabilities"] == {"account_requests": True}
+        assert body["capabilities"] == {"account_requests": True, "unsigned_requests": False}
         checks = {check["name"]: check for check in body["checks"]}
         assert checks["jwks"]["ok"] is True
         assert KID in checks["jwks"]["detail"]
+
+    @parameterized.expand([("already_a_partner", True), ("promoted_by_this_registration", False)])
+    def test_reports_that_a_partner_without_a_key_must_sign(self, _name: str, already_a_partner: bool) -> None:
+        self._make_partner(
+            client_type=OAuthApplication.CLIENT_PUBLIC, jwks_uri=None, is_provisioning_partner=already_a_partner
+        )
+
+        res = self._register({"client_id": CIMD_URL}, document=self._document(signs=False))
+
+        assert res.status_code == 200, res.json()
+        body = res.json()
+        assert body["token_endpoint_auth_method"] == "none"
+        jwks = {check["name"]: check for check in body["checks"]}["jwks"]
+        assert jwks == {"name": "jwks", "ok": False, "detail": PRIVATE_KEY_REQUIRED_MESSAGE}
+        assert body["capabilities"] == {"account_requests": False, "unsigned_requests": False}
 
     def test_brand_new_partner_is_confidential_on_its_first_registration(self):
         # No pre-existing row: this is the client_id's first ever contact with PostHog, so the

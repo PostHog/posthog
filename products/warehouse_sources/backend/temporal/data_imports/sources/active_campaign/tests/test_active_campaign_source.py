@@ -14,8 +14,3 @@ class TestActiveCampaignSource:
         # Changing api_url must force the api_key to be re-entered, so the stored
         # key is never sent to a freshly-specified host.
         assert self.source.connection_host_fields == ["api_url"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "contacts"

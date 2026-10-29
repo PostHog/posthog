@@ -47,7 +47,7 @@ class BasetenSource(ResumableSource[BasetenSourceConfig, BasetenResumeConfig]):
             name=ExternalDataSourceType.BASETEN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Baseten",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             unreleasedSource=True,
             caption="""Enter your Baseten API key to sync your Baseten workspace data into the PostHog Data warehouse.
 

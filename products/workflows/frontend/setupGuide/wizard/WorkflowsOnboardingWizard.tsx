@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { CustomerIOImportModal } from '../../OptOuts/CustomerIOImportModal'
 import { OptOutCategories } from '../../OptOuts/OptOutCategories'
@@ -16,6 +19,8 @@ import { WizardConnectStep } from './WizardConnectStep'
 import { WizardCreateStep } from './WizardCreateStep'
 import { WizardDomainStep } from './WizardDomainStep'
 import { WizardPushStep } from './WizardPushStep'
+import { WizardReachStep } from './WizardReachStep'
+import { WizardSendingRulesStep } from './WizardSendingRulesStep'
 import { WizardTemplateStep } from './WizardTemplateStep'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
@@ -99,8 +104,25 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
             <div>
                 <h2 className="mb-1 text-xl font-bold">{copy.title}</h2>
                 <p className="mb-0 text-secondary">{suggestionsFirst ? SUGGESTIONS_DESCRIPTION : copy.description}</p>
+                {currentStep === 'journey' && (
+                    <div className="mt-1 text-secondary">
+                        Sending one email to a list of people?{' '}
+                        <Link
+                            to={urls.broadcastNew()}
+                            onClick={() => {
+                                // pinned: analytics event name - renaming breaks dashboards
+                                posthog.capture('workflows onboarding wizard broadcast clicked')
+                            }}
+                            data-attr="workflows-onboarding-wizard-broadcast"
+                        >
+                            Create a broadcast instead
+                        </Link>
+                        .
+                    </div>
+                )}
             </div>
             <LemonCard hoverEffect={false} className="p-6">
+                {currentStep === 'reach' && <WizardReachStep />}
                 {currentStep === 'channel' && <WizardChannelStep />}
                 {currentStep === 'domain' && <WizardDomainStep />}
                 {currentStep === 'opt-outs' && (
@@ -109,6 +131,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                         <CustomerIOImportModal />
                     </>
                 )}
+                {currentStep === 'sending-rules' && <WizardSendingRulesStep />}
                 {currentStep === 'push' && <WizardPushStep />}
                 {(currentStep === 'journey' || currentStep === 'template') && <WizardTemplateStep />}
                 {currentStep === 'connect' && <WizardConnectStep />}

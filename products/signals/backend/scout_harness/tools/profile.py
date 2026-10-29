@@ -8,6 +8,8 @@ so a fresh scout doesn't burn 4-5 orientation tool calls on `inbox-source-config
 team, or builds a fresh one on cache miss. A read-only caller gets the newest row of any age
 instead, marked `stale` when it is past `expires_at`. `compute_project_profile` is the explicit
 build path. The cache-miss branch and the `build_signal_project_profile` Celery task call it.
+A read does not run the slow surface queries: it copies the recent stored `surfaces` answers
+and queues the Celery task, which runs them through `refresh_project_profile_surfaces`.
 
 Profile is *deterministic ground truth* (computed from authoritative tables). Distinct
 from `SignalScratchpad`, which is the *scout's inferred learnings* (TTL'd, possibly wrong).
@@ -17,7 +19,8 @@ Profile feeds the scratchpad; the scratchpad does not update profile.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
+from functools import partial
 from typing import Any
 
 from django.db import connection, transaction
@@ -27,7 +30,14 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import SignalProjectProfile
-from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
+from products.signals.backend.scout_harness.profile import (
+    INVENTORY_SOURCE_VERSION,
+    Inventory,
+    build_inventory,
+    build_surfaces,
+    deferred_surfaces,
+)
+from products.signals.backend.tasks import enqueue_project_profile_build
 
 # Soft cache TTL — `get_project_profile` recomputes when the newest row is older than this.
 # A scout run reads the profile at start, so a team whose scouts run more often than this
@@ -38,6 +48,9 @@ from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERS
 # Callers that *know* the underlying data just changed can bypass the cache via
 # `get_project_profile(..., force_refresh=True)`.
 PROFILE_TTL = timedelta(hours=1)
+# How old a stored surface answer can be and still go into a new row. Twice the TTL keeps
+# answers across back-to-back hourly rows, and drops the answers a daily scout would read.
+SURFACES_COPY_MAX_AGE = 2 * PROFILE_TTL
 
 # Keep the last N profiles per team. The table is append-only on cache miss; without
 # pruning a single active team accumulates indefinitely. N=10 keeps some history for
@@ -129,14 +142,17 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False, lazy_build
         # build a fresh one, and an old snapshot still orients better than a 404.
         cached = _latest_profile(team_id=team_id, include_expired=not lazy_build)
         if cached is not None:
+            # Queue the surface queries again when an earlier background build did not land.
+            if lazy_build and not _surfaces_evaluated_since(cached, timezone.now() - PROFILE_TTL):
+                enqueue_project_profile_build(team_id)
             return _to_dataclass(cached)
         if not lazy_build:
             return None
     team = Team.objects.get(id=team_id)
-    return compute_project_profile(team=team, force=force_refresh)
+    return compute_project_profile(team=team, force=force_refresh, defer_surfaces=True)
 
 
-def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfile:
+def compute_project_profile(*, team: Team, force: bool = False, defer_surfaces: bool = False) -> ProjectProfile:
     """Build a new profile from authoritative sources and persist it.
 
     Currently writes the inventory layer only. The row is the cache for the next
@@ -156,6 +172,12 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
     a fresh row exists. The lock still serializes concurrent forced rebuilds, so the
     cost is at most one duplicate `build_inventory` per simultaneous force request —
     bounded and only paid by callers who knowingly opted into it.
+
+    The surface queries can take up to `SURFACES_TIME_BUDGET_S`. They run before the
+    transaction, so the advisory lock and the Postgres connection are not held during them.
+    `defer_surfaces=True` skips them: the row copies the stored answers from the last
+    `SURFACES_COPY_MAX_AGE`, and a queued `build_signal_project_profile` adds fresh ones. A forced
+    build queues that task even inside the dedupe window, because its caller expects new data.
     """
     # Canonicalize: `RootTeamMixin.save()` stores the row under the root team, so the
     # advisory lock, post-lock cache re-check, and prune must all key on the canonical
@@ -164,6 +186,7 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
     parent_team = team.parent_team
     if parent_team is not None:
         team = parent_team
+    surfaces = None if defer_surfaces else build_surfaces(team)
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_PROFILE_LOCK_NAMESPACE, team.id])
@@ -172,17 +195,71 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
             existing = _latest_profile(team_id=team.id)
             if existing is not None:
                 return _to_dataclass(existing)
-        payload: dict[str, Any] = {"inventory": build_inventory(team).model_dump(mode="json")}
-        now = timezone.now()
-        # `.unscoped()` to match the reads above — off-request builds have no ambient team.
-        row = SignalProjectProfile.objects.unscoped().create(
-            team=team,
-            expires_at=now + PROFILE_TTL,
-            source_version=INVENTORY_SOURCE_VERSION,
-            payload=payload,
-        )
-        _prune_stale_profiles(team_id=team.id)
+        if defer_surfaces:
+            surfaces = deferred_surfaces(
+                team, _stored_surfaces(team_id=team.id), answered_since=timezone.now() - SURFACES_COPY_MAX_AGE
+            )
+            transaction.on_commit(partial(enqueue_project_profile_build, team.id, dedupe=not force))
+        row = _persist_profile(team, surfaces)
     return _to_dataclass(row)
+
+
+def refresh_project_profile_surfaces(*, team_id: int) -> None:
+    """Run the surface queries and store them on the team's fresh profile.
+
+    The fresh row keeps its other sections and its `expires_at`, so a refresh does not repeat
+    the inventory build that the read just did. With no fresh row, this builds a full profile.
+    It does nothing when the fresh row's surfaces were evaluated after the row was written, so
+    a queued duplicate does not repeat the queries.
+    """
+    team = Team.objects.get(id=resolve_effective_team_id(team_id))
+    latest = _latest_profile(team_id=team.id)
+    if latest is not None and _surfaces_evaluated_since(latest, latest.computed_at):
+        return
+    surfaces = build_surfaces(team)
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_PROFILE_LOCK_NAMESPACE, team.id])
+        latest = _latest_profile(team_id=team.id)
+        if latest is None:
+            _persist_profile(team, surfaces)
+            return
+        inventory = {**(latest.payload or {}).get("inventory", {}), "surfaces": surfaces}
+        latest.payload = {
+            **(latest.payload or {}),
+            "inventory": Inventory.model_validate(inventory).model_dump(mode="json"),
+        }
+        latest.save(update_fields=["payload"])
+
+
+def _persist_profile(team: Team, surfaces: dict[str, dict[str, Any]] | None) -> SignalProjectProfile:
+    """Build the inventory, write it as a new row, and prune. The caller holds the advisory lock."""
+    payload: dict[str, Any] = {"inventory": build_inventory(team, surfaces=surfaces).model_dump(mode="json")}
+    now = timezone.now()
+    # `.unscoped()` to match the reads above — off-request builds have no ambient team.
+    row = SignalProjectProfile.objects.unscoped().create(
+        team=team,
+        expires_at=now + PROFILE_TTL,
+        source_version=INVENTORY_SOURCE_VERSION,
+        payload=payload,
+    )
+    _prune_stale_profiles(team_id=team.id)
+    return row
+
+
+def _surfaces_evaluated_since(row: SignalProjectProfile, since: datetime) -> bool:
+    """True when no surface entry is `deferred` and the newest evaluation is at or after `since`.
+
+    A row whose queries all failed has no evaluation time. It counts as current until it
+    expires, because `deferred_surfaces` does not copy failures, so the next row retries them.
+    """
+    surfaces = ((row.payload or {}).get("inventory") or {}).get("surfaces") or {}
+    if any(entry.get("source") == "deferred" for entry in surfaces.values()):
+        return False
+    evaluated = [
+        datetime.fromisoformat(entry["evaluated_at"]) for entry in surfaces.values() if entry.get("evaluated_at")
+    ]
+    return not evaluated or max(evaluated) >= since
 
 
 def _prune_stale_profiles(*, team_id: int) -> int:
@@ -205,6 +282,14 @@ def _prune_stale_profiles(*, team_id: int) -> int:
     )
     deleted, _ = SignalProjectProfile.objects.unscoped().filter(team_id=team_id).exclude(id__in=keep_ids).delete()
     return deleted
+
+
+def _stored_surfaces(*, team_id: int) -> dict[str, dict[str, Any]]:
+    """The `surfaces` section of the newest row on the current schema, whatever its age."""
+    row = _latest_profile(team_id=team_id, include_expired=True)
+    if row is None:
+        return {}
+    return (row.payload or {}).get("inventory", {}).get("surfaces") or {}
 
 
 def _latest_profile(*, team_id: int, include_expired: bool = False) -> SignalProjectProfile | None:

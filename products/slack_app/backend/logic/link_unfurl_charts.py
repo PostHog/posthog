@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -39,6 +40,9 @@ _MAX_ALT_TEXT_CHARS = 2000
 _DEBUG_PLACEHOLDER_IMAGE_URL = (
     "https://raw.githubusercontent.com/PostHog/posthog/master/frontend/public/icons/android-chrome-512x512.png"
 )
+# Slack fetches image_url again after the unfurl is posted, so the token must outlive the post.
+UNFURL_IMAGE_URL_TTL = timedelta(days=30)
+UNFURL_IMAGE_ASSET_TTL = timedelta(days=31)
 # Slack errors that a later attempt can fix. Any other error means Slack rejects the payload itself.
 _TRANSIENT_SLACK_ERRORS = frozenset(
     {"ratelimited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"}
@@ -58,7 +62,12 @@ def chat_unfurl_kwargs(
     return kwargs
 
 
-def _has_project_access(user: User, team: Team) -> bool:
+def slack_fetchable_image_url(url: str) -> str:
+    local = settings.DEBUG and urlparse(url).hostname in ("localhost", "127.0.0.1")
+    return _DEBUG_PLACEHOLDER_IMAGE_URL if local else url
+
+
+def has_project_access(user: User, team: Team) -> bool:
     # The insight check alone is not enough, because it can fall back to the default access level
     # in a project that denies the user. The webhook checks project access the same way.
     return user.is_active and UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
@@ -74,7 +83,7 @@ class UnfurlChartTargets:
 def unfurl_chart_targets(inputs: SlackAppUnfurlChartsWorkflowInputs) -> UnfurlChartTargets:
     team = Team.objects.get(id=inputs.team_id)
     user = User.objects.get(id=inputs.user_id)
-    if not _has_project_access(user, team):
+    if not has_project_access(user, team):
         return UnfurlChartTargets(team=team, user=user, charts=[])
     # Two links to the same chart in one message share one render.
     unique: dict[str, SlackUnfurlChartRequest] = {}
@@ -131,7 +140,7 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_key
     elif not team.organization.allow_publicly_shared_resources:
         # The image url opens without a PostHog login.
         failure_reason = "public_sharing_disabled"
-    elif not _has_project_access(user, team):
+    elif not has_project_access(user, team):
         failure_reason = "no_project_access"
     else:
         # Checked again because the sharer's access can change while the chart renders.
@@ -144,7 +153,7 @@ def post_unfurl_charts(post: SlackAppUnfurlChartsPostInput, *, image_urls_by_key
             if key not in allowed:
                 allowed[key] = _can_view_chart(team, user, chart, access)
             if allowed[key]:
-                image_urls[chart.url] = _DEBUG_PLACEHOLDER_IMAGE_URL if settings.DEBUG else image_urls_by_key[key]
+                image_urls[chart.url] = slack_fetchable_image_url(image_urls_by_key[key])
 
     adhoc_urls = {chart.url for chart in request.charts if chart.query is not None}
     if image_urls:

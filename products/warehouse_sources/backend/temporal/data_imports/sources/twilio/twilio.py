@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -57,7 +59,7 @@ TWILIO_ACCOUNT_NOT_FOUND_MESSAGE = (
     "dashboard. It starts with AC."
 )
 TWILIO_MAIN_KEY_REQUIRED_MESSAGE = (
-    "Twilio's Keys resource needs your Auth Token or a Main API key. Standard and Restricted API keys cannot read it."
+    "This Twilio table needs your Auth Token or a Main API key. Standard and Restricted API keys cannot read it."
 )
 # The schema picker interpolates a reason into its own sentence ("Source credentials cannot read this
 # table: {reason}. Grant the missing scope..."), so this has to be a fragment rather than the sentence
@@ -157,6 +159,13 @@ def _build_initial_params(
             )
 
     return params
+
+
+def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def drop(row: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in row.items() if key not in fields}
+
+    return drop
 
 
 def _build_resource_path(config: TwilioEndpointConfig, account_sid: str) -> str:
@@ -261,6 +270,17 @@ def twilio_source(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
+    resource_config: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": _build_resource_path(config, account_sid),
+            "params": params,
+            "data_selector": config.response_key,
+        },
+    }
+    if config.excluded_fields:
+        resource_config["data_map"] = _drop_fields(config.excluded_fields)
+
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": config.base_url,
@@ -269,16 +289,7 @@ def twilio_source(
             "paginator": TwilioNextPageUriPaginator(),
         },
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": _build_resource_path(config, account_sid),
-                    "params": params,
-                    "data_selector": config.response_key,
-                },
-            }
-        ],
+        "resources": [resource_config],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

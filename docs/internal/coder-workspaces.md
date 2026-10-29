@@ -103,13 +103,14 @@ Clear specific saved settings with `devbox:config:rm`:
 ```bash
 hogli devbox:config:rm git-identity   # clear saved Git name/email
 hogli devbox:config:rm git-signing    # remove Git signing key from Coder user secrets
-hogli devbox:config:rm dotfiles       # clear dotfiles URI (also pushes empty parameter to existing workspaces)
+hogli devbox:config:rm dotfiles       # clear dotfiles URI for new workspaces
 hogli devbox:config:rm claude         # remove Claude OAuth token from Coder user secrets
 hogli devbox:config:rm region          # clear saved region preference (new workspaces use the built-in default)
 hogli devbox:config:rm --all          # clear everything
 ```
 
-Clearing dotfiles also pushes an empty `dotfiles_uri` parameter to all existing workspaces so they stop re-cloning the old repo on next boot.
+Saved settings apply to workspaces hogli creates.
+The Coder CLI keeps a parameter's last-build value even when hogli passes a new one, so to change a setting on an existing workspace, edit its parameters in the Coder dashboard.
 
 ## Available commands
 
@@ -117,7 +118,11 @@ Run `hogli devbox` to see all available commands, and `hogli <command> --help` f
 
 Region selection is available for `devbox:start` via `--region` (`us-east-1` or `eu-central-1`, default `us-east-1`). The region is set once at creation and cannot be changed. Workspaces in `eu-central-1` get an `-eu` name suffix (e.g. `devbox-alice-eu`). `devbox:list` and `devbox:status` show which region a workspace is in.
 
-`devbox:start --start-app` opts a workspace into bringing the PostHog app up (`hogli up`) in the background on every start — useful for scripted, ephemeral devboxes that should be usable without an interactive `hogli up`. The setting is stored as a mutable workspace parameter (`auto_start_app`), so it stays in effect for future starts until flipped with `--no-start-app`. The flag is applied at creation or when starting a stopped devbox; on a running or transitioning devbox it is not applied (hogli prints a note) — re-run it once the devbox is stopped. Requires a template version that defines the parameter; on older templates hogli drops it with a warning.
+`devbox:start --start-app` opts a workspace into bringing the PostHog app up (`hogli up`) in the background on every start — useful for scripted, ephemeral devboxes that should be usable without an interactive `hogli up`. The setting is stored as a workspace parameter (`auto_start_app`), so it stays in effect for future starts. The flag applies only when hogli creates the devbox; on an existing devbox hogli refuses it, and the parameter can be changed in the Coder dashboard. Requires a template version that defines the parameter; on older templates hogli drops it with a warning.
+
+When a build fails with `InsufficientInstanceCapacity`, AWS has no free capacity for the box's instance type in its availability zone.
+`devbox:start`, `devbox:restart` and `devbox:update` then start the box on the template's other instance types in turn, through the Coder build API, because the Coder CLI keeps a parameter's last-build value.
+The template changes the type of the same instance, so the disk stays, and the box keeps the type that started.
 
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.

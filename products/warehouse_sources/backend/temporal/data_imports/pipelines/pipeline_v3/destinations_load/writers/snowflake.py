@@ -8,11 +8,11 @@ their own typed errors.
 
 Two pieces of batch exports are deliberately not reused:
 
-- The Arrow to Snowflake type mapping behind `SnowflakeField.from_arrow_field`. Its vocabulary
-  has no `DATE`, `TIME` or `NUMBER(p, s)` and it raises on anything else, which is fine for
-  events and persons but would silently turn a source date column into a timestamp and a
-  decimal into a float. The DDL here keeps those types. The table handed to the shared stage
-  helpers carries the Arrow types instead, which is all those helpers read.
+- The Arrow to Snowflake type mapping behind `SnowflakeField.from_arrow_field`. It has no
+  `TIME`, writes every timestamp as `TIMESTAMP` whatever its time zone, and raises on structs
+  and maps. That is fine for events and persons but not for an arbitrary source table. The DDL
+  here keeps those types. The table handed to the shared stage helpers carries the Arrow types
+  instead, which is all those helpers read.
 - `merge_into_final_from_stage`, which needs a version key to decide what to update. A synced
   source table has no monotonic column, so the merge below matches on primary keys alone.
 
@@ -90,6 +90,10 @@ DATABASE_SCHEMA_DETAIL = (
     "The Snowflake database or schema does not exist or the role cannot use it. "
     "Check the database and schema and grant the role access, then run the sync again."
 )
+ACCOUNT_SUSPENDED_DETAIL = (
+    "The Snowflake account is suspended, usually for a missing payment method. "
+    "Resolve it with Snowflake, then run the sync again."
+)
 
 
 def _configuration_error_detail(err: Exception) -> str | None:
@@ -108,6 +112,8 @@ def _configuration_error_detail(err: Exception) -> str | None:
             return PRIVILEGES_DETAIL
         if err.errno == 2043:
             return DATABASE_SCHEMA_DETAIL
+        if err.errno == 666:
+            return ACCOUNT_SUSPENDED_DETAIL
     return None
 
 
@@ -202,8 +208,8 @@ def _stage_table(table: str, schema: pa.Schema, stage_prefix: str) -> SnowflakeT
     `remove_internal_stage_files`, `put_file_to_snowflake_table_stage` and
     `copy_loaded_files_to_snowflake_table` read a table's name, its stage prefix, and each
     field's name and Arrow type. They never read the Snowflake type, which is why the column
-    types this writer maps (`DATE`, `TIME`, `NUMBER(p, s)`) can stay out of a vocabulary that
-    has no room for them, and why the placeholder passed in their place is safe.
+    types this writer maps can differ from batch exports' own mapping, and why the placeholder
+    passed in their place is safe.
     """
     _assert_safe_identifier(table, "table name")
     fields = [

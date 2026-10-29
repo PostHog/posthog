@@ -40,11 +40,16 @@ from products.slack_app.backend.temporal.activities.task_creation import (
     create_posthog_code_task_for_repo_activity,
     derive_mention_workflow_id,
     forward_posthog_code_followup_activity,
+    posthog_code_thread_has_task_activity,
 )
 from products.slack_app.backend.temporal.activities.thread import collect_posthog_code_thread_messages_activity
 from products.slack_app.backend.temporal.activities.unfurl_charts import (
     post_slack_unfurl_charts_activity,
     prepare_slack_unfurl_charts_activity,
+)
+from products.slack_app.backend.temporal.activities.untagged_question import (
+    classify_untagged_question_activity,
+    request_untagged_question_confirmation_activity,
 )
 from products.slack_app.backend.temporal.activities.user_resolution import (
     resolve_posthog_code_slack_command_user_activity,
@@ -63,7 +68,9 @@ __all__ = [
     "classify_slack_app_project_route",
     "classify_slack_app_project_route_activity",
     "classify_task_needs_repo",
+    "classify_untagged_question_activity",
     "classify_untagged_followup_activity",
+    "request_untagged_question_confirmation_activity",
     "collect_posthog_code_thread_messages_activity",
     "create_posthog_code_routing_rule_activity",
     "create_posthog_code_task_for_repo_activity",
@@ -71,6 +78,7 @@ __all__ = [
     "discover_posthog_code_repository_via_agent_activity",
     "enforce_posthog_code_billing_quota_activity",
     "forward_posthog_code_followup_activity",
+    "posthog_code_thread_has_task_activity",
     "handle_posthog_code_slack_mention_command_activity",
     "mark_slack_app_message_processing_activity",
     "mark_slack_app_message_queued_activity",

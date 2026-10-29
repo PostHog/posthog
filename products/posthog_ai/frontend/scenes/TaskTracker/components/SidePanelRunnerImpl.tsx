@@ -1,18 +1,20 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { ReactNode, useRef } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { cn } from 'lib/utils/css-classes'
 
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import type { ComposerOverride } from '../../../logics/composerOverrideLogic'
 import type { AttachedContextItem } from '../../../types/contextTypes'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'
 import { TaskComposer } from './TaskComposer'
-import { TaskHistoryList, TaskHistoryPreview } from './TaskHistory'
+import { TaskHistoryPanel, TaskHistoryPreview } from './TaskHistory'
 import { TaskRunChat } from './TaskRunChat'
 
 export interface SidePanelRunnerImplProps {
@@ -66,14 +68,18 @@ function SidePanelRunnerContent({
         historyExpanded,
         effectiveComposerOverride: composerOverride,
     } = useValues(taskTrackerSceneLogic)
-    const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
+    const { updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
     const startupFocusedRef = useRef(false)
+    // The quill host draws its own frame and header divider, and its thread carries no outer margin.
+    const lemonChrome = useThreadSkin() === 'lemon'
 
     // This compact surface renders only in Max's side panel, so the run it shows is a foreground
-    // stream. Register its `streamKey` (cleared when the panel drops back to the composer/history, and
-    // re-pointed when it switches runs). The `/tasks` full-page run view registers its own entry via
-    // `TaskRunChat`; registrations are provider-keyed, so co-mounted surfaces don't clobber each other.
-    useForegroundStream(activeCreation?.streamKey ?? null)
+    // stream. Register the startup stream here; once a run exists, `TaskRunChat` registers the key it
+    // resolves, which can be a retained alias. Registrations are provider-keyed, so co-mounted surfaces
+    // don't clobber each other.
+    useForegroundStream(
+        activeCreation && !(activeCreation.taskId && activeCreation.runId) ? activeCreation.streamKey : null
+    )
 
     // Edit-capable hosts attach this before the first send, before a run exists. Question-only
     // hosts provide their own instructions instead of advertising edits to the open page.
@@ -83,18 +89,7 @@ function SidePanelRunnerContent({
     // panel state is shared across hosts — so an expanded history left behind by another one must not
     // take the place of that composer.
     if (!activeCreation && historyExpanded && !composer) {
-        return (
-            <div className="flex flex-col h-full min-h-0">
-                <div className="flex items-center shrink-0 border-b border-primary px-2 py-1">
-                    <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => toggleHistory()}>
-                        Back
-                    </LemonButton>
-                </div>
-                <div className="flex-1 min-h-0 overflow-y-auto px-4 py-2">
-                    <TaskHistoryList />
-                </div>
-            </div>
-        )
+        return <TaskHistoryPanel />
     }
 
     if (!activeCreation) {
@@ -117,12 +112,12 @@ function SidePanelRunnerContent({
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <LemonDivider className="my-0" />
+            {lemonChrome && <LemonDivider className="my-0" />}
             {activeCreation.taskId && activeCreation.runId ? (
                 // `TaskRunChat`'s inner container compensates for the `/tasks` scene's own horizontal margin
                 // with `-mx-4`; a `px-4` wrapper here neutralizes that bleed instead of editing the shared
                 // component, so it renders flush with the panel edge like the composer and pending states.
-                <div className="flex-1 min-h-0 px-4">
+                <div className={cn('flex-1 min-h-0', lemonChrome && 'px-4')}>
                     <TaskRunChat
                         taskId={activeCreation.taskId}
                         runId={activeCreation.runId}

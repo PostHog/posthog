@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -57,6 +58,13 @@ class PlannedBranch(BaseModel):
     label: str = Field(description="Short name of this path, like 'Finished onboarding' or 'Group A'.")
     percentage: int | None = Field(description="For a random_split: this path's share in percent, else null.")
     next: str | None = Field(description="The id of the first step on this path, or null to end the workflow.")
+    person_property: str | None = Field(
+        description="For a conditional_branch: the person property from person_properties this path checks, else null."
+    )
+    property_value: str | None = Field(
+        description="For a conditional_branch: the value of person_property that sends a person down this path, "
+        "copied exactly from person_properties, else null."
+    )
 
 
 class PlannedStep(BaseModel):
@@ -95,6 +103,12 @@ class PlannedStep(BaseModel):
     email_paragraphs: list[str] | None = Field(
         description="For an email step without a saved template: 1 to 3 short paragraphs of body copy."
     )
+    push_title: str | None = Field(
+        description="For a push step: the notification title, at most 50 characters, else null."
+    )
+    push_body: str | None = Field(
+        description="For a push step: one short sentence under the title, at most 120 characters, else null."
+    )
     slack_message: str | None = Field(description="For a slack step: the message to post, else null.")
 
 
@@ -109,6 +123,9 @@ class IdeaContext:
     stages: dict[str, LifecycleStage]
     channels: frozenset[Channel]
     has_slack: bool
+    # The team picked these events itself, so each one gets an email workflow instead of the best few.
+    picked_events: bool = False
+    mobile_first: bool = False
 
 
 @frozen
@@ -119,6 +136,12 @@ class StepsContext:
     events: tuple[str, ...]
     channels: frozenset[Channel]
     has_slack: bool
+    picked_events: bool = False
+    # The trigger event's own properties, like a product name or an amount, that an email can show.
+    event_properties: tuple[str, ...] = ()
+    # Person properties with few values, like a plan or a status, that a branch can split on.
+    person_properties: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
+    mobile_first: bool = False
 
 
 _SIMPLE_RULE = (
@@ -132,16 +155,38 @@ _ONBOARDING_RULE = (
     "even when other events fire more often. Then prefer other meaningful moments."
 )
 
+_REVENUE_RULE = (
+    "Prefer moments where a message earns or saves money: a trial that ends soon, a cart or checkout left "
+    "unfinished, a failed payment, a cancellation or pause to win back, and a sign-up that has not reached its "
+    "first key action. Prefer them over thank-you, feedback and review requests. Prefer events that happen every "
+    "week over rare ones, so the workflow keeps sending."
+)
+
 _COPY_RULES = "Write plain, friendly copy in sentence case. No emojis, no em dashes, no placeholders like [Name], no template tags."
 
+_SUGGEST_TASK = (
+    "Suggest up to 6 workflows the project does not have yet. Each one starts when one of the project's events happens."
+)
+
+_PICKED_EVENTS_TASK = (
+    "The team was about to send these events to an email tool. Suggest one email workflow for each event, "
+    "so the team can send those emails from PostHog instead."
+)
+
+_SUGGEST_FOCUS = f"- {_ONBOARDING_RULE}\n- {_REVENUE_RULE}"
+
+# The team already picked the events, so there is nothing left to rank.
+_PICKED_EVENTS_FOCUS = "- Each workflow sends at least one email."
+
 _IDEAS_PROMPT = f"""You suggest marketing and automation workflows for a product team using PostHog Workflows.
-Suggest up to 6 workflows the project does not have yet. Each one starts when one of the project's events happens.
+{{task}}
 
 Rules:
 - trigger_event must be copied exactly from the event list.
-- {_ONBOARDING_RULE}
+{{focus_rules}}
 - Each idea must use a different trigger_event.
-- Email is the main way to reach people. {{channel_rule}} {{slack_rule}}
+- List the ideas best first. Within one lifecycle stage only the first idea is shown.
+- {{channel_rule}} {{slack_rule}}
 - Use the steps the workflow needs, including waits for an event and branches. {_SIMPLE_RULE}
 - Put a delay between two emails.
 - {_COPY_RULES}
@@ -151,21 +196,31 @@ _STEPS_PROMPT = f"""You plan the steps of one PostHog workflow. The workflow and
 Follow the outline unless a step cannot work. Use at most {{max_steps}} steps, as many as the workflow needs.
 
 Step types:
-- email: a message to the person, and the main channel. Write the copy.
-- sms, push: a message to the person, only when the team has that provider connected.
+- email: a message to the person. Write the copy.
+- push: a notification on the person's phone. Write push_title and push_body.
+- sms: a text message to the person. The team adds the message.
 - slack: a message to the team's Slack channel. Write the message.
 - function: any step from the step catalog, such as a webhook, a CRM update or a PostHog action. Set template_id.
 - delay: wait a fixed time.
 - wait_until_time_window: wait for a time of day or day of the week the team picks.
 - wait_until_event: wait until the person does one of the project's events, at most duration.
-- conditional_branch: split on conditions the team defines, such as a person property.
+- conditional_branch: split on the value of a person property from person_properties. It cannot check what the \
+person did.
 - random_split: split people at random into paths, such as for an A/B test.
 - exit: end the workflow early with a reason.
 
 Rules:
 - Steps form a graph: next, branches and wait_event_next point at step ids. Never point back at an earlier step.
-- Leave settings you cannot know blank: API keys, URLs, channels, phone numbers, property filters and \
-recipients. The team fills them in. Say what is left in setup_note.
+- Leave settings you cannot know blank: API keys, URLs, channels, phone numbers and recipients. The team fills them in. Say what is left in setup_note.
+- A wait_until_event step waits for the event that shows the workflow reached its goal for this person, like a \
+successful payment after a failed one, or an order after an abandoned cart. Use it only when an event in the list \
+clearly means that. Another event of the same kind is not enough: a paid invoice from the person's own customer is not \
+their subscription payment. When no event means it, use a delay instead.
+- To check whether the person did something, like started a chat or placed an order, wait for that event with a \
+wait_until_event step. Never use a delay followed by a conditional_branch for it, which the team would have to set up.
+- {{branch_rule}}
+- {{personalization_rule}}
+- Never promise a discount, offer or gift. The team adds one if it has one.
 - {{email_rule}}
 - {{channel_rule}}
 - {{slack_rule}}
@@ -188,9 +243,15 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext, analytics_cli
         user=user,
         model=IDEAS_MODEL,
         effort="low",
-        feature="data_suggestion_ideas",
+        # A separate feature name keeps the destination build's model spend apart from the cards' in LLM analytics.
+        feature="destination_workflow_ideas" if context.picked_events else "data_suggestion_ideas",
         schema=WorkflowIdeas,
-        system=_IDEAS_PROMPT.format(channel_rule=_channel_rule(context.channels), slack_rule=slack_rule),
+        system=_IDEAS_PROMPT.format(
+            task=_PICKED_EVENTS_TASK if context.picked_events else _SUGGEST_TASK,
+            focus_rules=_PICKED_EVENTS_FOCUS if context.picked_events else _SUGGEST_FOCUS,
+            channel_rule=_channel_rule(context.channels, context.mobile_first),
+            slack_rule=slack_rule,
+        ),
         excluded_values=_missing_channels(context.channels),
         # The prompt escapes `<` and `>` in event names, so the schema carries the exact names the model must return.
         allowed_values={"trigger_event": [name for name, _ in context.events]},
@@ -204,10 +265,18 @@ def _missing_channels(channels: frozenset[Channel]) -> frozenset[str]:
     return frozenset({"sms", "push"} - channels)
 
 
-def _channel_rule(channels: frozenset[Channel]) -> str:
+def _channel_rule(channels: frozenset[Channel], mobile_first: bool) -> str:
+    if mobile_first and "push" in channels:
+        return (
+            "Most of this project's people use its mobile app, so push is the main way to reach them. Use email "
+            "only where a longer message helps, like a receipt or a guide."
+        )
     if not channels:
-        return "The team has no SMS or push provider, so use email to reach people."
-    return f"The team can also send {' and '.join(sorted(channels))}. Use them only when they suit the message better than email."
+        return "Email is the main way to reach people. The team has no SMS or push provider, so use email."
+    return (
+        f"Email is the main way to reach people. The team can also send {' and '.join(sorted(channels))}. "
+        "Use them only when they suit the message better than email."
+    )
 
 
 def plan_steps(
@@ -225,6 +294,21 @@ def plan_steps(
         if context.has_slack
         else "The team has not connected Slack yet. A slack step is fine, the team connects it on the step."
     )
+    personalization_rule = (
+        "The trigger event carries the properties listed in trigger_event_properties. To show one in an email, write "
+        "[[property|fallback words]], for example [[product_name|your items]]. The fallback shows when the event has "
+        "no value. Use a property where it makes the email specific, like naming the product, plan or amount. Never show a "
+        "code, id or error value, which reads as noise to a customer. Never write a value yourself. This is the only "
+        "placeholder allowed."
+        if context.event_properties
+        else "Do not mention a product name, price or amount you cannot know."
+    )
+    branch_rule = (
+        "Each conditional_branch path checks one person property from person_properties for one of its listed "
+        "values. Use a conditional_branch only when a listed property and value fit the split."
+        if context.person_properties
+        else "Do not use conditional_branch. The project has no person properties to split on."
+    )
     idea = context.idea
     human = as_untrusted_data(
         "workflow",
@@ -239,6 +323,18 @@ def plan_steps(
     human += "\n\n" + as_untrusted_data(
         "project_events", list(context.events), source="event names sent by this project's app"
     )
+    if context.event_properties:
+        human += "\n\n" + as_untrusted_data(
+            "trigger_event_properties",
+            list(context.event_properties),
+            source="property names this project sends on the trigger event",
+        )
+    if context.person_properties:
+        human += "\n\n" + as_untrusted_data(
+            "person_properties",
+            [f"{name}: {', '.join(values)}" for name, values in context.person_properties.items()],
+            source="person property names and values this project sends",
+        )
     human += "\n\n" + as_untrusted_data(
         "step_catalog",
         [
@@ -261,17 +357,23 @@ def plan_steps(
         user=user,
         model=PLANNER_MODEL,
         effort="medium",
-        feature="data_suggestion_steps",
+        feature="destination_workflow_steps" if context.picked_events else "data_suggestion_steps",
         schema=PlannedWorkflow,
         system=_STEPS_PROMPT.format(
             email_rule=email_rule,
-            channel_rule=_channel_rule(context.channels),
+            channel_rule=_channel_rule(context.channels, context.mobile_first),
             slack_rule=slack_rule,
+            personalization_rule=personalization_rule,
+            branch_rule=branch_rule,
             max_steps=MAX_PLANNED_STEPS,
         ),
         excluded_values=_missing_channels(context.channels),
         # An empty enum would make every wait_until_event step impossible, so the list is only set when there is one.
-        allowed_values={"wait_event": context.events} if context.events else None,
+        allowed_values={
+            **({"wait_event": context.events} if context.events else {}),
+            **({"person_property": list(context.person_properties)} if context.person_properties else {}),
+        }
+        or None,
         human=human,
         analytics_client=analytics_client,
     )

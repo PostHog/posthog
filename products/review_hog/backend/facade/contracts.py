@@ -449,6 +449,7 @@ class ReviewProgress:
     review_stage: str
     done: int | None
     total: int | None
+    review_mode: str | None = None
 
 
 @frozen

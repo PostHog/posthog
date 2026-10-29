@@ -791,6 +791,9 @@ class _StubCurated:
     def trunk_org_url_slug(self) -> str | None:
         return None
 
+    def trunk_quarantined_tests_v2_shape(self) -> bool:
+        return True
+
     def run(self, sql: str, **_kwargs: Any) -> SimpleNamespace:
         self.sql = sql
         return SimpleNamespace(results=self._rows)
@@ -805,9 +808,9 @@ class TestTrunkQuarantineDebtTruncation(TestCase):
                 f"test_{index}",
                 f"products/a/test_{index}.py",
                 "",
-                "quarantined",
-                "always",
+                "flaky",
                 f"case-{index}",
+                f"https://app.trunk.io/example/tests/case-{index}",
                 datetime(2026, 1, 1, tzinfo=UTC),
             )
             for index in range(count)

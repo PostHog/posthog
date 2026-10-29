@@ -1,16 +1,4 @@
-import { LLMTraceEvent } from '~/queries/schema/schema-general'
-
 import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { toDisplayText } from '../components/jsonText'
-
-export function isErrorEvent(event: LLMTraceEvent): boolean {
-    const isErrorFlag = event.properties.$ai_is_error
-    return !!event.properties.$ai_error || isErrorFlag === true || isErrorFlag === 'true'
-}
-
-export function eventError(event: LLMTraceEvent): string | null {
-    return isErrorEvent(event) ? toDisplayText(event.properties.$ai_error ?? 'This step failed.') : null
-}
 
 export function findTreeNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | null {
     for (const node of nodes) {
@@ -23,4 +11,24 @@ export function findTreeNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | 
         }
     }
     return null
+}
+
+/** Every node, each before its children, in tree order. */
+export function flattenTree(nodes: TraceNodeApi[]): TraceNodeApi[] {
+    return nodes.flatMap((node) => [node, ...flattenTree(node.children)])
+}
+
+// Two steps can share a name, such as two calls to the same model, so repeated names get their position.
+export function nodeLabels(tree: TraceNodeApi[]): Map<string, string> {
+    const nodes = flattenTree(tree)
+    const totals = new Map<string, number>()
+    nodes.forEach((node) => totals.set(node.name, (totals.get(node.name) ?? 0) + 1))
+    const seen = new Map<string, number>()
+    return new Map(
+        nodes.map((node) => {
+            const position = (seen.get(node.name) ?? 0) + 1
+            seen.set(node.name, position)
+            return [node.id, (totals.get(node.name) ?? 0) > 1 ? `${node.name} #${position}` : node.name]
+        })
+    )
 }
