@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     DATA_IMPORT_APP_SOURCE,
     emit_data_import_app_metrics,
+    failure_streak_label,
 )
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import GIVE_UP_AFTER_FAILED_RUNS
 
 
 def _make_job(
@@ -267,3 +269,31 @@ class TestEmitDataImportAppMetrics(WarehouseDestinationFallbackTestCase):
 
         payload = mock_producer.produce.call_args_list[0].kwargs["data"]
         assert payload["instance_id"] == ""
+
+
+class TestFailureStreakLabel(TestCase):
+    @parameterized.expand(
+        [
+            ("first_failure_is_new", ExternalDataJob.Status.FAILED, 0, "new"),
+            (
+                "last_failure_before_the_threshold_is_new",
+                ExternalDataJob.Status.FAILED,
+                GIVE_UP_AFTER_FAILED_RUNS - 1,
+                "new",
+            ),
+            (
+                "failure_at_the_threshold_is_ongoing",
+                ExternalDataJob.Status.FAILED,
+                GIVE_UP_AFTER_FAILED_RUNS,
+                "ongoing",
+            ),
+            (
+                "completed_run_after_a_streak_is_none",
+                ExternalDataJob.Status.COMPLETED,
+                GIVE_UP_AFTER_FAILED_RUNS,
+                "none",
+            ),
+        ]
+    )
+    def test_label(self, _name: str, status: str, failed_runs_in_a_row: int, expected: str) -> None:
+        assert failure_streak_label(status.lower(), failed_runs_in_a_row) == expected
