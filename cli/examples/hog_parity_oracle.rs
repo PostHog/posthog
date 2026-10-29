@@ -15,6 +15,7 @@ use posthog_cli::utils::files::content_hash;
 use posthog_symbol_data::{write_symbol_data, AppleDsym, ElfDebugInfo, HermesMap, ProguardMapping};
 
 fn main() {
+    // nosemgrep: rust.lang.security.args.args -- a local test tool, argv only names fixture files
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("container") => {

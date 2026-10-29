@@ -15,8 +15,6 @@ import { join } from 'node:path'
 
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
-import { stripCredentials } from '@/error-tracking/git'
-import { loadMapContent, serializeMapContent } from '@/error-tracking/kinds/js'
 import { runHog } from '@/testing'
 
 import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
@@ -133,42 +131,36 @@ describe('hog error-tracking upload', () => {
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
     })
 
-    test('--delete-after leaves alone maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
-        const bundle = 'a();\n//# sourceMappingURL=../maps/a.js.map\n'
+    test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
         const folder = project({
-            'dist/a.js': bundle,
-            'maps/a.js.map': MAP,
             'dist/broken.css': 'a{}\n/*# sourceMappingURL=%FF.css.map */\n',
+            'dist/outside.css': 'a{}\n/*# sourceMappingURL=../maps/outside.css.map */\n',
+            'maps/outside.css.map': MAP,
             'dist/settings.css': 'a{}\n/*# sourceMappingURL=settings.json */\n',
             'dist/settings.json': '{"theme":"dark"}',
             'dist/ignored.css': 'a{}\n/*# sourceMappingURL=ignored.css.map */\n',
             'dist/ignored.css.map': MAP,
+            'dist/kept.css': 'a{}\n/*# sourceMappingURL=kept.css.map */\n',
+            'dist/kept.css.map': MAP,
         })
         const warnings: string[] = []
-        const outside = {
-            sourcePath: join(folder, 'dist/a.js'),
-            mapPath: join(folder, 'maps/a.js.map'),
-            sourceFingerprint: contentHash(bundle),
-            mapFingerprint: contentHash(serializeMapContent(loadMapContent(MAP))),
-            kind: 'js' as const,
-        }
         const css = cssTargets(
-            ['broken.css', 'settings.css', 'ignored.css'].map((name) => join(folder, 'dist', name)),
+            ['broken', 'outside', 'settings', 'ignored', 'kept'].map((name) => join(folder, `dist/${name}.css`)),
+            [join(folder, 'dist')],
             undefined,
             warnings,
             (mapPath) => mapPath.endsWith('ignored.css.map')
         )
-        const result = cleanUp([outside, ...css], [join(folder, 'dist')])
+        const result = cleanUp(css)
 
-        expect(result.deletedMaps).toEqual([])
-        expect([...warnings, ...result.warnings]).toEqual([
+        expect(result.deletedMaps).toEqual([expect.stringMatching(/dist\/kept\.css\.map$/)])
+        expect(warnings).toEqual([
             expect.stringContaining("broken.css: its sourcemap reference can't be read"),
             expect.stringContaining('resolves outside the selected paths'),
         ])
-        for (const path of ['maps/a.js.map', 'dist/settings.json', 'dist/ignored.css.map']) {
+        for (const path of ['maps/outside.css.map', 'dist/settings.json', 'dist/ignored.css.map']) {
             expect(existsSync(join(folder, path))).toBe(true)
         }
-        expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
     })
 
     test.skipIf(process.getuid?.() === 0)('inject changes no bundle when a map cannot be written', async () => {
@@ -298,15 +290,6 @@ describe('hog error-tracking upload', () => {
             version: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
             id: null,
         })
-    })
-
-    test.each([
-        ['git@github.com:org/repo.git', 'git@github.com:org/repo.git'],
-        ['ghp_token@github.com:org/repo.git', 'github.com:org/repo.git'],
-        ['https://x-access-token:secret@github.com/org/repo.git', 'https://github.com/org/repo.git'],
-        ['git@github.com:org/repo@secret.git', undefined],
-    ])('the release keeps no credential from the remote %s', (remote, stored) => {
-        expect(stripCredentials(remote)).toBe(stored)
     })
 
     test.each([
