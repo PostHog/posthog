@@ -9,8 +9,28 @@ use cohort_core::hogvm::analysis::PropertyAlternatives;
 
 use crate::domain::{
     BandSpec, BlobSource, ChunkProjection, ColumnBackedKeys, ColumnName, ColumnPlan, EventNameSet,
-    MaterializedColumns, ProjectedKeys, PropertiesSource, ScalarColumn, ScanRowFilter, SeedDomain,
+    MaterializedColumns, ProjectedKeys, PropertiesSource, ScalarColumn, ScanRowFilter, ScanTable,
+    SeedDomain,
 };
+
+impl ScanTable {
+    /// The sharded table under the Distributed one. Only its columns carry default expressions.
+    pub(crate) const fn data_table(self) -> &'static str {
+        match self {
+            Self::Events => "sharded_events",
+            Self::FlagEvaluations => "sharded_flag_evaluations",
+        }
+    }
+
+    /// `events.inserted_at` is nullable. `flag_evaluations.inserted_at` is not. The
+    /// `flag_evaluations` minmax index is on the bare column.
+    const fn arrival_sql(self) -> &'static str {
+        match self {
+            Self::Events => "coalesce(e.inserted_at, e._timestamp)",
+            Self::FlagEvaluations => "e.inserted_at",
+        }
+    }
+}
 
 /// The crate sends a longer query by POST with `readonly=1`, which the `cohort_seeder` profile's
 /// `readonly=2` refuses with code 164, because the seeder sends settings with every query. The
@@ -25,6 +45,7 @@ const FETCH_FORMAT_CLAUSE: &str = " FORMAT RowBinary";
 /// types, so [`scan_sql`] never re-validates. Fields stay private — the SQL text is the only output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanSpec {
+    table: ScanTable,
     team_id: TeamId,
     day_start_ms: i64,
     day_end_ms: i64,
@@ -58,19 +79,22 @@ pub enum ScanPlan {
     Scan(ScanSpec),
 }
 
-/// Parse a claimed chunk into a scan plan. Takes the resolved `EventNameSet` by reference (already
-/// sorted and deduplicated), so no set is rebuilt. An empty domain or empty event set is vacuous.
+/// Parse a claimed chunk into a scan plan of `table`, which holds every one of `event_names`. Takes
+/// the resolved `EventNameSet` by reference (already sorted and deduplicated), so no set is rebuilt.
+/// An empty domain or empty event set is vacuous.
 pub fn plan_scan(
     team_id: TeamId,
     domain: &SeedDomain,
     event_names: &EventNameSet,
     band: BandSpec,
+    table: ScanTable,
 ) -> ScanPlan {
     if domain.is_empty() || event_names.is_empty() {
         return ScanPlan::Vacuous;
     }
     let range = domain.utc_range();
     ScanPlan::Scan(ScanSpec {
+        table,
         team_id,
         day_start_ms: range.start().as_i64(),
         day_end_ms: range.end().as_i64(),
@@ -93,8 +117,8 @@ pub fn plan_scan(
 /// decoder's positional read never has to know which arm ran.
 pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
     let select_list = match projection {
-        ChunkProjection::FullColumns => render_select_list(&ColumnPlan::full()),
-        ChunkProjection::Projected(plan) => render_select_list(plan),
+        ChunkProjection::FullColumns => render_select_list(&ColumnPlan::full(), spec.table),
+        ChunkProjection::Projected(plan) => render_select_list(plan, spec.table),
     };
     let row_filter = spec
         .row_filter
@@ -111,8 +135,9 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
     };
 
     format!(
-        "SELECT {}\nFROM events AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = {}\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE {}{}{}",
+        "SELECT {}\nFROM {} AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = {}\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE {}{}{}",
         select_list,
+        spec.table.as_str(),
         spec.team_id.0,
         chunk_rows_sql(spec),
         row_filter,
@@ -125,7 +150,8 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
 /// scan can read.
 pub fn ambiguous_value_probe_sql(spec: &ScanSpec, columns: &ColumnBackedKeys) -> String {
     format!(
-        "SELECT 1\nFROM events AS e\nWHERE {}\n  AND {}\nLIMIT 1",
+        "SELECT 1\nFROM {} AS e\nWHERE {}\n  AND {}\nLIMIT 1",
+        spec.table.as_str(),
         chunk_rows_sql(spec),
         ambiguous_values_sql(columns),
     )
@@ -152,8 +178,13 @@ fn chunk_rows_sql(spec: &ScanSpec) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "e.team_id = {}\n  AND e.timestamp >= fromUnixTimestamp64Milli({})\n  AND e.timestamp < fromUnixTimestamp64Milli({})\n  AND e.event IN ({})\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli({})",
-        spec.team_id.0, spec.day_start_ms, spec.day_end_ms, event_names, spec.s_chunk_ms,
+        "e.team_id = {}\n  AND e.timestamp >= fromUnixTimestamp64Milli({})\n  AND e.timestamp < fromUnixTimestamp64Milli({})\n  AND e.event IN ({})\n  AND {} < fromUnixTimestamp64Milli({})",
+        spec.team_id.0,
+        spec.day_start_ms,
+        spec.day_end_ms,
+        event_names,
+        spec.table.arrival_sql(),
+        spec.s_chunk_ms,
     )
 }
 
@@ -278,7 +309,10 @@ fn clickhouse_identifier(name: &str) -> String {
 /// The eight-column select list. `event`, `timestamp`, `distinct_id`, and the override-resolved
 /// `person_id` are always selected: the fold places the row in its day by timestamp, the accumulator
 /// keys on the person, and the event name decides which conditions run.
-fn render_select_list(plan: &ColumnPlan) -> String {
+///
+/// `flag_evaluations` has no `elements_chain`. A flag call never carries elements, so the live
+/// path also evaluates it with an empty chain.
+fn render_select_list(plan: &ColumnPlan, table: ScanTable) -> String {
     format!(
         "{}, e.event, {}, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       {}, {}",
         match plan.uuid {
@@ -291,9 +325,11 @@ fn render_select_list(plan: &ColumnPlan) -> String {
             "person_properties",
             &plan.person_properties
         ),
-        match plan.elements_chain {
-            ScalarColumn::Keep => "e.elements_chain".to_string(),
-            ScalarColumn::Empty => "'' AS elements_chain".to_string(),
+        match (plan.elements_chain, table) {
+            (ScalarColumn::Keep, ScanTable::Events) => "e.elements_chain".to_string(),
+            (ScalarColumn::Empty, _) | (_, ScanTable::FlagEvaluations) => {
+                "'' AS elements_chain".to_string()
+            }
         },
     )
 }
@@ -442,7 +478,7 @@ mod tests {
     /// past by matching on a substring the test built the same way the code did.
     fn select_list_of(sql: &str) -> &str {
         sql.strip_prefix("SELECT ")
-            .and_then(|rest| rest.split_once("\nFROM events AS e"))
+            .and_then(|rest| rest.split_once("\nFROM "))
             .map(|(select_list, _)| select_list)
             .expect("every rendered scan opens with its select list")
     }
@@ -455,11 +491,29 @@ mod tests {
         SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap()
     }
 
-    fn spec(event_names: Vec<String>, band: BandSpec) -> ScanSpec {
-        match plan_scan(TeamId(2), &domain(), &EventNameSet::new(event_names), band) {
+    fn spec_of(table: ScanTable, event_names: Vec<String>, band: BandSpec) -> ScanSpec {
+        match plan_scan(
+            TeamId(2),
+            &domain(),
+            &EventNameSet::new(event_names),
+            band,
+            table,
+        ) {
             ScanPlan::Scan(spec) => spec,
             ScanPlan::Vacuous => panic!("expected a scannable plan"),
         }
+    }
+
+    fn spec(event_names: Vec<String>, band: BandSpec) -> ScanSpec {
+        spec_of(ScanTable::Events, event_names, band)
+    }
+
+    fn flag_evaluations_spec() -> ScanSpec {
+        spec_of(
+            ScanTable::FlagEvaluations,
+            vec!["$feature_flag_called".to_string()],
+            BandSpec::new(0, 1).unwrap(),
+        )
     }
 
     #[test]
@@ -722,6 +776,47 @@ mod tests {
         assert_eq!(
             scan_sql(&spec, &ChunkProjection::FullColumns),
             scan_sql(&spec, &ChunkProjection::Projected(ColumnPlan::full()))
+        );
+    }
+
+    #[test]
+    fn unbanded_flag_evaluations_scan_sql_reads_its_own_table_and_arrival_bound() {
+        assert_eq!(
+            full_sql(&flag_evaluations_spec()),
+            "SELECT toString(e.uuid) AS uuid, e.event, e.properties, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       e.person_properties, '' AS elements_chain\nFROM flag_evaluations AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = 2\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE e.team_id = 2\n  AND e.timestamp >= fromUnixTimestamp64Milli(86400000)\n  AND e.timestamp < fromUnixTimestamp64Milli(172800000)\n  AND e.event IN ('$feature_flag_called')\n  AND e.inserted_at < fromUnixTimestamp64Milli(200000000)"
+        );
+    }
+
+    /// A scan that named `elements_chain` on `flag_evaluations` would fail every attempt of its
+    /// chunk. A condition that reads elements keeps the column on a projected plan.
+    #[test]
+    fn a_flag_evaluations_scan_selects_an_empty_elements_chain_under_every_projection() {
+        let keeps_elements = ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Keep,
+            properties: PropertiesSource::Blob(BlobSource::Empty),
+            person_properties: BlobSource::Empty,
+        });
+        for projection in [ChunkProjection::FullColumns, keeps_elements] {
+            let sql = scan_sql(&flag_evaluations_spec(), &projection);
+            assert!(
+                select_list_of(&sql).ends_with("'' AS elements_chain"),
+                "{sql}"
+            );
+            assert!(!sql.contains("e.elements_chain"), "{sql}");
+        }
+    }
+
+    /// The probe has to read the rows its scan reads. On `events` it would name a column that table
+    /// lacks, or find no flag call to probe.
+    #[test]
+    fn the_flag_evaluations_probe_reads_its_own_table_and_arrival_bound() {
+        assert_eq!(
+            ambiguous_value_probe_sql(
+                &flag_evaluations_spec(),
+                &backed(&[("$feature_flag", "flag_key")])
+            ),
+            "SELECT 1\nFROM flag_evaluations AS e\nWHERE e.team_id = 2\n  AND e.timestamp >= fromUnixTimestamp64Milli(86400000)\n  AND e.timestamp < fromUnixTimestamp64Milli(172800000)\n  AND e.event IN ('$feature_flag_called')\n  AND e.inserted_at < fromUnixTimestamp64Milli(200000000)\n  AND trim(BOTH ' ' FROM e.`flag_key`) = 'false'\nLIMIT 1"
         );
     }
 }
