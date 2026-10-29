@@ -44,7 +44,6 @@ from posthog.models.user import User
 from posthog.models.user_integration import user_slack_integration_from_identity
 from posthog.views import login_required
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.analytics import alias_slack_user, capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import (
@@ -54,7 +53,10 @@ from products.slack_app.backend.services.slack_user_oauth import (
     build_authorize_url,
     exchange_code,
 )
-from products.slack_app.backend.services.workspace_integrations import get_team_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    get_team_workspace_integration,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -81,7 +83,7 @@ def _settings_redirect(*, error: str | None = None) -> HttpResponseRedirect:
 
 
 def _link_failed(
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     reason: str,
     *,
     slack_user_id: str | None = None,
@@ -101,7 +103,7 @@ def _link_failed(
     return _settings_redirect(error=reason)
 
 
-def _load_workspace_integration(posthog_team_id: int, slack_team_id: str) -> IntegrationRecord | None:
+def _load_workspace_integration(posthog_team_id: int, slack_team_id: str) -> WorkspaceIntegration | None:
     return get_team_workspace_integration(posthog_team_id, slack_team_id)
 
 
@@ -274,7 +276,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
 
 def _post_link_success_followup(
     *,
-    workspace_integration: IntegrationRecord,
+    workspace_integration: WorkspaceIntegration,
     slack_user_id: str,
     channel: Any,
     thread_ts: Any,

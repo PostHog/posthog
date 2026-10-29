@@ -31,14 +31,13 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.integration import SlackIntegration
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.analytics import slack_event_props
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.interview_recruitment import MODAL_INVITE_MESSAGE, book_button, invite_section
 from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
-from products.slack_app.backend.services.workspace_integrations import get_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
 
 logger = structlog.get_logger(__name__)
 
@@ -91,7 +90,7 @@ class _FeedbackTarget:
     way; ``_trace_id`` says what stands behind it instead.
     """
 
-    integration: IntegrationRecord
+    integration: WorkspaceIntegration
     run_id: str
     task_id: str | None
     turn_id: str | None
@@ -140,7 +139,7 @@ def extract_modal_hint(payload: dict) -> int | None:
     return integration_id if isinstance(integration_id, int) else None
 
 
-def _local_integration(integration_id: Any, slack_team_id: str | None) -> IntegrationRecord | None:
+def _local_integration(integration_id: Any, slack_team_id: str | None) -> WorkspaceIntegration | None:
     """The integration a rating names, if this region owns it for that Slack team.
 
     Scoped to the Slack team the rating came from, so a forged id resolves to nothing
@@ -155,7 +154,7 @@ def _local_integration(integration_id: Any, slack_team_id: str | None) -> Integr
 def _resolve_target(
     value: dict[str, Any],
     *,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     turn_id: str | None,
 ) -> _FeedbackTarget | None:
@@ -456,7 +455,7 @@ def reaction_sentiment(reaction: Any) -> str | None:
 
 
 def _fetch_reacted_message(
-    workspace_integration: IntegrationRecord, channel: str, message_ts: str
+    workspace_integration: WorkspaceIntegration, channel: str, message_ts: str
 ) -> dict[str, Any] | None:
     """The reacted message, read back from Slack so its blocks can say which run it is.
 
@@ -500,7 +499,9 @@ def _feedback_value_from_message(message: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration: IntegrationRecord) -> ReactionOutcome:
+def handle_reaction_added(
+    event: dict, slack_team_id: str, workspace_integration: WorkspaceIntegration
+) -> ReactionOutcome:
     """Record a thumbs reaction on an agent reply as a rating.
 
     ``workspace_integration`` is any of this region's integrations for the Slack team; its

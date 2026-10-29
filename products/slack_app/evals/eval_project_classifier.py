@@ -41,11 +41,11 @@ import asyncio
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotEval
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.activities import classifiers
 from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
@@ -53,9 +53,9 @@ from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProject
 SUITE_KIND = SuiteKind.ONE_SHOT
 
 
-def _project(*, team_id: int, integration_id: int, name: str) -> IntegrationRecord:
+def _project(*, team_id: int, integration_id: int, name: str) -> WorkspaceIntegration:
     """An unsaved `Integration` row, which is all the classifier reads."""
-    return IntegrationRecord(
+    return WorkspaceIntegration(
         id=integration_id,
         kind="slack",
         team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
@@ -113,18 +113,18 @@ NORTHWIND = _project(team_id=53, integration_id=530, name="Northwind")
 SITE_DEV = _project(team_id=54, integration_id=540, name="northwind.io development")
 SITES = [NORTHWIND, SITE_DEV, STAGING, AGENT_PLATFORM, MOBILE]
 
-WORKSPACES: dict[str, tuple[list[IntegrationRecord], IntegrationRecord]] = {
+WORKSPACES: dict[str, tuple[list[WorkspaceIntegration], WorkspaceIntegration]] = {
     "simple": (PROJECTS, MAIN),
     "crowded": (CROWD, MAIN),
     "sites": (SITES, NORTHWIND),
 }
 
 
-def _routes_to(project: IntegrationRecord | None = None) -> dict:
+def _routes_to(project: WorkspaceIntegration | None = None) -> dict:
     return {PROJECT_ROUTE_KEY: {"integration_id": project.id if project else None}}
 
 
-def _stays_on(default: IntegrationRecord) -> dict:
+def _stays_on(default: WorkspaceIntegration) -> dict:
     """The message names the project the run is already on, so its id and null both pass."""
     return {PROJECT_ROUTE_KEY: {"integration_id": default.id, "is_default": True}}
 

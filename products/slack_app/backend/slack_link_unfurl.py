@@ -52,7 +52,6 @@ from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
@@ -72,6 +71,7 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
     SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
     SlackAppUnfurlChartsWorkflow,
@@ -509,7 +509,7 @@ def _claim_invite_slot(slack_team_id: str, channel: str) -> bool:
     return bool(claimed)
 
 
-def _build_unfurl_invite(integration: IntegrationRecord, kind: str, channel: str) -> dict | None:
+def _build_unfurl_invite(integration: WorkspaceIntegration, kind: str, channel: str) -> dict | None:
     """The invite block for the first resource we unfurled, or None when it should stay quiet.
 
     Consent is checked before the slot is claimed: the other way round, a workspace that never
@@ -553,7 +553,7 @@ def _is_normal_public_channel(slack: SlackIntegration, channel: str, cache: dict
 
 def _task_owner_can_view_public_slack_channel(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     task: TaskSlackUnfurlDTO,
     cache: dict[str, bool],
 ) -> bool:
@@ -587,7 +587,7 @@ def _task_owner_can_view_public_slack_channel(
 def _attach_public_slack_thread_reference(
     *,
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     task: TaskSlackUnfurlDTO,
     event: dict,
     shared_by_slack_user_id: str,
@@ -628,7 +628,7 @@ def _attach_public_slack_thread_reference(
 @frozen
 class _UnfurlContext:
     slack: SlackIntegration
-    integration: IntegrationRecord
+    integration: WorkspaceIntegration
     team: Team
     user: User
     uac: UserAccessControl
@@ -1226,7 +1226,7 @@ def _post_unfurls(slack: SlackIntegration, event: dict, unfurls: dict[str, dict]
 
 def start_unfurl_charts(
     *,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     user: User,
     event: dict,
     unfurls: dict[str, dict],
@@ -1274,7 +1274,7 @@ def start_unfurl_charts(
 
 def _queue_unfurl_charts(
     *,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     user: User,
     event: dict,
     unfurls: dict[str, dict],
@@ -1301,7 +1301,7 @@ def _queue_unfurl_charts(
 
 
 def _queue_unfurl_artifact_image(
-    *, integration: IntegrationRecord, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+    *, integration: WorkspaceIntegration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
 ) -> bool:
     """Reading and storing the file is too slow for the webhook's ack budget, so it runs on Celery."""
     # noqa reason: the task module imports api, which imports this module at load time.
@@ -1332,7 +1332,7 @@ class _ImageLink:
     failure: _ImageFailure | None = None
 
 
-def _artifact_image_link(*, integration: IntegrationRecord, user: User, url: str, title: str) -> _ImageLink:
+def _artifact_image_link(*, integration: WorkspaceIntegration, user: User, url: str, title: str) -> _ImageLink:
     # The link opens without a PostHog login, so it follows the public sharing setting like chart images do.
     team = integration.team
     if not team.organization.allow_publicly_shared_resources:
@@ -1370,7 +1370,7 @@ def _artifact_image_link(*, integration: IntegrationRecord, user: User, url: str
 
 
 def add_artifact_image_to_unfurl(
-    *, integration: IntegrationRecord, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+    *, integration: WorkspaceIntegration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
 ) -> None:
     """Post a task artifact card again with its image. Best effort: a failure keeps the text card."""
     link = _artifact_image_link(integration=integration, user=user, url=url, title=title)
@@ -1399,7 +1399,7 @@ def add_artifact_image_to_unfurl(
     )
 
 
-def _bot_reply_actor(integration: IntegrationRecord, event: dict) -> str | None:
+def _bot_reply_actor(integration: WorkspaceIntegration, event: dict) -> str | None:
     """The Slack user steering the run in this thread, when that run was told to share chart links.
 
     Slack credits a message our app posts to our bot user, and some bot-posted messages to the
@@ -1423,7 +1423,7 @@ def _bot_reply_actor(integration: IntegrationRecord, event: dict) -> str | None:
     return next((actor for actor in actors or () if actor), None)
 
 
-def handle_posthog_link_unfurl(event: dict, integration: IntegrationRecord) -> None:
+def handle_posthog_link_unfurl(event: dict, integration: WorkspaceIntegration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
 

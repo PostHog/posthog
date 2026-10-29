@@ -7,7 +7,8 @@ these through ``facade.api``.
 
 from typing import Any
 
-from products.integrations.backend.facade.api import IntegrationRecord
+from posthog.integrations import IntegrationRecord
+
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
 
 BOT_SETUP_DOCS_URL = "https://posthog.com/docs/slack-app"

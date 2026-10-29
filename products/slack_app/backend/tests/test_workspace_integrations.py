@@ -1,11 +1,10 @@
 import pytest
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.slack_app.backend.services.workspace_integrations import (
     get_team_workspace_integration,
     get_workspace_integration,

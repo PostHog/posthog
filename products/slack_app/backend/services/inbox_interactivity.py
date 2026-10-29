@@ -15,12 +15,11 @@ from django.http import HttpResponse
 import requests
 import structlog
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend import inbox_channel, onboarding
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.services import slack_welcome_messages
-from products.slack_app.backend.services.workspace_integrations import get_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
 
 logger = structlog.get_logger(__name__)
 
@@ -76,7 +75,7 @@ def _post_ephemeral_via_response_url(response_url: str, text: str) -> None:
     post_response_url(response_url, {"response_type": "ephemeral", "replace_original": False, "text": text})
 
 
-def _inbox_integration_from_payload(payload: dict) -> IntegrationRecord | None:
+def _inbox_integration_from_payload(payload: dict) -> WorkspaceIntegration | None:
     integration_id = extract_inbox_hints(payload)
     slack_team_id = payload.get("team", {}).get("id")
     if not integration_id or not slack_team_id:

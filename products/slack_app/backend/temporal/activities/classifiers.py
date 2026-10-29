@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 import structlog
@@ -13,7 +14,6 @@ from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.facade.run_preferences import (
     ModelChoice,
     available_model_choices,
@@ -28,6 +28,7 @@ from products.slack_app.backend.services.integration_resolver import format_proj
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id
 from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
     require_workspace_integration,
     workspace_integrations,
 )
@@ -629,7 +630,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     return override
 
 
-def _project_route_response_format(projects: list[IntegrationRecord]) -> ResponseFormatJSONSchema:
+def _project_route_response_format(projects: Sequence[WorkspaceIntegration]) -> ResponseFormatJSONSchema:
     """A strict JSON schema pinning the reply to one id from ``projects``.
 
     The enum is what stops the classifier naming a project this mentioner cannot reach.
@@ -659,11 +660,11 @@ class _ProjectRouteReply(BaseModel):
 
 def classify_slack_app_project_route(
     event_text: str,
-    projects: list[IntegrationRecord],
-    default: IntegrationRecord | None = None,
+    projects: Sequence[WorkspaceIntegration],
+    default: WorkspaceIntegration | None = None,
     trace_id: str | None = None,
     team_id: int | None = None,
-) -> IntegrationRecord | None:
+) -> WorkspaceIntegration | None:
     """Read the project a mention asked to be answered from, out of its text.
 
     ``default`` is the project the run is already on. It heads the list the model is

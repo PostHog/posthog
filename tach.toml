@@ -987,8 +987,6 @@ depends_on = [
     "products.signals",
     "products.surveys",
     "products.tasks", "products.access_control",
-    # Slack integration rows are read and written through the integrations SDK.
-    "products.integrations",
     # Slack triggers emit internal events through products.cdp.backend.internal_events.
     "products.cdp",
     # Mentions that name a pull request and a command run through the commands facade.

@@ -4,6 +4,7 @@ import time
 import uuid
 import asyncio
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -26,6 +27,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     SlackIntegration,
@@ -42,8 +44,6 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.commands.backend.facade import api as commands_api
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.slack_app.backend import inbox_channel
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
@@ -133,6 +133,7 @@ from products.slack_app.backend.services.slack_welcome_messages import (
     build_team_join_welcome,
 )
 from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
     get_team_workspace_integration,
     get_workspace_integration,
     workspace_integration_exists,
@@ -335,7 +336,7 @@ QUOTA_EXHAUSTED_MESSAGE = (
 
 def post_quota_exhausted_denial(
     *,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     slack: SlackIntegration,
     channel: str,
     thread_ts: str,
@@ -438,7 +439,7 @@ def _post_slack_user_ephemeral(
 
 def resolve_slack_user(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     channel: str,
     thread_ts: str,
@@ -1029,7 +1030,7 @@ def parse_rules_command(text: str) -> RulesCommand | None:
 def _post_repo_picker_message(
     *,
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -1161,7 +1162,7 @@ def _repo_snapshot_needs_refresh(record: UserIntegration) -> bool:
     return (timezone.now() - updated_at).total_seconds() >= REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS
 
 
-def _get_full_repo_names(integration: IntegrationRecord, *, user_id: int | None) -> list[str]:
+def _get_full_repo_names(integration: WorkspaceIntegration, *, user_id: int | None) -> list[str]:
     """Repo names available to the mentioner, from their personal GitHub install. Cached per user."""
     if user_id is None:
         return []
@@ -1276,7 +1277,7 @@ def _replace_repo_picker_message_with_no_repo(
         )
 
 
-def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integration: IntegrationRecord) -> bool:
+def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integration: WorkspaceIntegration) -> bool:
     channel = event.get("channel")
     thread_ts = event.get("thread_ts") or event.get("ts")
     slack_user_id = event.get("user")
@@ -1513,7 +1514,7 @@ def _edited_mention_ignore_cause(event: dict[str, Any], slack_team_id: str) -> s
     return None
 
 
-def _awaits_request_from_author(event: dict[str, Any], slack_team_id: str, probe: IntegrationRecord) -> bool:
+def _awaits_request_from_author(event: dict[str, Any], slack_team_id: str, probe: WorkspaceIntegration) -> bool:
     """Whether this threaded message is the request a bare mention in its thread asked for."""
     channel = event.get("channel")
     thread_ts = event.get("thread_ts")
@@ -1535,7 +1536,7 @@ def _awaits_request_from_author(event: dict[str, Any], slack_team_id: str, probe
 
 
 def _answer_bare_mention(
-    event: dict[str, Any], integration: IntegrationRecord, slack_team_id: str, *, posthog_user: User
+    event: dict[str, Any], integration: WorkspaceIntegration, slack_team_id: str, *, posthog_user: User
 ) -> str:
     channel = event.get("channel")
     message_ts = event.get("ts")
@@ -1624,7 +1625,7 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
 
 def _resolve_untagged_followup_mapping(
     *,
-    candidates: list[IntegrationRecord],
+    candidates: Sequence[WorkspaceIntegration],
     channel: str | None,
     thread_ts: str | None,
 ) -> SlackThreadTaskMapping | None:
@@ -1649,7 +1650,7 @@ def _resolve_untagged_followup_mapping(
     return mapping
 
 
-def _message_tags_bot(event: dict[str, Any], integration: IntegrationRecord) -> bool:
+def _message_tags_bot(event: dict[str, Any], integration: WorkspaceIntegration) -> bool:
     """Whether the message text mentions the app's own bot user.
 
     Slack delivers a thread reply that tags the bot twice — as ``app_mention``
@@ -1676,7 +1677,7 @@ def _message_tags_bot(event: dict[str, Any], integration: IntegrationRecord) -> 
 
 def _untagged_followups_switched_off(
     event: dict[str, Any],
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     slack_team_id: str,
     *,
     mapping: SlackThreadTaskMapping,
@@ -1748,7 +1749,7 @@ def _notify_missing_slack_scopes(
     return _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
-def get_slack_email_for_user(probe_integration: IntegrationRecord, slack_user_id: str) -> str | None:
+def get_slack_email_for_user(probe_integration: WorkspaceIntegration, slack_user_id: str) -> str | None:
     """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
     a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
     user (profile email hidden) or the lookup fails.
@@ -1823,8 +1824,8 @@ def get_slack_email_for_user(probe_integration: IntegrationRecord, slack_user_id
 def resolve_posthog_user_from_event(
     *,
     slack_user_id: str,
-    probe_integration: IntegrationRecord,
-    candidate_integrations: list[IntegrationRecord],
+    probe_integration: WorkspaceIntegration,
+    candidate_integrations: Sequence[WorkspaceIntegration],
     slack_email: str | None = None,
 ) -> User | None:
     """Resolve the acting Slack user to a PostHog ``User`` who is a member of
@@ -1883,7 +1884,7 @@ def resolve_posthog_user_from_event(
 
 def _post_pick_a_project_hint(
     probe: SlackIntegration,
-    candidates: list[IntegrationRecord],
+    candidates: Sequence[WorkspaceIntegration],
     event: dict[str, Any],
 ) -> bool:
     """Tell the user that this workspace is connected to multiple PostHog
@@ -1910,7 +1911,7 @@ def _post_pick_a_project_hint(
 
 
 def _post_project_picker(
-    candidates: list[IntegrationRecord],
+    candidates: Sequence[WorkspaceIntegration],
     event: dict[str, Any],
     event_id: str | None,
     *,
@@ -2023,7 +2024,7 @@ def _handle_project_picker_pick(payload: dict) -> HttpResponse:
     SlackSettings.objects.update_or_create(
         slack_workspace_id=slack_team_id,
         slack_user_id=clicker_slack_user_id,
-        defaults={"default_integration": integration},
+        defaults={"default_integration_id": integration.id},
     )
     # The mention never reached the workflow, so its event id is still unused.
     _dispatch_mention_to_target(
@@ -2055,7 +2056,7 @@ def _handle_project_picker_pick(payload: dict) -> HttpResponse:
 
 def _post_user_resolution_failure_reply(
     *,
-    probe: IntegrationRecord,
+    probe: WorkspaceIntegration,
     channel: str | None,
     slack_user_id: str | None,
     thread_ts: str | None,
@@ -2253,7 +2254,7 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
 
 def _handle_assistant_dm_message(
     event: dict,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     slack_team_id: str,
     event_id: str | None,
     channel_id: str,
@@ -2609,7 +2610,7 @@ def _route_untagged_question(
 
 def _dispatch_mention_to_target(
     event: dict,
-    mention_target: IntegrationRecord,
+    mention_target: WorkspaceIntegration,
     slack_team_id: str,
     event_id: str | None,
     *,
@@ -3298,7 +3299,7 @@ def resolve_region_or_terminal_route(
 def _redirect_mention_command(
     command: RulesCommand,
     event: dict[str, Any],
-    probe: IntegrationRecord,
+    probe: WorkspaceIntegration,
     slack_team_id: str,
     *,
     posthog_user: User,
@@ -3343,7 +3344,7 @@ def _redirect_mention_command(
     return ROUTE_HANDLED_LOCALLY
 
 
-def _connected_organization_ids(candidates: list[IntegrationRecord]) -> tuple[str, ...]:
+def _connected_organization_ids(candidates: Sequence[WorkspaceIntegration]) -> tuple[str, ...]:
     team_ids = {candidate.team_id for candidate in candidates}
     organization_ids = Team.objects.filter(id__in=team_ids).values_list("organization_id", flat=True).distinct()
     return tuple(str(organization_id) for organization_id in organization_ids)
@@ -3351,10 +3352,10 @@ def _connected_organization_ids(candidates: list[IntegrationRecord]) -> tuple[st
 
 def _hand_off_command(
     event: dict[str, Any],
-    candidates: list[IntegrationRecord],
+    candidates: Sequence[WorkspaceIntegration],
     slack_team_id: str,
     *,
-    probe: IntegrationRecord,
+    probe: WorkspaceIntegration,
     posthog_user: User,
     is_ext_shared_channel: bool,
 ) -> bool:
@@ -3433,7 +3434,7 @@ def _hand_off_command(
 
 def _start_command_workflow(
     event: dict,
-    integrations: list[IntegrationRecord],
+    integrations: Sequence[WorkspaceIntegration],
     slack_team_id: str,
     event_id: str | None,
     *,
@@ -3460,7 +3461,7 @@ def _start_command_workflow(
 
 
 def _count_session_thread_messages(
-    integration: IntegrationRecord, channel: str | None, thread_ts: str | None
+    integration: WorkspaceIntegration, channel: str | None, thread_ts: str | None
 ) -> int | None:
     """Best-effort count of messages in a Slack thread (the session). None if unavailable.
 
@@ -3598,7 +3599,7 @@ def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> No
 
 def _post_channel_onboarding_message(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel_id: str,
     *,
     only_to_user: str | None = None,
@@ -3697,7 +3698,7 @@ def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> s
     return f"slack_app:team_join_welcomed:v1:{slack_team_id}:{slack_user_id}"
 
 
-def _post_team_join_welcome(integration: IntegrationRecord, slack_user_id: str) -> bool:
+def _post_team_join_welcome(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
     text, blocks = build_team_join_welcome(integration)
     try:
         SlackIntegration(integration).client.chat_postMessage(
@@ -3733,7 +3734,7 @@ def _channel_is_approved(slack_workspace_id: str, channel_id: str) -> bool:
 
 def _post_channel_approval_prompt(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     event: dict[str, Any],
 ) -> bool:
     """Post the approval prompt as an ephemeral message to the mentioner.
@@ -3840,7 +3841,7 @@ def _post_channel_approval_prompt(
 
 def _post_untagged_followup_prompt(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     event: dict[str, Any],
     *,
     is_ext_shared_channel: bool,
@@ -3953,7 +3954,7 @@ def _post_untagged_followup_prompt(
 
 
 def _post_untagged_question_prompt(
-    slack: SlackIntegration, integration: IntegrationRecord, event: dict[str, Any]
+    slack: SlackIntegration, integration: WorkspaceIntegration, event: dict[str, Any]
 ) -> bool:
     """Offer the author, privately, to answer the question they posted without tagging the app.
 
@@ -4047,7 +4048,7 @@ def _post_untagged_question_prompt(
 class _UntaggedQuestionClick:
     context_token: str
     context: dict[str, Any]
-    integration: IntegrationRecord
+    integration: WorkspaceIntegration
 
 
 def _untagged_question_click(payload: dict) -> _UntaggedQuestionClick | None:
@@ -4162,7 +4163,7 @@ def _thread_join_pending_key(integration_id: int, channel: str, thread_ts: str, 
 
 def post_thread_join_prompt(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     *,
     channel: str,
@@ -4397,7 +4398,7 @@ def _handle_thread_join_decline(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _can_access_team(posthog_user: User, integration: IntegrationRecord) -> bool:
+def _can_access_team(posthog_user: User, integration: WorkspaceIntegration) -> bool:
     """Whether the user can reach the integration's project.
 
     Org membership alone is what ``_is_org_member`` answers, and it is not enough
@@ -4415,7 +4416,7 @@ def _can_access_team(posthog_user: User, integration: IntegrationRecord) -> bool
         return False
 
 
-def _untagged_followups_revoked_since_prompt(integration: IntegrationRecord, context: dict[str, Any]) -> bool:
+def _untagged_followups_revoked_since_prompt(integration: WorkspaceIntegration, context: dict[str, Any]) -> bool:
     """Whether the thread creator switched follow-ups off while the prompt sat unanswered.
 
     The confirmed run skips the mode activity — its answer is what re-dispatched
@@ -4684,7 +4685,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
 
 def _report_slack_mention_received(
     event: dict,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     slack_team_id: str,
     *,
     posthog_user: User | None = None,
@@ -4782,7 +4783,7 @@ def _report_slack_mention_dropped(
     *,
     reason: str,
     replied: bool,
-    integration: IntegrationRecord | None = None,
+    integration: WorkspaceIntegration | None = None,
     posthog_user: User | None = None,
     **extra: object,
 ) -> None:
@@ -4840,7 +4841,7 @@ def _report_slack_mention_dropped(
 
 def _start_mention_workflow(
     event: dict,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     slack_team_id: str,
     event_id: str | None,
     *,
@@ -5066,7 +5067,7 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
 class LinkSharedTarget:
     """The install that serves a ``link_shared`` event, and how it was chosen."""
 
-    integration: IntegrationRecord | None
+    integration: WorkspaceIntegration | None
     source: str
 
 
@@ -5121,7 +5122,7 @@ def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
 
 
 def _link_shared_target(
-    event: dict[str, Any], candidates: list[IntegrationRecord], *, slack_team_id: str
+    event: dict[str, Any], candidates: Sequence[WorkspaceIntegration], *, slack_team_id: str
 ) -> LinkSharedTarget:
     """Pick the install to unfurl with, preferring the project the link itself names."""
     team_ids = _link_shared_url_team_ids(event)
@@ -5517,7 +5518,7 @@ def _delete_ephemeral_via_response_url(response_url: str) -> None:
 
 
 def _post_channel_approval_outcome(
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel_id: str,
     thread_ts: str | None,
     text: str,
@@ -5547,7 +5548,7 @@ def _post_channel_approval_outcome(
 
 
 # nosemgrep: tuple-return-prefer-dataclass -- existing shape, only the record type changed
-def _resolve_channel_approval_context(payload: dict) -> tuple[IntegrationRecord, dict, str, str] | None:
+def _resolve_channel_approval_context(payload: dict) -> tuple[WorkspaceIntegration, dict, str, str] | None:
     """Decode the click context and load the prompt's integration in one place.
 
     Returns ``(integration, context, channel_id, clicker_slack_user_id)`` on
@@ -5578,7 +5579,7 @@ def _resolve_channel_approval_context(payload: dict) -> tuple[IntegrationRecord,
     return integration, context, channel_id, clicker_slack_user_id
 
 
-def _is_org_member(integration: IntegrationRecord, clicker_slack_user_id: str) -> User | None:
+def _is_org_member(integration: WorkspaceIntegration, clicker_slack_user_id: str) -> User | None:
     """Resolve the clicker to a PostHog ``User`` belonging to the integration's
     organization, or ``None`` if no such membership exists.
     """
@@ -5589,7 +5590,7 @@ def _is_org_member(integration: IntegrationRecord, clicker_slack_user_id: str) -
     )
 
 
-def _org_label(integration: IntegrationRecord) -> str:
+def _org_label(integration: WorkspaceIntegration) -> str:
     try:
         org_name = integration.team.organization.name
     except Exception:
@@ -5598,7 +5599,7 @@ def _org_label(integration: IntegrationRecord) -> str:
 
 
 def _reject_non_member_click(
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel_id: str,
     thread_ts: str | None,
     response_url: str,
@@ -6051,7 +6052,7 @@ def _render_insight_alert_snooze_modal(private_metadata: str) -> dict:
     }
 
 
-def _open_insight_alert_snooze_modal(integration: IntegrationRecord, payload: dict, alert_uuid: uuid.UUID) -> None:
+def _open_insight_alert_snooze_modal(integration: WorkspaceIntegration, payload: dict, alert_uuid: uuid.UUID) -> None:
     trigger_id = payload.get("trigger_id")
     if not trigger_id:
         return
@@ -6132,7 +6133,7 @@ def _handle_insight_alert_snooze_modal_submit(payload: dict) -> HttpResponse:
 
 
 def _post_insight_alert_snooze_modal_confirmation(
-    integration: IntegrationRecord, meta: dict, until: datetime, slack_user_id: str
+    integration: WorkspaceIntegration, meta: dict, until: datetime, slack_user_id: str
 ) -> None:
     channel = meta.get("channel")
     if not channel:

@@ -9,9 +9,8 @@ from collections.abc import Iterable
 
 import structlog
 
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import SlackIntegration
-
-from products.integrations.backend.facade.api import IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 

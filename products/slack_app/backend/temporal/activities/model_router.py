@@ -16,7 +16,6 @@ from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS, build_syst
 from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.facade.run_preferences import (
     MODEL_ROUTER_INSTRUCTIONS,
@@ -24,7 +23,10 @@ from products.slack_app.backend.facade.run_preferences import (
     model_router_options,
 )
 from products.slack_app.backend.services.slack_settings import resolve_auto_model_choice
-from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    require_workspace_integration,
+)
 from products.slack_app.backend.temporal.activities.classifiers import CLASSIFIER_PROPERTY, _thread_trace_id
 from products.slack_app.backend.temporal.types import SlackAppModelOverride, SlackAppModelRouterInput
 
@@ -89,7 +91,7 @@ def classify_slack_app_model_router(
 
 
 def _capture_decision(
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     input: SlackAppModelRouterInput,
     user: User,
     decision: ModelRouterDecision,

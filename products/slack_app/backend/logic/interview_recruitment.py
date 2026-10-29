@@ -31,14 +31,13 @@ from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
 from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.integration import SlackIntegration
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.state import FeatureTipsState, get_state, update_state
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.inbox_interactivity import post_response_url
 from products.slack_app.backend.services.slack_messages import post_slack_ephemeral, section_block
 from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user
-from products.slack_app.backend.services.workspace_integrations import get_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
 from products.slack_app.backend.temporal.activities.classifiers import CLASSIFIER_PROPERTY
 
 if TYPE_CHECKING:
@@ -110,7 +109,7 @@ class SentimentVerdict:
         return self.choice == UNHAPPY and self.confidence >= SENTIMENT_MIN_CONFIDENCE
 
 
-def linked_posthog_user(integration: IntegrationRecord, slack_user_id: str) -> User | None:
+def linked_posthog_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:
     """The PostHog user behind this Slack identity. Best-effort, because the result only labels events and model calls."""
     try:
         return find_linked_posthog_user(
@@ -142,7 +141,7 @@ def invite_section(text: str, button: dict[str, Any]) -> dict[str, Any]:
 
 @frozen
 class FrustrationInviteRequest:
-    integration: IntegrationRecord
+    integration: WorkspaceIntegration
     slack_user_id: str
     posthog_user: User | None
     channel: str

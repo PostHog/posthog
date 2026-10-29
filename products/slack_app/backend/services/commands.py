@@ -1,11 +1,14 @@
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from posthog.models.integration import SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.services.slack_messages import app_home_url, post_slack_ephemeral
-from products.slack_app.backend.services.workspace_integrations import get_team_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    get_team_workspace_integration,
+)
 
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
@@ -65,7 +68,7 @@ def reject_invalid_rule_text(team_id: int, rule_text: str) -> str | None:
 
 def _handle_help(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -113,7 +116,7 @@ def _handle_help(
 
 def _handle_rules_list(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     *,
@@ -148,7 +151,7 @@ def _handle_rules_list(
 
 def _handle_rules_add(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     user_id: int,
@@ -217,7 +220,7 @@ def _handle_rules_add(
 
 def _handle_rules_remove(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     rule_numbers: list[int] | None,
@@ -273,7 +276,7 @@ def _handle_project_show(
     slack_user_id: str,
     slack_workspace_id: str,
     user_id: int,
-    workspace_candidates: list[IntegrationRecord] | None = None,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
     *,
     command_prefix: str,
 ) -> None:
@@ -348,7 +351,7 @@ def _handle_project_set(
     slack_workspace_id: str,
     user_id: int,
     target_team_id: int,
-    workspace_candidates: list[IntegrationRecord] | None = None,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
 ) -> None:
     from posthog.models.user import User
 
@@ -382,7 +385,7 @@ def _handle_project_set(
     SlackSettings.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_user_id=slack_user_id,
-        defaults={"default_integration": target},
+        defaults={"default_integration_id": target.id},
     )
     post_slack_ephemeral(
         slack.client,
@@ -399,14 +402,14 @@ def _handle_project_set(
 
 def _handle_project_set_workspace(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
     slack_workspace_id: str,
     user_id: int,
     target_team_id: int,
-    workspace_candidates: list[IntegrationRecord] | None = None,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
     *,
     command_prefix: str,
 ) -> None:
@@ -457,7 +460,7 @@ def _handle_project_set_workspace(
     SlackSettings.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_user_id=None,
-        defaults={"default_integration": target},
+        defaults={"default_integration_id": target.id},
     )
     post_slack_ephemeral(
         slack.client,
@@ -506,7 +509,7 @@ def _handle_welcome_show(
 
 def _handle_welcome_set(
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -544,7 +547,7 @@ def resolve_command_target(
     user_id: int,
     channel: str,
     thread_ts: str,
-) -> tuple[list[IntegrationRecord], "ResolutionResult"]:
+) -> tuple[list[WorkspaceIntegration], "ResolutionResult"]:
     """Load workspace candidates and decide which one to dispatch against.
 
     Returns ``(workspace_candidates, result)``. ``result.integration`` is
@@ -599,14 +602,14 @@ def resolve_command_target(
 def dispatch_rules_command(
     command: "RulesCommand",
     slack: SlackIntegration,
-    integration: IntegrationRecord,
+    integration: WorkspaceIntegration,
     *,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
     slack_workspace_id: str,
     user_id: int,
-    workspace_candidates: list[IntegrationRecord] | None = None,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
     command_prefix: str,
 ) -> None:
     """Run the right handler for a parsed ``RulesCommand``. Assumes the caller has

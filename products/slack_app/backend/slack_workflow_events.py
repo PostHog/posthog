@@ -10,8 +10,9 @@ from typing import Any
 
 import structlog
 
+from posthog.integrations import IntegrationManager
+
 from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
-from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 

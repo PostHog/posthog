@@ -37,9 +37,10 @@ from __future__ import annotations
 import structlog
 import posthoganalytics
 
+from posthog.integrations import IntegrationRecord
+from posthog.models.team import Team
 from posthog.utils import get_instance_region
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
 
 logger = structlog.get_logger(__name__)
@@ -65,6 +66,10 @@ def _region_properties() -> dict[str, str]:
     return {"region": get_instance_region() or "dev"}
 
 
+def _organization_id(integration: IntegrationRecord) -> str:
+    return str(Team.objects.values_list("organization_id", flat=True).get(id=integration.team_id))
+
+
 def _workspace_flag_enabled(
     flag: str,
     integration: IntegrationRecord,
@@ -80,7 +85,7 @@ def _workspace_flag_enabled(
 
     ``distinct_id`` identifies the PostHog user the check is being made for, and becomes
     the identity the flag resolves against. It is a distinct ID rather than a user id so
-    a caller can pass what it already holds, and so deciding a gate costs no query here.
+    a caller can pass what it already holds.
     Without one the gate falls back to the Slack workspace, which no person rule can
     match.
     """
@@ -89,7 +94,7 @@ def _workspace_flag_enabled(
             posthoganalytics.feature_enabled(
                 flag,
                 distinct_id or f"slack_workspace:{integration.integration_id}",
-                groups={"organization": str(integration.team.organization_id)},
+                groups={"organization": _organization_id(integration)},
                 person_properties=_region_properties(),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
@@ -138,7 +143,7 @@ def is_slack_app_byos_enabled(
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
 
     if not tasks_facade.own_subscription_cloud_enabled(
-        adapter, distinct_id=distinct_id, organization_id=str(integration.team.organization_id)
+        adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
     ):
         return False
     return _workspace_flag_enabled(
