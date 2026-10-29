@@ -758,7 +758,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201, resp.json())
         self.assertEqual(resp.json()["query"], {"filter_test_accounts": True})
 
-    def test_create_strips_date_fields_from_query(self) -> None:
+    def test_create_strips_date_and_result_fields_from_query(self) -> None:
         # The schedule controls time, not the user.
         resp = self.client.post(
             self.scanners_url,
@@ -767,12 +767,18 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
                 "model": ScannerModel.GEMINI_3_8_FLASH,
-                "query": {"date_from": "-7d", "date_to": "-1d", "filter_test_accounts": True},
+                "query": {
+                    "date_from": "-7d",
+                    "date_to": "-1d",
+                    "filter_test_accounts": True,
+                    "response": {"results": [], "has_next": False},
+                },
             },
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.json())
         body_query = resp.json()["query"]
+        self.assertNotIn("response", body_query)
         self.assertNotIn("date_from", body_query)
         self.assertNotIn("date_to", body_query)
         self.assertEqual(body_query["filter_test_accounts"], True)
@@ -794,7 +800,6 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 {"experiment_exposure": {"experiment_id": 1}},
                 "Recording filter can't set experiment exposure directly. Set experiment_targeting instead.",
             ),
-            # Only the replay list applies it, so a scanner would watch recordings the filter leaves out.
             (
                 "replay_list_only",
                 {
@@ -808,7 +813,6 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 },
                 "A scanner can't apply these recording filters: comment_text. Remove them and try again.",
             ),
-            # The query builder fails on a missing action, so every run of the scanner would fail.
             (
                 "missing_action",
                 {"kind": "RecordingsQuery", "actions": [{"id": 999999, "type": "actions"}]},
@@ -4239,7 +4243,6 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             ("query_experiment_exposure", {"query": {"experiment_exposure": {"experiment_id": 1}}}),
             ("query_not_an_object", {"query": ["kind", "RecordingsQuery"]}),
             ("query_missing_cohort", {"query": {"properties": [{"type": "cohort", "key": "id", "value": 999999}]}}),
-            # Entities are untyped in the query, so a malformed one only fails when the builder reads it.
             ("query_malformed_entity", {"query": {"events": [{"id": "$pageview", "properties": 1}]}}),
         ]
     )
@@ -4271,12 +4274,10 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         [
             ("estimate", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
             ("create", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
-            # An expression names its cohort inside a string, so the check has to parse it.
             ("estimate", "hogql", "This recording filter uses cohorts, which your access doesn't cover."),
         ]
     )
     def test_a_token_without_cohort_read_cannot_filter_by_cohort(self, endpoint: str, form: str, detail: str) -> None:
-        # Both run the filter, so either would otherwise count or watch a cohort the token cannot read.
         cohort = Cohort.objects.create(team=self.team, name="Paying customers")
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(

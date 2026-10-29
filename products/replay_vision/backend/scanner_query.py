@@ -33,8 +33,9 @@ from products.cohorts.backend.models.cohort import Cohort
 
 # A scanner's schedule owns time, so a saved filter never carries a date range.
 DATE_FIELDS = ("date_from", "date_to")
-# Only the replay list API resolves these. A scanner would keep them and never apply them, and watch
-# more recordings than the filter shows.
+# A query can carry the rows it last returned, which may hold person data, and are never part of a filter.
+RESULT_FIELDS = ("response",)
+# Only the replay list API applies these, so a scanner that kept them would watch more than the filter shows.
 REPLAY_LIST_ONLY_FIELDS = ("comment_text", "hide_viewed_recordings")
 # Copied into every observation's snapshot, so the write boundary caps it.
 MAX_QUERY_BYTES = 50_000
@@ -74,7 +75,7 @@ def combines_with_and(query: dict[str, Any] | None) -> bool:
 
 
 def clean_scanner_query(value: object) -> dict[str, Any]:
-    """The filter as a scanner stores it: a valid `RecordingsQuery` without the date range.
+    """The filter as a scanner stores it: a valid `RecordingsQuery` without the date range or results.
 
     Raises `ScannerQueryError` for anything a saved scanner must not hold.
     """
@@ -87,7 +88,7 @@ def clean_scanner_query(value: object) -> dict[str, Any]:
         raise ScannerQueryError(
             "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
         )
-    cleaned = {key: item for key, item in value.items() if key not in DATE_FIELDS}
+    cleaned = {key: item for key, item in value.items() if key not in DATE_FIELDS + RESULT_FIELDS}
     if fields := replay_list_only_fields(cleaned):
         raise ScannerQueryError(
             f"A scanner can't apply these recording filters: {', '.join(fields)}. Remove them and try again."
@@ -246,11 +247,8 @@ class NarrowingRefusal(StrEnum):
 
     # The operand covers the whole query, so an OR on either side would widen the scan, not narrow it.
     OR_OPERAND = "or_operand"
-    # The combined filter breaks a rule a saved scanner must meet, such as the size cap.
     INVALID = "invalid"
-    # The combined filter matched no recent recordings.
     MATCHED_NOTHING = "matched_nothing"
-    # The combined filter could not be checked, so nothing shows it still matches recordings.
     UNVERIFIED = "unverified"
 
 
@@ -259,7 +257,6 @@ class ChosenQueryNarrowing:
     """A chosen filter with proposed conditions ANDed onto it, or the reason they were not."""
 
     query: dict[str, Any]
-    # The conditions that were added, which `query` already holds. None when nothing was added.
     additions: dict[str, Any] | None
     refusal: NarrowingRefusal | None
 
@@ -296,7 +293,6 @@ class ChosenScope:
     experiment_id: int | None
     # The variants the person picked, or None for every variant. Set only by exposure in the filter.
     experiment_variants: list[str] | None
-    # Whether the experiment came from exposure in the filter rather than an `experiment_id`.
     experiment_from_query: bool
 
 
@@ -324,8 +320,7 @@ def chosen_scope(value: object, *, experiment_id: int | None) -> ChosenScope:
         raise ScannerQueryError("A scanner can't keep the in-session exposure condition. Remove it and try again.")
     if experiment_id is not None and experiment_id != exposure.experiment_id:
         raise ScannerQueryError("This is not the experiment the recording filter is scoped to.", field="experiment_id")
-    # Read by presence, not truthiness, as the replay list resolves them, so an empty name is checked as a
-    # variant rather than read as every variant. In order and without repeats, since a scanner refuses repeats.
+    # By presence, as the replay list reads them, so an empty name is checked rather than read as every variant.
     requested = exposure.variants if exposure.variants is not None else None
     if requested is None and exposure.variant is not None:
         requested = [exposure.variant]

@@ -539,8 +539,6 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            # A scanner never applies these, so drafting with them would watch and budget for recordings
-            # the person excluded.
             (
                 "comment search",
                 {
@@ -567,9 +565,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 {},
                 "in-session",
             ),
-            # Every rule reads fields off the query, so any other shape must be refused before they run.
             ("not an object", ["kind", "RecordingsQuery"], {}, "JSON object"),
-            # A reference the query builder cannot load fails every estimate the way a timeout does.
             (
                 "unloadable cohort",
                 {
@@ -585,10 +581,8 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 {"experiment_id": 2},
                 "not the experiment",
             ),
-            # Exposure is read only after the whole filter parses, so a malformed one is a 400, not a 500.
             ("exposure without an experiment", {"kind": "RecordingsQuery", "experiment_exposure": {}}, {}, "invalid"),
             ("exposure that is not an object", {"kind": "RecordingsQuery", "experiment_exposure": "x"}, {}, "invalid"),
-            # The replay list's exposure resolver refuses both, so the draft cannot honor them either.
             (
                 "exposure with an empty variant list",
                 {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1, "variants": []}},
@@ -643,9 +637,6 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 
     @patch(_GENERATE_PATH)
     def test_a_chosen_query_scoped_to_an_experiment_keeps_its_variant(self, mock_generate):
-        # The replay list scopes a filter to an experiment with exposure inside the query. Refused, a
-        # person on an experiment's recordings could not draft from them. Dropped, the scanner would
-        # watch everyone. It becomes the scanner's experiment, and the model cannot change the variant.
         experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
         mock_generate.return_value = _draft(
             filter_experiment="Billing upgrade prompt", filter_experiment_variant="test"
@@ -1867,13 +1858,9 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            # The goal asks for narrower recordings than the chosen filter, so the draft ANDs an event onto it.
             ("adds a narrowing filter", _CHOSEN, ["billing_limit_set"], True, True, None),
-            # Additions are kept only when the recordings list finds a match, so every other outcome keeps
-            # the chosen filter and says why.
             ("drops additions that match nothing", _CHOSEN, ["billing_limit_set"], False, False, "matched_nothing"),
             ("drops additions it could not check", _CHOSEN, ["billing_limit_set"], None, False, "unverified"),
-            # The operand covers the whole query, so an addition would OR in and widen the scan.
             (
                 "drops additions to an OR filter",
                 {**_CHOSEN, "operand": "OR"},
@@ -1891,7 +1878,6 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
                 False,
                 "or_operand",
             ),
-            # The user picked it, so a chosen filter is kept with nothing to explain.
             ("keeps a chosen filter with nothing proposed", _CHOSEN, [], True, False, None),
         ]
     )
@@ -1927,10 +1913,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         else:
             assert draft.query == chosen
             assert draft.query_additions is None
-        # The model wrote its rationale about the narrower filter, so a dropped proposal must be explained.
         assert draft.rationale.endswith("This watches the recordings you picked.") == (refusal is not None)
-        # Only a proposal that could narrow the filter is checked, and only the filter that won is priced.
-        # Under the model's mode, the narrowest the solver can pick, so a kept addition matches whichever it picks.
         assert checked == (["focused"] if drafted_events and refusal != "or_operand" else [])
         assert len(estimated) == 1
         assert bool(estimated[0].events) == extended
@@ -2089,7 +2072,6 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         [
             ("named_in_the_goal", {"filter_experiment": "Billing upgrade prompt"}, False, None, ["test"]),
             ("picked_by_the_user", {}, True, None, ["test"]),
-            # Carried in the user's replay filter: their variant wins over the one the model picked.
             ("scoped_by_the_chosen_filter", {}, True, ["control"], ["control"]),
         ]
     )

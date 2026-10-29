@@ -297,9 +297,7 @@ class ScannerDraft:
     model: str | None = None
     credit_limit: int | None = None
     free_only: bool = False
-    # The filters the draft ANDed onto a query the user chose. None when nothing was chosen or added.
     query_additions: dict[str, Any] | None = None
-    # Why the filters proposed for a chosen query were not kept. None when none were proposed or all were kept.
     narrowing_refusal: str | None = None
 
 
@@ -1990,8 +1988,7 @@ def draft_scanner_from_goal(
     return _costed(draft, solution)
 
 
-# Told to the user when the filters the model proposed for their chosen filter are not kept. The model
-# wrote its rationale about the narrower filter, so without a note it describes a filter the scanner lacks.
+# The model's rationale describes the narrower filter, so a dropped proposal needs a note or it misleads.
 _NARROWING_REFUSAL_NOTES: dict[NarrowingRefusal, str] = {
     NarrowingRefusal.OR_OPERAND: (
         "Your filter matches recordings that meet any one of its conditions, so nothing could be added to it. "

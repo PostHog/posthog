@@ -3397,7 +3397,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_type": drafted.scanner_type,
                 # Whether the goal mapped to a real filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
-                # Whether the draft narrowed a query the person chose, rather than keeping it as is.
                 "query_extended": bool(drafted.query_additions),
                 # Why proposed narrowing was not kept, so a prompt that keeps proposing dead filters shows up.
                 "narrowing_refusal": drafted.narrowing_refusal,
