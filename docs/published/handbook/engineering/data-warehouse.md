@@ -55,6 +55,8 @@ Returning to a notebook can reuse completed query results from the last two minu
 
 ## Choosing data in Business intelligence
 
+Business intelligence is in beta. The product has a beta label, and the worksheet index shows a dismissible notice with a **Send feedback** button. To collect feedback, launch a survey with **Feedback button → Custom** presentation targeting `#business-intelligence-feedback-button` in the project that collects the app's analytics. No survey ID is needed in the frontend.
+
 **Business intelligence** lists saved worksheets at `/bi` when the `sql-editor-bi-mode` feature flag is enabled. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
 Choose a connection in the **Data** panel, then select a table below it. Certified sources have a checkmark beside their table icon and appear in a separate **Certified sources** folder. All table folders can be expanded and collapsed, including while searching. Deprecated sources have a warning icon. Hover over either status icon for details. Deprecated and uncertified sources remain selectable; search preserves the same ordering. **Run** is the first toolbar action, before **Swap rows and columns**.
@@ -435,9 +437,9 @@ Implementation audit, October 28, 2026. These are proposed integration contracts
 ### BI-owned integration work
 
 - [x] Adopt the catalog overwrite-confirmation flow for worksheet metric proposals. Preserve entered values on cancel, allow retry, and keep overwritten metrics proposed.
-- [ ] Show catalog trust context when exploring a metric: approval and drift status, unit, owner, and stable identity. Distinguish the copied definition from current catalog state; never imply a snapshot follows catalog changes.
-- [ ] Add deliberate, searchable metric discovery in BI using the existing catalog search API. Handle loading, failure, no matches, pagination, and unsupported definition kinds explicitly.
-- [ ] Surface existing field descriptions and data-quality context in the data pane. Preserve raw field identities and distinguish certification from current check health.
+- [x] Show catalog trust context when exploring a metric: approval and drift status, unit, owner, and stable identity. Saved copies retain metadata from copy time, labeled **Catalog status when copied (unverified)** without positive approval styling. Only Proposed and Approved statuses are recorded. Older copies explicitly say no status was recorded. The metadata is editable worksheet content, not verified provenance or a live approval; authors are directed to the current catalog entry. Live version checks remain shared-layer work.
+- [x] Add deliberate, searchable metric discovery in BI using the existing catalog search API. The picker handles loading, failure, no matches, pagination, and unsupported definition kinds explicitly.
+- [x] Surface existing table and view field descriptions in the data pane, including related tables. Show recorded data-quality check health separately from certification, with explicit unavailable, unchecked, and error states. Raw field identities remain unchanged.
 
 ### Shared-layer requests
 

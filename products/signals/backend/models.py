@@ -187,6 +187,11 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+class InboxOnboardingSetupMode(models.TextChoices):
+    QUICK = "quick", "Quick"
+    GUIDED = "guided", "Guided"
+
+
 # What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
 # because that module pulls the HTTP stack in and this one is loaded on every Django start.
 GITHUB_LABEL_NAME_MAX_LENGTH = 50
@@ -4077,6 +4082,8 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
         FAILED = "failed"
         # No update called the model yet. The row only holds the backoff in `next_eligible_at`.
         SKIPPED = "skipped"
+        # The model answered a first summary with no profile. The row holds the cost and a skip backoff.
+        EMPTY_PROFILE = "empty_profile"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
