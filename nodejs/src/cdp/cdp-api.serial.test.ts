@@ -36,7 +36,10 @@ import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
-import { transactionalEmailRequestsTotal } from './services/hogflows/transactional-email'
+import {
+    transactionalEmailRequestsTotal,
+    transactionalEmailStageDurationMs,
+} from './services/hogflows/transactional-email'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -2141,6 +2144,18 @@ describe('CDP API', () => {
         // The alerts on this endpoint key on these outcome labels.
         const outcomeCount = async (outcome: string): Promise<number> =>
             (await transactionalEmailRequestsTotal.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+        const stageCounts = async (): Promise<Record<string, number>> =>
+            Object.fromEntries(
+                (await transactionalEmailStageDurationMs.get()).values
+                    .filter((v) => v.metricName === 'cdp_transactional_email_stage_duration_ms_count')
+                    .map((v) => [String(v.labels.stage), v.value])
+            )
+        const stageCountChanges = (before: Record<string, number>, after: Record<string, number>) =>
+            Object.fromEntries(
+                Object.entries(after)
+                    .map(([stage, count]) => [stage, count - (before[stage] ?? 0)])
+                    .filter(([, change]) => change !== 0)
+            )
 
         const send = (flowId: string, headers: Record<string, string>, payload: Record<string, unknown> = body) =>
             supertest(app)
@@ -2170,11 +2185,23 @@ describe('CDP API', () => {
         it('queues one run on the email fast lane with the recipient and the data', async () => {
             const queueAppMetric = jest.spyOn(api['hogFunctionMonitoringService'], 'queueAppMetric')
             const queuedBefore = await outcomeCount('queued')
+            const stagesBefore = await stageCounts()
 
             const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
 
             expect(res.status).toEqual(202)
             expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
+            // Without an Idempotency-Key the request makes no idempotency call.
+            expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
+                auth: 1,
+                validate: 1,
+                load: 1,
+                build: 1,
+                checks: 1,
+                queue_insert: 1,
+                metrics_flush: 1,
+                total: 1,
+            })
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             const [invocation] = mockQueueInvocations.mock.calls[0][0]
             expect(invocation).toMatchObject({
@@ -2337,6 +2364,7 @@ describe('CDP API', () => {
         ] as const)('refuses a send the email worker would skip because %s', async (_desc, code, refuse) => {
             refuse()
             const refusedBefore = await outcomeCount(code)
+            const stagesBefore = await stageCounts()
             const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
 
@@ -2345,6 +2373,16 @@ describe('CDP API', () => {
             expect(refused.status).toEqual(422)
             expect(refused.body).toEqual({ error: code })
             expect(await outcomeCount(code)).toEqual(refusedBefore + 1)
+            // The reserve and the release of the key count once, as one idempotency observation.
+            expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
+                auth: 1,
+                validate: 1,
+                load: 1,
+                build: 1,
+                idempotency: 1,
+                checks: 1,
+                total: 1,
+            })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
             expect(emailStatusRows()).toEqual([])
 
