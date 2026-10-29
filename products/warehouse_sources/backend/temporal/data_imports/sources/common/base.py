@@ -155,7 +155,10 @@ def nest_flat_select_containers(
             continue
         container = job_inputs.get(field.name)
         if not isinstance(container, dict):
-            nested[field.name] = {"selection": field.defaultValue, **flat}
+            # A select sent as a bare string names the chosen branch, as config parsing reads it.
+            options = {option.value for option in field.options}
+            selection = container if isinstance(container, str) and container in options else field.defaultValue
+            nested[field.name] = {"selection": selection, **flat}
             continue
         if container.get("selection", field.defaultValue) != field.defaultValue:
             continue
