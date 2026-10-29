@@ -14,7 +14,6 @@ from slack_sdk.web.async_slack_response import AsyncSlackResponse
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import SlackIntegration
-from posthog.models.organization import Organization
 from posthog.slack.formatting import channel_id_from_target
 from posthog.slack.markdown import slack_rich_text
 from posthog.storage import object_storage
@@ -88,11 +87,8 @@ class SlackGallery:
     blocks: list[dict[str, Any]] = field(default_factory=list)
 
 
-def _ai_data_processing_approved(integration: IntegrationRecord | None) -> bool:
-    if integration is None:
-        return False
-    organization = Organization.objects.get(teams__id=integration.team_id)
-    return bool(organization.is_ai_data_processing_approved)
+def _ai_data_processing_approved(subscription: Subscription, integration: IntegrationRecord | None) -> bool:
+    return integration is not None and bool(subscription.team.organization.is_ai_data_processing_approved)
 
 
 def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
@@ -211,7 +207,7 @@ def _subscription_footer_blocks(
         {"type": "divider"},
         {"type": "actions", "elements": action_elements},
     ]
-    ai_enabled = _ai_data_processing_approved(integration)
+    ai_enabled = _ai_data_processing_approved(subscription, integration)
     if explore_hint := slack_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         blocks.append(explore_hint)
 
@@ -283,7 +279,7 @@ def _prepare_slack_gallery(
         f"<{resource_info.url}?{utm_tags}|View in PostHog> · <{subscription.url}?{utm_tags}|Manage subscription>"
     )
 
-    ai_enabled = _ai_data_processing_approved(integration)
+    ai_enabled = _ai_data_processing_approved(subscription, integration)
     if explore_hint := slack_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         lines.append(explore_hint)
 

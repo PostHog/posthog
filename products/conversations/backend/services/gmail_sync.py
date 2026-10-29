@@ -208,7 +208,7 @@ def _organization_member_emails(integration: IntegrationRecord) -> set[str]:
     return {
         email.lower()
         for email in OrganizationMembership.objects.filter(
-            organization__teams__id=integration.team_id,
+            organization_id=Team.objects.values_list("organization_id", flat=True).get(id=integration.team_id),
             user__is_active=True,
         ).values_list("user__email", flat=True)
     }
