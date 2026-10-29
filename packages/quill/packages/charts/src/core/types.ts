@@ -408,8 +408,10 @@ export interface TooltipConfig {
     showTotal?: boolean
     totalLabel?: string
     totalFormatter?: (value: number) => string
-    /** Sort series rows by value descending so the highest value appears at the top. */
-    sortedByValue?: boolean
+    /** Sort series rows by value: `true` or `'desc'` highest first, `'asc'` lowest first. */
+    sortedByValue?: boolean | 'asc' | 'desc'
+    /** `single` lists only the series closest to the cursor. Defaults to `all`. */
+    mode?: 'all' | 'single'
     /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
      *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
     hitArea?: 'bar' | 'band'

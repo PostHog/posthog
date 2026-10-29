@@ -36,8 +36,13 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
     /** Formats the total value. Defaults to the `valueFormatter` (applied with the first summable
      *  row's entry) or `toLocaleString`. */
     totalFormatter?: (value: number) => React.ReactNode
-    /** Sort series rows by value descending so the highest value appears at the top. */
-    sortedByValue?: boolean
+    /** Sort series rows by value. `true` or `'desc'` puts the highest value at the top, `'asc'` the
+     *  lowest. Unsorted rows follow the series' vertical order on the plot. */
+    sortedByValue?: boolean | 'asc' | 'desc'
+    /** `single` lists only the series closest to the cursor (the hovered segment on a stacked bar).
+     *  It lists every row when no series is under the cursor, such as on a pinned tooltip. Defaults
+     *  to `all`. */
+    mode?: 'all' | 'single'
     /** Hide rows whose value is exactly 0 — useful when a zero means the series is absent rather than measured. */
     hideZeroRows?: boolean
     /** Make each series row clickable, firing with the row's `seriesData` entry. The tooltip must
@@ -61,21 +66,24 @@ export function DefaultTooltip<Meta = unknown>({
     totalLabel = 'Total',
     totalFormatter,
     sortedByValue,
+    mode = 'all',
     hideZeroRows,
     onRowClick,
     footer,
 }: DefaultTooltipProps<Meta>): React.ReactElement {
     const format = valueFormatter ?? ((value: number): React.ReactNode => value.toLocaleString())
     const visible = hideZeroRows ? seriesData.filter((s) => s.value !== 0) : seriesData
-    const rows = sortedByValue
-        ? [...visible].sort((a, b) => b.value - a.value)
+    const sortedRows = sortedByValue
+        ? [...visible].sort((a, b) => (sortedByValue === 'asc' ? a.value - b.value : b.value - a.value))
         : visible[0]?.yPixel != null
           ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
           : visible
-    const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
     const closestKey =
         hoveredSeriesKey ??
-        (hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null)
+        (hoverPosition != null && sortedRows.length > 1 ? findClosestSeriesKey(sortedRows, hoverPosition.y) : null)
+    const closestRows = mode === 'single' ? sortedRows.filter((s) => s.series.key === closestKey) : []
+    const rows = closestRows.length > 0 ? closestRows : sortedRows
+    const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): React.ReactNode => format(value, summable[0]))

@@ -262,6 +262,20 @@ describe('DefaultTooltip', () => {
             expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['High', 'Low'])
         })
 
+        it.each<[string, TooltipProps, TooltipContext['hoverPosition'], string[]]>([
+            ['sortedByValue: true puts the highest value first', { sortedByValue: true }, null, ['Beta', 'Alpha']],
+            ["sortedByValue: 'asc' puts the lowest value first", { sortedByValue: 'asc' }, null, ['Alpha', 'Beta']],
+            ["mode: 'single' lists only the row closest to the cursor", { mode: 'single' }, { x: 0, y: 290 }, ['Beta']],
+            ["mode: 'single' lists every row without a cursor", { mode: 'single' }, null, ['Alpha', 'Beta']],
+        ])('%s', (_, props, hoverPosition, expectedRows) => {
+            const withYPixel: TooltipContext['seriesData'] = [
+                { ...TWO_SERIES[0], yPixel: 40 },
+                { ...TWO_SERIES[1], yPixel: 300 },
+            ]
+            renderTooltip(props, withYPixel, { hoverPosition })
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(expectedRows)
+        })
+
         it('marks the row whose yPixel is closest to the cursor with data-closest', () => {
             const withYPixel: TooltipContext['seriesData'] = [
                 { series: { key: 'a', label: 'Alpha', data: [] }, value: 5, color: '#000', yPixel: 40 },

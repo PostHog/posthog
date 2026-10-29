@@ -15,7 +15,7 @@ Other charts, such as scatter and pie, provide specialized tooltips; check their
 
 ## Formatting without a render prop
 
-`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `showTotal`, `totalLabel`, `totalFormatter`, and `sortedByValue` into `DefaultTooltip`.
+`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `showTotal`, `totalLabel`, `totalFormatter`, `sortedByValue`, and `mode` into `DefaultTooltip`.
 Prefer this for "format each row" and "add a total" cases (SQL insights pass per-column formatters this way).
 A render prop, if given, owns the content and these fields are ignored.
 
@@ -28,7 +28,8 @@ Usable from a custom `tooltip` render prop by spreading the context: `<DefaultTo
 - `labelRenderer(entry)` overrides how each row's label renders (default: the series label). Use it for richer labels such as breakdown-value pills. Rows share one grid (swatch, label, value), so a renderer that pushes part of its label right lines up as a column down the tooltip.
 - `showHeader` (default true) toggles the header row. Pass false where there is no meaningful header (pie slices, aggregated single-column bars).
 - `showTotal` appends a row summing the visible series. It excludes `overlay` series (goal lines) and series with `visibility.total: false` (a percentage column beside counts; the row itself still renders), and is suppressed when fewer than two summable series remain. `totalFormatter` defaults to `valueFormatter` applied with the first summable row's entry; `totalLabel` defaults to `'Total'`.
-- `sortedByValue` sorts rows by value descending.
+- `sortedByValue` sorts rows by value: `true` or `'desc'` puts the highest first, `'asc'` the lowest.
+- `mode: 'single'` lists only the series closest to the cursor: the nearest line, or the hovered segment of a stacked bar. With no series under the cursor, such as on a pinned tooltip, it lists every row.
 - `hideZeroRows` drops rows whose value is exactly `0` (lifecycle statuses absent for a period).
 - `onRowClick(entry)` makes each row clickable. The tooltip must be pinned for clicks to land. Use it for a per-series drill-down (the persons modal).
 - `footer` renders arbitrary content below all rows, after a divider. Useful for "click to inspect" hints.
