@@ -117,6 +117,7 @@ fn create_heatmap_redirect(
         offset: event.offset,
         set: None,
         set_once: None,
+        ..Default::default()
     };
 
     process_single_event(&heatmap_event, historical_cfg, context).map(Some)
@@ -132,6 +133,29 @@ fn report_v1_limit_overruns(event_name: &str, distinct_id: &ExtractedDistinctId)
     }
 }
 
+fn validate_person_properties_snapshot(event: &RawEvent) -> Result<(), CaptureError> {
+    if event.person_properties.is_none() && event.person_properties_mode.is_none() {
+        return Ok(());
+    }
+    if event.person_properties.is_none() || event.person_properties_mode.is_none() {
+        return Err(CaptureError::RequestHydrationError(
+            "Send person_properties and person_properties_mode=snapshot together".to_string(),
+        ));
+    }
+    if event.set.is_some()
+        || event.set_once.is_some()
+        || ["$set", "$set_once", "$unset"]
+            .iter()
+            .any(|key| event.properties.contains_key(*key))
+    {
+        return Err(CaptureError::RequestHydrationError(
+            "Remove $set, $set_once and $unset when sending a person_properties snapshot"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Process a single analytics event from RawEvent to ProcessedEvent.
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
@@ -142,6 +166,7 @@ pub fn process_single_event(
     if event.event.is_empty() {
         return Err(CaptureError::MissingEventName);
     }
+    validate_person_properties_snapshot(event)?;
     Span::current().record("event_name", &event.event);
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
@@ -717,6 +742,7 @@ mod tests {
             set: Some(HashMap::new()),
             set_once: Some(HashMap::new()),
             token: Some("test_token".to_string()),
+            ..Default::default()
         }
     }
 
@@ -771,6 +797,60 @@ mod tests {
     }
 
     #[test]
+    fn test_person_properties_snapshot_survives_capture_for_recent_events() {
+        let now = DateTime::parse_from_rfc3339("2026-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        for snapshot in [
+            json!({}),
+            json!({"plan": "paid", "nested": [null, false, 1]}),
+        ] {
+            let event: RawEvent = serde_json::from_value(json!({
+                "event": "example_event",
+                "distinct_id": "example-user",
+                "timestamp": now.to_rfc3339(),
+                "person_properties_mode": "snapshot",
+                "person_properties": snapshot,
+            }))
+            .unwrap();
+            let processed =
+                process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
+                    .unwrap();
+            let data: serde_json::Value = serde_json::from_str(&processed.event.data).unwrap();
+            assert_eq!(data["person_properties"], snapshot);
+            assert_eq!(data["person_properties_mode"], "snapshot");
+            assert!(data.get("$set").is_none());
+            assert!(!processed.event.historical_migration);
+        }
+    }
+
+    #[test]
+    fn test_person_properties_snapshot_requires_opt_in_and_no_mutations() {
+        let context = create_test_context(Utc::now(), None);
+        for fields in [
+            json!({"person_properties": {}}),
+            json!({"person_properties_mode": "snapshot"}),
+            json!({"person_properties_mode": "snapshot", "person_properties": {}, "$set": {}}),
+            json!({"person_properties_mode": "snapshot", "person_properties": {}, "$set_once": {}}),
+            json!({"person_properties_mode": "snapshot", "person_properties": {}, "properties": {"$set": {}}}),
+            json!({"person_properties_mode": "snapshot", "person_properties": {}, "properties": {"$set_once": {}}}),
+            json!({"person_properties_mode": "snapshot", "person_properties": {}, "properties": {"$unset": []}}),
+        ] {
+            let mut input = json!({"event": "example_event", "distinct_id": "example-user"});
+            input
+                .as_object_mut()
+                .unwrap()
+                .extend(fields.as_object().unwrap().clone());
+            let event: RawEvent = serde_json::from_value(input).unwrap();
+            assert!(matches!(
+                process_single_event(&event, router::HistoricalConfig::new(false, 1), &context),
+                Err(CaptureError::RequestHydrationError(_))
+            ));
+        }
+    }
+
+    #[test]
     fn test_server_assigned_uuid_encodes_event_timestamp() {
         // Ingestion clock is in 2023, but the event's own timestamp is back in 2020.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
@@ -790,6 +870,7 @@ mod tests {
             set: None,
             set_once: None,
             token: Some("test_token".to_string()),
+            ..Default::default()
         };
 
         let processed =
@@ -827,6 +908,7 @@ mod tests {
             set: None,
             set_once: None,
             token: Some("test_token".to_string()),
+            ..Default::default()
         };
 
         let processed =
@@ -3385,6 +3467,7 @@ mod tests {
             set: None,
             set_once: None,
             token: Some("test_token".to_string()),
+            ..Default::default()
         }
     }
 
@@ -3435,6 +3518,7 @@ mod tests {
             set: None,
             set_once: None,
             token: Some("test_token".to_string()),
+            ..Default::default()
         };
 
         assert_eq!(has_heatmap_data(&event), case.expect_has_heatmap_data);

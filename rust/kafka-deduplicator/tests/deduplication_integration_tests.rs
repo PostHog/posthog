@@ -81,6 +81,7 @@ fn create_test_captured_event(
         offset: None,
         set: None,
         set_once: None,
+        ..Default::default()
     };
 
     // Serialize the RawEvent to a string for the data field

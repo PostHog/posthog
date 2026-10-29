@@ -54,7 +54,8 @@ export function createEvent(
     person: Person | undefined,
     processPerson: boolean,
     historicalMigration: boolean,
-    capturedAt: Date | null
+    capturedAt: Date | null,
+    personPropertiesSnapshot?: Record<string, unknown>
 ): ProcessedEvent {
     const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -72,7 +73,10 @@ export function createEvent(
     }
 
     let eventPersonProperties: Record<string, unknown> = {}
-    if (processPerson && person) {
+    if (processPerson && personPropertiesSnapshot !== undefined) {
+        // Merging with the destination person would leak keys absent from the source event.
+        eventPersonProperties = personPropertiesSnapshot
+    } else if (processPerson && person) {
         eventPersonProperties = {
             ...person.properties,
             // For consistency, we'd like events to contain the properties that they set, even if those were changed

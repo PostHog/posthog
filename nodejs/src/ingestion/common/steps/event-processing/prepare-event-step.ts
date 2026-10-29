@@ -36,6 +36,11 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(): 
         }
 
         const properties = normalizedEvent.properties!
+        if (input.headers.person_properties_snapshot !== undefined) {
+            delete properties.$set
+            delete properties.$set_once
+            delete properties.$unset
+        }
         const sanitizedEventName = sanitizeEventName(normalizedEvent['event'])
 
         if (properties['$ip'] && input.team.anonymize_ips) {

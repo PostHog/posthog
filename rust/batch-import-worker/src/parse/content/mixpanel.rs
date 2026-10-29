@@ -148,6 +148,7 @@ impl MixpanelEvent {
                 set: None,
                 set_once: None,
                 offset: None,
+                ..Default::default()
             };
 
             let Some(raw_event) = event_transform(raw_event)? else {

@@ -888,6 +888,7 @@ export interface EventHeaders {
     now?: Date
     force_disable_person_processing: boolean
     historical_migration: boolean
+    person_properties_snapshot?: Record<string, unknown>
     skip_heatmap_processing: boolean
     /** The Kafka partition key a redirect dropped, so the overflow lane can refresh its overflow flag. */
     redirect_original_key?: string

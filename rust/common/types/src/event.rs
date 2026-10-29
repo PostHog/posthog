@@ -56,6 +56,21 @@ pub trait EventWithLibraryInfo {
     fn extract_library_info(&self) -> Option<LibraryInfo>;
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersonPropertiesMode {
+    Snapshot,
+}
+
+fn deserialize_person_properties<'de, D>(
+    deserializer: D,
+) -> Result<Option<HashMap<String, Value>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    HashMap::deserialize(deserializer).map(Some)
+}
+
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
     #[serde(
@@ -79,6 +94,14 @@ pub struct RawEvent {
     pub set: Option<HashMap<String, Value>>,
     #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
     pub set_once: Option<HashMap<String, Value>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_person_properties",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub person_properties: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_properties_mode: Option<PersonPropertiesMode>,
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -93,8 +116,7 @@ pub struct RawEngageEvent {
     pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
     #[serde(default, deserialize_with = "empty_string_uuid_is_none")]
     pub uuid: Option<Uuid>,
-    // NOTE: missing event name is the only difference between RawEvent and RawEngageEvent
-    // when the event name is missing, we need fill in $identify as capture.py does:
+    // When the event name is missing, we need to fill in $identify as capture.py does:
     // https://github.com/PostHog/posthog/blob/70ce86a73f6c3d3ee6f44e1ac0acd695e2f78682/posthog/api/capture.py#L501-L502
     #[serde(default)]
     pub properties: HashMap<String, Value>,
@@ -584,6 +606,24 @@ impl CapturedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_person_properties_snapshot_rejects_non_objects() {
+        for snapshot in [
+            Value::Null,
+            serde_json::json!([]),
+            serde_json::json!("invalid"),
+            serde_json::json!(42),
+            serde_json::json!(false),
+        ] {
+            let event = serde_json::json!({
+                "event": "example_event",
+                "person_properties_mode": "snapshot",
+                "person_properties": snapshot,
+            });
+            assert!(serde_json::from_value::<RawEvent>(event).is_err());
+        }
+    }
 
     #[test]
     fn test_extract_distinct_id_whitespace_only_returns_none() {

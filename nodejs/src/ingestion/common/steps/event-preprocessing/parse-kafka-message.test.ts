@@ -2,7 +2,8 @@ import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
-import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
+import { PipelineResultType, dlq, isOkResult, ok } from '~/ingestion/framework/results'
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders } from '~/types'
 
@@ -44,12 +45,12 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(
                 ok({
-                    message: mockMessage,
+                    ...input,
                     event: {
                         event: {
                             event: 'test_event',
@@ -84,12 +85,12 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(
                 ok({
-                    message: mockMessage,
+                    ...input,
                     event: {
                         event: {
                             event: 'minimal_event',
@@ -120,12 +121,12 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(
                 ok({
-                    message: mockMessage,
+                    ...input,
                     event: {
                         event: {
                             event: 'test_event',
@@ -157,12 +158,12 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(
                 ok({
-                    message: mockMessage,
+                    ...input,
                     event: {
                         event: {
                             event: 'test_event',
@@ -197,12 +198,12 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(
                 ok({
-                    message: mockMessage,
+                    ...input,
                     event: {
                         event: {
                             event: 'test_event',
@@ -245,7 +246,7 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq(expectedReason))
@@ -258,7 +259,7 @@ describe('createParseKafkaMessageStep', () => {
                 value: null,
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
@@ -272,7 +273,7 @@ describe('createParseKafkaMessageStep', () => {
                 value: undefined,
             } as unknown as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
@@ -286,7 +287,7 @@ describe('createParseKafkaMessageStep', () => {
                 value: Buffer.from('invalid json'),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
@@ -305,7 +306,7 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
@@ -341,7 +342,7 @@ describe('createParseKafkaMessageStep', () => {
                 ['distinct_id', { distinct_id: true }, 'true'],
                 ['event', { event: 42 }, '42'],
             ] as const)('%s coerces to string', async (field, dataOverrides, expected) => {
-                const result = await step({ message: makeMessage(dataOverrides) })
+                const result = await step({ headers: createTestEventHeaders(), message: makeMessage(dataOverrides) })
 
                 expect(result.type).toBe(PipelineResultType.OK)
                 const event = (result as any).value.event.event
@@ -349,7 +350,7 @@ describe('createParseKafkaMessageStep', () => {
             })
 
             it('ip with number coerces to string', async () => {
-                const result = await step({ message: makeMessage({}, { ip: 10 }) })
+                const result = await step({ headers: createTestEventHeaders(), message: makeMessage({}, { ip: 10 }) })
 
                 expect(result.type).toBe(PipelineResultType.OK)
                 const event = (result as any).value.event.event
@@ -366,7 +367,7 @@ describe('createParseKafkaMessageStep', () => {
                 ['event', { event: { a: 1 } }],
                 ['event', { event: ['a'] }],
             ])('%s with %j should DLQ', async (_field, dataOverrides) => {
-                const result = await step({ message: makeMessage(dataOverrides) })
+                const result = await step({ headers: createTestEventHeaders(), message: makeMessage(dataOverrides) })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
         })
@@ -378,7 +379,7 @@ describe('createParseKafkaMessageStep', () => {
                 ['offset', { offset: '100' }, 100],
                 ['offset', { offset: 0 }, 0],
             ] as const)('%s coerces to number', async (field, dataOverrides, expected) => {
-                const result = await step({ message: makeMessage(dataOverrides) })
+                const result = await step({ headers: createTestEventHeaders(), message: makeMessage(dataOverrides) })
 
                 expect(result.type).toBe(PipelineResultType.OK)
                 const event = (result as any).value.event.event
@@ -394,7 +395,7 @@ describe('createParseKafkaMessageStep', () => {
                 ['offset', { offset: 'not-a-number' }],
                 ['offset', { offset: [1] }],
             ])('%s with %j should DLQ', async (_field, dataOverrides) => {
-                const result = await step({ message: makeMessage(dataOverrides) })
+                const result = await step({ headers: createTestEventHeaders(), message: makeMessage(dataOverrides) })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
         })
@@ -408,15 +409,52 @@ describe('createParseKafkaMessageStep', () => {
                 ['$set', { $set: 42 }],
                 ['$set_once', { $set_once: true }],
                 ['$set_once', { $set_once: [1] }],
+                ['person_properties', { person_properties_mode: 'snapshot', person_properties: null }],
+                ['person_properties', { person_properties_mode: 'snapshot', person_properties: [] }],
+                ['person_properties', { person_properties_mode: 'snapshot', person_properties: 'invalid' }],
+                ['person_properties', { person_properties_mode: 'snapshot', person_properties: 42 }],
+                ['person_properties', { person_properties_mode: 'snapshot' }],
+                ['person_properties_mode', { person_properties: {} }],
+                ['person_properties_mode', { person_properties_mode: 'merge', person_properties: {} }],
             ])('%s with %j should DLQ', async (_field, dataOverrides) => {
-                const result = await step({ message: makeMessage(dataOverrides) })
+                const result = await step({ headers: createTestEventHeaders(), message: makeMessage(dataOverrides) })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
         })
 
+        it.each([{}, { plan: 'paid', nested: { items: [1, null, false] } }])(
+            'keeps person snapshots outside the transformation event: %j',
+            async (snapshot) => {
+                const result = await step({
+                    headers: createTestEventHeaders(),
+                    message: makeMessage({ person_properties_mode: 'snapshot', person_properties: snapshot }),
+                })
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.value.headers.person_properties_snapshot).toEqual(snapshot)
+                    expect(result.value.event.event).not.toHaveProperty('person_properties')
+                    expect(result.value.event.event).not.toHaveProperty('person_properties_mode')
+                }
+            }
+        )
+
+        it.each(['$set', '$set_once', '$unset'])('rejects snapshot input combined with %s', async (key) => {
+            for (const mutations of [{ [key]: {} }, { properties: { [key]: {} } }]) {
+                const result = await step({
+                    headers: createTestEventHeaders(),
+                    message: makeMessage({
+                        person_properties_mode: 'snapshot',
+                        person_properties: {},
+                        ...mutations,
+                    }),
+                })
+                expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
+            }
+        })
+
         describe('optional fields default correctly when absent', () => {
             it('should use defaults for all optional fields', async () => {
-                const result = await step({ message: makeMessage() })
+                const result = await step({ headers: createTestEventHeaders(), message: makeMessage() })
 
                 expect(result.type).toBe(PipelineResultType.OK)
                 const event = (result as any).value.event.event
@@ -439,7 +477,7 @@ describe('createParseKafkaMessageStep', () => {
                 ['outer message is a number', JSON.stringify(42)],
             ])('should DLQ when %s', async (_label, rawJson) => {
                 const msg = { value: Buffer.from(rawJson) } as Message
-                const result = await step({ message: msg })
+                const result = await step({ headers: createTestEventHeaders(), message: msg })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
 
@@ -451,7 +489,7 @@ describe('createParseKafkaMessageStep', () => {
                 const msg = {
                     value: Buffer.from(JSON.stringify({ data: dataJson, uuid: VALID_UUID })),
                 } as Message
-                const result = await step({ message: msg })
+                const result = await step({ headers: createTestEventHeaders(), message: msg })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
 
@@ -459,7 +497,7 @@ describe('createParseKafkaMessageStep', () => {
                 const msg = {
                     value: Buffer.from(JSON.stringify({ data: 123, uuid: VALID_UUID })),
                 } as Message
-                const result = await step({ message: msg })
+                const result = await step({ headers: createTestEventHeaders(), message: msg })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
         })
@@ -490,7 +528,7 @@ describe('createParseKafkaMessageStep', () => {
         }
 
         async function parseMessage(message: Message): Promise<Record<string, unknown>> {
-            const result = await step({ message })
+            const result = await step({ message, headers: createTestEventHeaders() })
             expect(result.type).toBe(PipelineResultType.OK)
             return (result as any).value.event.event.properties
         }
@@ -864,7 +902,7 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
@@ -883,7 +921,7 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
@@ -902,7 +940,7 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq('empty_uuid'))
@@ -921,7 +959,7 @@ describe('createParseKafkaMessageStep', () => {
                 ),
             } as Message
 
-            const input = { message: mockMessage }
+            const input = { message: mockMessage, headers: createTestEventHeaders() }
             const result = await step(input)
 
             expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))

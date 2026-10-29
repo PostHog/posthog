@@ -118,6 +118,26 @@ describe('createPrepareEventStep', () => {
         }
     )
 
+    it.each([undefined, {}, { plan: 'paid' }])(
+        'strips synthetic person updates only for snapshot %j',
+        async (snapshot) => {
+            const mutations = { $set: { plan: 'paid' }, $set_once: { first: true }, $unset: ['old'] }
+            const result = await createPrepareEventStep<TestInput>()(
+                createInput({
+                    normalizedEvent: createTestPluginEvent({ properties: { ...mutations, other: 'kept' } }),
+                    headers: createTestEventHeaders({ person_properties_snapshot: snapshot }),
+                })
+            )
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.preparedEvent.properties).toEqual(
+                    snapshot === undefined ? { ...mutations, other: 'kept' } : { other: 'kept' }
+                )
+                expect(result.value.headers.person_properties_snapshot).toEqual(snapshot)
+            }
+        }
+    )
+
     it('should strip all bloat properties present in a single event', async () => {
         const bloat = Object.fromEntries([...BLOAT_PROPERTIES].map((key) => [key, { heavy: 'cache-blob' }]))
         const event = createTestPluginEvent({

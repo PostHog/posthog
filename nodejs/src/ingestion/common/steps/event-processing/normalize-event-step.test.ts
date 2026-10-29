@@ -1,15 +1,48 @@
 import { DateTime } from 'luxon'
 
 import { UUIDT } from '~/common/utils/utils'
-import { PipelineResultType } from '~/ingestion/framework/results'
+import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
+import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 
 import { createNormalizeEventStep } from './normalize-event-step'
 
 describe('normalizeEventStep wrapper', () => {
     const team = createTestTeam()
+
+    it.each([
+        { snapshot: {}, processPerson: true },
+        { snapshot: { plan: 'paid', $initial_browser: 'Firefox' }, processPerson: true },
+        { snapshot: { plan: 'paid' }, processPerson: false },
+    ])('uses only the snapshot for person updates: %j', async ({ snapshot, processPerson }) => {
+        const event = createTestPluginEvent({
+            properties: {
+                $browser: 'Chrome',
+                utm_source: 'example',
+                $set: { from_transformation: true },
+                $set_once: { initial_transformation: true },
+                $unset: ['plan'],
+            },
+        })
+        const result = await createNormalizeEventStep()({
+            event,
+            headers: createTestEventHeaders({ person_properties_snapshot: snapshot }),
+            processPerson,
+        })
+
+        expect(isOkResult(result)).toBe(true)
+        if (isOkResult(result)) {
+            const properties = result.value.normalizedEvent.properties!
+            expect(properties.$set).toEqual(processPerson ? snapshot : undefined)
+            expect(properties).not.toHaveProperty('$set_once')
+            expect(properties).not.toHaveProperty('$unset')
+            expect(properties.$browser).toBe('Chrome')
+            expect(properties.utm_source).toBe('example')
+            expect(result.value.headers.person_properties_snapshot).toEqual(snapshot)
+        }
+    })
 
     describe('distinctId conversion', () => {
         it('converts number distinct_id to string', async () => {

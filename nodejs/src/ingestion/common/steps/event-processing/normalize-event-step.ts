@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { normalizeEvent, normalizeProcessPerson } from '~/common/utils/event'
+import { normalizeEvent, normalizeOsAlias, normalizeProcessPerson, sanitizeEvent } from '~/common/utils/event'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { EventHeaders } from '~/types'
 
 type NormalizeEventInput = {
@@ -26,7 +26,18 @@ export function createNormalizeEventStep<TInput extends NormalizeEventInput>(): 
         input: TInput
     ): Promise<PipelineResult<Omit<TInput, 'event'> & NormalizeEventOutput>> {
         const { event, ...restInput } = input
-        const normalizedEvent = normalizeEvent(event)
+        const snapshot = input.headers.person_properties_snapshot
+        const normalizedEvent = snapshot === undefined ? normalizeEvent(event) : sanitizeEvent(event)
+        if (snapshot !== undefined) {
+            // The snapshot already includes enrichment from the source project.
+            const properties: Properties = { ...normalizedEvent.properties, $set: structuredClone(snapshot) }
+            delete properties.$set_once
+            delete properties.$unset
+            delete normalizedEvent.$set
+            delete normalizedEvent.$set_once
+            normalizeOsAlias(properties)
+            normalizedEvent.properties = properties
+        }
         normalizeProcessPerson(normalizedEvent, input.processPerson)
 
         const timestamp = parseEventTimestamp(normalizedEvent)
