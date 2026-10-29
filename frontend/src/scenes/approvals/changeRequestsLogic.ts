@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -18,6 +18,13 @@ export interface ChangeRequestsLogicProps {
     actionKey?: string
     /** Display context — controls banner wording (e.g. "experiment" instead of "feature flag") */
     context?: ApprovalContext
+}
+
+export type ChangeRequestActionKind = 'approve' | 'reject' | 'cancel'
+
+export interface ChangeRequestActionInFlight {
+    id: string
+    action: ChangeRequestActionKind
 }
 
 export interface ChangeRequestButtonVisibility {
@@ -64,10 +71,10 @@ export function getApproveDisabledReason(changeRequest: ChangeRequest): string |
 export interface changeRequestsLogicValues {
     currentTeamId: number | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    actionInFlight: ChangeRequestActionInFlight | null
     buttonVisibility: ChangeRequestButtonVisibility | null
     changeRequests: ChangeRequest[]
     changeRequestsLoading: boolean
-    pendingActionKeys: Set<string>
     pendingChangeRequest: ChangeRequest | null
     shouldShowBanner: boolean
 }
@@ -83,6 +90,9 @@ export interface changeRequestsLogicActions {
     ) => {
         id: string
         reason: string | undefined
+    }
+    changeRequestActionSettled: () => {
+        value: true
     }
     loadChangeRequests: () => {
         value: true
@@ -118,7 +128,6 @@ export interface changeRequestsLogicActions {
 export interface changeRequestsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        pendingActionKeys: (changeRequests: ChangeRequest[]) => Set<string>
         pendingChangeRequest: (changeRequests: ChangeRequest[]) => ChangeRequest | null
         shouldShowBanner: (pendingChangeRequest: ChangeRequest | null) => boolean
         buttonVisibility: (pendingChangeRequest: ChangeRequest | null) => ChangeRequestButtonVisibility | null
@@ -146,6 +155,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
         approveRequest: (id: string) => ({ id }),
         rejectRequest: (id: string, reason?: string) => ({ id, reason }),
         cancelRequest: (id: string, reason?: string) => ({ id, reason }),
+        changeRequestActionSettled: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -181,19 +191,19 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
         ],
     })),
 
-    selectors({
-        pendingActionKeys: [
-            (s) => [s.changeRequests],
-            (changeRequests: ChangeRequest[]): Set<string> =>
-                new Set(
-                    changeRequests
-                        .filter(
-                            (cr) => cr.state === ChangeRequestState.Pending || cr.state === ChangeRequestState.Approved
-                        )
-                        .map((cr) => cr.action_key)
-                ),
+    reducers({
+        actionInFlight: [
+            null as ChangeRequestActionInFlight | null,
+            {
+                approveRequest: (_, { id }) => ({ id, action: 'approve' }),
+                rejectRequest: (_, { id }) => ({ id, action: 'reject' }),
+                cancelRequest: (_, { id }) => ({ id, action: 'cancel' }),
+                changeRequestActionSettled: () => null,
+            },
         ],
+    }),
 
+    selectors({
         pendingChangeRequest: [
             (s) => [s.changeRequests],
             (changeRequests: ChangeRequest[]): ChangeRequest | null => {
@@ -234,19 +244,22 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                 if (response.status === ChangeRequestState.Applied) {
                     lemonToast.success('Change request approved and applied successfully')
 
+                    // The buttons stay disabled until the page reloads, because the request shown is out of date.
                     setTimeout(() => {
                         window.location.reload()
                     }, 2000)
-                } else if (response.status === ChangeRequestState.Failed) {
+                    return
+                }
+                if (response.status === ChangeRequestState.Failed) {
                     lemonToast.error(`Approval succeeded but application failed: ${response.message}`)
-                    actions.loadChangeRequests()
                 } else {
                     lemonToast.success(response.message || 'Change request approved')
-                    actions.loadChangeRequests()
                 }
+                actions.loadChangeRequests()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to approve change request')
             }
+            actions.changeRequestActionSettled()
         },
 
         rejectRequest: async ({ id, reason }) => {
@@ -257,6 +270,8 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                 actions.loadChangeRequestsSuccess(values.changeRequests.filter((cr) => cr.id !== id))
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to reject change request')
+            } finally {
+                actions.changeRequestActionSettled()
             }
         },
 
@@ -269,6 +284,8 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                 actions.loadChangeRequestsSuccess(values.changeRequests.filter((cr) => cr.id !== id))
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to cancel change request')
+            } finally {
+                actions.changeRequestActionSettled()
             }
         },
     })),

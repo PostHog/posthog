@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
@@ -19,9 +19,8 @@ export function ReleaseConditionsModal(): JSX.Element {
     const { isReleaseConditionsModalOpen } = useValues(modalsLogic)
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
-    const { featureFlag, nonEmptyVariants, featureFlagLoading } = useValues(_featureFlagLogic)
-    const { setFeatureFlagFilters } = useActions(_featureFlagLogic)
-    const { saveSidebarExperimentFeatureFlag } = useAsyncActions(_featureFlagLogic)
+    const { featureFlag, nonEmptyVariants } = useValues(_featureFlagLogic)
+    const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag } = useActions(_featureFlagLogic)
 
     return (
         <LemonModal
@@ -38,9 +37,8 @@ export function ReleaseConditionsModal(): JSX.Element {
                         onClick={async () => {
                             await saveSidebarExperimentFeatureFlag(featureFlag)
 
-                            const outcome = _featureFlagLogic.values.sidebarExperimentFeatureFlagSaveOutcome
                             const currentFlag = experiment.feature_flag
-                            if (outcome === 'saved' && currentFlag && featureFlag) {
+                            if (currentFlag && featureFlag) {
                                 setExperiment({
                                     feature_flag: {
                                         ...currentFlag,
@@ -51,11 +49,8 @@ export function ReleaseConditionsModal(): JSX.Element {
                                 })
                             }
 
-                            if (outcome !== 'failed') {
-                                closeReleaseConditionsModal()
-                            }
+                            closeReleaseConditionsModal()
                         }}
-                        loading={featureFlagLoading}
                         type="primary"
                     >
                         Save

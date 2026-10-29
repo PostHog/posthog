@@ -285,7 +285,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                 field: rule.field,
             }
             if (rule.type !== 'any_change') {
-                conditions.operator = rule.operator
+                conditions.operator = rule.operator || '>'
                 conditions.value = rule.value
             }
         }
@@ -417,6 +417,13 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                                 ? "With no conditions, any change to an experiment's rollout, variant split, holdout exclusion or release conditions needs approval, and so do freezing its exposure, unfreezing it and resetting it."
                                 : "With no conditions, any change to a flag's rollout needs approval. So does any change to its release conditions, unless an experiment, survey, product tour or early access feature manages the flag."}
                         </p>
+                        {actionKey === ApprovalActionKey.EXPERIMENT_UPDATE && rules.length > 0 && (
+                            <LemonBanner type="warning">
+                                With a condition, only the rollout changes that match it need approval. Release
+                                condition edits, freezing exposure, unfreezing it and resetting an experiment no longer
+                                do.
+                            </LemonBanner>
+                        )}
                     </div>
                 )}
 

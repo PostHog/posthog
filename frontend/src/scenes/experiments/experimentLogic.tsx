@@ -13,6 +13,7 @@ import {
     sharedListeners,
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
+import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -29,7 +30,7 @@ import { eventUsageLogic, getEventPropertiesForExperiment } from 'lib/utils/even
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
-import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
+import { ChangeRequestCreatedEventDetail, dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
@@ -2750,6 +2751,21 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             },
         ],
+    })),
+    disposables(({ actions, values }) => ({
+        // A release conditions save that needs approval leaves the page showing the held edit, so the
+        // experiment reloads when its flag gets a change request.
+        flagChangeRequestListener: () => {
+            const onChangeRequestCreated = (event: Event): void => {
+                const { resourceType, resourceId } = (event as CustomEvent<ChangeRequestCreatedEventDetail>).detail
+                const flagId = values.experiment.feature_flag?.id
+                if (resourceType === 'feature_flag' && flagId != null && String(resourceId) === String(flagId)) {
+                    actions.loadExperiment()
+                }
+            }
+            window.addEventListener('change-request-created', onChangeRequestCreated)
+            return () => window.removeEventListener('change-request-created', onChangeRequestCreated)
+        },
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],

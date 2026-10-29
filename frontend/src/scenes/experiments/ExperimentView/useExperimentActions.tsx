@@ -39,6 +39,7 @@ import {
     confirmResetExperiment,
     confirmUnfreezeExposure,
     pendingApprovalReason,
+    pendingExperimentActionKeys,
 } from 'products/experiments/frontend/experimentActions'
 import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { getTotalExposures } from 'products/experiments/frontend/health/exposureHealth'
@@ -86,8 +87,8 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
     } = useActions(modalsLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { isExperimentOperationApprovalRequired } = useValues(approvalsGateLogic)
-    const { pendingActionKeys } = useValues(
+    const { experimentOperationsNeedApproval } = useValues(approvalsGateLogic)
+    const { changeRequests } = useValues(
         changeRequestsLogic({ resourceType: ApprovalResourceType.EXPERIMENT, resourceId: experiment?.id ?? 'new' })
     )
 
@@ -96,6 +97,8 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
     if (!experiment || experiment.id === 'new') {
         return []
     }
+
+    const pendingActionKeys = pendingExperimentActionKeys(changeRequests, experiment)
 
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const canEdit = userHasAccess(
@@ -180,7 +183,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
                     confirmFreezeExposure(
                         () => freezeExposure(),
                         getTotalExposures(exposures),
-                        isExperimentOperationApprovalRequired(ApprovalActionKey.EXPERIMENT_FREEZE_EXPOSURE)
+                        experimentOperationsNeedApproval
                     ),
                 disabledReason: freezeExposureLoading
                     ? 'Freezing exposure...'
@@ -192,11 +195,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
             isExperimentExposureFrozen(experiment) && {
                 label: 'Unfreeze exposure',
                 icon: <IconUnlock />,
-                onClick: () =>
-                    confirmUnfreezeExposure(
-                        () => unfreezeExposure(),
-                        isExperimentOperationApprovalRequired(ApprovalActionKey.EXPERIMENT_UNFREEZE_EXPOSURE)
-                    ),
+                onClick: () => confirmUnfreezeExposure(() => unfreezeExposure(), experimentOperationsNeedApproval),
                 disabledReason: unfreezeExposureLoading
                     ? 'Unfreezing exposure...'
                     : pendingApprovalReason(ApprovalActionKey.EXPERIMENT_UNFREEZE_EXPOSURE, pendingActionKeys),
@@ -214,7 +213,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
             label: 'Reset analysis',
             icon: <IconRefresh />,
             status: 'danger',
-            onClick: () => confirmResetExperiment(experiment, resetRunningExperiment),
+            onClick: () => confirmResetExperiment(experiment, resetRunningExperiment, experimentOperationsNeedApproval),
             disabledReason: pendingApprovalReason(ApprovalActionKey.EXPERIMENT_RESET, pendingActionKeys),
             'data-attr': `${dataAttrPrefix}reset-experiment`,
         },

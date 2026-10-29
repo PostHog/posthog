@@ -35,8 +35,14 @@ export const scene: SceneExport<ApprovalLogicProps> = {
 }
 
 function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
-    const { changeRequest, changeRequestLoading, changeRequestMissing, proposedChangesTab, isApprovalsFeatureEnabled } =
-        useValues(approvalLogic({ id }))
+    const {
+        changeRequest,
+        changeRequestLoading,
+        changeRequestMissing,
+        proposedChangesTab,
+        isApprovalsFeatureEnabled,
+        actionInFlight,
+    } = useValues(approvalLogic({ id }))
     const { approveChangeRequest, rejectChangeRequest, cancelChangeRequest, setProposedChangesTab } = useActions(
         approvalLogic({ id })
     )
@@ -80,6 +86,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                         onCancel={(_, reason) => cancelChangeRequest(reason)}
                         showViewButton={false}
                         showDisabledApproveButton
+                        actionInFlight={actionInFlight}
                     />
                 }
             />

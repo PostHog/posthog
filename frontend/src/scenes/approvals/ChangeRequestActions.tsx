@@ -1,7 +1,11 @@
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 
-import { getApproveDisabledReason, getChangeRequestButtonVisibility } from 'scenes/approvals/changeRequestsLogic'
+import {
+    ChangeRequestActionKind,
+    getApproveDisabledReason,
+    getChangeRequestButtonVisibility,
+} from 'scenes/approvals/changeRequestsLogic'
 import { urls } from 'scenes/urls'
 
 import { ChangeRequest } from '~/types'
@@ -14,7 +18,11 @@ export interface ChangeRequestActionsProps {
     showViewButton?: boolean
     /** When the user can't approve, show a disabled Approve button explaining why instead of hiding it. */
     showDisabledApproveButton?: boolean
+    /** The approve, reject or cancel request that is still running, so the buttons can't send another. */
+    actionInFlight?: ChangeRequestActionKind | null
 }
+
+export const CHANGE_REQUEST_ACTION_IN_FLIGHT_REASON = 'Wait for the last action to finish'
 
 export function changeRequestDialogHandlers({
     changeRequest,
@@ -120,9 +128,11 @@ export function ChangeRequestActions({
     onCancel,
     showViewButton = false,
     showDisabledApproveButton = false,
+    actionInFlight = null,
 }: ChangeRequestActionsProps): JSX.Element {
     const { showApproveButton, showRejectButton, showCancelButton } = getChangeRequestButtonVisibility(changeRequest)
     const approveDisabledReason = getApproveDisabledReason(changeRequest)
+    const inFlightReason = actionInFlight ? CHANGE_REQUEST_ACTION_IN_FLIGHT_REASON : undefined
 
     const { handleApprove, handleReject, handleCancel } = changeRequestDialogHandlers({
         changeRequest,
@@ -142,7 +152,13 @@ export function ChangeRequestActions({
     return (
         <div className="flex items-center gap-2">
             {showApproveButton ? (
-                <LemonButton type="primary" size="small" onClick={handleApprove}>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={handleApprove}
+                    loading={actionInFlight === 'approve'}
+                    disabledReason={actionInFlight === 'approve' ? undefined : inFlightReason}
+                >
                     Approve
                 </LemonButton>
             ) : (
@@ -154,12 +170,24 @@ export function ChangeRequestActions({
                 )
             )}
             {showRejectButton && (
-                <LemonButton type="secondary" size="small" onClick={handleReject}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={handleReject}
+                    loading={actionInFlight === 'reject'}
+                    disabledReason={actionInFlight === 'reject' ? undefined : inFlightReason}
+                >
                     Reject
                 </LemonButton>
             )}
             {showCancelButton && (
-                <LemonButton type="secondary" size="small" onClick={handleCancel}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={handleCancel}
+                    loading={actionInFlight === 'cancel'}
+                    disabledReason={actionInFlight === 'cancel' ? undefined : inFlightReason}
+                >
                     Cancel
                 </LemonButton>
             )}

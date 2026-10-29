@@ -1309,12 +1309,12 @@ describe('featureFlagLogic', () => {
         })
 
         it.each([
-            ['saves', () => Promise.resolve({ ...MOCK_FEATURE_FLAG }), 'saved', 0],
-            ['needs approval', () => Promise.reject(approvalRequired()), 'approval_required', 1],
-            ['fails', () => Promise.reject(new ApiError(undefined, 500, undefined, SERVER_ERROR_BODY)), 'failed', 0],
+            ['saves', () => Promise.resolve({ ...MOCK_FEATURE_FLAG }), 0],
+            ['needs approval', () => Promise.reject(approvalRequired()), 1],
+            ['fails', () => Promise.reject(new ApiError(undefined, 500, undefined, SERVER_ERROR_BODY)), 0],
         ])(
-            'tells the experiment release conditions modal when the flag %s',
-            async (_, response, outcome, approvalToasts) => {
+            'shows the approval toast only when an experiment release conditions save %s',
+            async (_, response, approvalToasts) => {
                 jest.spyOn(api, 'update').mockImplementationOnce(response as () => Promise<any>)
                 const approvalToast = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
 
@@ -1322,7 +1322,6 @@ describe('featureFlagLogic', () => {
                     logic.actions.saveSidebarExperimentFeatureFlag(logic.values.featureFlag)
                 }).toFinishAllListeners()
 
-                expect(logic.values.sidebarExperimentFeatureFlagSaveOutcome).toBe(outcome)
                 expect(approvalToast).toHaveBeenCalledTimes(approvalToasts)
             }
         )

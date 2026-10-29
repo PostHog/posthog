@@ -50,6 +50,7 @@ import {
     confirmResetExperiment,
     confirmUnfreezeExposure,
     pendingApprovalReason,
+    pendingExperimentActionKeys,
 } from 'products/experiments/frontend/experimentActions'
 import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { getTotalExposures } from 'products/experiments/frontend/health/exposureHealth'
@@ -100,8 +101,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         openQuickSurveyModal,
     } = useActions(modalsLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
-    const { isExperimentOperationApprovalRequired } = useValues(approvalsGateLogic)
-    const { pendingActionKeys } = useValues(
+    const { experimentOperationsNeedApproval } = useValues(approvalsGateLogic)
+    const { changeRequests } = useValues(
         changeRequestsLogic({ resourceType: ApprovalResourceType.EXPERIMENT, resourceId: experiment?.id ?? 'new' })
     )
 
@@ -109,6 +110,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         return null
     }
 
+    // A disabled menu bar item never shows its tooltip, so these items also say in their label that they are waiting.
+    const pendingActionKeys = pendingExperimentActionKeys(changeRequests, experiment)
     const freezePendingReason = pendingApprovalReason(ApprovalActionKey.EXPERIMENT_FREEZE_EXPOSURE, pendingActionKeys)
     const unfreezePendingReason = pendingApprovalReason(
         ApprovalActionKey.EXPERIMENT_UNFREEZE_EXPOSURE,
@@ -138,7 +141,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
             onDelete: () => router.actions.push(urls.experiments()),
         })
 
-    const handleReset = (): void => confirmResetExperiment(experiment, resetRunningExperiment)
+    const handleReset = (): void =>
+        confirmResetExperiment(experiment, resetRunningExperiment, experimentOperationsNeedApproval)
 
     const showCreateMenu = isExperimentLaunched
     const showStateMenu = showRunningState
@@ -263,7 +267,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                         data-attr={`${RESOURCE_TYPE}-menubar-reset`}
                     >
                         <IconRefresh />
-                        Reset analysis
+                        {resetPendingReason ? 'Reset analysis (waiting for approval)' : 'Reset analysis'}
                     </SceneMenuBarItem>
                 )}
                 {showStateMenu &&
@@ -285,9 +289,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                         confirmFreezeExposure(
                                             () => freezeExposure(),
                                             getTotalExposures(exposures),
-                                            isExperimentOperationApprovalRequired(
-                                                ApprovalActionKey.EXPERIMENT_FREEZE_EXPOSURE
-                                            )
+                                            experimentOperationsNeedApproval
                                         )
                                     }
                                     disabled={freezeExposureLoading || !!freezePendingReason}
@@ -295,7 +297,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                     data-attr={`${RESOURCE_TYPE}-menubar-freeze-exposure`}
                                 >
                                     <IconLock />
-                                    Freeze exposure
+                                    {freezePendingReason ? 'Freeze exposure (waiting for approval)' : 'Freeze exposure'}
                                 </SceneMenuBarItem>
                             )}
                             {isExperimentExposureFrozen(experiment) && (
@@ -304,9 +306,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                     onClick={() =>
                                         confirmUnfreezeExposure(
                                             () => unfreezeExposure(),
-                                            isExperimentOperationApprovalRequired(
-                                                ApprovalActionKey.EXPERIMENT_UNFREEZE_EXPOSURE
-                                            )
+                                            experimentOperationsNeedApproval
                                         )
                                     }
                                     disabled={unfreezeExposureLoading || !!unfreezePendingReason}
@@ -314,7 +314,9 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                     data-attr={`${RESOURCE_TYPE}-menubar-unfreeze-exposure`}
                                 >
                                     <IconUnlock />
-                                    Unfreeze exposure
+                                    {unfreezePendingReason
+                                        ? 'Unfreeze exposure (waiting for approval)'
+                                        : 'Unfreeze exposure'}
                                 </SceneMenuBarItem>
                             )}
                             <SceneMenuBarItem

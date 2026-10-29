@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ChangeRequestActionKind } from 'scenes/approvals/changeRequestsLogic'
 import { getApprovalActionLabel, getApprovalResourceUrl } from 'scenes/approvals/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -25,6 +26,7 @@ export type ProposedChangesTab = 'gated' | 'full'
 export interface approvalLogicValues {
     currentTeamId: number | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    actionInFlight: ChangeRequestActionKind | null
     breadcrumbs: Breadcrumb[]
     changeRequest: ChangeRequest | null
     changeRequestLoading: boolean
@@ -44,6 +46,9 @@ export interface approvalLogicActions {
     }
     cancelChangeRequest: (reason?: string) => {
         reason: string | undefined
+    }
+    changeRequestActionSettled: () => {
+        value: true
     }
     loadChangeRequest: () => {
         value: true
@@ -105,6 +110,7 @@ export const approvalLogic = kea<approvalLogicType>([
         approveChangeRequest: (reason?: string) => ({ reason }),
         rejectChangeRequest: (reason: string) => ({ reason }),
         cancelChangeRequest: (reason?: string) => ({ reason }),
+        changeRequestActionSettled: true,
         setProposedChangesTab: (tab: ProposedChangesTab) => ({ tab }),
     }),
     loaders(({ props, values }) => ({
@@ -126,6 +132,15 @@ export const approvalLogic = kea<approvalLogicType>([
         ],
     })),
     reducers({
+        actionInFlight: [
+            null as ChangeRequestActionKind | null,
+            {
+                approveChangeRequest: () => 'approve',
+                rejectChangeRequest: () => 'reject',
+                cancelChangeRequest: () => 'cancel',
+                changeRequestActionSettled: () => null,
+            },
+        ],
         changeRequestMissing: [
             false,
             {
@@ -184,17 +199,20 @@ export const approvalLogic = kea<approvalLogicType>([
 
                     if (response.status === ChangeRequestState.Applied) {
                         lemonToast.success('Change request approved and applied successfully')
+                        // The buttons stay disabled until the page changes, because the request shown is out of date.
                         setTimeout(() => navigateAfterAction(true), 2000)
-                    } else if (response.status === ChangeRequestState.Failed) {
+                        return
+                    }
+                    if (response.status === ChangeRequestState.Failed) {
                         lemonToast.error(`Approval succeeded but application failed: ${response.message}`)
-                        actions.loadChangeRequest()
                     } else {
                         lemonToast.success(response.message || 'Change request approved')
-                        actions.loadChangeRequest()
                     }
+                    actions.loadChangeRequest()
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to approve change request')
                 }
+                actions.changeRequestActionSettled()
             },
             rejectChangeRequest: async ({ reason }) => {
                 try {
@@ -206,6 +224,8 @@ export const approvalLogic = kea<approvalLogicType>([
                     navigateAfterAction()
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to reject change request')
+                } finally {
+                    actions.changeRequestActionSettled()
                 }
             },
             cancelChangeRequest: async ({ reason }) => {
@@ -218,6 +238,8 @@ export const approvalLogic = kea<approvalLogicType>([
                     navigateAfterAction()
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to cancel change request')
+                } finally {
+                    actions.changeRequestActionSettled()
                 }
             },
         }

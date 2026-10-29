@@ -22,6 +22,8 @@ import {
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ExperimentPendingChangeRequestBanners } from 'products/experiments/frontend/components/ExperimentPendingChangeRequestBanners'
+
 import { LegacyExperimentInfo } from './LegacyExperimentInfo'
 import { LegacyMetricsList } from './LegacyMetricsList'
 
@@ -87,11 +89,7 @@ export function LegacyExperimentView(): JSX.Element {
                         />
                     )}
                     {typeof experiment.id === 'number' && (
-                        <PendingChangeRequestBanner
-                            resourceType="experiment"
-                            resourceId={experiment.id}
-                            context="experiment"
-                        />
+                        <ExperimentPendingChangeRequestBanners experiment={experiment} />
                     )}
 
                     <LegacyExperimentInfo />

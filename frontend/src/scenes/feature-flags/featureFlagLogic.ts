@@ -42,7 +42,7 @@ import { stringifyWithBigInts } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
-import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
+import { CHANGE_REQUEST_PENDING_CODE, showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
@@ -769,9 +769,6 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
 /** The editor the flag scene mounts, if any; a document never reaches the editor of another config format. */
 export type FeatureFlagEditorKind = 'v1' | 'rules_v2' | null
 
-/** How the last release conditions save from an experiment page ended, or null while none has finished. */
-export type SidebarExperimentFeatureFlagSaveOutcome = 'saved' | 'approval_required' | 'failed' | null
-
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
 }
@@ -1432,7 +1429,6 @@ export interface featureFlagLogicValues {
     showImplementation: boolean
     showStaleFlagBanner: boolean
     sidePanelContext: SidePanelSceneContext | null
-    sidebarExperimentFeatureFlagSaveOutcome: SidebarExperimentFeatureFlagSaveOutcome
     tagsRequired: boolean
     templateExpanded: boolean
     templates: Array<{
@@ -2778,16 +2774,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     reducers({
         rulesV2DraftDirty: [false, { setRulesV2DraftDirty: (_, { dirty }) => dirty }],
-        // The loader swallows its error, so the release conditions modal reads the outcome here.
-        sidebarExperimentFeatureFlagSaveOutcome: [
-            null as SidebarExperimentFeatureFlagSaveOutcome,
-            {
-                saveSidebarExperimentFeatureFlag: () => null,
-                saveSidebarExperimentFeatureFlagSuccess: () => 'saved',
-                saveSidebarExperimentFeatureFlagFailure: (_, { errorObject }) =>
-                    isApprovalRequiredError(errorObject) ? 'approval_required' : 'failed',
-            },
-        ],
         // Read by the refresh loader, which samples it around its request to tell whether newer
         // state landed while the request was open.
         flagMutationCount: [
@@ -4812,9 +4798,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         saveSidebarExperimentFeatureFlagFailure: ({ errorObject }) => {
             // The global error handler hides approval errors, so without this the save fails silently.
             if (isApprovalRequiredError(errorObject) && values.featureFlag.id) {
+                // The pending request can be for another change to the flag, so that toast names the flag.
                 showApprovalRequiredToast(
                     errorObject.data.change_request_id,
-                    "change this experiment's release conditions",
+                    errorObject.data.code === CHANGE_REQUEST_PENDING_CODE
+                        ? "change this experiment's flag"
+                        : "change this experiment's release conditions",
                     errorObject.data.code
                 )
                 dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: values.featureFlag.id })

@@ -6,7 +6,11 @@ import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMe
 import { getApproveDisabledReason, getChangeRequestButtonVisibility } from 'scenes/approvals/changeRequestsLogic'
 import { urls } from 'scenes/urls'
 
-import { ChangeRequestActionsProps, changeRequestDialogHandlers } from './ChangeRequestActions'
+import {
+    CHANGE_REQUEST_ACTION_IN_FLIGHT_REASON,
+    ChangeRequestActionsProps,
+    changeRequestDialogHandlers,
+} from './ChangeRequestActions'
 
 export function QuillChangeRequestActions({
     changeRequest,
@@ -15,9 +19,11 @@ export function QuillChangeRequestActions({
     onCancel,
     showViewButton = false,
     showDisabledApproveButton = false,
+    actionInFlight = null,
 }: ChangeRequestActionsProps): JSX.Element {
     const { showApproveButton, showRejectButton, showCancelButton } = getChangeRequestButtonVisibility(changeRequest)
     const approveDisabledReason = getApproveDisabledReason(changeRequest)
+    const inFlightReason = actionInFlight ? CHANGE_REQUEST_ACTION_IN_FLIGHT_REASON : undefined
     const { handleApprove, handleReject, handleCancel } = changeRequestDialogHandlers({
         changeRequest,
         onApprove,
@@ -28,7 +34,12 @@ export function QuillChangeRequestActions({
     return (
         <div className="flex flex-wrap items-center gap-2">
             {showApproveButton ? (
-                <Button variant="primary" onClick={handleApprove}>
+                <Button
+                    variant="primary"
+                    onClick={handleApprove}
+                    loading={actionInFlight === 'approve'}
+                    disabledReason={actionInFlight === 'approve' ? undefined : inFlightReason}
+                >
                     Approve
                 </Button>
             ) : (
@@ -40,12 +51,22 @@ export function QuillChangeRequestActions({
                 )
             )}
             {showRejectButton && (
-                <Button variant="outline" onClick={handleReject}>
+                <Button
+                    variant="outline"
+                    onClick={handleReject}
+                    loading={actionInFlight === 'reject'}
+                    disabledReason={actionInFlight === 'reject' ? undefined : inFlightReason}
+                >
                     Reject
                 </Button>
             )}
             {showCancelButton && (
-                <Button variant="outline" onClick={handleCancel}>
+                <Button
+                    variant="outline"
+                    onClick={handleCancel}
+                    loading={actionInFlight === 'cancel'}
+                    disabledReason={actionInFlight === 'cancel' ? undefined : inFlightReason}
+                >
                     Cancel
                 </Button>
             )}
