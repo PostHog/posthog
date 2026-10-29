@@ -750,6 +750,19 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
         ),
         # Float arithmetic over non-null operands stays non-null, so sumOrDefault keeps its 0 default.
         ("SELECT sumOrDefault(1.5 + 1) FROM users WHERE false", "DOUBLE '0'", "NULL)"),
+        # nullIf can always return NULL, so sumOrDefault must not invent a 0.
+        ("SELECT sumOrDefault(nullIf(true, 1)) FROM users", "NULL)", ", 0)"),
+        # A window's OVER (ORDER BY ...) can't see output aliases, so the alias still expands there.
+        (
+            "SELECT toStartOfMonth(users.created_at) AS month, count() AS users, sum(count()) OVER (ORDER BY month) AS running FROM users GROUP BY month ORDER BY month",
+            'OVER (ORDER BY CAST(date_trunc(\'month\', "users"."created_at") AS DATE) ASC)',
+            'OVER (ORDER BY "month"',
+        ),
+        (
+            "SELECT u.created_at AS user_id, u.user_id AS u, row_number() OVER (ORDER BY user_id) AS rn FROM users AS u ORDER BY rn",
+            'OVER (ORDER BY "u"."created_at" ASC)',
+            'OVER (ORDER BY "user_id"',
+        ),
         ("SELECT arrayCumSum(x -> x * 1.0, [1, 2])", "reduce(transform(", "CASE WHEN"),
         # A boolean coalesced with a float stays a float, so toInt maps the fractional result to NULL.
         (

@@ -281,6 +281,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
         self.in_order_by = False
+        self.in_window = False
         self.expansion_budget = budget
 
     def visit(self, node: _T_AST) -> _T_AST:
@@ -291,7 +292,9 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         outer_aliases = self.aliases
         outer_alias_positions = self.alias_positions
         outer_in_order_by = self.in_order_by
+        outer_in_window = self.in_window
         self.in_order_by = False
+        self.in_window = False
         self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
         self.alias_positions = {
             expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
@@ -338,14 +341,25 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         self.aliases = outer_aliases
         self.alias_positions = outer_alias_positions
         self.in_order_by = outer_in_order_by
+        self.in_window = outer_in_window
         return lowered
 
     def visit_order_expr(self, node: ast.OrderExpr) -> ast.OrderExpr:
-        self.in_order_by = True
+        outer_in_order_by = self.in_order_by
+        # Only a query's own ORDER BY sees output aliases; a window's OVER (ORDER BY ...) does not.
+        self.in_order_by = not self.in_window
         try:
             return super().visit_order_expr(node)
         finally:
-            self.in_order_by = False
+            self.in_order_by = outer_in_order_by
+
+    def visit_window_expr(self, node: ast.WindowExpr) -> ast.WindowExpr:
+        outer_in_order_by, outer_in_window = self.in_order_by, self.in_window
+        self.in_order_by, self.in_window = False, True
+        try:
+            return super().visit_window_expr(node)
+        finally:
+            self.in_order_by, self.in_window = outer_in_order_by, outer_in_window
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         if node.hidden:

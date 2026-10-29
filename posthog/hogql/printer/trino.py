@@ -1569,12 +1569,18 @@ class TrinoPrinter(PostgresPrinter):
             ):
                 # Booleans print as integers here, so the other numeric arguments decide the common type.
                 numeric_types = [self._resolve_type(arg) for arg in node.args]
+                if node.name.lower() == "nullif":
+                    # nullIf returns its first argument or NULL, so it keeps that type and is always nullable.
+                    first_type = numeric_types[0]
+                    if isinstance(first_type, (ast.FloatType, ast.DecimalType, ast.IntegerType)):
+                        return replace(first_type, nullable=True)
+                    return ast.IntegerType(nullable=True)
+                # coalesce is NULL only when every argument is.
+                nullable = all(numeric_type is None or numeric_type.nullable for numeric_type in numeric_types)
                 for numeric_type in numeric_types:
                     if isinstance(numeric_type, (ast.FloatType, ast.DecimalType)):
-                        return numeric_type
-                return ast.IntegerType(
-                    nullable=all(numeric_type is None or numeric_type.nullable for numeric_type in numeric_types)
-                )
+                        return replace(numeric_type, nullable=nullable)
+                return ast.IntegerType(nullable=nullable)
             if any(isinstance(self._resolve_type(arg), ast.BooleanType) for arg in node.args) and any(
                 self._is_dynamic_property(arg) for arg in node.args
             ):
