@@ -38,7 +38,7 @@ def _raise_if_access_denied(error: Exception, table_name: str) -> None:
     # HTTP status or the S3 error code inside the message.
     if _ACCESS_DENIED_MARKERS.search(str(error)):
         raise ObjectStorageError(
-            f"{ACCESS_DENIED_ERROR} for the Delta table '{table_name}'. Check that the access key or IAM role can read its folder."
+            f"{ACCESS_DENIED_ERROR} for the Delta table '{table_name}'. Check that these credentials can read its folder."
         ) from error
 
 

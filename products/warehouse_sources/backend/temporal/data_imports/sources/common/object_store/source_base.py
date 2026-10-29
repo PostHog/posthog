@@ -162,8 +162,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             INVALID_CONFIG_ERROR: None,
             BLOCKED_LOCATION_ERROR: None,
             ACCESS_DENIED_ERROR: (
-                "The storage provider rejected these credentials. Check them, and that the access key or IAM role "
-                "can list and read the bucket, then reconnect the source."
+                "The storage provider rejected these credentials. Check that they can list and read the bucket, "
+                "then reconnect the source."
             ),
             NO_SUCH_BUCKET_ERROR: "The bucket doesn't exist. Check the bucket in the URL, then reconnect the source.",
             WRONG_REGION_ERROR: (

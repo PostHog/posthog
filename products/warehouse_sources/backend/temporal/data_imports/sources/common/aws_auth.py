@@ -91,14 +91,18 @@ class RoleCredentials(RefreshableCredentials):
         Clients that keep their own credential object, such as aiobotocore under s3fs, build it from
         this so that they refresh on the same schedule.
         """
-        frozen = self.get_frozen_credentials()
+        self.get_frozen_credentials()
+        # botocore swaps the keys and the expiry under this lock, so read them together, or a refresh
+        # on another thread can pair old keys with a new expiry. Its type stubs leave both attributes out.
+        with self._refresh_lock:  # type: ignore[attr-defined]
+            frozen = self._frozen_credentials  # type: ignore[attr-defined]
+            expiry_time = self._expiry_time  # type: ignore[attr-defined]
         assert frozen.access_key and frozen.secret_key and frozen.token
         return {
             "access_key": frozen.access_key,
             "secret_key": frozen.secret_key,
             "token": frozen.token,
-            # botocore sets this on every refresh, and its type stubs leave it out.
-            "expiry_time": self._expiry_time.isoformat(),  # type: ignore[attr-defined]
+            "expiry_time": expiry_time.isoformat(),
         }
 
 
