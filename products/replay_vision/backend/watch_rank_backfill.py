@@ -36,6 +36,7 @@ from products.replay_vision.backend.embeddings import (
     team_embeddings_params,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.rank_days import RankedRow, add_rank_days
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
     AnchorReading,
@@ -158,7 +159,7 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
             team_id=team_id, status=ObservationStatus.SUCCEEDED, created_at__gte=since
         )
         .order_by("created_at", "id")
-        .values("id", "scanner_id", "watch_rank")
+        .values("id", "scanner_id", "created_at", "watch_rank")
     ]
     by_scanner: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -192,6 +193,15 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
                             if UUID(observation_id) in still_unranked
                         ],
                         ["watch_rank"],
+                    )
+                    add_rank_days(
+                        team_id,
+                        ANCHOR_VERSION,
+                        [
+                            RankedRow(scanner_id=row["scanner_id"], created_at=row["created_at"])
+                            for row in batch
+                            if row["id"] in still_unranked
+                        ],
                     )
     without_embedding = len(rows) - embedded
     logger.info(

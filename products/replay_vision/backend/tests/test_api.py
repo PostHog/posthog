@@ -71,6 +71,7 @@ from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ES
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
+from products.replay_vision.backend.rank_days import RankedRow, add_rank_days
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
@@ -5042,6 +5043,11 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             "signals_count": 0,
         }
 
+    def _rank(self, obs: ReplayObservation, **fields: Any) -> None:
+        ReplayObservation.objects.filter(id=obs.id).update(**fields)
+        created_at = ReplayObservation.objects.values_list("created_at", flat=True).get(id=obs.id)
+        add_rank_days(self.team.id, ANCHOR_VERSION, [RankedRow(scanner_id=obs.scanner_id, created_at=created_at)])
+
     def _ranked_observation(
         self,
         scanner: ReplayScanner,
@@ -5052,7 +5058,8 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         group: str | None = None,
     ) -> ReplayObservation:
         obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
-        ReplayObservation.objects.filter(id=obs.id).update(
+        self._rank(
+            obs,
             watch_rank={"category": category, "contrast": contrast, "anchor_version": ANCHOR_VERSION},
             feed_group_id=group,
         )
@@ -5061,18 +5068,20 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
     @parameterized.expand(
         [
             # A feed that empties whenever nothing is wrong reads as broken, so the newest clips still answer.
-            ("no_findings", 0, ["unviewed_recent"] * 3),
-            ("enough_findings", 4, ["embedding_pick"] * 4),
+            ("no_findings", 0, ["unviewed_recent"] * 3, 1),
+            ("enough_findings", 4, ["embedding_pick"] * 4, 1),
+            # Rows on the window's middle days count from the day counts, not from the rows.
+            ("enough_findings_across_the_window", 4, ["embedding_pick"] * 4, 432),
         ]
     )
     def test_filler_brings_a_thin_feed_up_to_the_floor_and_never_pads_a_full_one(
-        self, _name: str, findings: int, expected_kinds: list[str]
+        self, _name: str, findings: int, expected_kinds: list[str], minutes_apart: int
     ) -> None:
         scanner = self._create_scanner(name="m")
         # Of 20 ranked rows the top four clear the percentile cut, so only the failures among them are picks.
         for i in range(20):
             self._ranked_observation(
-                scanner, f"row-{i}", 10 + i, "failure" if i < findings else "routine", 0.9 - i / 100
+                scanner, f"row-{i}", 10 + i * minutes_apart, "failure" if i < findings else "routine", 0.9 - i / 100
             )
 
         items = self.client.get(f"{self.feed_url}?limit=50").json()["results"]
@@ -5137,7 +5146,8 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             obs = self._succeeded_observation(scanner, f"row-{index}", 120 + index, self._monitor_result("no"))
             # The top-scoring row completes between the two loads, so only the later load can rank it.
             completed_at = bucket_start + timedelta(minutes=3) if index == 0 else bucket_start
-            ReplayObservation.objects.filter(id=obs.id).update(
+            self._rank(
+                obs,
                 completed_at=completed_at,
                 watch_rank={
                     "category": "failure",
@@ -5192,12 +5202,13 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         for scanner, prefix, top in ((busy, "busy", 0.9), (quiet, "quiet", 0.3)):
             for index in range(12):
                 obs = self._succeeded_observation(scanner, f"{prefix}-{index}", index, self._monitor_result("yes"))
-                ReplayObservation.objects.filter(id=obs.id).update(
+                self._rank(
+                    obs,
                     watch_rank={
                         "category": "failure",
                         "contrast": top - index / 100,
                         "anchor_version": ANCHOR_VERSION,
-                    }
+                    },
                 )
 
         with patch("products.replay_vision.backend.api.scanners.HIGHLIGHT_FEED_CANDIDATE_CAP", 2):
@@ -5218,7 +5229,8 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         # Of 30 rows only the top six clear the percentile cut: five copies of one finding, then one other finding.
         for index in range(30):
             obs = self._succeeded_observation(scanner, f"row-{index}", index, self._monitor_result("yes"))
-            ReplayObservation.objects.filter(id=obs.id).update(
+            self._rank(
+                obs,
                 watch_rank={"category": "failure", "contrast": 1 - index / 100, "anchor_version": ANCHOR_VERSION},
                 feed_group_id=root_id if 0 < index < 5 else None,
             )
@@ -5239,12 +5251,13 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             obs = self._succeeded_observation(scanner, f"s-{index}", 10 + index, self._monitor_result("no"))
             # The top two contrasts clear the top-fifth cut; the rest are the scanner's baseline.
             category = "failure" if index < 2 else "routine"
-            ReplayObservation.objects.filter(id=obs.id).update(
+            self._rank(
+                obs,
                 watch_rank={
                     "category": category,
                     "contrast": 0.5 - index * 0.01,
                     "anchor_version": ANCHOR_VERSION,
-                }
+                },
             )
             rows[f"s-{index}"] = obs
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -5460,12 +5473,13 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
         for index in range(12):
             obs = self._succeeded_observation(scanner, f"sess-{index}", index, self._monitor_result("yes"))
-            ReplayObservation.objects.filter(id=obs.id).update(
+            self._rank(
+                obs,
                 watch_rank={
                     "category": "failure",
                     "contrast": index / 10,
                     "anchor_version": ANCHOR_VERSION,
-                }
+                },
             )
         scanner.experiment_targeting = None
         scanner.save()

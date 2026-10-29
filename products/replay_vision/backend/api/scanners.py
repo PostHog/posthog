@@ -2565,6 +2565,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 self.team_id,
                 HIGHLIGHT_FEED_CANDIDATE_CAP,
                 params.get("categories") or ISSUE_CATEGORIES,
+                date_from,
+                window_end,
             )
             # Picks in one feed group collapse into one card, so the floor counts groups.
             pick_roots = {row["watch_group_root"] for row in candidate_rows}

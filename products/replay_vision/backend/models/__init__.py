@@ -9,6 +9,7 @@ from products.replay_vision.backend.models.replay_observation_usage import Repla
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.models.replay_scanner_rank_day import ReplayScannerRankDay
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
     ReplayScannerFeedGroupDay,
@@ -37,6 +38,7 @@ __all__ = [
     "ReplayObservationView",
     "ReplayScanner",
     "ReplayScannerBackfill",
+    "ReplayScannerRankDay",
     "ReplayScannerFeedGroup",
     "ReplayScannerFeedGroupDay",
     "ReplayScannerSearchTheme",

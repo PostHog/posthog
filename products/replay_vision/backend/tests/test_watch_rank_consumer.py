@@ -22,9 +22,14 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner_rank_day import ReplayScannerRankDay
 from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankRequest
 from products.replay_vision.backend.watch_rank_consumer import WatchRankConsumer, parse_rank_request
@@ -120,7 +125,9 @@ class TestWatchRankConsumer(BaseTest):
             scanner_config={"prompt": "p"},
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
-        observation = self._observation(scanner, "sess-new", watch_rank=existing_rank)
+        observation = self._observation(
+            scanner, "sess-new", watch_rank=existing_rank, status=ObservationStatus.SUCCEEDED
+        )
         message = _result_message(team_id=self.team.id, observation_id=str(observation.id), scanner_id=str(scanner.id))
         if outcome == "missing":
             observation.delete()
@@ -136,6 +143,9 @@ class TestWatchRankConsumer(BaseTest):
 
         if outcome == "missing":
             return
+        assert list(
+            ReplayScannerRankDay.objects.for_team(self.team.id).values_list("scanner_id", "observation_count")
+        ) == ([(scanner.id, 1)] if outcome == "ranked" else [])
         observation.refresh_from_db()
         if expected_rank is None:
             assert observation.watch_rank is None

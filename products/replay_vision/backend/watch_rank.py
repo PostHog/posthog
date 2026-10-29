@@ -12,13 +12,13 @@ import asyncio
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal, cast
 
 from django.core.cache import cache
 from django.core.exceptions import EmptyResultSet
-from django.db import connections
-from django.db.models import CharField, Count, Exists, F, QuerySet, Value, Window
+from django.db import connections, transaction
+from django.db.models import CharField, Exists, F, QuerySet, Value, Window
 from django.db.models.expressions import RawSQL
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce, NullIf, RowNumber
@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.replay_observation import (
     watch_rank_contrast,
 )
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
+from products.replay_vision.backend.rank_days import RankedRow, add_rank_days, scanner_rank_counts
 from products.replay_vision.backend.scanner_access import accessible_observations
 
 WatchCategory = Literal["failure", "struggle", "revenue", "routine"]
@@ -253,10 +254,30 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
     reading = classify(request.vector, await anchor_vectors(request.team_id))
     # The similarities land first, so a rank on the row means its similarities are there too.
     await sync_to_async(save_anchor_similarities)(request.team_id, {request.observation_id: reading.similarities})
-    await ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id).aupdate(
-        watch_rank=reading.rank.to_json()
+    return (
+        "ranked"
+        if await sync_to_async(_save_rank)(request.team_id, request.observation_id, reading.rank)
+        else "already_ranked"
     )
-    return "ranked"
+
+
+def _save_rank(team_id: int, observation_id: str, rank: WatchRank) -> bool:
+    """Save the rank and count it in its scanner's day, unless a concurrent delivery ranked the row first."""
+    with transaction.atomic():
+        row = (
+            ReplayObservation.objects.select_for_update()
+            .filter(team_id=team_id, id=observation_id)
+            .values("scanner_id", "created_at", "status", "watch_rank")
+            .first()
+        )
+        if row is None or current_rank({"watch_rank": row["watch_rank"]}) is not None:
+            return False
+        ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(watch_rank=rank.to_json())
+        if row["status"] == ObservationStatus.SUCCEEDED:
+            add_rank_days(
+                team_id, ANCHOR_VERSION, [RankedRow(scanner_id=row["scanner_id"], created_at=row["created_at"])]
+            )
+    return True
 
 
 def people_boost(people: int) -> float:
@@ -282,25 +303,22 @@ def _cap_feed_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str
 
 
 def _pick_window_rows(
-    ranked: QuerySet[ReplayObservation],
     current_ranks: QuerySet[ReplayObservation],
+    scanner_rows: Mapping[Any, int],
     limit: int,
     categories: Sequence[str],
 ) -> list[dict[str, Any]]:
     """Each scanner's top-fifth issue rows in pick order: every scanner's best first, then every second-best.
 
-    A row's percentile needs only its rank from the top and its scanner's row count, so the query counts each
-    scanner on a narrow index and then reads just its top fifth by score, instead of sorting the whole window.
+    A row's percentile needs only its place from the top and its scanner's row count, so the query reads each
+    scanner's best rows from the score index, only as deep as the first `limit` picks reach.
     """
+    counted = {scanner_id: rows for scanner_id, rows in scanner_rows.items() if rows >= HIGHLIGHT_PICK_MIN_SCANNER_ROWS}
+    if not counted:
+        return []
     contrast = watch_rank_contrast()
-    scanner_counts = (
-        ranked.values("scanner_id")
-        .annotate(scanner_rows=Count("id"))
-        .filter(scanner_rows__gte=HIGHLIGHT_PICK_MIN_SCANNER_ROWS)
-        .values("scanner_id", "scanner_rows")
-    )
     scanner_top = (
-        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (a fixed column reference to the CTE below)
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (a fixed column reference to the list below)
         current_ranks.filter(scanner_id=RawSQL('"scanner_counts"."scanner_id"', ()))
         .annotate(
             scanner_rank=Window(RowNumber(), order_by=[contrast.desc(), F("id").desc()]),
@@ -311,36 +329,45 @@ def _pick_window_rows(
         .values("id", "created_at", "scanner_rank", "watch_group_root", "pick_category")
     )
     try:
-        counts_sql, counts_params = scanner_counts.query.sql_with_params()
         top_sql, top_params = scanner_top.query.sql_with_params()
     except EmptyResultSet:
         # Django compiles a filter that can match nothing, such as an empty scanner list, to this.
         return []
-    # Only fragments written here join the compiled ORM SQL; every value travels as a parameter.
-    sql = f"""
-        WITH scanner_counts AS ({counts_sql})
-        SELECT id, created_at, watch_percentile, watch_group_root FROM (
-            SELECT scanner_top.*,
-                ((scanner_counts.scanner_rows - scanner_top.scanner_rank + 1) - 0.5)
-                    / scanner_counts.scanner_rows::double precision AS watch_percentile
-            FROM scanner_counts
-            CROSS JOIN LATERAL ({top_sql} LIMIT floor(scanner_counts.scanner_rows * %s)::int + 1) scanner_top
-        ) picks
-        WHERE pick_category = ANY(%s) AND watch_percentile >= %s
-        ORDER BY scanner_rank, watch_percentile DESC, created_at DESC, id DESC
-        LIMIT %s
-    """
-    params = (
-        *counts_params,
-        *top_params,
-        1 - HIGHLIGHT_PICK_MIN_PERCENTILE,
-        list(categories),
-        HIGHLIGHT_PICK_MIN_PERCENTILE,
-        limit,
-    )
-    with connections[ranked.db].cursor() as cursor:
-        cursor.execute(sql, params)
-        return dict_from_cursor_fetchall(cursor)
+    top_fifth = max(math.floor(rows * (1 - HIGHLIGHT_PICK_MIN_PERCENTILE)) + 1 for rows in counted.values())
+    # Picks go round-robin by place, so the first `limit` picks seldom reach deeper than a few rounds past an even share.
+    depth = 2 * math.ceil(limit / len(counted))
+    while True:
+        # Only fragments written here join the compiled ORM SQL; every value travels as a parameter.
+        sql = f"""
+            SELECT id, created_at, watch_percentile, watch_group_root FROM (
+                SELECT scanner_top.*,
+                    ((scanner_counts.scanner_rows - scanner_top.scanner_rank + 1) - 0.5)
+                        / scanner_counts.scanner_rows::double precision AS watch_percentile
+                FROM (VALUES {", ".join(["(%s::uuid, %s::int)"] * len(counted))}) AS scanner_counts(scanner_id, scanner_rows)
+                CROSS JOIN LATERAL (
+                    {top_sql} LIMIT least(floor(scanner_counts.scanner_rows * %s)::int + 1, %s)
+                ) scanner_top
+            ) picks
+            WHERE pick_category = ANY(%s) AND watch_percentile >= %s
+            ORDER BY scanner_rank, watch_percentile DESC, created_at DESC, id DESC
+            LIMIT %s
+        """
+        params = (
+            *(value for scanner_id, rows in counted.items() for value in (str(scanner_id), rows)),
+            *top_params,
+            1 - HIGHLIGHT_PICK_MIN_PERCENTILE,
+            depth,
+            list(categories),
+            HIGHLIGHT_PICK_MIN_PERCENTILE,
+            limit,
+        )
+        with connections[current_ranks.db].cursor() as cursor:
+            cursor.execute(sql, params)
+            rows = dict_from_cursor_fetchall(cursor)
+        # A full page holds only places the read reached, since deeper rows sort after every one of them.
+        if len(rows) == limit or depth >= top_fifth:
+            return rows
+        depth *= 2
 
 
 def select_embedding_picks(
@@ -351,6 +378,8 @@ def select_embedding_picks(
     team_id: int,
     cap: int,
     categories: Sequence[str],
+    window_start: datetime,
+    window_end: datetime,
 ) -> list[dict[str, Any]]:
     """The window's pick rows for the embedding ranker, with each row's percentile and the reach of its feed group.
 
@@ -372,11 +401,12 @@ def select_embedding_picks(
     # Bounds the fetch, since a client-side cursor buffers every row. A window full of copies reads a wider slice
     # once, still bounded, and a feed that stays short past it shows fewer picks rather than reading every row.
     fetch_limit = cap * (HIGHLIGHT_PICK_GROUP_CANDIDATES + 1)
-    rows = _pick_window_rows(ranked, current_ranks, fetch_limit, categories)
+    scanner_rows = scanner_rank_counts(ranked, team_id, ANCHOR_VERSION, scanner_ids, window_start, window_end)
+    rows = _pick_window_rows(current_ranks, scanner_rows, fetch_limit, categories)
     window_values = _cap_feed_groups(rows, cap)
     if len(window_values) < cap and len(rows) == fetch_limit:
         window_values = _cap_feed_groups(
-            _pick_window_rows(ranked, current_ranks, fetch_limit * HIGHLIGHT_PICK_REFILL_FACTOR, categories), cap
+            _pick_window_rows(current_ranks, scanner_rows, fetch_limit * HIGHLIGHT_PICK_REFILL_FACTOR, categories), cap
         )
     if not window_values:
         return []
