@@ -199,12 +199,14 @@ export interface dataQualityOverviewLogicActions {
         overview: {
             checks: DataQualityOverviewCheckApi[]
             health: DataQualitySubjectHealthApi[]
+            totalCheckCount: number
         },
         payload?: any
     ) => {
         overview: {
             checks: DataQualityOverviewCheckApi[]
             health: DataQualitySubjectHealthApi[]
+            totalCheckCount: number
         }
         payload?: any
     }
@@ -312,8 +314,8 @@ export interface dataQualityOverviewLogicMeta {
             checks: DataQualityOverviewCheckApi[],
             filters: OverviewFilters
         ) => DataQualityOverviewCheckApi[]
-        failingCheckCount: (checks: DataQualityOverviewCheckApi[]) => number
         checksTruncated: (overview: OverviewSnapshot | null) => boolean
+        failingCheckCount: (checks: DataQualityOverviewCheckApi[]) => number
         failingSubjectCount: (checks: DataQualityOverviewCheckApi[]) => number
         overviewSummary: (
             checks: DataQualityOverviewCheckApi[],

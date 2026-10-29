@@ -210,6 +210,7 @@ export interface warehouseSuggestionsLogicValues {
     materializeIntervalShorterThanSuggested: boolean
     materializeModalSuggestion: WarehouseSuggestionApi | null
     materializeModalSuggestionId: string | null
+    rankedSuggestions: WarehouseSuggestionApi[]
     refreshDraft: IncrementalConfigDraft
     reviewOpen: boolean
     savingsSummary: SavingsSummary
@@ -217,7 +218,6 @@ export interface warehouseSuggestionsLogicValues {
     statusLoading: boolean
     stripState: StripState
     suggestionGroups: SuggestionGroup[]
-    rankedSuggestions: WarehouseSuggestionApi[]
     suggestions: WarehouseSuggestionApi[] | null
     suggestionsLoading: boolean
     surfaceSuggestions: WarehouseSuggestionApi[]

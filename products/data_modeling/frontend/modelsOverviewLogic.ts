@@ -47,10 +47,10 @@ export interface modelsOverviewLogicValues {
     failingCheckCount: number // dataQualityOverviewLogic
     overviewError: string | null // dataQualityOverviewLogic
     snapshotLoaded: boolean // dataQualityOverviewLogic
+    dataWarehouseSavedQueriesPastFirstPage: number // dataWarehouseViewsLogic
     attentionModels: AttentionModel[] // modelsSceneLogic
     behindSchedule: BehindScheduleModel[] // modelsSceneLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // modelsSceneLogic
-    dataWarehouseSavedQueriesPastFirstPage: number // dataWarehouseViewsLogic
     modelsFailed: boolean // modelsSceneLogic
     modelsResolved: boolean // modelsSceneLogic
     noModelsYet: boolean // modelsSceneLogic
