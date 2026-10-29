@@ -484,7 +484,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
         CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
-        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 30_000,
+        // Above Django's WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS (180s), so ClickHouse ends a slow
+        // audience query before this client gives up and a retry never overlaps a query that still runs.
+        CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS: 185_000,
         TRANSFORMATIONS_HOG_TIMEOUT_MS: 300,
 
         // Event loop yield helper
