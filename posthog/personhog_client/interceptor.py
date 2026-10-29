@@ -44,10 +44,17 @@ PERSONHOG_DJANGO_REQUEST_COUNT = Counter(
 )
 
 
+_FACADE_SERVICE = "personhog.service.v1.PersonHogService"
+
+
 def _method_name(client_call_details: grpc.ClientCallDetails) -> str:
-    # client_call_details.method is like "/personhog.service.v1.PersonHogService/GetPerson"
+    # "/personhog.service.v1.PersonHogService/GetPerson" -> "GetPerson", the label dashboards were built
+    # on. Another service keeps its short name: the facade and the lifecycle service both have DeletePersons.
     method: str = client_call_details.method or "unknown"
-    return method.rsplit("/", 1)[-1]
+    service, _, name = method.strip("/").rpartition("/")
+    if not service or service == _FACADE_SERVICE:
+        return name or "unknown"
+    return f"{service.rsplit('.', 1)[-1]}/{name}"
 
 
 def _grpc_error_type(code: grpc.StatusCode) -> str:
@@ -166,6 +173,10 @@ _DESERIALIZATION_FAILURE_DETAILS = "Exception deserializing response!"
 # Must match DB_TIMEOUT_METADATA_KEY in rust/personhog-common/src/grpc.rs.
 _DB_TIMEOUT_METADATA_KEY = "x-db-timeout"
 
+# Must match SEMANTIC_REFUSAL_METADATA_KEY in rust/personhog-common/src/grpc.rs: a FAILED_PRECONDITION
+# carrying it is a final answer about the request itself, not a routing race that clears on retry.
+SEMANTIC_REFUSAL_METADATA_KEY = "x-semantic-refusal"
+
 
 def _is_retryable(code: grpc.StatusCode | None, details: str | None, codes: Collection[grpc.StatusCode]) -> bool:
     if code is None:
@@ -196,6 +207,29 @@ def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode
             return _is_retryable(code(), details() if callable(details) else None, codes)
         current = current.__cause__
     return False
+
+
+def semantic_refusal_reason(exc: BaseException) -> str | None:
+    """The reason slug of a definitive FAILED_PRECONDITION refusal, or None for any other error.
+
+    Follows ``__cause__`` like ``is_transient_rpc_error``. Any reason is final, so a caller never retries
+    under the same op_id; it branches on the slug instead of the message. The identity server emits
+    ``op_id_reused`` (the op_id belongs to a different request); the leader's own refusals pass through
+    the saga unchanged.
+    """
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, grpc.RpcError):
+            code = getattr(current, "code", None)
+            trailing = getattr(current, "trailing_metadata", None)
+            if not callable(code) or not callable(trailing) or code() != grpc.StatusCode.FAILED_PRECONDITION:
+                return None
+            for key, value in trailing() or ():
+                if key == SEMANTIC_REFUSAL_METADATA_KEY:
+                    return value if isinstance(value, str) else value.decode()
+            return None
+        current = current.__cause__
+    return None
 
 
 class RetryInterceptor(grpc.UnaryUnaryClientInterceptor):
