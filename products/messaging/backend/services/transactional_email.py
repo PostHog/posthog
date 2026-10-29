@@ -392,7 +392,11 @@ def send_code_email(
     _check_send_request(to, idempotency_key)
     accepted_send = _accepted_send(team.id, email)
     hog_flow_id = _code_email_workflow_id(team.id, email.key)
-    payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
+    payload = {
+        **_send_payload(to, distinct_id, {}, idempotency_key),
+        "send": accepted_send,
+        "requested_from": email.sender,
+    }
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
 
@@ -422,16 +426,14 @@ def _send_payload(
 
 
 def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
-    accepted: dict[str, Any] = {
+    return {
         "content": _without_empty(
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
+        "replyTo": list(email.reply_to),
         "tracking": {"captureEngagement": email.capture_engagement},
     }
-    if email.reply_to:
-        accepted["replyTo"] = list(email.reply_to)
-    return accepted
 
 
 def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:

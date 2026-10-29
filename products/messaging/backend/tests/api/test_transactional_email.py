@@ -380,8 +380,10 @@ class TestTransactionalEmail(APIBaseTest):
             "send": {
                 "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
                 "from": {"integrationId": self.sender.id},
+                "replyTo": [],
                 "tracking": {"captureEngagement": True},
             },
+            "requested_from": None,
         }
         assert MessageTemplate.objects.filter(team=self.team).count() == templates_before
         reported = capture.call_args.kwargs["properties"]
@@ -408,13 +410,18 @@ class TestTransactionalEmail(APIBaseTest):
                 {"capture_engagement": False},
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "replyTo": [],
                     "tracking": {"captureEngagement": False},
                 },
             ),
             (
                 "text_only",
                 {"html": "", "text": "Hi"},
-                {"content": {"subject": "Welcome, Jane", "text": "Hi"}, "tracking": {"captureEngagement": True}},
+                {
+                    "content": {"subject": "Welcome, Jane", "text": "Hi"},
+                    "replyTo": [],
+                    "tracking": {"captureEngagement": True},
+                },
             ),
         ]
     )
@@ -432,6 +439,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         sent = {**sent, "from": {**sent.get("from", {}), "integrationId": newer_default.id}}
         assert mock_post.call_args.kwargs["json"]["send"] == sent
+        assert mock_post.call_args.kwargs["json"]["requested_from"] == fields.get("from")
 
     @parameterized.expand(
         [
