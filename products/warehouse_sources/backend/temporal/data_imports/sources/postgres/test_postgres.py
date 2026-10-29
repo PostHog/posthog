@@ -2789,6 +2789,12 @@ class TestIsConnectionDroppedError:
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
             # passing health check or once its ban expires — so the reconnect must catch it.
             psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
+            # PgBouncer's own pool-checkout timeout: the client waits past `query_wait_timeout` for a
+            # backend to free up in transaction/statement-pooling mode. PgBouncer reports this as a
+            # bare "query_wait_timeout" over a raw error packet, which psycopg surfaces as
+            # ProtocolViolation rather than OperationalError. Same transient pool-capacity class as
+            # the pgcat/Supavisor checkout failures above; the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("query_wait_timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
