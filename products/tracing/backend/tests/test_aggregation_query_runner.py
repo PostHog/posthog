@@ -260,15 +260,15 @@ class TestTraceSpansTreePercentiles(_TraceSpansTestBase):
 
 class TestTraceSpansAggregationGroupByEndpoint(_TraceSpansTestBase):
     SERVICE = "api"
-    # (name, kind, span attributes). Kind 2 is server, 3 is client.
+    SERVER, CLIENT = 2, 3
     SPANS = [
-        ("/users/1", 2, {"http.method": "GET", "http.route": "/users/{id}"}),
-        ("/users/2", 2, {"http.request.method": "GET", "http.route": "/users/{id}"}),
-        ("GET", 2, {"http.method": "GET", "http.route": "/orders"}),
-        ("GET", 2, {"http.method": "GET", "http.route": "/items"}),
-        ("GET /health", 2, {"http.method": "GET"}),
-        ("RunActivity:sync", 2, {}),
-        ("GET", 3, {"http.method": "GET", "http.route": "/upstream"}),
+        ("/users/1", SERVER, {"http.method": "GET", "http.route": "/users/{id}"}),
+        ("/users/2", SERVER, {"http.request.method": "GET", "http.route": "/users/{id}"}),
+        ("GET", SERVER, {"http.method": "GET", "http.route": "/orders"}),
+        ("GET", SERVER, {"http.method": "GET", "http.route": "/items"}),
+        ("GET /health", SERVER, {"http.method": "GET"}),
+        ("RunActivity:sync", SERVER, {}),
+        ("GET", CLIENT, {"http.method": "GET", "http.route": "/upstream"}),
     ]
 
     @classmethod
