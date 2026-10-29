@@ -1349,6 +1349,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - msg91
 - mycase
+- nango
 - nasa
 - nationbuilder
 - navan

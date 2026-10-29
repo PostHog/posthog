@@ -368,33 +368,34 @@ describe('RecipientPreferencesService', () => {
             })
 
             describe('when the recipient is on the suppression list', () => {
-                // Suppression is a deliverability signal that must apply even to transactional
-                // messages — the parameterized case guards that ordering.
-                const insertSuppressionRow = async (email: string): Promise<void> => {
+                // A hard bounce must block even transactional messages, ahead of the transactional
+                // opt-out bypass. Soft bounces alone must not.
+                const insertSuppressionRow = async (email: string, hardBounced = false): Promise<void> => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
                         `INSERT INTO posthog_messagesuppression
                             (id, team_id, identifier, source, reason, transient_bounce_count,
-                             suppressed, suppressed_at, deleted, created_at, updated_at)
+                             suppressed, suppressed_at, deleted, created_at, updated_at, hard_bounced_at)
                          VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'test row', 5,
-                             true, NOW(), false, NOW(), NOW())`,
-                        [team.id, email],
+                             true, NOW(), false, NOW(), NOW(), CASE WHEN $3 THEN NOW() END)`,
+                        [team.id, email, hardBounced],
                         'test-insert-suppression'
                     )
                 }
 
                 it.each([
-                    ['marketing', 'marketing' as const],
-                    ['transactional', 'transactional' as const],
-                ])('skips a %s email to a suppressed recipient', async (_label, categoryType) => {
-                    const email = `suppressed-${categoryType}@example.com`
-                    await insertSuppressionRow(email)
+                    ['skips a marketing email after soft bounces', 'marketing' as const, false, 'suppressed'],
+                    ['sends a transactional email after soft bounces', 'transactional' as const, false, null],
+                    ['skips a transactional email after a hard bounce', 'transactional' as const, true, 'suppressed'],
+                ])('%s', async (_label, categoryType, hardBounced, expected) => {
+                    const email = `suppressed-${categoryType}-${hardBounced}@example.com`
+                    await insertSuppressionRow(email, hardBounced)
                     const action = createEmailAction(email, '123e4567-e89b-12d3-a456-426614174000', categoryType)
                     const invocation = createFunctionStepInvocation(action)
 
                     const result = await service.shouldSkipAction(invocation, action)
 
-                    expect(result).toBe('suppressed')
+                    expect(result).toBe(expected)
                 })
 
                 // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address
@@ -665,7 +666,8 @@ describe('RecipientPreferencesService', () => {
         let persons: { getCyclotronPerson: jest.Mock }
 
         const emailAction = (
-            categoryType?: 'marketing' | 'transactional'
+            categoryType?: 'marketing' | 'transactional',
+            skipFrequencyCap?: boolean
         ): Extract<HogFlowAction, { type: 'function_email' }> => ({
             id: 'email',
             name: 'Send email',
@@ -675,6 +677,7 @@ describe('RecipientPreferencesService', () => {
             config: {
                 template_id: 'template-email',
                 message_category_type: categoryType,
+                skip_frequency_cap: skipFrequencyCap,
                 inputs: { email: { value: { to: { email: 'capped@example.com' } } } },
             },
             created_at: Date.now(),
@@ -768,6 +771,7 @@ describe('RecipientPreferencesService', () => {
 
         it.each([
             ['transactional sends', emailAction('transactional'), { max_messages: 0, window_days: 7 }],
+            ['marketing sends that skip the cap', emailAction('marketing', true), { max_messages: 1, window_days: 7 }],
             ['teams with no cap', emailAction(), { max_messages: null, window_days: null }],
         ])('never caps %s', async (_, action, cap) => {
             frequencyCap = cap

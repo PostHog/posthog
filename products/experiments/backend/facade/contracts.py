@@ -130,6 +130,8 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTER_ON_DYNAMIC_COHORT = "exposure_filter_on_dynamic_cohort"
+    EXPOSURE_FILTER_EXCLUDES_EVENTS = "exposure_filter_excludes_events"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
@@ -234,6 +236,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"
@@ -508,3 +511,22 @@ class RunningExperiment:
     name: str
     started_at: datetime
     flag_key: str
+
+
+@frozen
+class ExperimentChanged:
+    """One save or delete of an experiment, as `connect_experiment_changed` receivers get it."""
+
+    team_id: int
+    experiment_id: int
+    # True only on the save that inserted the row.
+    created: bool
+    # True on every save that leaves the experiment soft-deleted, and on every hard delete of the row.
+    deleted: bool
+    # The values the write left on the experiment, so a receiver that mirrors the experiment elsewhere, such as the
+    # Vercel sync, does not read the row back.
+    name: str
+    description: str | None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
