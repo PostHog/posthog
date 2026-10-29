@@ -33,8 +33,9 @@ export function ScannerGoalExperimentStarter({
     }, [ensureOptionsLoaded])
 
     // Hidden until the first load answers, and when the project runs no experiment to pick. A failed load
-    // still shows the starter so that opening the menu can retry.
-    if (!loadFailed && (!hasLoadedOptions || (!search && options.length === 0))) {
+    // still shows the starter so that opening the menu can retry. A picked experiment always shows, so that
+    // the user can clear it.
+    if (!experiment && !loadFailed && (!hasLoadedOptions || (!search && options.length === 0))) {
         return null
     }
 

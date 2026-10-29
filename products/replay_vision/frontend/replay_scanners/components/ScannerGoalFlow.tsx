@@ -109,9 +109,9 @@ export function ScannerGoalFlow(): JSX.Element {
                 }}
                 onDismiss={() => setPendingDraft(null)}
             >
-                {/* The card sits inside the consent popover's reference, which would give its buttons dropdown arrows. */}
-                <PopoverReferenceContext.Provider value={null}>
-                    <div className="rounded-lg border-2 border-[var(--color-ai)] p-4 flex flex-col gap-4">
+                <div className="rounded-lg border-2 border-[var(--color-ai)] p-4 flex flex-col gap-4">
+                    {/* The card is the consent popover's reference, which would give its buttons dropdown arrows. */}
+                    <PopoverReferenceContext.Provider value={null}>
                         <div className="flex flex-col gap-1">
                             <label htmlFor="vision-goal-flow-goal" className="text-sm font-semibold">
                                 Describe your goal
@@ -131,7 +131,7 @@ export function ScannerGoalFlow(): JSX.Element {
                             </div>
                             {/* A draft restored from an earlier experiment-scoped session keeps its targeting
                             through this flow, so say whose sessions the scanner ends up watching. */}
-                            {linkedExperimentContext ? (
+                            {linkedExperimentContext && !experiment ? (
                                 <div className="text-xs text-muted">
                                     This scanner keeps watching users exposed to{' '}
                                     {linkedExperimentContext.experiment.name}. You don't have to mention the experiment.
@@ -239,8 +239,8 @@ export function ScannerGoalFlow(): JSX.Element {
                                 Draft my scanner
                             </LemonButton>
                         </div>
-                    </div>
-                </PopoverReferenceContext.Provider>
+                    </PopoverReferenceContext.Provider>
+                </div>
             </AIConsentPopoverWrapper>
 
             <div className="flex items-center gap-4">
