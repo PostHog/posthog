@@ -12,7 +12,7 @@ from posthog.models import Organization, OrganizationMembership, User
 
 from .decisions import PROTECTED_DOMAIN
 from .rules import EmailPattern
-from .subjects import DOT_INSENSITIVE_DOMAINS
+from .subjects import DOT_INSENSITIVE_DOMAINS, HIDDEN_CHARACTERS, LOOKALIKE_DOTS
 
 # An email root, domain or pattern count has no index to use, so an uncapped count would scan
 # every row of posthog_user while the admin waits.
@@ -94,6 +94,14 @@ def _email_root_regex(root: str) -> str:
     return rf"^{re.escape(local)}{suffix}@{re.escape(domain)}$"
 
 
+def _email_domain_regex(domain: str) -> str:
+    """Every stored address a block on this domain refuses, look-alike spellings included."""
+    dot = f"[.{LOOKALIKE_DOTS}]"
+    hidden = f"[{HIDDEN_CHARACTERS}]*"
+    labels = hidden.join(dot if char == "." else re.escape(char) for char in domain)
+    return f"(@|{dot}){hidden}{labels}{hidden}$"
+
+
 def _email_pattern_regex(pattern: EmailPattern) -> str:
     return "^" + ".*".join(re.escape(segment) for segment in pattern.segments) + "$"
 
@@ -107,7 +115,7 @@ def count_active_accounts(target_type: CountableType, value: str) -> CappedCount
         case "email_root":
             condition = Q(email__iregex=_email_root_regex(value))
         case "email_domain":
-            condition = Q(email__iendswith=f"@{value}") | Q(email__iendswith=f".{value}")
+            condition = Q(email__iregex=_email_domain_regex(value))
         case "email_pattern":
             pattern = EmailPattern.parse(value.strip().lower())
             # A pattern the snapshot would refuse matches nobody at decision time, so it counts nobody.
