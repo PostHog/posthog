@@ -143,7 +143,7 @@ def fail_stuck_video_exports() -> None:
 @skip_team_scope_audit
 def delete_scheduled_event_definitions() -> None:
     """Delete event definitions whose ingestion was stopped, once nothing can recreate them."""
-    from ee.tasks.event_definitions import delete_scheduled_event_definitions as run_sweep
+    from posthog.tasks.event_definitions import delete_scheduled_event_definitions as run_sweep
 
     run_sweep()
 

@@ -1030,7 +1030,7 @@ class EventDefinitionViewSet(
         except DjangoValidationError as error:
             raise serializers.ValidationError(" ".join(error.messages))
 
-        from ee.tasks.event_definitions import SCHEDULED_DELETION_DELAY
+        from posthog.tasks.event_definitions import SCHEDULED_DELETION_DELAY
 
         before = {"hidden": bool(instance.hidden), "verified": bool(instance.verified)}
         # An event can't be both hidden and verified.

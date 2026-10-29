@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -7,15 +8,15 @@ from django.utils import timezone
 
 from posthog.models import ActivityLog, Team
 from posthog.models.event_filter_config import EventFilterConfig, EventFilterMode
-
-from ee.models.event_definition import EnterpriseEventDefinition
-from ee.tasks.event_definitions import (
+from posthog.tasks.event_definitions import (
     GIVE_UP_AFTER,
     RETRY_DELAY,
     SCHEDULED_DELETION_DELAY,
     TRIGGER_JOB_TYPE,
     delete_scheduled_event_definitions,
 )
+
+from ee.models.event_definition import EnterpriseEventDefinition
 
 
 def _drop_tree(event_name: str) -> dict:
@@ -26,7 +27,9 @@ def _drop_tree(event_name: str) -> dict:
 
 
 class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
-    def _scheduled_definition(self, due_since: timedelta = timedelta(minutes=5), **kwargs) -> EnterpriseEventDefinition:
+    def _scheduled_definition(
+        self, due_since: timedelta = timedelta(minutes=5), **kwargs: Any
+    ) -> EnterpriseEventDefinition:
         scheduled_deletion_at = timezone.now() - due_since
         return EnterpriseEventDefinition.objects.create(
             team=self.team,
@@ -58,7 +61,7 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-    def test_deletes_a_due_definition_and_logs_activity(self):
+    def test_deletes_a_due_definition_and_logs_activity(self) -> None:
         definition = self._scheduled_definition()
         self._drop_in(self.team)
 
@@ -72,7 +75,7 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
         assert log.detail["name"] == "spam_event"
         assert log.detail["trigger"]["job_type"] == TRIGGER_JOB_TYPE
 
-    def test_deletes_when_the_only_events_are_older_than_the_window(self):
+    def test_deletes_when_the_only_events_are_older_than_the_window(self) -> None:
         definition = self._scheduled_definition()
         self._drop_in(self.team)
         self._ingest(self.team, ingested_ago=timedelta(hours=3))
@@ -81,7 +84,7 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
 
         assert not EnterpriseEventDefinition.objects.filter(pk=definition.pk).exists()
 
-    def test_keeps_a_definition_that_is_not_due(self):
+    def test_keeps_a_definition_that_is_not_due(self) -> None:
         definition = self._scheduled_definition(due_since=-timedelta(minutes=5))
         self._drop_in(self.team)
 
@@ -89,7 +92,7 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
 
         assert EnterpriseEventDefinition.objects.filter(pk=definition.pk).exists()
 
-    def test_tries_again_later_when_the_event_is_no_longer_dropped(self):
+    def test_tries_again_later_when_the_event_is_no_longer_dropped(self) -> None:
         definition = self._scheduled_definition()
         EventFilterConfig.objects.create(
             team=self.team, mode=EventFilterMode.DRY_RUN, filter_tree=_drop_tree("spam_event")
@@ -99,7 +102,7 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
 
         self._assert_retried_later(definition)
 
-    def test_tries_again_later_when_an_event_arrived_recently(self):
+    def test_tries_again_later_when_an_event_arrived_recently(self) -> None:
         definition = self._scheduled_definition()
         self._drop_in(self.team)
         self._ingest(self.team, ingested_ago=timedelta(minutes=10))
@@ -108,7 +111,7 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
 
         self._assert_retried_later(definition)
 
-    def test_a_recent_backfill_of_old_events_blocks_the_delete(self):
+    def test_a_recent_backfill_of_old_events_blocks_the_delete(self) -> None:
         definition = self._scheduled_definition()
         self._drop_in(self.team)
         self._ingest(self.team, ingested_ago=timedelta(minutes=10), timestamp_ago=timedelta(days=60))
@@ -117,16 +120,18 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
 
         self._assert_retried_later(definition)
 
-    def test_tries_again_later_when_the_attempt_raises(self):
+    def test_tries_again_later_when_the_attempt_raises(self) -> None:
         definition = self._scheduled_definition()
         self._drop_in(self.team)
 
-        with patch("ee.tasks.event_definitions._has_recent_events", side_effect=RuntimeError("ClickHouse is down")):
+        with patch(
+            "posthog.tasks.event_definitions._has_recent_events", side_effect=RuntimeError("ClickHouse is down")
+        ):
             delete_scheduled_event_definitions()
 
         self._assert_retried_later(definition)
 
-    def test_checks_every_environment_in_the_project(self):
+    def test_checks_every_environment_in_the_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
         definition = self._scheduled_definition()
         self._drop_in(self.team)
@@ -137,7 +142,7 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
 
         self._assert_retried_later(definition)
 
-    def test_cancels_when_someone_unhid_the_event(self):
+    def test_cancels_when_someone_unhid_the_event(self) -> None:
         definition = self._scheduled_definition()
         definition.hidden = False
         definition.save()
@@ -148,7 +153,7 @@ class TestDeleteScheduledEventDefinitions(ClickhouseTestMixin, BaseTest):
         definition.refresh_from_db()
         assert definition.scheduled_deletion_at is None
 
-    def test_gives_up_and_keeps_the_event_hidden(self):
+    def test_gives_up_and_keeps_the_event_hidden(self) -> None:
         definition = self._scheduled_definition()
         definition.ingestion_stopped_at = timezone.now() - GIVE_UP_AFTER - timedelta(minutes=5)
         definition.save()
