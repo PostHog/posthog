@@ -210,6 +210,44 @@ describe('BIPivotTable', () => {
             expect(container.querySelectorAll('tbody td').length).toBeLessThan(250)
         }
     )
+    it('preserves vertical scroll when collapsing and expanding a column hierarchy', () => {
+        jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(
+            function (this: HTMLElement): number {
+                return this.tagName === 'TR' ? 36 : 180
+            }
+        )
+        jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+        const config: BIConfig = {
+            ...DEFAULT_BI_CONFIG,
+            chartType: ChartDisplayType.ActionsTable,
+            rows: [field('region')],
+            columns: [field('year'), field('quarter')],
+            values: [{ field: field('amount'), aggregation: 'sum', shelf: 'rows' }],
+        }
+        const { container } = render(
+            <BIPivotTable
+                config={config}
+                columns={['bi_row_region', 'bi_columns', 'sum_amount']}
+                results={Array.from({ length: 600 }, (_, index) => [
+                    `Region ${index}`,
+                    JSON.stringify(['2026', 'Q1']),
+                    index,
+                ])}
+            />
+        )
+        const scroll = container.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        scroll.scrollTo = (options?: ScrollToOptions | number): void => {
+            if (typeof options === 'object' && options.top !== undefined) {
+                scroll.scrollTop = options.top
+            }
+        }
+        fireEvent.scroll(scroll, { target: { scrollTop: 300 * 36 } })
+        for (const action of ['Collapse', 'Expand']) {
+            fireEvent.click(screen.getByRole('button', { name: `${action} 2026` }))
+            expect(scroll.scrollTop).toBe(300 * 36)
+        }
+    })
+
     it.each(['rows', 'columns'] as const)(
         'keeps the last cell reachable at the %s limit and rejects larger pivots',
         (shelf) => {
