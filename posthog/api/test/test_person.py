@@ -1467,8 +1467,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.validation_error_response("required", "This field is required.", "properties"),
         )
 
+    @parameterized.expand(
+        [
+            ("key_and_value", {"key": "foo", "value": "bar"}, {"foo": "bar"}),
+            ("properties_object", {"properties": {"foo": "bar", "baz": 1}}, {"foo": "bar", "baz": 1}),
+        ]
+    )
     @mock.patch("posthog.api.person.capture_internal")
-    def test_new_update_single_person_property(self, mock_capture) -> None:
+    def test_new_update_person_properties(self, _name, payload, expected, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -1476,8 +1482,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
+        response = self.client.post(f"/api/person/{person.uuid}/update_property", payload, format="json")
 
+        self.assertEqual(response.status_code, 202)
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
             event_name="$set",
@@ -1485,10 +1492,31 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="some_distinct_id",
             timestamp=mock.ANY,
             properties={
-                "$set": {"foo": "bar"},
+                "$set": expected,
             },
             process_person_profile=True,
         )
+
+    @mock.patch("posthog.api.person.PersonViewSet._get_non_writable_person_properties")
+    def test_update_person_properties_rejects_a_non_writable_key_anywhere_in_the_object(
+        self, mock_non_writable
+    ) -> None:
+        mock_non_writable.return_value = {"locked"}
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever"},
+            immediate=True,
+        )
+
+        response = self.client.post(
+            f"/api/person/{person.uuid}/update_property",
+            {"properties": {"writable": "ok", "locked": "nope"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("locked", response.json()["detail"])
 
     @parameterized.expand(
         [
