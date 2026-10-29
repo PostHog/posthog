@@ -42,7 +42,7 @@ import { requestReportClaim } from '../utils/reportClaim'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
-import { buildSignalReportListSortParams, inboxFiltersLogic } from './inboxFiltersLogic'
+import { appliedInboxSearch, buildSignalReportListSortParams, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
 import { prCiStatusLogic } from './prCiStatusLogic'
 
@@ -128,7 +128,7 @@ function requestContextFromValues(values: {
     return {
         scope: values.scope,
         hasActiveFilters:
-            values.searchQuery.trim().length > 0 ||
+            appliedInboxSearch(values.searchQuery) !== undefined ||
             values.activeSourceProductFilter.length > 0 ||
             values.activeScoutFilter.length > 0 ||
             values.priorityFilter.length > 0 ||
@@ -723,7 +723,7 @@ export const reportListLogic = kea<reportListLogicType>([
             ) => {
                 return {
                     ...listParams,
-                    search: searchQuery.trim() || undefined,
+                    search: appliedInboxSearch(searchQuery),
                     ...buildSignalReportListSortParams(sortField, sortDirection),
                     source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
