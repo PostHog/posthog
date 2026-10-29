@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import grpc
 from parameterized import parameterized
 
-from posthog.personhog_client.interceptor import MetricsInterceptor, _MutableClientCallDetails
+from posthog.personhog_client.interceptor import MetricsInterceptor, _method_name, _MutableClientCallDetails
 
 
 def _make_call_details(
@@ -123,3 +123,18 @@ class TestMetricsInterceptorErrorTracking:
         interceptor.intercept_unary_unary(lambda d, r: _make_ok_response(), details, request=b"")
 
         mock_errors_counter.labels.return_value.inc.assert_not_called()
+
+
+class TestMethodLabel:
+    @parameterized.expand(
+        [
+            ("facade_keeps_the_bare_name", "/personhog.service.v1.PersonHogService/DeletePersons", "DeletePersons"),
+            (
+                "lifecycle_carries_its_service",
+                "/personhog.lifecycle.v1.PersonHogLifecycle/DeletePersons",
+                "PersonHogLifecycle/DeletePersons",
+            ),
+        ]
+    )
+    def test_services_that_share_a_method_name_get_distinct_labels(self, _name: str, method: str, label: str):
+        assert _method_name(_make_call_details(method=method)) == label
