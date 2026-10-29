@@ -2,7 +2,6 @@ from typing import cast
 
 from django import forms
 from django.contrib import admin, messages
-from django.db import transaction
 from django.utils.html import format_html
 
 from products.managed_migrations.backend.models.batch_imports import DEFAULT_SEND_RATE, BatchImport, CommitInFlightError
@@ -55,7 +54,9 @@ class BatchImportAdminForm(forms.ModelForm):
         if self.instance.pk and any(self.add_initial_prefix(name) not in self.data for name in self.fields):
             raise forms.ValidationError("This page is out of date. Reload it and make your change again.")
         if self.resumes():
-            self.raise_if_resume_unsafe(self.instance)
+            # Django admin runs the whole POST in one transaction, so this lock holds until save_model
+            # writes the resume. A refusal here re-renders the form with the error and saves nothing.
+            self.raise_if_resume_unsafe(BatchImport.objects.select_for_update().get(pk=self.instance.pk))
         return cleaned_data
 
     def resumes(self) -> bool:
@@ -198,20 +199,10 @@ class BatchImportAdmin(admin.ModelAdmin):
         update_fields = [name for name in form.changed_data if name in EDITABLE_MODEL_FIELDS]
         if any(name in form.changed_data for name in SINK_FORM_FIELDS):
             update_fields.append("import_config")
-        if not form.resumes():
-            if update_fields:
-                obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))
-            return
-
-        message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
-        with transaction.atomic():
-            # The form checked this already; the lock closes the gap until the save.
-            try:
-                form.raise_if_resume_unsafe(BatchImport.objects.select_for_update().get(pk=obj.pk))
-            except forms.ValidationError as e:
-                self.message_user(request, " ".join(e.messages), level=messages.ERROR)
-                return
+        if form.resumes():
+            message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
             update_fields.extend(obj.reset_for_resume(message))
+        if update_fields:
             obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))
 
     @admin.display(description="Progress")

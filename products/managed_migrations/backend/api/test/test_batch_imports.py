@@ -3,13 +3,15 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
-from django.contrib import admin, messages
+from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages import get_messages
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.db import connection
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -765,12 +767,12 @@ class TestBatchImportAdminChangeForm(BaseTest):
             (
                 "send_started",
                 {"pending_commit": {"key": "day-1", "from_offset": 0, "to_offset": 10}},
-                BatchImport.Status.PAUSED,
+                "A worker is sending a chunk",
             ),
-            ("resumed_elsewhere", {"status": BatchImport.Status.RUNNING}, BatchImport.Status.RUNNING),
+            ("resumed_elsewhere", {"status": BatchImport.Status.RUNNING}, "changed since the page loaded"),
         ]
     )
-    def test_save_refuses_a_resume_when_the_row_changes_after_validation(self, _name, change, expected_status):
+    def test_save_refuses_a_resume_when_the_row_changes_after_the_admin_loads_it(self, _name, change, expected_error):
         batch_import = BatchImport.objects.create(
             team=self.team,
             created_by_id=self.user.id,
@@ -778,18 +780,17 @@ class TestBatchImportAdminChangeForm(BaseTest):
             status=BatchImport.Status.PAUSED,
         )
         form = self._post_admin_form(batch_import, self._form_values(batch_import), {"status": "running"})
-        self.assertTrue(form.is_valid(), form.errors)
         BatchImport.objects.filter(id=batch_import.id).update(
             lease_id="live-worker-lease", leased_until=datetime.now(UTC) + timedelta(minutes=5), **change
         )
 
-        with patch.object(self.model_admin, "message_user") as message_user:
-            self._save(form)
+        with CaptureQueriesContext(connection) as queries:
+            self.assertFalse(form.is_valid())
 
-        batch_import.refresh_from_db()
-        self.assertEqual(batch_import.status, expected_status)
-        self.assertEqual(batch_import.lease_id, "live-worker-lease")
-        self.assertEqual(message_user.call_args.kwargs["level"], messages.ERROR)
+        self.assertIn(expected_error, str(form.non_field_errors()))
+        self.assertTrue(
+            any("FOR UPDATE" in q["sql"] and "posthog_batchimport" in q["sql"] for q in queries.captured_queries)
+        )
 
     def test_save_rejects_a_page_without_initial_values(self):
         batch_import = BatchImport.objects.create(

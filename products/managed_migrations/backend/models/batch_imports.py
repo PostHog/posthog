@@ -25,7 +25,7 @@ class CommitInFlightError(ValueError):
     """A worker is sending a chunk of this import, so a resume now could skip that chunk."""
 
     def __init__(self) -> None:
-        super().__init__("A worker is sending a chunk of this import. Try again in a minute.")
+        super().__init__("A worker is sending a chunk of this import. Try again in a few minutes.")
 
 
 def get_aws_external_id(team: "Team") -> str:
