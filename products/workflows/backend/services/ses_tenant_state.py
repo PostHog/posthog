@@ -17,6 +17,8 @@ from posthog.tasks.email import (
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.email_sending_tier import SesTenantState
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
+from products.workflows.backend.utils.email_sending_tiers import MIN_EMAIL_SENDING_TIER
 
 logger = structlog.get_logger(__name__)
 
@@ -118,11 +120,18 @@ def apply_ses_tenant_state(
         config.ses_tenant_reputation_impact = impact
         config.ses_tenant_state_synced_at = now
         update_fields = list(_STATE_FIELDS)
+        previous_tier = config.email_sending_tier
         if SesTenantState(sending_status=sending_status).is_paused:
             # An AWS pause counts as a demotion, so a reinstated tenant earns its tier back by sending
-            # rather than through the trusted floor.
+            # rather than through the trusted floor. Drop the tier now, as a staff suspension does: a
+            # pause and reinstatement can both land between two sweeps, and the sweep would then
+            # read the pause stamp as a recent rate demotion and hold the old tier through the cooldown.
             config.email_sending_tier_demoted_at = now
             update_fields.append("email_sending_tier_demoted_at")
+            if not config.email_sending_tier_pinned:
+                config.email_sending_tier = MIN_EMAIL_SENDING_TIER
+                config.email_sending_tier_updated_at = now
+                update_fields += ["email_sending_tier", "email_sending_tier_updated_at"]
         config.save(update_fields=update_fields)
         logger.info(
             "SES tenant state changed",
@@ -152,6 +161,11 @@ def apply_ses_tenant_state(
             # Dispatch after commit so a rollback can't leave an email claiming a state
             # that was never persisted.
             transaction.on_commit(notify)
+
+    if config.email_sending_tier != previous_tier:
+        log_email_sending_tier_change(
+            config.team, previous_tier=previous_tier, new_tier=MIN_EMAIL_SENDING_TIER, reason="ses_tenant_paused"
+        )
 
 
 def _findings_for_email(findings: list[dict[str, Any]] | None) -> list[dict[str, str]]:

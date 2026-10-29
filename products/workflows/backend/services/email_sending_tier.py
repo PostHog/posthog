@@ -82,6 +82,16 @@ class TeamSendingHistory:
         )
         return not (complaints_are_dirty or bounces_are_dirty)
 
+    @property
+    def observed_rates_are_clean(self) -> bool:
+        # The trusted floor skips the volume bar, so it cannot lean on the sample minimums above:
+        # 100 sends with 100 hard bounces is clean by that rule only because promotion would also
+        # need volume.
+        return (
+            self.hard_bounce_rate <= settings.WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE
+            and self.complaint_rate <= settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE
+        )
+
 
 @frozen
 class SesTenantState:
@@ -106,6 +116,10 @@ class SesTenantState:
     def impact(self) -> str:
         # Empty string means never synced, which reads the same as NONE.
         return self.reputation_impact.strip().upper()
+
+    @property
+    def is_verified_clean(self) -> bool:
+        return self.sending_status.strip().upper() == "ENABLED" and self.impact == "NONE"
 
 
 @frozen
@@ -295,7 +309,12 @@ def decide_tier(
 
     # Only a team that sends now gets the floor. A dormant team then still decays below it, and a
     # team that was ever demoted or suspended climbs on its own sending only.
-    if history.sent > 0 and last_rate_demotion_at is None:
+    if (
+        history.sent > 0
+        and last_rate_demotion_at is None
+        and history.observed_rates_are_clean
+        and tenant.is_verified_clean
+    ):
         floor = trusted_floor_tier(account_trust, now=now)
         if floor > current_tier:
             return TierDecision(
@@ -445,6 +464,8 @@ def apply_tier_decision(
         email_sending_tier=decision.previous_tier,
         email_sending_tier_pinned=False,
         email_sending_suspended_at__isnull=config.email_sending_suspended_at is None,
+        # An AWS pause stamps this without always moving the tier, and the trusted floor depends on it.
+        email_sending_tier_demoted_at__isnull=config.email_sending_tier_demoted_at is None,
     ).update(**fields)
     if not updated:
         return False

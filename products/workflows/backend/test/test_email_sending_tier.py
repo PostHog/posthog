@@ -381,6 +381,8 @@ class TestEmailSendingTierDecision(SimpleTestCase):
             ("no recent sends", True, 120, 7, 0, False, 0, 0, "tier_not_used_enough"),
             ("demoted for its rates before", True, 120, 7, 5, True, 0, 0, "tier_not_used_enough"),
             ("already at the floor", True, 120, 7, 5, False, 3, 3, "tier_not_used_enough"),
+            ("bounces on a sample too small to demote", True, 120, 7, 100, False, 0, 0, "tier_not_used_enough", 100),
+            ("tenant never synced by AWS", True, 120, 7, 5, False, 0, 0, "tier_not_used_enough", 0, ""),
         ]
     )
     def test_trusted_account_floor(
@@ -394,15 +396,20 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         current_tier: int,
         expected_tier: int,
         expected_reason: str,
+        hard_bounced: int = 0,
+        tenant_status: str = "ENABLED",
     ) -> None:
         now = timezone.now()
         daily_sends = clean_days(1, sent) if sent else {}
         decision = decide_tier(
-            history=history(sent=sent, daily_sends=daily_sends),
+            history=history(sent=sent, hard_bounced=hard_bounced, daily_sends=daily_sends),
             current_tier=current_tier,
             tier_updated_at=now - timedelta(days=30),
             suspended=False,
             last_rate_demotion_at=now - timedelta(days=60) if demoted_before else None,
+            tenant_state=SesTenantState(
+                sending_status=tenant_status, reputation_impact="NONE" if tenant_status else ""
+            ),
             account_trust=AccountTrust(
                 has_active_subscription=paying,
                 organization_created_at=now - timedelta(days=org_age_days),
@@ -482,7 +489,12 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self.organization.created_at = timezone.now() - timedelta(days=120)
         self.organization.customer_trust_scores = {"workflow_emails": 7}
         self.organization.save()
-        self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(hours=1))
+        self._config(
+            email_sending_tier=0,
+            email_sending_tier_updated_at=timezone.now() - timedelta(hours=1),
+            ses_tenant_sending_status="ENABLED",
+            ses_tenant_reputation_impact="NONE",
+        )
 
         self._run({self.team.id: history(team_id=self.team.id, sent=5, daily_sends=clean_days(1, 5))})
 
@@ -496,7 +508,12 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self.organization.created_at = timezone.now() - timedelta(days=120)
         self.organization.customer_trust_scores = {"workflow_emails": 7}
         self.organization.save()
-        self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
+        self._config(
+            email_sending_tier=0,
+            email_sending_tier_updated_at=timezone.now() - timedelta(days=30),
+            ses_tenant_sending_status="ENABLED",
+            ses_tenant_reputation_impact="NONE",
+        )
         if suspension == "staff_suspension":
             suspend_email_sending(self.team.id, "bounces")
             unsuspend_email_sending(self.team.id)
@@ -506,6 +523,30 @@ class TestRecomputeEmailSendingTiers(BaseTest):
 
         self._run({self.team.id: history(team_id=self.team.id, sent=5, daily_sends=clean_days(1, 5))})
 
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 0
+
+    def test_aws_pause_between_sweeps_does_not_shield_a_dirty_sender(self) -> None:
+        self._config(
+            email_sending_tier=3,
+            email_sending_tier_updated_at=timezone.now() - timedelta(days=30),
+            ses_tenant_sending_status="ENABLED",
+            ses_tenant_reputation_impact="NONE",
+        )
+        apply_ses_tenant_state(self.team.id, sending_status="DISABLED", reputation_impact="HIGH")
+        apply_ses_tenant_state(self.team.id, sending_status="ENABLED", reputation_impact="NONE")
+
+        self._run({self.team.id: history(team_id=self.team.id, sent=1000, hard_bounced=100)})
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 0
+        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
+        assert (entry.detail or {})["context"] == {"reason": "ses_tenant_paused"}
+
+    def test_floor_decision_read_before_an_aws_pause_is_not_applied(self) -> None:
+        config = self._config(email_sending_tier=0, ses_tenant_sending_status="ENABLED")
+        apply_ses_tenant_state(self.team.id, sending_status="DISABLED", reputation_impact="HIGH")
+
+        decision = TierDecision(team_id=self.team.id, previous_tier=0, new_tier=3, reason="trusted_account")
+        assert apply_tier_decision(config, decision) is False
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 0
 
     def test_suspended_team_is_demoted_even_with_no_recent_sending(self) -> None:
