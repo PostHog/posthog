@@ -3,7 +3,9 @@ import threading
 import pytest
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 import pymssql
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
@@ -33,8 +35,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     retry_on_transient_connection_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
+    _CONNECTION_DROPPED_ERROR,
     _FIREWALL_BLOCKED_ERROR,
-    _GENERIC_CONNECTION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -103,6 +105,20 @@ class TestMSSQLColumnToArrowField:
         col = MSSQLColumn(name="x", data_type="decimal", nullable=True)
         with pytest.raises(TypeError, match="numeric_precision"):
             col.to_arrow_field()
+
+    @parameterized.expand(
+        [
+            ("tinyint", pa.uint8()),
+            ("smallint", pa.int16()),
+            ("int", pa.int32()),
+            ("bigint", pa.int64()),
+        ]
+    )
+    def test_integer_types_match_mssql_value_range(self, data_type, expected_arrow_type):
+        # tinyint is 0-255 in MSSQL, unlike every signed integer type here; a signed arrow
+        # type raises ArrowInvalid as soon as a row carries a value above 127.
+        col = MSSQLColumn(name="x", data_type=data_type, nullable=True)
+        assert col.to_arrow_field().type == expected_arrow_type
 
 
 class TestBuildQuery:
@@ -719,7 +735,7 @@ class TestMSSQLSourceValidateCredentials:
         assert error == _FIREWALL_BLOCKED_ERROR
         capture.assert_not_called()
 
-    def test_adaptive_server_connection_failed_returns_generic_message_without_capturing(self, source, mocker):
+    def test_adaptive_server_connection_failed_names_likely_causes_without_capturing(self, source, mocker):
         capture = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
         )
@@ -736,7 +752,7 @@ class TestMSSQLSourceValidateCredentials:
         valid, error = source.validate_credentials(_make_config(), team_id=1)
 
         assert valid is False
-        assert error == _GENERIC_CONNECTION_ERROR
+        assert error == _CONNECTION_DROPPED_ERROR
         capture.assert_not_called()
 
     @pytest.mark.parametrize(

@@ -605,7 +605,8 @@ class MSSQLColumn(Column):
             case "smallint":
                 arrow_type = pa.int16()
             case "tinyint":
-                arrow_type = pa.int8()
+                # MSSQL's tinyint is unsigned (0 to 255), unlike every other integer type here.
+                arrow_type = pa.uint8()
             case "decimal" | "numeric" | "money":
                 if not self.numeric_precision or not self.numeric_scale:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
