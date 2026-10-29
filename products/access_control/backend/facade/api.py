@@ -520,7 +520,7 @@ def upsert_property_access_control(
             team_id=team_id,
             property_definition=prop_def,
             organization_member_id=input.organization_member_id,
-            role_id=input.role_id,
+            role_id=input.role_id,  # type: ignore[misc]  # nullable FK; django-stubs drops None from *_id lookups
             defaults={
                 "access_level": input.access_level.value,
             },

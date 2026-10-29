@@ -312,7 +312,8 @@ def openai_ads_source(
         client = _make_client(api_key)
         return _source_response(config, lambda: _retry_forbidden_server_errors(_fan_out_rows(client, endpoint)))
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    can_resume = resumable_source_manager.can_resume() and not config.single_object
+    resume = resumable_source_manager.load_state() if can_resume else None
 
     data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     if config.aggregation_level is not None:
@@ -332,12 +333,17 @@ def openai_ads_source(
                 {"type": "date_range", "since": window.start, "until": window.end, "timezone": "UTC"}
             ),
         }
+        if config.segment is not None:
+            params["segments[]"] = config.segment
         currency = _account_currency(api_key)
 
         def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
             return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
 
         data_map = enrich_insights
+    elif config.single_object:
+        window = SyncWindow(start="", end="")
+        params = {}
     else:
         window = SyncWindow(start="", end="")
         # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
@@ -357,8 +363,8 @@ def openai_ads_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    "data_selector": "data",
-                    "paginator": _ListPaginator(),
+                    "data_selector": "$" if config.single_object else "data",
+                    "paginator": SinglePagePaginator() if config.single_object else _ListPaginator(),
                 },
                 "data_map": data_map,
             }

@@ -26,6 +26,7 @@ from loginas import settings as la_settings
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
@@ -44,7 +45,7 @@ from posthog.middleware import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.organization_invite import InviteExpiredException, OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.run_mode import derive_run_mode
@@ -2506,6 +2507,36 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 "/complete/google-oauth2/",
                 AuthFailed(_social_auth_backend(), "access_blocked"),
                 "/login?error_code=access_blocked",
+            ),
+            (
+                "expired_invite",
+                "/complete/google-oauth2/",
+                InviteExpiredException(),
+                "/login?error_code=invalid_invite",
+            ),
+            (
+                "invite_for_another_email",
+                "/complete/google-oauth2/",
+                ValidationError("This invite is intended for another email address.", code="invalid_recipient"),
+                "/login?error_code=invite_email_mismatch",
+            ),
+            (
+                "already_a_member",
+                "/complete/google-oauth2/",
+                ValidationError("You already are a member of this organization.", code="user_already_member"),
+                "/login?error_code=invite_already_member",
+            ),
+            (
+                "invite_email_already_in_org",
+                "/complete/saml/",
+                ValidationError("Another user with this email already belongs.", code="existing_email_address"),
+                "/login?error_code=invite_email_taken",
+            ),
+            (
+                "unknown_validation_code",
+                "/complete/google-oauth2/",
+                ValidationError("Something else.", code="something_else"),
+                "/login?error_code=social_login_failure",
             ),
         ]
     )
