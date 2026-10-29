@@ -13,3 +13,5 @@ class OffboardingResource:
     created_at: datetime | None = None
     password_required: bool = False
     url: str | None = None
+    destination_type: str | None = None
+    destination: str | None = None

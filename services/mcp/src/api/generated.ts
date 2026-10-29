@@ -72197,6 +72197,16 @@ export namespace Schemas {
          * @nullable
          */
       created_at: string | null;
+      /**
+         * Subscription delivery channel: email, slack, or teams.
+         * @nullable
+         */
+      destination_type?: string | null;
+      /**
+         * Subscription recipients, Slack channels, or safe webhook host.
+         * @nullable
+         */
+      destination?: string | null;
       /** Whether all active public links require a password. */
       password_required: boolean;
       /**

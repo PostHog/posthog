@@ -56,6 +56,8 @@ const resources = [
     },
     {
         id: 'subscription:1',
+        destination_type: 'email',
+        destination: 'reports@example.com,team@example.com',
         kind: 'subscription',
         name: 'Weekly product overview',
         url: '/project/1/subscriptions/1',

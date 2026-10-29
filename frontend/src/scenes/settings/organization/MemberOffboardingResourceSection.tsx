@@ -1,17 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconDashboard, IconGraph, IconLock, IconNotebook, IconRewindPlay, IconBell } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconLock, IconNotebook, IconRewindPlay, IconBell, IconLetter } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconSlack, IconMicrosoftTeams } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { userLogic } from 'scenes/userLogic'
 
 import type { MemberOffboardingResourceApi } from 'products/platform_features/frontend/generated/api.schemas'
+import { subscriptionDestination } from 'products/subscriptions/frontend/scenes/components/subscriptionDestination'
 
 import { memberOffboardingLogic } from './memberOffboardingLogic'
+
+const DESTINATION_ICONS: Record<string, JSX.Element> = {
+    email: <IconLetter />,
+    slack: <IconSlack />,
+    teams: <IconMicrosoftTeams />,
+}
 
 const RESOURCE_ICONS = {
     dashboard: <IconDashboard />,
@@ -121,6 +129,33 @@ export function MemberOffboardingResourceSection({
                     },
                     ...(isSubscription
                         ? [
+                              {
+                                  title: 'Destination',
+                                  key: 'destination',
+                                  width: 96,
+                                  render: (_: unknown, resource: MemberOffboardingResourceApi) =>
+                                      resource.destination_type ? (
+                                          <Tooltip
+                                              title={
+                                                  subscriptionDestination(
+                                                      resource.destination_type,
+                                                      resource.destination ?? ''
+                                                  ).title
+                                              }
+                                          >
+                                              <span
+                                                  className="inline-flex text-xl"
+                                                  role="img"
+                                                  aria-label={resource.destination_type}
+                                                  tabIndex={0}
+                                              >
+                                                  {DESTINATION_ICONS[resource.destination_type] ?? <IconBell />}
+                                              </span>
+                                          </Tooltip>
+                                      ) : (
+                                          <span className="text-secondary">—</span>
+                                      ),
+                              },
                               {
                                   title: 'Created on',
                                   key: 'created_at',

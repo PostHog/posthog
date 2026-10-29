@@ -250,6 +250,25 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert recipient.enabled and recipient.target_value == "other@example.com"
         assert not only_recipient.enabled and only_recipient.target_value == ""
 
+    @parameterized.expand(
+        [
+            ("email", "first@example.com,second@example.com", "first@example.com,second@example.com"),
+            ("slack", "C123|#reports", "C123|#reports"),
+            ("teams", "https://example.com/webhook/fake-secret", "example.com"),
+        ]
+    )
+    def test_subscription_destinations_exclude_webhook_credentials(
+        self, target_type: str, target_value: str, expected: str
+    ) -> None:
+        subscription = self.subscription(creator=self.departing, recipients=target_value)
+        subscription.target_type = target_type
+        subscription.save(update_fields=["target_type"])
+        response = self.client.get(self.url + "offboarding/")
+        assert response.status_code == 200
+        assert response.json()[0]["destination_type"] == target_type
+        assert response.json()[0]["destination"] == expected
+        assert "fake-secret" not in response.content.decode()
+
     def test_kept_subscriptions_still_remove_the_departing_recipient(self) -> None:
         kept = self.subscription(creator=self.departing, recipients=f"{self.departing.email},other@example.com")
         disabled = self.subscription(creator=self.departing, recipients="other@example.com")

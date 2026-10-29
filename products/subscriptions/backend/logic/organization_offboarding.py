@@ -22,6 +22,8 @@ class SubscriptionOffboarding:
                 team_id=subscription.team_id,
                 project_name=subscription.team.name,
                 created_at=subscription.created_at,
+                destination_type=subscription.target_type,
+                destination=subscription.recipient_label,
                 url=f"/project/{subscription.team_id}/subscriptions/{subscription.pk}",
             )
             for subscription in self._subscriptions()
