@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -675,6 +676,22 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         )
         over_limit = self.client.post(self._url(), {"name": "Extra", "match_pattern": "extra"}, format="json")
         assert over_limit.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_succeeds_even_when_refreshing_the_cache_fails(self) -> None:
+        with patch("products.mcp_analytics.backend.custom_harnesses.cache.set", side_effect=Exception("boom")):
+            response = self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_create_returns_a_400_when_the_unique_constraint_wins_a_race(self) -> None:
+        with patch(
+            "products.mcp_analytics.backend.models.MCPCustomHarness.objects.create",
+            side_effect=IntegrityError("duplicate key"),
+        ):
+            response = self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "match_pattern"
 
     def test_update_and_delete_refresh_the_cached_rules(self) -> None:
         assert custom_harness_rules(self.team) == ()

@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 
 import pydantic
 from rest_framework import serializers
@@ -904,4 +905,18 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data: dict[str, Any]) -> MCPCustomHarness:
-        return MCPCustomHarness.objects.create(team_id=self.context["get_team"]().id, **validated_data)
+        # validate() already checked for a duplicate pattern, but a concurrent request can still
+        # win the race and insert first. The atomic block keeps the IntegrityError from poisoning
+        # an outer transaction, so the view can still return a normal 400.
+        try:
+            with transaction.atomic():
+                return MCPCustomHarness.objects.create(team_id=self.context["get_team"]().id, **validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({"match_pattern": "A custom harness already uses this pattern."})
+
+    def update(self, instance: MCPCustomHarness, validated_data: dict[str, Any]) -> MCPCustomHarness:
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({"match_pattern": "A custom harness already uses this pattern."})

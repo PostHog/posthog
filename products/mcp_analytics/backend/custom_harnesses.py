@@ -59,4 +59,13 @@ def custom_harness_rules(team: Team) -> tuple[CustomHarnessRule, ...]:
 
 def refresh_custom_harness_rules(team: Team) -> None:
     team_id = _canonical_team_id(team)
-    cache.set(_cache_key(team_id), _rule_pairs_from_db(team_id), CUSTOM_HARNESS_RULES_CACHE_TTL_SECONDS)
+    try:
+        cache.set(_cache_key(team_id), _rule_pairs_from_db(team_id), CUSTOM_HARNESS_RULES_CACHE_TTL_SECONDS)
+    except Exception as error:
+        _log_cache_error("set", team_id, error)
+        try:
+            # Stale rules would otherwise sit in the cache for the full TTL. Deleting
+            # forces the next read to reload from Postgres instead.
+            cache.delete(_cache_key(team_id))
+        except Exception as delete_error:
+            _log_cache_error("delete", team_id, delete_error)
