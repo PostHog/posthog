@@ -445,8 +445,10 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     # lost access to the project ends the subscription the same way a bad prompt does.
     try:
         await database_sync_to_async(assert_creator_can_run, thread_sensitive=False)(user, team)
-    except (CreatorLeftOrganizationError, UserAccessControlError) as error:
-        raise PromptRejectedError("The owner of this subscription no longer has access to this project.") from error
+    except CreatorLeftOrganizationError as error:
+        raise PromptRejectedError("The owner of this subscription is no longer in the organization.") from error
+    except UserAccessControlError as error:
+        raise PromptRejectedError("The owner of this subscription no longer has access.") from error
     assert user is not None
 
     include_images = subscription.includes_delivery_part("include_images")

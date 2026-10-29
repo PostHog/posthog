@@ -43,12 +43,15 @@ def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | N
     if user is None or creator_access_revoked(user, team):
         raise CreatorLeftOrganizationError()
     user_access_control = UserAccessControl(user=user, team=team)
-    # The project first: a member can be in the org but shut out of a private project.
-    for obj in (team, *objects):
-        if obj is None or user_access_control.check_access_level_for_object(obj, "viewer"):
+    # Object rules do not consult the project, so a member shut out of a private project is checked first.
+    if not user_access_control.has_project_access():
+        raise UserAccessControlError("project", "viewer", str(team.pk))
+    for obj in objects:
+        if obj is None:
             continue
         resource = model_to_resource(obj)
-        if resource is None:
+        # A model with no scope has no access rules, so there is nothing to deny.
+        if resource is None or user_access_control.check_access_level_for_object(obj, "viewer"):
             continue
         raise UserAccessControlError(resource, "viewer", str(obj.pk))
 

@@ -534,6 +534,7 @@ async def _send_to_target(
     recipient_results: list[RecipientResult],
     send_only_to_new_recipients: bool,
 ) -> DeliverSubscriptionResult:
+    """Send the assets over the subscription's channel. Split out so the caller can wrap the one send in a `finally`."""
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
 
         async def _send_email(email: str) -> None:
