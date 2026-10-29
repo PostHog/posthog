@@ -4,6 +4,7 @@ import time
 import uuid
 import asyncio
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -26,9 +27,9 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
-    Integration,
     SlackIntegration,
     SlackIntegrationError,
     sign_slack_request,
@@ -130,6 +131,13 @@ from products.slack_app.backend.services.slack_welcome_messages import (
     build_assistant_pane_welcome,
     build_channel_welcome,
     build_team_join_welcome,
+)
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    get_team_workspace_integration,
+    get_workspace_integration,
+    workspace_integration_exists,
+    workspace_integrations,
 )
 from products.slack_app.backend.slack_link_unfurl import (
     ADHOC_INSIGHT_KIND,
@@ -328,7 +336,7 @@ QUOTA_EXHAUSTED_MESSAGE = (
 
 def post_quota_exhausted_denial(
     *,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack: SlackIntegration,
     channel: str,
     thread_ts: str,
@@ -431,7 +439,7 @@ def _post_slack_user_ephemeral(
 
 def resolve_slack_user(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     channel: str,
     thread_ts: str,
@@ -923,15 +931,12 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     if not filtered:
         return HttpResponse("No valid kinds", status=400)
 
-    claimed = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        kind__in=filtered,
-        integration_id=slack_team_id,
-    ).exists()
+    claimed = IntegrationManager.slack.oauth.exists_by_external_id(slack_team_id)
     channel, thread_ts = data.get("channel"), data.get("thread_ts")
     if channel is not None or thread_ts is not None:
         if not isinstance(channel, str) or not channel or not isinstance(thread_ts, str) or not thread_ts:
             return HttpResponse("Invalid thread", status=400)
-        candidates = list(Integration.objects.filter(kind__in=filtered, integration_id=slack_team_id))
+        candidates = workspace_integrations(slack_team_id)
         result = resolve_from_candidates(candidates, slack_team_id=slack_team_id, channel=channel, thread_ts=thread_ts)
         return JsonResponse({"claimed": claimed, "thread_claimed": result.source == "thread"})
     return JsonResponse({"claimed": claimed})
@@ -1025,7 +1030,7 @@ def parse_rules_command(text: str) -> RulesCommand | None:
 def _post_repo_picker_message(
     *,
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -1157,7 +1162,7 @@ def _repo_snapshot_needs_refresh(record: UserIntegration) -> bool:
     return (timezone.now() - updated_at).total_seconds() >= REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS
 
 
-def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
+def _get_full_repo_names(integration: WorkspaceIntegration, *, user_id: int | None) -> list[str]:
     """Repo names available to the mentioner, from their personal GitHub install. Cached per user."""
     if user_id is None:
         return []
@@ -1214,10 +1219,9 @@ def _replace_repo_picker_message_with_selection(
     selected_repo: str,
 ) -> None:
     try:
-        # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-        )
+        integration = get_workspace_integration(integration_id, slack_team_id)
+        if integration is None:
+            raise IntegrationNotFound
         slack = SlackIntegration(integration)
         text = f"Repository selected: `{selected_repo}`"
         slack.client.chat_update(
@@ -1248,10 +1252,9 @@ def _replace_repo_picker_message_with_no_repo(
     message_ts: str,
 ) -> None:
     try:
-        # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-        )
+        integration = get_workspace_integration(integration_id, slack_team_id)
+        if integration is None:
+            raise IntegrationNotFound
         slack = SlackIntegration(integration)
         text = "Continuing without a repository."
         slack.client.chat_update(
@@ -1274,7 +1277,7 @@ def _replace_repo_picker_message_with_no_repo(
         )
 
 
-def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integration: Integration) -> bool:
+def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integration: WorkspaceIntegration) -> bool:
     channel = event.get("channel")
     thread_ts = event.get("thread_ts") or event.get("ts")
     slack_user_id = event.get("user")
@@ -1511,7 +1514,7 @@ def _edited_mention_ignore_cause(event: dict[str, Any], slack_team_id: str) -> s
     return None
 
 
-def _awaits_request_from_author(event: dict[str, Any], slack_team_id: str, probe: Integration) -> bool:
+def _awaits_request_from_author(event: dict[str, Any], slack_team_id: str, probe: WorkspaceIntegration) -> bool:
     """Whether this threaded message is the request a bare mention in its thread asked for."""
     channel = event.get("channel")
     thread_ts = event.get("thread_ts")
@@ -1533,7 +1536,7 @@ def _awaits_request_from_author(event: dict[str, Any], slack_team_id: str, probe
 
 
 def _answer_bare_mention(
-    event: dict[str, Any], integration: Integration, slack_team_id: str, *, posthog_user: User
+    event: dict[str, Any], integration: WorkspaceIntegration, slack_team_id: str, *, posthog_user: User
 ) -> str:
     channel = event.get("channel")
     message_ts = event.get("ts")
@@ -1622,7 +1625,7 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
 
 def _resolve_untagged_followup_mapping(
     *,
-    candidates: list[Integration],
+    candidates: Sequence[WorkspaceIntegration],
     channel: str | None,
     thread_ts: str | None,
 ) -> SlackThreadTaskMapping | None:
@@ -1647,7 +1650,7 @@ def _resolve_untagged_followup_mapping(
     return mapping
 
 
-def _message_tags_bot(event: dict[str, Any], integration: Integration) -> bool:
+def _message_tags_bot(event: dict[str, Any], integration: WorkspaceIntegration) -> bool:
     """Whether the message text mentions the app's own bot user.
 
     Slack delivers a thread reply that tags the bot twice — as ``app_mention``
@@ -1674,7 +1677,7 @@ def _message_tags_bot(event: dict[str, Any], integration: Integration) -> bool:
 
 def _untagged_followups_switched_off(
     event: dict[str, Any],
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_team_id: str,
     *,
     mapping: SlackThreadTaskMapping,
@@ -1746,7 +1749,7 @@ def _notify_missing_slack_scopes(
     return _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
-def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
+def get_slack_email_for_user(probe_integration: WorkspaceIntegration, slack_user_id: str) -> str | None:
     """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
     a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
     user (profile email hidden) or the lookup fails.
@@ -1821,8 +1824,8 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
 def resolve_posthog_user_from_event(
     *,
     slack_user_id: str,
-    probe_integration: Integration,
-    candidate_integrations: list[Integration],
+    probe_integration: WorkspaceIntegration,
+    candidate_integrations: Sequence[WorkspaceIntegration],
     slack_email: str | None = None,
 ) -> User | None:
     """Resolve the acting Slack user to a PostHog ``User`` who is a member of
@@ -1881,7 +1884,7 @@ def resolve_posthog_user_from_event(
 
 def _post_pick_a_project_hint(
     probe: SlackIntegration,
-    candidates: list[Integration],
+    candidates: Sequence[WorkspaceIntegration],
     event: dict[str, Any],
 ) -> bool:
     """Tell the user that this workspace is connected to multiple PostHog
@@ -1908,7 +1911,7 @@ def _post_pick_a_project_hint(
 
 
 def _post_project_picker(
-    candidates: list[Integration],
+    candidates: Sequence[WorkspaceIntegration],
     event: dict[str, Any],
     event_id: str | None,
     *,
@@ -1986,15 +1989,7 @@ def _handle_project_picker_pick(payload: dict) -> HttpResponse:
     )
     integration = None
     if rejection is None and integration_id is not None and slack_team_id:
-        integration = (
-            Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-                id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-                kind=SLACK_INTEGRATION_KIND,
-                integration_id=slack_team_id,
-            )
-            .select_related("team__organization")
-            .first()
-        )
+        integration = get_workspace_integration(integration_id, slack_team_id)
     # Access can change between the post and the click.
     posthog_user = _is_org_member(integration, clicker_slack_user_id) if integration is not None else None
     if (
@@ -2029,7 +2024,7 @@ def _handle_project_picker_pick(payload: dict) -> HttpResponse:
     SlackSettings.objects.update_or_create(
         slack_workspace_id=slack_team_id,
         slack_user_id=clicker_slack_user_id,
-        defaults={"default_integration": integration},
+        defaults={"default_integration_id": integration.id},
     )
     # The mention never reached the workflow, so its event id is still unused.
     _dispatch_mention_to_target(
@@ -2061,7 +2056,7 @@ def _handle_project_picker_pick(payload: dict) -> HttpResponse:
 
 def _post_user_resolution_failure_reply(
     *,
-    probe: Integration,
+    probe: WorkspaceIntegration,
     channel: str | None,
     slack_user_id: str | None,
     thread_ts: str | None,
@@ -2259,7 +2254,7 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
 
 def _handle_assistant_dm_message(
     event: dict,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_team_id: str,
     event_id: str | None,
     channel_id: str,
@@ -2348,7 +2343,11 @@ def _route_assistant_event(
     if region_route is not None:
         return region_route
 
-    probe = result.integration if result.integration in result.candidates else result.candidates[0]
+    probe = (
+        result.integration
+        if result.integration is not None and result.integration in result.candidates
+        else result.candidates[0]
+    )
 
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
     # against projects the resolved PostHog user can actually access (no cross-org metadata leak).
@@ -2515,11 +2514,7 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     # A workspace linked to several projects matches several rows, but the uninstall is
     # one act: capture once per region so plain event counts stay honest, with
     # `linked_project_count` carrying how many links it severed.
-    linked_integrations = list(
-        Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id)
-        .select_related("team", "team__organization")
-        .order_by("id")
-    )
+    linked_integrations = workspace_integrations(slack_team_id)
     if linked_integrations:
         capture_slack_event(
             linked_integrations[0],
@@ -2619,7 +2614,7 @@ def _route_untagged_question(
 
 def _dispatch_mention_to_target(
     event: dict,
-    mention_target: Integration,
+    mention_target: WorkspaceIntegration,
     slack_team_id: str,
     event_id: str | None,
     *,
@@ -3308,7 +3303,7 @@ def resolve_region_or_terminal_route(
 def _redirect_mention_command(
     command: RulesCommand,
     event: dict[str, Any],
-    probe: Integration,
+    probe: WorkspaceIntegration,
     slack_team_id: str,
     *,
     posthog_user: User,
@@ -3353,7 +3348,7 @@ def _redirect_mention_command(
     return ROUTE_HANDLED_LOCALLY
 
 
-def _connected_organization_ids(candidates: list[Integration]) -> tuple[str, ...]:
+def _connected_organization_ids(candidates: Sequence[WorkspaceIntegration]) -> tuple[str, ...]:
     team_ids = {candidate.team_id for candidate in candidates}
     organization_ids = Team.objects.filter(id__in=team_ids).values_list("organization_id", flat=True).distinct()
     return tuple(str(organization_id) for organization_id in organization_ids)
@@ -3361,10 +3356,10 @@ def _connected_organization_ids(candidates: list[Integration]) -> tuple[str, ...
 
 def _hand_off_command(
     event: dict[str, Any],
-    candidates: list[Integration],
+    candidates: Sequence[WorkspaceIntegration],
     slack_team_id: str,
     *,
-    probe: Integration,
+    probe: WorkspaceIntegration,
     posthog_user: User,
     is_ext_shared_channel: bool,
 ) -> bool:
@@ -3443,7 +3438,7 @@ def _hand_off_command(
 
 def _start_command_workflow(
     event: dict,
-    integrations: list[Integration],
+    integrations: Sequence[WorkspaceIntegration],
     slack_team_id: str,
     event_id: str | None,
     *,
@@ -3469,7 +3464,9 @@ def _start_command_workflow(
     return ROUTE_HANDLED_LOCALLY
 
 
-def _count_session_thread_messages(integration: Integration, channel: str | None, thread_ts: str | None) -> int | None:
+def _count_session_thread_messages(
+    integration: WorkspaceIntegration, channel: str | None, thread_ts: str | None
+) -> int | None:
     """Best-effort count of messages in a Slack thread (the session). None if unavailable.
 
     Runs in the Slack webhook request path, so the client timeout is bounded: a slow or
@@ -3606,7 +3603,7 @@ def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> No
 
 def _post_channel_onboarding_message(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel_id: str,
     *,
     only_to_user: str | None = None,
@@ -3705,7 +3702,7 @@ def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> s
     return f"slack_app:team_join_welcomed:v1:{slack_team_id}:{slack_user_id}"
 
 
-def _post_team_join_welcome(integration: Integration, slack_user_id: str) -> bool:
+def _post_team_join_welcome(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
     text, blocks = build_team_join_welcome(integration)
     try:
         SlackIntegration(integration).client.chat_postMessage(
@@ -3741,7 +3738,7 @@ def _channel_is_approved(slack_workspace_id: str, channel_id: str) -> bool:
 
 def _post_channel_approval_prompt(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     event: dict[str, Any],
 ) -> bool:
     """Post the approval prompt as an ephemeral message to the mentioner.
@@ -3848,7 +3845,7 @@ def _post_channel_approval_prompt(
 
 def _post_untagged_followup_prompt(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     event: dict[str, Any],
     *,
     is_ext_shared_channel: bool,
@@ -3960,7 +3957,9 @@ def _post_untagged_followup_prompt(
     return True
 
 
-def _post_untagged_question_prompt(slack: SlackIntegration, integration: Integration, event: dict[str, Any]) -> bool:
+def _post_untagged_question_prompt(
+    slack: SlackIntegration, integration: WorkspaceIntegration, event: dict[str, Any]
+) -> bool:
     """Offer the author, privately, to answer the question they posted without tagging the app.
 
     Posted when the author's mode is ``ask``. The whole event is stashed behind a one-off
@@ -4053,7 +4052,7 @@ def _post_untagged_question_prompt(slack: SlackIntegration, integration: Integra
 class _UntaggedQuestionClick:
     context_token: str
     context: dict[str, Any]
-    integration: Integration
+    integration: WorkspaceIntegration
 
 
 def _untagged_question_click(payload: dict) -> _UntaggedQuestionClick | None:
@@ -4067,15 +4066,7 @@ def _untagged_question_click(payload: dict) -> _UntaggedQuestionClick | None:
     # The prompt is ephemeral, so only its recipient can click it, but the dispatch runs as the clicker.
     if not integration_id or not slack_team_id or payload.get("user", {}).get("id") != context.get("slack_user_id"):
         return None
-    integration = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        )
-        .select_related("team__organization")
-        .first()
-    )
+    integration = get_workspace_integration(integration_id, slack_team_id)
     if integration is None:
         return None
     return _UntaggedQuestionClick(context_token=context_token, context=context, integration=integration)
@@ -4176,7 +4167,7 @@ def _thread_join_pending_key(integration_id: int, channel: str, thread_ts: str, 
 
 def post_thread_join_prompt(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     *,
     channel: str,
@@ -4331,15 +4322,7 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
     if not slack_team_id or not isinstance(integration_id, int):
         _close_thread_join_prompt(context_token, context, response_url)
         return HttpResponse(status=200)
-    integration = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        )
-        .select_related("team__organization")
-        .first()
-    )
+    integration = get_workspace_integration(integration_id, slack_team_id)
     joiner_slack_user_id = context.get("joiner_slack_user_id")
     event = context.get("event")
     if integration is None or not isinstance(joiner_slack_user_id, str) or not isinstance(event, dict):
@@ -4403,11 +4386,7 @@ def _handle_thread_join_decline(payload: dict) -> HttpResponse:
     integration_id = context.get("integration_id")
     if not isinstance(integration_id, int):
         return HttpResponse(status=200)
-    integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-        kind=SLACK_INTEGRATION_KIND,
-        integration_id=payload.get("team", {}).get("id", ""),
-    ).first()
+    integration = get_workspace_integration(integration_id, payload.get("team", {}).get("id", ""))
     if integration is None:
         return HttpResponse(status=200)
     try:
@@ -4423,7 +4402,7 @@ def _handle_thread_join_decline(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _can_access_team(posthog_user: User, integration: Integration) -> bool:
+def _can_access_team(posthog_user: User, integration: WorkspaceIntegration) -> bool:
     """Whether the user can reach the integration's project.
 
     Org membership alone is what ``_is_org_member`` answers, and it is not enough
@@ -4441,7 +4420,7 @@ def _can_access_team(posthog_user: User, integration: Integration) -> bool:
         return False
 
 
-def _untagged_followups_revoked_since_prompt(integration: Integration, context: dict[str, Any]) -> bool:
+def _untagged_followups_revoked_since_prompt(integration: WorkspaceIntegration, context: dict[str, Any]) -> bool:
     """Whether the thread creator switched follow-ups off while the prompt sat unanswered.
 
     The confirmed run skips the mode activity — its answer is what re-dispatched
@@ -4493,15 +4472,7 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
 
-    integration = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        )
-        .select_related("team__organization")
-        .first()
-    )
+    integration = get_workspace_integration(integration_id, slack_team_id)
     if integration is None:
         _delete_ephemeral_via_response_url(response_url)
         return HttpResponse(status=200)
@@ -4569,15 +4540,7 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
     slack_team_id = payload.get("team", {}).get("id", "")
     integration_id = context.get("integration_id")
     dismissing_integration = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        )
-        .select_related("team", "team__organization")
-        .first()
-        if integration_id and slack_team_id
-        else None
+        get_workspace_integration(integration_id, slack_team_id) if integration_id and slack_team_id else None
     )
     dismisser_slack_user_id = payload.get("user", {}).get("id")
     if dismissing_integration is not None:
@@ -4622,15 +4585,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
     claim_key = f"slack_app_reply_suggestion_claim:{clicked.integration_id}:{channel}:{message_ts}"
     if cache.get(claim_key):
         return HttpResponse(status=200)
-    integration = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=clicked.integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        )
-        .select_related("team__organization")
-        .first()
-    )
+    integration = get_workspace_integration(clicked.integration_id, slack_team_id)
     if integration is None:
         return HttpResponse(status=200)
     slack = SlackIntegration(integration)
@@ -4734,7 +4689,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
 
 def _report_slack_mention_received(
     event: dict,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_team_id: str,
     *,
     posthog_user: User | None = None,
@@ -4832,7 +4787,7 @@ def _report_slack_mention_dropped(
     *,
     reason: str,
     replied: bool,
-    integration: Integration | None = None,
+    integration: WorkspaceIntegration | None = None,
     posthog_user: User | None = None,
     **extra: object,
 ) -> None:
@@ -4890,7 +4845,7 @@ def _report_slack_mention_dropped(
 
 def _start_mention_workflow(
     event: dict,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_team_id: str,
     event_id: str | None,
     *,
@@ -5116,7 +5071,7 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
 class LinkSharedTarget:
     """The install that serves a ``link_shared`` event, and how it was chosen."""
 
-    integration: Integration | None
+    integration: WorkspaceIntegration | None
     source: str
 
 
@@ -5171,7 +5126,7 @@ def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
 
 
 def _link_shared_target(
-    event: dict[str, Any], candidates: list[Integration], *, slack_team_id: str
+    event: dict[str, Any], candidates: Sequence[WorkspaceIntegration], *, slack_team_id: str
 ) -> LinkSharedTarget:
     """Pick the install to unfurl with, preferring the project the link itself names."""
     team_ids = _link_shared_url_team_ids(event)
@@ -5339,9 +5294,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
     if not ctx and not hinted_integration_id:
         team_id = payload.get("team", {}).get("id")
         if team_id:
-            fallback_integration = (
-                Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=team_id).order_by("id").first()
-            )
+            fallback_integration = next(iter(workspace_integrations(team_id)), None)
             if fallback_integration:
                 hinted_integration_id = fallback_integration.id
                 logger.info(
@@ -5369,15 +5322,9 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
     if not expected_user:
         logger.info("slack_app_repo_picker_options_missing_expected_user", context_token=context_token)
 
-    try:
-        integration_id: int | None = ctx["integration_id"] if ctx else hinted_integration_id
-        if not integration_id:
-            raise Integration.DoesNotExist
-        # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-        )
-    except Integration.DoesNotExist:
+    integration_id: int | None = ctx["integration_id"] if ctx else hinted_integration_id
+    integration = get_workspace_integration(integration_id, slack_team_id) if integration_id else None
+    if integration is None:
         logger.info("slack_app_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
 
@@ -5459,10 +5406,9 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
             return
 
         try:
-            # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-            integration = Integration.objects.get(
-                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-            )
+            integration = get_workspace_integration(integration_id, slack_team_id)
+            if integration is None:
+                raise IntegrationNotFound
             post_slack_thread_reply(
                 SlackIntegration(integration).client,
                 channel=channel,
@@ -5576,7 +5522,7 @@ def _delete_ephemeral_via_response_url(response_url: str) -> None:
 
 
 def _post_channel_approval_outcome(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel_id: str,
     thread_ts: str | None,
     text: str,
@@ -5605,9 +5551,8 @@ def _post_channel_approval_outcome(
         )
 
 
-def _resolve_channel_approval_context(
-    payload: dict,
-) -> tuple[Integration, dict, str, str] | None:
+# nosemgrep: tuple-return-prefer-dataclass -- existing shape, only the record type changed
+def _resolve_channel_approval_context(payload: dict) -> tuple[WorkspaceIntegration, dict, str, str] | None:
     """Decode the click context and load the prompt's integration in one place.
 
     Returns ``(integration, context, channel_id, clicker_slack_user_id)`` on
@@ -5630,15 +5575,7 @@ def _resolve_channel_approval_context(
         _delete_ephemeral_via_response_url(response_url)
         return None
 
-    integration = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        )
-        .select_related("team__organization")
-        .first()
-    )
+    integration = get_workspace_integration(integration_id, slack_team_id)
     if integration is None:
         _delete_ephemeral_via_response_url(response_url)
         return None
@@ -5646,7 +5583,7 @@ def _resolve_channel_approval_context(
     return integration, context, channel_id, clicker_slack_user_id
 
 
-def _is_org_member(integration: Integration, clicker_slack_user_id: str) -> User | None:
+def _is_org_member(integration: WorkspaceIntegration, clicker_slack_user_id: str) -> User | None:
     """Resolve the clicker to a PostHog ``User`` belonging to the integration's
     organization, or ``None`` if no such membership exists.
     """
@@ -5657,7 +5594,7 @@ def _is_org_member(integration: Integration, clicker_slack_user_id: str) -> User
     )
 
 
-def _org_label(integration: Integration) -> str:
+def _org_label(integration: WorkspaceIntegration) -> str:
     try:
         org_name = integration.team.organization.name
     except Exception:
@@ -5666,7 +5603,7 @@ def _org_label(integration: Integration) -> str:
 
 
 def _reject_non_member_click(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel_id: str,
     thread_ts: str | None,
     response_url: str,
@@ -5804,14 +5741,10 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
     if not (isinstance(integration_id, int) and report_id and isinstance(report_team_id, int)):
         return HttpResponse(status=200)
 
-    try:
-        # Slack webhook: no team context; scoped by PK + kind + workspace ID. The team match below
-        # ensures the report belongs to the workspace's integration before we touch it.
-        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
-        integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-        )
-    except Integration.DoesNotExist:
+    # Slack webhook: no team context; scoped by PK + kind + workspace ID. The team match below
+    # ensures the report belongs to the workspace's integration before we touch it.
+    integration = get_workspace_integration(integration_id, slack_team_id)
+    if integration is None:
         logger.info("signals_dismiss_report_no_integration", integration_id=integration_id)
         return HttpResponse(status=200)
 
@@ -6027,13 +5960,9 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         logger.info("insight_alert_snooze_no_alert", alert_id=str(alert_uuid))
         return HttpResponse(status=200)
 
-    try:
-        # Proves the Slack workspace the click came from is connected to the alert's team.
-        # nosemgrep: idor-lookup-without-team
-        integration = Integration.objects.get(
-            kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id, team_id=alert_team_id
-        )
-    except Integration.DoesNotExist:
+    # Proves the Slack workspace the click came from is connected to the alert's team.
+    integration = get_team_workspace_integration(alert_team_id, slack_team_id)
+    if integration is None:
         logger.info("insight_alert_snooze_no_integration", alert_id=str(alert_uuid), slack_team_id=slack_team_id)
         return HttpResponse(status=200)
 
@@ -6127,7 +6056,7 @@ def _render_insight_alert_snooze_modal(private_metadata: str) -> dict:
     }
 
 
-def _open_insight_alert_snooze_modal(integration: Integration, payload: dict, alert_uuid: uuid.UUID) -> None:
+def _open_insight_alert_snooze_modal(integration: WorkspaceIntegration, payload: dict, alert_uuid: uuid.UUID) -> None:
     trigger_id = payload.get("trigger_id")
     if not trigger_id:
         return
@@ -6186,12 +6115,8 @@ def _handle_insight_alert_snooze_modal_submit(payload: dict) -> HttpResponse:
     alert_team_id = get_alert_team_id(alert_uuid)
     if alert_team_id is None or not slack_team_id:
         return HttpResponse(status=200)
-    try:
-        # nosemgrep: idor-lookup-without-team
-        integration = Integration.objects.get(
-            kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id, team_id=alert_team_id
-        )
-    except Integration.DoesNotExist:
+    integration = get_team_workspace_integration(alert_team_id, slack_team_id)
+    if integration is None:
         return HttpResponse(status=200)
 
     org_member = _is_org_member(integration, slack_user_id)
@@ -6212,7 +6137,7 @@ def _handle_insight_alert_snooze_modal_submit(payload: dict) -> HttpResponse:
 
 
 def _post_insight_alert_snooze_modal_confirmation(
-    integration: Integration, meta: dict, until: datetime, slack_user_id: str
+    integration: WorkspaceIntegration, meta: dict, until: datetime, slack_user_id: str
 ) -> None:
     channel = meta.get("channel")
     if not channel:
@@ -6311,26 +6236,14 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     ctx_integration_id = context.get("integration_id") if context else None
     # Slack webhook endpoint: no team context available; queries are scoped by PK + kind + workspace ID
     if slack_team_id and ctx_integration_id:
-        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=ctx_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
+        local = workspace_integration_exists(ctx_integration_id, slack_team_id)
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
-        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=hinted_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
+        local = workspace_integration_exists(hinted_integration_id, slack_team_id)
     elif slack_team_id and dismiss_integration_id:
         # Routing/region-ownership only — this just claims the workspace's integration locally.
         # Authorization (report-team match + org-member gate) is enforced in _handle_signals_dismiss_report.
         # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
-        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
+        local = workspace_integration_exists(dismiss_integration_id, slack_team_id)
     elif slack_team_id and alert_snooze_uuid:
         # Alert UUIDs are globally unique per region (each region has its own DB), so a local
         # existence check alone settles region ownership — no need to consult Integration here.
@@ -6345,39 +6258,24 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     elif slack_team_id and inbox_integration_id:
         # Inbox onboarding buttons (create/join) are DMed to a user; any clicker may act, so this
         # is gated only on owning the integration locally.
-        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=inbox_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
+        local = workspace_integration_exists(inbox_integration_id, slack_team_id)
     elif slack_team_id and project_picker_integration_id:
         # Reached once the context expired, so that the handler can tell the person.
-        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=project_picker_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
+        local = workspace_integration_exists(project_picker_integration_id, slack_team_id)
     elif slack_team_id and _is_ai_preferences_interactivity(payload, payload_type):
         # App Home AI-settings actions (Edit/Reset/Save) and the modal
         # re-render dispatched_actions carry no per-row hint — the button is
         # tied to the workspace, not a specific picker context. Claim locality
         # based on the workspace integration alone; if we own *any* Integration
         # for this Slack team, the click is ours to handle.
-        local = Integration.objects.filter(
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
+        local = bool(workspace_integrations(slack_team_id))
     elif slack_team_id and reply_control_integration_id:
         # The fork menu and the thumbs ride on a bot reply anyone in the thread can see, so
         # any reader may use them, and the same goes for the modal a thumbs-down opens.
         # Routing only claims the workspace; who the fork runs as, and whether they may, is
         # settled in the fork activity, and a rating is matched to its run in the feedback
         # handler.
-        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=reply_control_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
+        local = workspace_integration_exists(reply_control_integration_id, slack_team_id)
 
     proxied = was_proxied(request)
     incoming_host = request.get_host()
