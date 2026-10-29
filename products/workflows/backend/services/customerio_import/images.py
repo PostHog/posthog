@@ -112,6 +112,7 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
             purpose=MEDIA_PURPOSE_EMAIL,
             file_name__in=set(names.values()),
             pending=False,
+            archived_at__isnull=True,
         )
         .exclude(media_location__isnull=True)
         .exclude(media_location="")

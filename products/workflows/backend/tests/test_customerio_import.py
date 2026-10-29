@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from PIL import Image
@@ -747,6 +748,16 @@ class TestWorkflowImportAPI(APIBaseTest):
         self._import(campaigns=campaigns)
         assert UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).count() == 4
         assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
+
+        UploadedMedia.objects.filter(pk=copies[0].pk).update(archived_at=timezone.now())
+        self._import(campaigns=campaigns)
+        assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 2
+        assert (
+            UploadedMedia.objects.filter(
+                team=self.team, purpose="email", created_by=self.user, archived_at__isnull=True
+            ).count()
+            == 4
+        )
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
