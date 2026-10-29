@@ -22,7 +22,13 @@ export function StaffActionsPanel(): JSX.Element {
                                 <span className="text-xs text-muted-alt break-all">
                                     {ticketContext?.email ? (
                                         <>
-                                            Customer: <span className="text-success">{ticketContext.email}</span>
+                                            Customer:{' '}
+                                            <span
+                                                className={ticketContext.isEmailUnverified ? undefined : 'text-success'}
+                                            >
+                                                {ticketContext.email}
+                                            </span>
+                                            {ticketContext.isEmailUnverified && ' (not verified)'}
                                         </>
                                     ) : (
                                         'No customer email on this ticket'

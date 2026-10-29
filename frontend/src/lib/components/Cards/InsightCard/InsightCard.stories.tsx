@@ -245,6 +245,14 @@ export const ErrorStates: Story = {
                 }),
             },
             {
+                name: 'Table access denied',
+                error: new ApiError("You don't have access to table `events`.", 400, undefined, {
+                    detail: "You don't have access to table `events`.",
+                    code: 'table_access_denied',
+                    queryId: 'table-access-query-id',
+                }),
+            },
+            {
                 name: 'Temporary server failure',
                 error: new ApiError('The query service is temporarily unavailable.', 503, undefined, {
                     detail: 'The query service is temporarily unavailable.',
@@ -278,6 +286,15 @@ export const ErrorStates: Story = {
                         placement="SavedInsightGrid"
                     />
                 ))}
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={{ ...EXAMPLE_TRENDS, name: 'Timed out' } as unknown as InsightModel}
+                    timedOut
+                    refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
             </div>
         )
     },

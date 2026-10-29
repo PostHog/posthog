@@ -69,6 +69,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         super().__init__(*args, **kwargs)
 
+    def _reads_events_route(self) -> bool:
+        # A direct connection runs on another database, so the events route never applies to it.
+        return not self.query.connectionId
+
     # Treat SQL query caching like day insight
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
@@ -135,6 +139,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def query_status_labels(self) -> list[str] | None:
         self._validate_direct_connection()
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO and self.query.sendRawQuery:
+            return [managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             return [
                 f"{managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{self.query.connectionId}"
@@ -264,7 +270,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._validate_direct_connection()
 
         if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
-            if self.is_query_service:
+            if self.is_query_service and not self.query.sendRawQuery:
                 validate_user_query(self._parse_query()[0], team=self.team)
             return execute_managed_trino_query(
                 self.query.model_copy(update={"modifiers": self.modifiers}),

@@ -1,10 +1,3 @@
-//! Worker stream-level tests for the gRPC transport against an in-process mock worker.
-//!
-//! Each test targets one property the worker stream must hold for per-key ordering:
-//! wire order equals enqueue order, acks correlate out of order, and a
-//! failure fences everything outstanding (in order, with the messages handed
-//! back) so the dispatcher's deferral path can replay it.
-
 mod common;
 
 use std::collections::HashMap;
@@ -13,12 +6,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::key_table_batcher;
+use common::one_message_batcher;
 use common_kafka_consumer::Partition;
-use ingestion_consumer::dispatcher::Dispatcher;
-use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
+use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport, SendOptions};
 use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::transport::TransportError;
+use ingestion_consumer::transport::{SendOutcome, TransportError};
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
@@ -26,43 +19,42 @@ use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
 };
 use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
-    StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
+    MessageRef, StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
+use rstest::rstest;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
 
-/// What the mock does with each sub-batch it reads.
 #[derive(Clone, Copy)]
 enum AckMode {
-    /// Ack immediately, in read order.
     Immediate,
-    /// Buffer everything; the test triggers acks explicitly.
     Manual,
-    /// Nack the sub-batch with this seq (and ack the others immediately).
     NackSeq(u64),
-    /// Report busy for the sub-batch with this seq (and ack the others).
     BusySeq(u64),
-    /// Ack every sub-batch immediately except this seq, which is never acked —
-    /// a stuck oldest entry while its siblings keep acking.
     AckExceptSeq(u64),
 }
 
-/// Manual mode: the test drives the worker's acks through this.
 #[derive(Clone, Copy)]
+enum StreamEnding {
+    OnHalfClose,
+    Never,
+    AfterOpen(Duration),
+}
+
 enum ManualAck {
     Ok { seq: u64, accepted: u32 },
     Nack(u64),
+    Ack(SubBatchAck),
 }
 
 type ManualAcks = Arc<Mutex<Option<mpsc::UnboundedReceiver<ManualAck>>>>;
 
 struct MockWorker {
     mode: AckMode,
-    /// Sub-batches in the order the worker read them, across all streams.
+    ending: StreamEnding,
     received: Arc<Mutex<Vec<SubBatch>>>,
-    /// Hellos in connection order (stream epochs prove reconnects).
     hellos: Arc<Mutex<Vec<u64>>>,
     manual_acks: ManualAcks,
 }
@@ -78,13 +70,13 @@ impl WorkerIngest for MockWorker {
         let mut inbound = request.into_inner();
         let (tx, rx) = mpsc::unbounded_channel();
         let mode = self.mode;
+        let ending = self.ending;
         let received = Arc::clone(&self.received);
         let hellos = Arc::clone(&self.hellos);
         let manual = self.manual_acks.lock().await.take();
 
         tokio::spawn(async move {
-            // Mirror the real worker: greet with `ready` so response headers
-            // flush; the worker stream must ignore it.
+            // The real worker greets with `ready` to flush headers; the stream ignores it.
             let _ = tx.send(Ok(IngestStreamResponse {
                 msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
             }));
@@ -107,6 +99,7 @@ impl WorkerIngest for MockWorker {
                                 error: "poisoned".to_string(),
                                 unfinished: vec![],
                             },
+                            ManualAck::Ack(ack) => ack,
                         };
                         let _ = tx.send(Ok(IngestStreamResponse {
                             msg: Some(ingest_stream_response::Msg::Ack(ack)),
@@ -114,7 +107,21 @@ impl WorkerIngest for MockWorker {
                     }
                 });
             }
-            while let Some(Ok(frame)) = inbound.next().await {
+            let server_end = async {
+                match ending {
+                    StreamEnding::AfterOpen(after) => tokio::time::sleep(after).await,
+                    _ => std::future::pending::<()>().await,
+                }
+            };
+            tokio::pin!(server_end);
+            loop {
+                let frame = tokio::select! {
+                    frame = inbound.next() => match frame {
+                        Some(Ok(frame)) => frame,
+                        _ => break,
+                    },
+                    _ = &mut server_end => return,
+                };
                 match frame.msg {
                     Some(ingest_stream_request::Msg::Hello(hello)) => {
                         hellos.lock().await.push(hello.stream_epoch);
@@ -197,6 +204,9 @@ impl WorkerIngest for MockWorker {
                     None => {}
                 }
             }
+            if matches!(ending, StreamEnding::Never) {
+                std::future::pending::<()>().await;
+            }
         });
 
         Ok(Response::new(UnboundedReceiverStream::new(rx)))
@@ -213,10 +223,19 @@ async fn start_mock(
     mode: AckMode,
     manual: Option<mpsc::UnboundedReceiver<ManualAck>>,
 ) -> MockHandle {
+    start_mock_with(mode, manual, StreamEnding::OnHalfClose).await
+}
+
+async fn start_mock_with(
+    mode: AckMode,
+    manual: Option<mpsc::UnboundedReceiver<ManualAck>>,
+    ending: StreamEnding,
+) -> MockHandle {
     let received = Arc::new(Mutex::new(Vec::new()));
     let hellos = Arc::new(Mutex::new(Vec::new()));
     let worker = MockWorker {
         mode,
+        ending,
         received: Arc::clone(&received),
         hellos: Arc::clone(&hellos),
         manual_acks: Arc::new(Mutex::new(manual)),
@@ -253,10 +272,10 @@ fn msg(distinct_id: &str, offset: i64) -> SerializedKafkaMessage {
         key: Some(distinct_id.to_string()),
         value: Some("{}".to_string()),
         headers,
+        generation: 0,
     }
 }
 
-/// The worker stream's worker URL: HTTP port is fake, the gRPC port is the mock's.
 fn worker_url(addr: SocketAddr) -> String {
     format!("http://{}:9001", addr.ip())
 }
@@ -264,21 +283,19 @@ fn worker_url(addr: SocketAddr) -> String {
 #[tokio::test]
 async fn sub_batches_reach_the_worker_in_enqueue_order() {
     let mock = start_mock(AckMode::Immediate, None).await;
-    let transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        2,
-        Duration::from_secs(30),
-    );
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
-    // Enqueue three sub-batches back to back — more than the un-acked cap, so
-    // ordering must survive the ledger pacing too.
+    // Three back-to-back sends drain onto the stream in one go, in order.
     let pending: Vec<_> = (0..3)
         .map(|i| transport.begin_send(&url, &format!("batch-{i}"), vec![msg("d1", i)], false))
         .collect();
     for (i, p) in pending.into_iter().enumerate() {
-        let accepted = p.wait().await.expect("send should succeed");
-        assert_eq!(accepted, 1, "sub-batch {i}");
+        let outcome = p.wait().await.expect("send should succeed");
+        assert!(
+            matches!(outcome, SendOutcome::Accepted(1)),
+            "sub-batch {i}: {outcome:?}"
+        );
     }
 
     let received = mock.received.lock().await;
@@ -292,19 +309,13 @@ async fn sub_batches_reach_the_worker_in_enqueue_order() {
 async fn out_of_order_acks_resolve_the_right_sends() {
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
-    let transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        2,
-        Duration::from_secs(30),
-    );
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], false);
     let second = transport.begin_send(&url, "batch-2", vec![msg("d2", 3)], false);
 
-    // Wait until both are on the wire, then ack seq 2 before seq 1 with
-    // distinct counts — each pending must get its own, and the later one
-    // must not resolve ahead of the earlier one.
+    // Ack seq 2 before seq 1.
     wait_for_received(&mock, 2).await;
     ack_tx
         .send(ManualAck::Ok {
@@ -324,8 +335,14 @@ async fn out_of_order_acks_resolve_the_right_sends() {
             accepted: 2,
         })
         .unwrap();
-    assert_eq!(first.wait().await.expect("first ack"), 2);
-    assert_eq!(second.await.unwrap().expect("second ack"), 1);
+    assert!(matches!(
+        first.wait().await.expect("first ack"),
+        SendOutcome::Accepted(2)
+    ));
+    assert!(matches!(
+        second.await.unwrap().expect("second ack"),
+        SendOutcome::Accepted(1)
+    ));
 }
 
 async fn wait_for_received(mock: &MockHandle, count: usize) {
@@ -339,32 +356,238 @@ async fn wait_for_received(mock: &MockHandle, count: usize) {
     }
 }
 
+const BUDGET: Duration = Duration::from_millis(250);
+
+fn partial_ack(seq: u64, accepted: u32, unfinished: &[i64]) -> SubBatchAck {
+    SubBatchAck {
+        seq,
+        status: SubBatchStatus::Partial as i32,
+        accepted,
+        error: String::new(),
+        unfinished: unfinished
+            .iter()
+            .map(|&offset| MessageRef {
+                partition: 0,
+                offset,
+            })
+            .collect(),
+    }
+}
+
 #[tokio::test]
-async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked() {
-    // Regression: with more than one un-acked sub-batch, the worker may ack
-    // seq 2 before seq 1. If seq 2 resolved on its own ack, its caller would
-    // release its keys and never replay it, while seq 1's later failure
-    // stashed only seq 1 — the older messages would replay after the newer
-    // ones. A failure must fence the acked-but-unresolved tail too.
+async fn a_partial_ack_resolves_the_send_without_fencing_the_stream() {
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
-    let transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        2,
-        Duration::from_secs(30),
-    );
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
     let url = worker_url(mock.addr);
+    let budgeted = SendOptions {
+        replay: false,
+        soft_budget: Some(BUDGET),
+    };
 
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    let pending = transport.begin_send_with(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d2", 2), msg("d1", 3)],
+        budgeted,
+    );
+    wait_for_received(&mock, 1).await;
+    // The worker lists its unfinished messages in its own order.
+    ack_tx
+        .send(ManualAck::Ack(partial_ack(1, 1, &[3, 1])))
+        .unwrap();
+    match pending
+        .wait()
+        .await
+        .expect("a partial ack is not a failure")
+    {
+        SendOutcome::Partial {
+            accepted,
+            unfinished,
+        } => {
+            assert_eq!(accepted, 1);
+            let offsets: Vec<i64> = unfinished.iter().map(|message| message.offset).collect();
+            assert_eq!(
+                offsets,
+                vec![1, 3],
+                "unfinished messages come back in send order"
+            );
+        }
+        other => panic!("expected a partial outcome, got {other:?}"),
+    }
+
+    let next = transport.begin_send(&url, "batch-2", vec![msg("d1", 4)], false);
     wait_for_received(&mock, 2).await;
-
     ack_tx
         .send(ManualAck::Ok {
             seq: 2,
             accepted: 1,
         })
         .unwrap();
+    assert!(matches!(
+        next.wait().await.expect("the stream stays up"),
+        SendOutcome::Accepted(1)
+    ));
+    assert_eq!(mock.hellos.lock().await.len(), 1, "no reconnect");
+}
+
+#[rstest]
+#[case::both_copies_unfinished(partial_ack(1, 0, &[1, 1]), vec![1, 1])]
+#[case::one_copy_unfinished(partial_ack(1, 1, &[1]), vec![1])]
+#[tokio::test]
+async fn a_partial_ack_counts_a_message_the_sub_batch_carries_twice(
+    #[case] ack: SubBatchAck,
+    #[case] expected_unfinished: Vec<i64>,
+) {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    let url = worker_url(mock.addr);
+    let budgeted = SendOptions {
+        replay: false,
+        soft_budget: Some(BUDGET),
+    };
+
+    let pending =
+        transport.begin_send_with(&url, "batch-1", vec![msg("d1", 1), msg("d1", 1)], budgeted);
+    wait_for_received(&mock, 1).await;
+    ack_tx.send(ManualAck::Ack(ack)).unwrap();
+
+    match pending
+        .wait()
+        .await
+        .expect("a partial ack is not a failure")
+    {
+        SendOutcome::Partial {
+            accepted,
+            unfinished,
+        } => {
+            let offsets: Vec<i64> = unfinished.iter().map(|message| message.offset).collect();
+            assert_eq!(offsets, expected_unfinished);
+            assert_eq!(
+                accepted as usize + offsets.len(),
+                2,
+                "each copy is either accepted or unfinished"
+            );
+        }
+        other => panic!("expected a partial outcome, got {other:?}"),
+    }
+}
+
+#[rstest]
+#[case::partial_without_a_budget(None, partial_ack(1, 1, &[1]))]
+#[case::partial_with_no_unfinished_messages(Some(BUDGET), partial_ack(1, 2, &[]))]
+#[case::partial_listing_a_message_not_sent(Some(BUDGET), partial_ack(1, 1, &[9]))]
+#[case::partial_listing_the_offset_on_another_partition(
+    Some(BUDGET),
+    SubBatchAck { unfinished: vec![MessageRef { partition: 1, offset: 1 }], ..partial_ack(1, 1, &[]) }
+)]
+#[case::partial_listing_a_message_more_often_than_carried(Some(BUDGET), partial_ack(1, 0, &[1, 1]))]
+#[case::partial_missing_a_message(Some(BUDGET), partial_ack(1, 0, &[1]))]
+#[case::unfinished_messages_on_an_ok_ack(
+    Some(BUDGET),
+    SubBatchAck { status: SubBatchStatus::Ok as i32, ..partial_ack(1, 2, &[1]) }
+)]
+#[tokio::test]
+async fn a_malformed_ack_fences_the_stream_as_a_fault(
+    #[case] soft_budget: Option<Duration>,
+    #[case] ack: SubBatchAck,
+) {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    let url = worker_url(mock.addr);
+    let options = SendOptions {
+        replay: false,
+        soft_budget,
+    };
+    let pending =
+        transport.begin_send_with(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], options);
+    wait_for_received(&mock, 1).await;
+
+    ack_tx.send(ManualAck::Ack(ack)).unwrap();
+    let error = pending
+        .wait()
+        .await
+        .expect_err("a malformed ack fails the send");
+    assert!(
+        matches!(error.error, TransportError::WorkerStreamFailed(_)),
+        "{:?}",
+        error.error
+    );
+    assert_eq!(
+        error.messages.len(),
+        2,
+        "every message comes back for a retry"
+    );
+}
+
+#[rstest]
+#[case::a_single_frame_carries_the_budget(1_000, Some(BUDGET), vec![250])]
+#[case::a_split_send_carries_no_budget(200, Some(BUDGET), vec![0, 0, 0])]
+#[case::no_budget_carries_none(1_000, None, vec![0])]
+#[case::a_zero_budget_carries_none(1_000, Some(Duration::ZERO), vec![0])]
+#[case::a_sub_millisecond_budget_rounds_up(1_000, Some(Duration::from_micros(500)), vec![1])]
+#[tokio::test]
+async fn a_budget_rides_only_a_single_frame_send(
+    #[case] max_body_bytes: usize,
+    #[case] soft_budget: Option<Duration>,
+    #[case] frame_budgets: Vec<u64>,
+) {
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_max_body_bytes(max_body_bytes);
+    let url = worker_url(mock.addr);
+    let options = SendOptions {
+        replay: false,
+        soft_budget,
+    };
+
+    transport
+        .begin_send_with(
+            &url,
+            "batch-1",
+            vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
+            options,
+        )
+        .wait()
+        .await
+        .expect("the worker accepts every frame");
+
+    let budgets: Vec<u64> = mock
+        .received
+        .lock()
+        .await
+        .iter()
+        .map(|sub_batch| sub_batch.soft_budget_ms)
+        .collect();
+    assert_eq!(budgets, frame_budgets);
+}
+
+#[rstest]
+#[case::ok(ManualAck::Ok { seq: 2, accepted: 2 })]
+#[case::partial(ManualAck::Ack(partial_ack(2, 1, &[3])))]
+#[tokio::test]
+async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked(
+    #[case] second_ack: ManualAck,
+) {
+    // Else seq 2's keys would release and replay ahead of seq 1's.
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    let url = worker_url(mock.addr);
+    let budgeted = SendOptions {
+        replay: false,
+        soft_budget: Some(BUDGET),
+    };
+
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let second =
+        transport.begin_send_with(&url, "batch-2", vec![msg("d1", 2), msg("d1", 3)], budgeted);
+    wait_for_received(&mock, 2).await;
+
+    ack_tx.send(second_ack).unwrap();
     let second = tokio::spawn(second.wait());
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!second.is_finished(), "seq 2 must wait for seq 1");
@@ -380,25 +603,19 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked() {
         .await
         .unwrap()
         .expect_err("an acked send behind a failure must fence with it");
-    assert_eq!(
-        second_err.messages[0].offset, 2,
-        "messages come back for deferral"
-    );
+    let offsets: Vec<i64> = second_err
+        .messages
+        .iter()
+        .map(|message| message.offset)
+        .collect();
+    assert_eq!(offsets, vec![2, 3], "every message comes back for deferral");
 }
 
 #[tokio::test]
-async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
-    // Regression: a fence resolves its sends before their callers stash the
-    // messages. In that gap the consumer loop can still enqueue a fenced
-    // key's next group; if the next stream sent it, it would reach the worker
-    // ahead of the stashed older group. The worker stream must keep fencing until
-    // every fenced caller drops its guard.
+async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_requeue() {
+    // Else the next send could reach the worker before the requeued messages.
     let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        1,
-        Duration::from_secs(30),
-    );
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
@@ -407,8 +624,6 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
         .fence_guard
         .expect("a fenced send carries a guard");
 
-    // Enqueued while the fence is unacknowledged: fails without riding a
-    // stream.
     let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
     let second_err = tokio::time::timeout(Duration::from_secs(2), second.wait())
         .await
@@ -421,8 +636,6 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
     ));
     assert_eq!(mock.received.lock().await.len(), 1);
 
-    // Both callers stashed: the worker stream resumes and the next send reaches the
-    // worker on a fresh stream.
     drop(guard);
     drop(second_err);
     let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], false);
@@ -441,17 +654,11 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
 
 #[tokio::test]
 async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
-    // The worker caps one frame; a sub-batch over the cap must split into
-    // consecutive frames on the same stream instead of one frame the worker
-    // rejects, fences, and replays forever.
+    // One frame over the worker's cap would fence and replay forever.
     let mock = start_mock(AckMode::Immediate, None).await;
-    let mut transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        2,
-        Duration::from_secs(30),
-    );
-    // Frame size cap in bytes. One `msg()` estimates to ~143 bytes, so this
-    // fits exactly one message per frame and three messages become three frames.
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    // One `msg()` estimates to ~143 bytes, so each 200-byte frame fits one message.
     transport.set_max_body_bytes(200);
     let url = worker_url(mock.addr);
 
@@ -461,8 +668,11 @@ async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
         vec![msg("d1", 1), msg("d1", 2), msg("d1", 3)],
         false,
     );
-    let accepted = pending.wait().await.expect("all chunks accepted");
-    assert_eq!(accepted, 3, "accepted counts sum across chunks");
+    let outcome = pending.wait().await.expect("all chunks accepted");
+    assert!(
+        matches!(outcome, SendOutcome::Accepted(3)),
+        "accepted counts sum across chunks: {outcome:?}"
+    );
 
     let received = mock.received.lock().await;
     let frames: Vec<(u64, &str, Vec<i64>)> = received
@@ -488,17 +698,11 @@ async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
 
 #[tokio::test]
 async fn a_failed_chunk_hands_back_the_whole_sub_batch() {
-    // All-or-nothing like the HTTP path: chunk 1 is acked, chunk 2 nacked, so
-    // the send fails with every message (acked ones included) for deferral,
-    // and carries a fence guard.
+    // One nacked chunk fails the whole send, acked chunks included.
     let mock = start_mock(AckMode::NackSeq(2), None).await;
-    let mut transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        2,
-        Duration::from_secs(30),
-    );
-    // Frame size cap in bytes. One `msg()` estimates to ~143 bytes, so this
-    // fits exactly one message per frame and three messages become three frames.
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    // One `msg()` estimates to ~143 bytes, so each 200-byte frame fits one message.
     transport.set_max_body_bytes(200);
     let url = worker_url(mock.addr);
 
@@ -526,11 +730,8 @@ async fn a_failed_chunk_hands_back_the_whole_sub_batch() {
 async fn chunks_acked_out_of_order_then_fenced_hand_back_messages_in_send_order() {
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
-    let mut transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        3,
-        Duration::from_secs(30),
-    );
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
     transport.set_max_body_bytes(200);
     let url = worker_url(mock.addr);
 
@@ -556,20 +757,12 @@ async fn chunks_acked_out_of_order_then_fenced_hand_back_messages_in_send_order(
 
 #[tokio::test]
 async fn a_nack_fences_everything_outstanding_in_order() {
-    // Regression: on a failure, every un-acked and queued sub-batch must fail
-    // back to the caller with its messages (for the deferral path), and
-    // nothing may be silently retried on the next stream — a later sub-batch
-    // surviving the fence would leapfrog the failed one and reorder its keys.
+    // A surviving later sub-batch would overtake the failed one.
     let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        1,
-        Duration::from_secs(30),
-    );
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
-    // With max_unacked=1, the second and third wait in the queue behind the
-    // first — the nack must fence all three.
+    // All three ride the stream at once; the first's nack fences the other two in order.
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
     let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
     let third = transport.begin_send(&url, "batch-3", vec![msg("d2", 3)], false);
@@ -578,7 +771,7 @@ async fn a_nack_fences_everything_outstanding_in_order() {
     assert_eq!(first_err.messages.len(), 1);
     assert_eq!(
         first_err.messages[0].offset, 1,
-        "messages come back for deferral"
+        "messages come back for the requeue"
     );
     assert!(matches!(
         first_err.error,
@@ -595,31 +788,18 @@ async fn a_nack_fences_everything_outstanding_in_order() {
         .await
         .expect_err("queued send behind the nack must fail");
     assert_eq!(third_err.messages[0].offset, 3);
-
-    // Only the nacked sub-batch reached the worker; the fenced ones never
-    // rode a stream.
-    assert_eq!(mock.received.lock().await.len(), 1);
 }
 
 #[tokio::test]
 async fn the_worker_stream_reconnects_with_a_new_stream_epoch_after_a_fence() {
     let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        2,
-        Duration::from_secs(30),
-    );
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
     first.wait().await.expect_err("nacked");
 
-    // The retry (as the deferral path would issue it) lands on a fresh stream
-    // with a bumped epoch and replay=true, and succeeds: seq 1 is nacked only
-    // once because NackSeq(1) nacks by seq, proving this send is seq 1 on a
-    // NEW stream... so use a different worker mode expectation: the second
-    // stream's seq-1 sub-batch is nacked again by this mock, which is fine —
-    // what we assert is the reconnect (two hellos, increasing epochs).
+    // The mock nacks seq 1 on every stream; only the reconnect is asserted.
     let retry = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], true);
     retry
         .wait()
@@ -635,11 +815,214 @@ async fn the_worker_stream_reconnects_with_a_new_stream_epoch_after_a_fence() {
 }
 
 #[tokio::test]
+async fn an_idle_stream_closes_and_the_next_send_opens_a_new_one() {
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(50));
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    transport
+        .begin_send(&url, "batch-2", vec![msg("d1", 2)], false)
+        .wait()
+        .await
+        .expect("send after the idle close");
+
+    assert_eq!(mock.hellos.lock().await.len(), 2);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 1], "the second send rides a new stream");
+}
+
+#[tokio::test]
+async fn a_stream_with_unacked_work_stays_open_past_the_idle_window() {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(50));
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    wait_for_received(&mock, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 1,
+            accepted: 1,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        pending.wait().await.expect("acked after the idle window"),
+        SendOutcome::Accepted(1)
+    ));
+    assert_eq!(mock.hellos.lock().await.len(), 1);
+}
+
+#[tokio::test]
+async fn sends_that_arrive_during_the_idle_drain_open_the_next_stream_at_once() {
+    let mock = start_mock_with(AckMode::Immediate, None, StreamEnding::Never).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(300));
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    // The idle timer has fired and the worker is still holding its side open.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let started = tokio::time::Instant::now();
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], false);
+    second.wait().await.expect("send during the drain");
+    third.wait().await.expect("send during the drain");
+    assert!(
+        started.elapsed() < Duration::from_millis(150),
+        "sends waited {:?} behind the old stream's drain",
+        started.elapsed()
+    );
+
+    assert_eq!(*mock.hellos.lock().await, vec![1, 2]);
+    let order: Vec<_> = mock
+        .received
+        .lock()
+        .await
+        .iter()
+        .map(|s| (s.seq, s.batch_id.clone()))
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            (1, "batch-1".to_string()),
+            (1, "batch-2".to_string()),
+            (2, "batch-3".to_string())
+        ],
+        "work enqueued during the drain rides the new stream in order"
+    );
+}
+
+#[tokio::test]
+async fn the_idle_window_starts_at_the_last_ack() {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(100));
+    let url = worker_url(mock.addr);
+
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    wait_for_received(&mock, 1).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 1,
+            accepted: 1,
+        })
+        .unwrap();
+    first.wait().await.expect("first send");
+
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    wait_for_received(&mock, 2).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 2,
+            accepted: 1,
+        })
+        .unwrap();
+    second.wait().await.expect("second send");
+
+    assert_eq!(*mock.hellos.lock().await, vec![1]);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 2], "the second send rides the same stream");
+}
+
+#[tokio::test]
+async fn repeated_idle_closes_carry_consecutive_stream_epochs() {
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::from_millis(50));
+    let url = worker_url(mock.addr);
+
+    for i in 1..=3 {
+        transport
+            .begin_send(&url, &format!("batch-{i}"), vec![msg("d1", i)], false)
+            .wait()
+            .await
+            .expect("send");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+
+    assert_eq!(*mock.hellos.lock().await, vec![1, 2, 3]);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 1, 1]);
+}
+
+#[tokio::test]
+async fn a_zero_idle_window_keeps_an_idle_stream_open() {
+    let mock = start_mock(AckMode::Immediate, None).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::ZERO);
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    transport
+        .begin_send(&url, "batch-2", vec![msg("d1", 2)], false)
+        .wait()
+        .await
+        .expect("second send");
+
+    assert_eq!(*mock.hellos.lock().await, vec![1]);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 2]);
+}
+
+#[tokio::test]
+async fn a_worker_ending_the_stream_as_the_idle_timer_fires_does_not_fence() {
+    let idle = Duration::from_millis(50);
+    let mock = start_mock_with(AckMode::Immediate, None, StreamEnding::AfterOpen(idle)).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(idle);
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let outcome = transport
+        .begin_send(&url, "batch-2", vec![msg("d1", 2)], false)
+        .wait()
+        .await
+        .expect("send after both ends closed the stream");
+
+    assert!(matches!(outcome, SendOutcome::Accepted(1)));
+    assert_eq!(*mock.hellos.lock().await, vec![1, 2]);
+}
+
+#[tokio::test]
 async fn a_dead_worker_fences_instead_of_hanging() {
-    // Connect failure (nothing listening): the send must resolve with its
-    // messages rather than waiting forever — the caller's deferral path owns
-    // the retry pacing.
-    let transport = GrpcTransport::new(GrpcPort::Fixed(1), 1, Duration::from_secs(30));
+    // The caller's deferral path owns the retry pacing.
+    let transport = GrpcTransport::new(GrpcPort::Fixed(1), Duration::from_secs(30));
     let pending = transport.begin_send(
         "http://127.0.0.1:9001",
         "batch-1",
@@ -655,15 +1038,10 @@ async fn a_dead_worker_fences_instead_of_hanging() {
 
 #[tokio::test]
 async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
-    // Regression: a worker at capacity (or wedged) simply never acks, and the
-    // worker stream has no per-send timeout — without the watchdog the consumer waits
-    // forever and the whole pod wedges, as seen in production. The fence must
-    // hand the messages back so the deferral path re-routes them.
     let (_ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
     let transport = GrpcTransport::new(
         GrpcPort::Fixed(mock.addr.port()),
-        2,
         Duration::from_millis(200),
     );
     let url = worker_url(mock.addr);
@@ -673,22 +1051,16 @@ async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
         .await
         .expect("watchdog must fence, not wait forever")
         .expect_err("un-acked send fails back to the caller");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 }
 
 #[tokio::test]
 async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
-    // Regression: the watchdog must bound each sub-batch's own wait, not the
-    // worker stream's time since its last ack. With more than one un-acked sub-batch, a
-    // worker that keeps acking newer sub-batches but never the oldest used to
-    // reset a single shared deadline on every ack, so the stuck send waited
-    // forever and its Kafka batch never completed — the wedge the watchdog
-    // exists to prevent.
+    // Sibling acks must not extend the oldest sub-batch's deadline.
     let mock = start_mock(AckMode::AckExceptSeq(1), None).await;
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::Fixed(mock.addr.port()),
-        2,
         Duration::from_millis(500),
     ));
     let url = worker_url(mock.addr);
@@ -696,9 +1068,7 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
     // Enqueued first, so it is seq 1 — the one the worker never acks.
     let stuck = transport.begin_send(&url, "batch-stuck", vec![msg("d1", 1)], false);
 
-    // Keep feeding siblings faster than the ack timeout. Each is acked and
-    // drained (the worker stream holds at most one alongside the stuck entry), so a
-    // watchdog keyed on the last ack would never fire.
+    // Feed acked siblings faster than the ack timeout.
     let feeder = {
         let transport = Arc::clone(&transport);
         let url = url.clone();
@@ -715,35 +1085,54 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
         })
     };
 
-    // The stuck send must fence on its own deadline (~500ms), well before the
-    // feed stops (~3.2s) — proving sibling acks do not extend its wait.
+    // Fences at ~500ms, before the feed stops at ~3.2s (40 x 80ms).
     let err = tokio::time::timeout(Duration::from_secs(2), stuck.wait())
         .await
         .expect("stuck send must fence on its own deadline, not wait for the feed to stop")
         .expect_err("un-acked oldest send fails back to the caller");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 
     feeder.abort();
 }
 
 #[tokio::test]
-async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
-    // Regression: reaping a worker that still has in-flight work must resolve
-    // its un-acked sends with the messages intact, so the deferral path can
-    // replay them. Aborting the worker stream task instead dropped the sends unresolved,
-    // which the caller could only recover by crashing and replaying.
+async fn removing_a_worker_lets_its_in_flight_send_settle_by_ack() {
+    // A reaped worker that is slow, not dead, still finishes its request; a fence would make a survivor repeat it.
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    wait_for_received(&mock, 1).await;
+    transport.remove_worker(&url);
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 1,
+            accepted: 1,
+        })
+        .unwrap();
+
+    let outcome = tokio::time::timeout(Duration::from_secs(5), pending.wait())
+        .await
+        .expect("the removed worker stream still delivers the ack")
+        .expect("the ack settles the send");
+    assert!(matches!(outcome, SendOutcome::Accepted(1)), "{outcome:?}");
+}
+
+#[tokio::test]
+async fn removing_a_worker_resolves_its_unacked_send_by_the_watchdog() {
+    // Else the caller recovers the dropped send only by crashing and replaying.
     let (_ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
     let transport = GrpcTransport::new(
         GrpcPort::Fixed(mock.addr.port()),
-        2,
         Duration::from_millis(200),
     );
     let url = worker_url(mock.addr);
 
     let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    // Wait until the send is on the wire (in the worker stream's ledger) before reaping.
     for _ in 0..200 {
         if mock.received.lock().await.len() == 1 {
             break;
@@ -760,23 +1149,17 @@ async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
 
     let err = tokio::time::timeout(Duration::from_secs(5), pending.wait())
         .await
-        .expect("reaped worker stream must fence, not hang")
-        .expect_err("reaped worker fences the in-flight send");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+        .expect("reaped worker stream must fence at the ack timeout, not hang")
+        .expect_err("the ack watchdog fences the unacked send");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert_eq!(err.messages[0].offset, 1);
 }
 
 #[tokio::test]
 async fn a_busy_status_fences_as_retriable_with_messages() {
-    // A worker reporting busy is applying backpressure, not failing: the fenced
-    // sends must carry their messages (to replay) and classify as retriable, so
-    // the consumer re-routes without counting the worker as unhealthy.
+    // Busy is backpressure: re-route without marking the worker unhealthy.
     let mock = start_mock(AckMode::BusySeq(1), None).await;
-    let transport = GrpcTransport::new(
-        GrpcPort::Fixed(mock.addr.port()),
-        1,
-        Duration::from_secs(30),
-    );
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
     let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
@@ -784,7 +1167,7 @@ async fn a_busy_status_fences_as_retriable_with_messages() {
         .wait()
         .await
         .expect_err("busy fences the worker stream");
-    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages.len(), 1, "messages come back for the requeue");
     assert!(err.error.is_retriable(), "busy is retriable backpressure");
     assert!(matches!(err.error, TransportError::WorkerStreamBusy(_)));
 }
@@ -893,7 +1276,7 @@ fn registry_config() -> WorkerRegistryConfig {
 }
 
 #[tokio::test]
-async fn key_table_watchdog_bounds_overlapping_busy_retries() {
+async fn the_watchdog_bounds_overlapping_busy_retries() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let first_addr = start_controlled_busy_worker(0, attempts_tx.clone()).await;
     let second_addr = start_controlled_busy_worker(1, attempts_tx).await;
@@ -902,17 +1285,13 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         format!("http://{second_addr}"),
     ];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
-        1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(100),
         Duration::from_millis(20),
@@ -921,7 +1300,7 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), msg("a", 1).into());
     accumulator.push(Partition(0), msg("b", 2).into());
-    batcher.submit(accumulator);
+    batcher.submit(accumulator, &HashMap::new());
 
     let first = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await
@@ -936,10 +1315,7 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         "the two keys must occupy different workers"
     );
 
-    // Always leave one request outstanding while rejecting the other. If a
-    // retry does not arrive, release the held request after a bounded delay:
-    // the watchdog may wait for a slow in-flight attempt to settle, but must
-    // then diagnose the scheduler-wide lack of acceptance.
+    // Keep one request held; release it if no retry arrives in time.
     let busy_replies = Arc::new(AtomicUsize::new(0));
     let replies = Arc::clone(&busy_replies);
     let final_attempt_released = Arc::new(AtomicBool::new(false));
@@ -984,22 +1360,18 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
 }
 
 #[tokio::test]
-async fn key_table_retries_a_busy_send_until_it_completes() {
+async fn a_busy_send_is_retried_until_it_completes() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
-        1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(500),
         Duration::from_millis(20),
@@ -1007,7 +1379,7 @@ async fn key_table_retries_a_busy_send_until_it_completes() {
 
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), msg("a", 1).into());
-    batcher.submit(accumulator);
+    batcher.submit(accumulator, &HashMap::new());
 
     let first = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await
@@ -1033,22 +1405,18 @@ async fn key_table_retries_a_busy_send_until_it_completes() {
 }
 
 #[tokio::test]
-async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
+async fn the_watchdog_allows_in_flight_success_after_the_deadline() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        registry,
-        RoutingStrategy::BinPack,
-    ));
+    let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
-        1,
         Duration::from_secs(30),
     ));
-    let (batcher, mut outputs) = key_table_batcher(
-        &dispatcher,
+    let (batcher, mut outputs) = one_message_batcher(
+        pool_source,
         transport,
         Duration::from_millis(100),
         Duration::from_millis(20),
@@ -1056,7 +1424,7 @@ async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
 
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), msg("a", 1).into());
-    batcher.submit(accumulator);
+    batcher.submit(accumulator, &HashMap::new());
 
     let attempt = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await

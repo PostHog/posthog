@@ -74,4 +74,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "work-count": "Number of works referencing this license.",
         },
     },
+    "Journals": {
+        "description": "Journals in Crossref with their ISSNs, publisher, subjects, DOI counts, and metadata coverage statistics.",
+        "docs_url": "https://github.com/CrossRef/rest-api-doc#journals",
+        "columns": {
+            "title": "The journal's title.",
+            "publisher": "Name of the journal's publisher.",
+            "ISSN": "The journal's ISSNs.",
+            "issn-type": "The journal's ISSNs, each labelled as print or electronic.",
+            "issn_key": "The journal's ISSNs, sorted and joined with commas. Empty when the journal has no ISSN.",
+            "subjects": "Subject categories assigned to the journal.",
+            "counts": "Number of current, backfile, and total DOIs registered for the journal.",
+            "breakdowns": "DOI counts broken down by issued year.",
+            "coverage": "Share of the journal's current and backfile DOIs that carry each metadata element (references, ORCIDs, licenses, etc).",
+            "coverage-type": "Metadata coverage ratios grouped by all, current, and backfile DOIs.",
+            "flags": "Whether the journal deposits each metadata element for its current and backfile DOIs.",
+            "last-status-check-time": "When Crossref last recalculated the journal's statistics, as epoch milliseconds.",
+        },
+    },
 }

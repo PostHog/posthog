@@ -143,7 +143,7 @@ class ImpervaSource(ResumableSource[ImpervaSourceConfig, ImpervaResumeConfig]):
                 "Enter its API ID, API key, and your account ID. Grant read access to sites and statistics. "
                 "Statistics contain daily account totals. Each sync reads up to 90 days of available data."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

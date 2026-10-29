@@ -1,10 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
 
 import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
@@ -13,7 +14,7 @@ import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/Log
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters, LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
-import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
+import { LogsFacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/LogsFacetRail'
 import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
@@ -21,6 +22,7 @@ import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/lo
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
+import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -51,6 +53,9 @@ export interface LogsViewerProps {
     defaultFacetRailCollapsed?: boolean
     // Same, for the volume chart. Panels embedded in a short pane start without it.
     defaultSparklineCollapsed?: boolean
+    // A panel embedded under other keyboard controls leaves focus where it is.
+    autoFocusSearch?: boolean
+    keyboardShortcutsEnabled?: boolean
 }
 
 export function LogsViewer({
@@ -63,6 +68,8 @@ export function LogsViewer({
     sessionId,
     defaultFacetRailCollapsed,
     defaultSparklineCollapsed,
+    autoFocusSearch = true,
+    keyboardShortcutsEnabled = true,
 }: LogsViewerProps): JSX.Element {
     return (
         <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
@@ -78,6 +85,8 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
+                                        autoFocusSearch={autoFocusSearch}
+                                        keyboardShortcutsEnabled={keyboardShortcutsEnabled}
                                         scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
@@ -101,10 +110,14 @@ function ConnectedLogsSparkline(props: Omit<LogsViewerSparklineProps, 'visibleRo
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
+    autoFocusSearch,
+    keyboardShortcutsEnabled,
     scope,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
+    autoFocusSearch: boolean
+    keyboardShortcutsEnabled: boolean
     scope: LogsViewerScope
 }): JSX.Element {
     const {
@@ -131,6 +144,7 @@ function LogsViewerContent({
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
     const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogLogic)
     const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
@@ -188,7 +202,7 @@ function LogsViewerContent({
 
     // Handle keyboard scroll with keydown/keyup for smooth 60fps scrolling
     useEffect(() => {
-        if (!isFocused || wrapBody) {
+        if (!keyboardShortcutsEnabled || !isFocused || wrapBody || isTraceDialogOpen) {
             return
         }
 
@@ -219,7 +233,7 @@ function LogsViewerContent({
             window.removeEventListener('keyup', handleKeyUp)
             stopScrolling()
         }
-    }, [isFocused, wrapBody, startScrolling, stopScrolling])
+    }, [keyboardShortcutsEnabled, isFocused, wrapBody, isTraceDialogOpen, startScrolling, stopScrolling])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'> = {
         formatDate: 'YYYY-MM-DD',
@@ -241,12 +255,16 @@ function LogsViewerContent({
         [moveCursorUp]
     )
 
+    // The trace dialog opens over the viewer, so the viewer's keys stop while it is open.
+    const listKeysEnabled = keyboardShortcutsEnabled && keyboardNavEnabled && !isTraceDialogOpen
+    const focusedListKeysEnabled = keyboardShortcutsEnabled && isFocused && !isTraceDialogOpen
+
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
-            j: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
-            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
-            k: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
+            arrowdown: { action: handleMoveDown, disabled: !listKeysEnabled, allowRepeat: true },
+            j: { action: handleMoveDown, disabled: !listKeysEnabled, allowRepeat: true },
+            arrowup: { action: handleMoveUp, disabled: !listKeysEnabled, allowRepeat: true },
+            k: { action: handleMoveUp, disabled: !listKeysEnabled, allowRepeat: true },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
@@ -254,7 +272,7 @@ function LogsViewerContent({
                         openLogDetails(parsedLogs[cursorIndex])
                     }
                 },
-                disabled: !keyboardNavEnabled,
+                disabled: !listKeysEnabled,
             },
             r: {
                 action: () => {
@@ -263,7 +281,7 @@ function LogsViewerContent({
                         refreshQuery()
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
             space: {
                 action: (e: KeyboardEvent) => {
@@ -272,7 +290,7 @@ function LogsViewerContent({
                         toggleSelectLog(cursorLogId)
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
             escape: {
                 action: () => {
@@ -282,7 +300,7 @@ function LogsViewerContent({
                         clearSelection()
                     }
                 },
-                disabled: !keyboardNavEnabled,
+                disabled: !listKeysEnabled,
             },
             p: {
                 action: () => {
@@ -290,12 +308,14 @@ function LogsViewerContent({
                         togglePrettifyLog(cursorLogId)
                     }
                 },
-                disabled: !isFocused,
+                disabled: !focusedListKeysEnabled,
             },
         },
         [
+            keyboardShortcutsEnabled,
             isFocused,
             keyboardNavEnabled,
+            isTraceDialogOpen,
             isLogDetailsOpen,
             cursorIndex,
             parsedLogs,
@@ -326,7 +346,8 @@ function LogsViewerContent({
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}
             />
-            <SceneDivider />
+            {/* A plain divider: the viewer also renders in panes that have no scene padding to bleed into. */}
+            <LemonDivider className="my-0" />
         </>
     )
 
@@ -404,16 +425,17 @@ function LogsViewerContent({
     // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
     // row of [facet rail | display bar (operate on the data) + the log lists].
     return (
-        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+        <div className="@container/facet-rail-host flex flex-col gap-2 h-full" data-attr="logs-viewer">
             <LogsQueryBar
                 showSavedViewsButton={showSavedViewsButton}
                 showFullScreenButton={showFullScreenButton}
+                autoFocusSearch={autoFocusSearch}
                 scope={scope}
             />
             {sparklineSection}
-            <div className="flex flex-row gap-2 flex-1 min-h-0">
-                {!facetRailCollapsed && <FacetRail id={id} />}
-                <div className="flex flex-col gap-2 flex-1 min-w-0">
+            <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
+                {!facetRailCollapsed && <LogsFacetRail id={id} />}
+                <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                     {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
                 </div>
             </div>

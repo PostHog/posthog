@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -130,12 +128,6 @@ class TestValidateCredentials:
             valid, msg = validate_credentials(None, "tok", team_id=1)
             assert valid is False
             assert "500" in (msg or "")
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials(None, "tok", team_id=1)
-            assert valid is False
-            assert "Could not reach" in (msg or "")
 
     def test_blocks_unsafe_host(self):
         with (

@@ -17,10 +17,13 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.redis import get_async_client
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -157,7 +160,7 @@ def _safe_verdict_cache_key(team_id: int, mode: ModelMode, signal_prompt: str, p
     return f"signals:safety:safe:v1:{team_id}:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterInput:
     description: str
     # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
@@ -171,6 +174,7 @@ class SafetyFilterInput:
     source_id: str | None = None
     weight: float | None = None
     extra: dict = field(default_factory=dict)
+    signal_id: str | None = None
 
 
 @dataclass
@@ -186,6 +190,7 @@ async def safety_filter(
     source_product: str | None = None,
     source_type: str | None = None,
     source_id: str | None = None,
+    signal_id: str | None = None,
 ) -> SafetyFilterJudgeResponse:
     def validate(text: str) -> SafetyFilterJudgeResponse:
         data = json.loads(text)
@@ -216,6 +221,7 @@ async def safety_filter(
         try:
             return await call_llm(
                 team_id=team_id,
+                signal_id=signal_id,
                 system_prompt=system_one_prompt.policy,
                 user_prompt=signal_prompt,
                 validate=validate,
@@ -341,15 +347,29 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 @close_db_connections
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
+    if input.signal_id and input.team_id is not None:
+        if await database_sync_to_async(finalized_signal_ids)(team_id=input.team_id, signal_ids=[input.signal_id]):
+            return SafetyFilterOutput(safe=False, threat_type="", explanation="Signal already processed")
     try:
         result = await safety_filter(
-            input.team_id, input.description, input.source_product, input.source_type, input.source_id
+            input.team_id,
+            input.description,
+            input.source_product,
+            input.source_type,
+            input.source_id,
+            signal_id=input.signal_id,
         )
     except Exception:
         logger.exception("Failed to run safety filter")
         raise
 
     if not result.safe:
+        if input.signal_id and input.team_id is not None:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=input.team_id,
+                signal_id=input.signal_id,
+                billing_exempt=system_source_exempt(input.source_product),
+            )
         metrics.increment_safety_blocked(input.source_product or "unknown")
         await _capture_signal_blocked_event(input, result)
 

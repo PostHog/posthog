@@ -20,6 +20,9 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { AppContext, DashboardType, UserBasicType } from '~/types'
 
+import * as generatedApi from 'products/dashboards/frontend/generated/api'
+import type { DashboardBulkDeleteResponseApi } from 'products/dashboards/frontend/generated/api.schemas'
+
 import dashboardJson from '../__mocks__/dashboard.json'
 
 let dashboardId = 1234
@@ -38,6 +41,81 @@ const scenes: any = { [Scene.Dashboards]: blankScene }
 
 describe('dashboardsLogic', () => {
     let logic: ReturnType<typeof dashboardsLogic.build>
+
+    it('removes deleted dashboards from the list and keeps skipped dashboards selected', async () => {
+        const [first, second] = allDashboards
+        useMocks({
+            post: {
+                '/api/projects/:team_id/dashboards/bulk_delete/': {
+                    deleted: [first.id],
+                    skipped: [{ id: second.id, reason: 'No permission' }],
+                },
+            },
+        })
+        const onStillSelected = jest.fn()
+        await expectLogic(logic, () =>
+            logic.actions.bulkDeleteDashboards({ ids: [first.id, second.id], onStillSelected })
+        ).toDispatchActions(['bulkDeleteDashboardsSuccess'])
+        expect(onStillSelected).toHaveBeenCalledWith([second.id])
+        expect(logic.values.dashboards.map(({ id }) => id)).not.toContain(first.id)
+        expect(logic.values.dashboards.map(({ id }) => id)).toContain(second.id)
+    })
+
+    it('reconciles bulk deletion after the dashboard scene unmounts', async () => {
+        const [first, second] = allDashboards
+        let finishRequest: (response: DashboardBulkDeleteResponseApi) => void
+        const request = new Promise<DashboardBulkDeleteResponseApi>((resolve) => {
+            finishRequest = resolve
+        })
+        const deleteSpy = jest.spyOn(generatedApi, 'dashboardsBulkDeleteCreate').mockReturnValueOnce(request)
+        try {
+            logic.actions.bulkDeleteDashboards({ ids: [first.id], onStillSelected: jest.fn() })
+            logic.unmount()
+            await expectLogic(dashboardsModel, () =>
+                finishRequest!({ deleted: [first.id], skipped: [] })
+            ).toDispatchActions(['bulkDeleteDashboardsSuccess', 'removeDashboardsFromCache'])
+            logic.mount()
+            expect(logic.values.dashboards.map(({ id }) => id)).not.toContain(first.id)
+            expect(logic.values.dashboards.map(({ id }) => id)).toContain(second.id)
+        } finally {
+            deleteSpy.mockRestore()
+        }
+    })
+
+    it.each([false, true])('removes stale search rows when refresh fails (bulk failure: %s)', async (bulkFails) => {
+        const [first, second] = allDashboards
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': { count: 2, results: [first, second], next: null },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.setSearch('Test')).toDispatchActions([
+            'loadSearchedDashboardsSuccess',
+        ])
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('search')) {
+                        return [500, { detail: 'Search unavailable' }]
+                    }
+                    return [200, { count: 1, results: [second], next: null, previous: null }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/dashboards/bulk_delete/': () =>
+                    bulkFails
+                        ? [500, { detail: 'Response unavailable' }]
+                        : [200, { deleted: [first.id], skipped: [{ id: second.id, reason: 'No permission' }] }],
+            },
+        })
+        const onStillSelected = jest.fn()
+        await expectLogic(logic, () =>
+            logic.actions.bulkDeleteDashboards({ ids: [first.id, second.id], onStillSelected })
+        ).toDispatchActions(['loadSearchedDashboardsFailure'])
+        expect(logic.values.searchedDashboards?.map(({ id }) => id)).toEqual([second.id])
+        expect(logic.values.dashboards.map(({ id }) => id)).toEqual([second.id])
+        expect(onStillSelected).toHaveBeenCalledWith([second.id])
+    })
 
     const CURRENT_USER = { id: 178, uuid: 'USER_UUID' } as UserBasicType
     const OTHER_USER = { id: 2, uuid: 'user2' } as UserBasicType

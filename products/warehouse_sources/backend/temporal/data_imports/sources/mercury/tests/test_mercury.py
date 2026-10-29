@@ -99,6 +99,70 @@ class TestMercurySourceResumeBehavior:
         assert result.requests[0].param("order") == "asc"
 
 
+class TestMercuryTopLevelEndpoints:
+    @pytest.mark.parametrize(
+        ("endpoint", "bodies", "expected_path", "expected_order", "expected_cursors", "expected_rows"),
+        [
+            (
+                "SendMoneyApprovalRequests",
+                [
+                    {"requests": [{"requestId": "r1"}], "page": {"nextPage": "r1"}},
+                    {"requests": [{"requestId": "r2"}], "page": {}},
+                ],
+                "/request-send-money",
+                None,
+                [None, "r1"],
+                [{"requestId": "r1"}, {"requestId": "r2"}],
+            ),
+            (
+                "RecipientInvites",
+                [
+                    {"invites": [{"id": "inv-1"}], "page": {"nextPage": "inv-1"}},
+                    {"invites": [{"id": "inv-2"}], "page": {"nextPage": None}},
+                ],
+                "/recipients/invites",
+                "asc",
+                [None, "inv-1"],
+                [{"id": "inv-1"}, {"id": "inv-2"}],
+            ),
+            (
+                "SafeRequests",
+                [[{"id": "safe-1"}, {"id": "safe-2"}]],
+                "/safes",
+                None,
+                [None],
+                [{"id": "safe-1"}, {"id": "safe-2"}],
+            ),
+            (
+                "SafeRequests",
+                [[]],
+                "/safes",
+                None,
+                [None],
+                [],
+            ),
+        ],
+    )
+    def test_walks_pages_to_the_terminal_page(
+        self,
+        endpoint: str,
+        bodies: list[Any],
+        expected_path: str,
+        expected_order: str | None,
+        expected_cursors: list[str | None],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = SourceDriver(MercurySource(), MercurySourceConfig(api_key="test-token")).run(
+            endpoint, [ScriptedResponse(json=body) for body in bodies]
+        )
+
+        assert result.raised is None
+        assert [request.path.split("/api/v1", 1)[-1] for request in result.requests] == [expected_path] * len(bodies)
+        assert [request.param("order") for request in result.requests] == [expected_order] * len(bodies)
+        assert result.params("start_after") == expected_cursors
+        assert result.rows == expected_rows
+
+
 class TestMercuryFanoutEndpoints:
     @pytest.mark.parametrize(
         (

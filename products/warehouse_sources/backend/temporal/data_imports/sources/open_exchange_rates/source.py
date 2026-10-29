@@ -48,7 +48,7 @@ class OpenExchangeRatesSource(ResumableSource[OpenExchangeRatesSourceConfig, Ope
             name=ExternalDataSourceType.OPENEXCHANGERATES,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Open Exchange Rates",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Open Exchange Rates App ID to pull foreign-exchange reference rates into the PostHog Data warehouse.
 
 Find your App ID in your [Open Exchange Rates dashboard](https://openexchangerates.org/account/app-ids).
@@ -70,6 +70,7 @@ The free plan is restricted to the `USD` base currency — a custom base currenc
                     ),
                     SourceFieldInputConfig(
                         name="base_currency",
+                        sync_setting=True,
                         label="Base currency",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -78,6 +79,7 @@ The free plan is restricted to the `USD` base currency — a custom base currenc
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (historical backfill)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -23,6 +23,8 @@ export type UndecodableImageReason =
     | 'invalid_body'
     | 'invalid_dimensions'
     | 'pixel_limit'
+    | 'svg_refused'
+    | 'svg_timeout'
     | 'unsupported_format'
 
 export class UndecodableImageError extends PermanentImageError {

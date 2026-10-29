@@ -1,20 +1,18 @@
-//! End-to-end integration tests for the ingestion consumer pipeline.
-//!
-//! Requires Kafka on localhost:9092 (available via docker-compose).
-//! Each test creates a uniquely-named topic to avoid cross-test interference.
+//! Requires Kafka on localhost:9092 (docker-compose).
 
 mod common;
 
-use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
+use std::collections::HashSet;
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
 use futures::StreamExt;
 use lifecycle::{ComponentOptions, Manager};
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
@@ -30,15 +28,18 @@ use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
 use ingestion_consumer::batcher::packer::PackTargets;
+use ingestion_consumer::batcher::state_machine::RequestBudget;
+use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::batcher::BatcherObserver;
+use ingestion_consumer::charge_limit::ChargeLimit;
+use ingestion_consumer::config::{CompletionGranularity, Polling};
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
+use ingestion_consumer::debug_recorder::{DebugEventKind, DebugRecorder};
 use ingestion_consumer::discovery::reconcile_membership;
-use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::order_sentinel::SentinelContext;
+use ingestion_consumer::partition_budget::BudgetLimits;
+use ingestion_consumer::rebalance::RebalanceContext;
 use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::scheduler::SchedulerKind;
-use ingestion_consumer::types::SerializedKafkaMessage;
 use ingestion_consumer::worker_registry::{
     WorkerId, WorkerRegistry, WorkerRegistryConfig, WorkerState,
 };
@@ -47,12 +48,12 @@ use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
 };
 use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
-    StreamReady, SubBatchAck, SubBatchStatus,
+    MessageRef, StreamReady, SubBatchAck, SubBatchStatus,
 };
 
+const UNBOUNDED_BYTES: u64 = 1 << 40;
 const KAFKA_BROKERS: &str = "localhost:9092";
-
-// ── Kafka helpers ──────────────────────────────────────────────────────────
+const BUDGET_ATTEMPTS: NonZeroU32 = NonZeroU32::new(3).expect("nonzero attempts");
 
 async fn create_topic(name: &str, partitions: i32) {
     let admin: AdminClient<DefaultClientContext> = ClientConfig::new()
@@ -111,21 +112,48 @@ async fn produce(
         .expect("produce failed");
 }
 
-/// Produce `(distinct_id, seq)` records to one partition in one transaction.
-/// The consumer reads committed records only, so it sees all of them at once
-/// and fetches them into one batch. Awaited one-by-one sends can straddle the
-/// consumer's batch deadline and split the records across batches.
 async fn produce_in_one_transaction(
     topic: &str,
     partition: i32,
     token: &str,
     records: &[(&str, usize)],
 ) {
+    let records = records
+        .iter()
+        .map(|&(distinct_id, seq)| (format!("{token}:{distinct_id}"), distinct_id, seq))
+        .collect::<Vec<_>>();
+    let records: Vec<(i32, &str, &str, usize)> = records
+        .iter()
+        .map(|(key, distinct_id, seq)| (partition, key.as_str(), *distinct_id, *seq))
+        .collect();
+    produce_keyed_in_one_transaction(topic, token, &records).await;
+}
+
+fn alternating_visitors(
+    partition: i32,
+    key: &str,
+    first_seq: usize,
+) -> [(i32, &str, &str, usize); 4] {
+    [
+        (partition, key, "visitor-a", first_seq),
+        (partition, key, "visitor-b", first_seq + 1),
+        (partition, key, "visitor-a", first_seq + 2),
+        (partition, key, "visitor-b", first_seq + 3),
+    ]
+}
+
+async fn produce_keyed_in_one_transaction(
+    topic: &str,
+    token: &str,
+    records: &[(i32, &str, &str, usize)],
+) {
     let topic = topic.to_string();
     let token = token.to_string();
-    let records: Vec<(String, usize)> = records
+    let records: Vec<(i32, String, String, usize)> = records
         .iter()
-        .map(|&(distinct_id, seq)| (distinct_id.to_string(), seq))
+        .map(|&(partition, key, distinct_id, seq)| {
+            (partition, key.to_string(), distinct_id.to_string(), seq)
+        })
         .collect();
     // The transaction calls block, so keep them off the test's runtime thread,
     // which also serves the fake workers.
@@ -141,8 +169,7 @@ async fn produce_in_one_transaction(
             .init_transactions(timeout)
             .expect("init transactions");
         producer.begin_transaction().expect("begin transaction");
-        for (distinct_id, seq) in &records {
-            let key = format!("{token}:{distinct_id}");
+        for (partition, key, distinct_id, seq) in &records {
             let value = format!(r#"{{"seq":{seq}}}"#);
             let headers = OwnedHeaders::new()
                 .insert(Header {
@@ -156,9 +183,9 @@ async fn produce_in_one_transaction(
             producer
                 .send(
                     BaseRecord::to(&topic)
-                        .key(&key)
+                        .key(key.as_str())
                         .payload(&value)
-                        .partition(partition)
+                        .partition(*partition)
                         .headers(headers),
                 )
                 .map_err(|(err, _)| err)
@@ -172,8 +199,6 @@ async fn produce_in_one_transaction(
     .expect("transactional produce panicked");
 }
 
-/// Produce a record with full control over payload bytes and optional headers —
-/// for malformed-input scenarios (missing headers, non-UTF-8 bytes).
 async fn produce_raw(
     producer: &FutureProducer,
     topic: &str,
@@ -195,55 +220,45 @@ async fn produce_raw(
         .expect("produce failed");
 }
 
-// ── Fake worker ────────────────────────────────────────────────────────────
-
 struct FakeWorker {
     pub url: String,
-    /// (distinct_id, seq) pairs in arrival order.
     pub received: Arc<Mutex<Vec<(String, usize)>>>,
-    /// Message count of each accepted sub-batch, in arrival order. With a
-    /// single worker and partition a sub-batch is the whole Kafka batch, which
-    /// is what lets the batching-bound tests read batch sizes from here.
+    /// Message count of each recorded sub-batch, in arrival order.
     pub batch_sizes: Arc<Mutex<Vec<usize>>>,
-    /// Gates /_ready (pool membership). When false the worker leaves the pool.
+    /// When false, /_ready fails and every send nacks.
     pub healthy: Arc<AtomicBool>,
-    /// Gates ingest only. When false the worker stays ready (in the pool) but
-    /// fails every send — a "flapping" worker, used to exercise the flush loop's
-    /// re-defer path and its timeout bound.
+    /// When false, the worker stays ready but nacks every send.
     pub ingest_ok: Arc<AtomicBool>,
-    /// When set, the next sub-batch is processed and recorded but answered
-    /// with a nack — a "lost ACK". Models the ambiguous outcome where the
-    /// worker did the work but the consumer never learns it, so it replays.
+    /// When set, the next sub-batch is recorded, then nacked, so its replay duplicates it.
     pub ack_lost_once: Arc<AtomicBool>,
-    /// When true, every sub-batch is nacked without
-    /// ingesting anything — a poison batch this worker will never accept.
+    /// When true, every sub-batch is nacked unrecorded.
     pub reject_4xx: Arc<AtomicBool>,
-    /// When set, the next sub-batch is ingested in full but reports one
-    /// message fewer than sent — a partial-acceptance contract violation.
+    /// When set to `(distinct_id, frames)`, the next `frames` sub-batches with
+    /// a soft budget that carry this distinct_id leave all of that id's
+    /// messages unfinished. They are not recorded, and the ack is PARTIAL.
+    pub leave_unfinished: Arc<Mutex<Option<(String, usize)>>>,
+    /// (distinct_id, seq) pairs that arrived in a sub-batch marked as replay.
+    pub replayed: Arc<Mutex<Vec<(String, usize)>>>,
+    /// When true, replay sub-batches get no answer and stay in flight.
+    pub hold_replays: Arc<AtomicBool>,
+    /// When set, the next sub-batch is recorded in full but acked as one message fewer.
     pub underreport_once: Arc<AtomicBool>,
-    /// Number of sub-batches that have reached the handler. Counted before
-    /// the gate, so a test can observe a batch is in-flight even while held.
     arrived: Arc<AtomicUsize>,
-    /// Held by the handler for the duration of each sub-batch. A test can
-    /// acquire it via `block()` to freeze a request in flight (simulating a slow
-    /// worker), then drop the guard to let it complete.
+    on_arrival: ArrivalHook,
     gate: Arc<tokio::sync::Mutex<()>>,
     _task: tokio::task::JoinHandle<()>,
 }
 
-/// A receipt-ordered log of `(distinct_id, seq)` shared across all workers in a
-/// run. The shared mutex gives every accepted message a slot in a single total
-/// order, so a test can reconstruct global delivery order across reroutes and
-/// assert per-distinct_id ordering, no loss, and no duplication.
+/// Shared by all workers, so its mutex puts every accepted message in one total order.
 type DeliveryLog = Arc<Mutex<Vec<(String, usize)>>>;
+
+type ArrivalHook = Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>;
 
 impl FakeWorker {
     async fn start() -> Self {
         Self::start_inner(None).await
     }
 
-    /// Like `start`, but also appends every accepted message to a shared,
-    /// cross-worker delivery log (for the churn/ordering suite).
     async fn start_logged(delivery_log: DeliveryLog) -> Self {
         Self::start_inner(Some(delivery_log)).await
     }
@@ -256,7 +271,11 @@ impl FakeWorker {
         let ack_lost_once = Arc::new(AtomicBool::new(false));
         let reject_4xx = Arc::new(AtomicBool::new(false));
         let underreport_once = Arc::new(AtomicBool::new(false));
+        let leave_unfinished = Arc::new(Mutex::new(None));
+        let replayed = Arc::new(Mutex::new(Vec::new()));
+        let hold_replays = Arc::new(AtomicBool::new(false));
         let arrived = Arc::new(AtomicUsize::new(0));
+        let on_arrival: ArrivalHook = Arc::new(Mutex::new(None));
         let gate = Arc::new(tokio::sync::Mutex::new(()));
 
         let app = Router::new().route(
@@ -276,9 +295,7 @@ impl FakeWorker {
             }),
         );
 
-        // Bind HTTP on an ephemeral port and gRPC on that port + 1, so the
-        // gRPC transport's OffsetFromHttp mode can address each worker.
-        // Rebind both if the adjacent port happens to be taken.
+        // gRPC listens on the HTTP port + 1, as `GrpcPort::OffsetFromHttp(1)` expects.
         let (listener, grpc_listener) = loop {
             let http = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let Some(grpc_port) = http.local_addr().unwrap().port().checked_add(1) else {
@@ -301,7 +318,11 @@ impl FakeWorker {
             ack_lost_once: Arc::clone(&ack_lost_once),
             reject_4xx: Arc::clone(&reject_4xx),
             underreport_once: Arc::clone(&underreport_once),
+            leave_unfinished: Arc::clone(&leave_unfinished),
+            replayed: Arc::clone(&replayed),
+            hold_replays: Arc::clone(&hold_replays),
             arrived: Arc::clone(&arrived),
+            on_arrival: Arc::clone(&on_arrival),
             gate: Arc::clone(&gate),
             delivery_log,
         };
@@ -328,7 +349,11 @@ impl FakeWorker {
             ack_lost_once,
             reject_4xx,
             underreport_once,
+            leave_unfinished,
+            replayed,
+            hold_replays,
             arrived,
+            on_arrival,
             gate,
             _task: task,
         }
@@ -338,7 +363,6 @@ impl FakeWorker {
         self.received.lock().unwrap().len()
     }
 
-    /// Message count of each accepted sub-batch, in arrival order.
     fn batch_sizes(&self) -> Vec<usize> {
         self.batch_sizes.lock().unwrap().clone()
     }
@@ -354,6 +378,11 @@ impl FakeWorker {
         Arc::clone(&self.gate).lock_owned().await
     }
 
+    /// Run `hook` as each sub-batch arrives, before the gate holds it.
+    fn on_arrival(&self, hook: impl Fn() + Send + Sync + 'static) {
+        *self.on_arrival.lock().unwrap() = Some(Box::new(hook));
+    }
+
     fn seqs_for(&self, distinct_id: &str) -> Vec<usize> {
         self.received
             .lock()
@@ -365,8 +394,7 @@ impl FakeWorker {
     }
 }
 
-/// The FakeWorker's WorkerIngest implementation. Per the protocol, any
-/// failure ends the stream (a nack means the worker stream is dead).
+// A nack ends the stream, as the protocol requires.
 struct FakeWorkerGrpc {
     received: Arc<Mutex<Vec<(String, usize)>>>,
     batch_sizes: Arc<Mutex<Vec<usize>>>,
@@ -375,7 +403,11 @@ struct FakeWorkerGrpc {
     ack_lost_once: Arc<AtomicBool>,
     reject_4xx: Arc<AtomicBool>,
     underreport_once: Arc<AtomicBool>,
+    leave_unfinished: Arc<Mutex<Option<(String, usize)>>>,
+    replayed: Arc<Mutex<Vec<(String, usize)>>>,
+    hold_replays: Arc<AtomicBool>,
     arrived: Arc<AtomicUsize>,
+    on_arrival: ArrivalHook,
     gate: Arc<tokio::sync::Mutex<()>>,
     delivery_log: Option<DeliveryLog>,
 }
@@ -399,7 +431,11 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let ack_lost_once = Arc::clone(&self.ack_lost_once);
         let reject_4xx = Arc::clone(&self.reject_4xx);
         let underreport_once = Arc::clone(&self.underreport_once);
+        let leave_unfinished = Arc::clone(&self.leave_unfinished);
+        let replayed = Arc::clone(&self.replayed);
+        let hold_replays = Arc::clone(&self.hold_replays);
         let arrived = Arc::clone(&self.arrived);
+        let on_arrival = Arc::clone(&self.on_arrival);
         let gate = Arc::clone(&self.gate);
         let delivery_log = self.delivery_log.clone();
 
@@ -429,7 +465,9 @@ impl WorkerIngestService for FakeWorkerGrpc {
                     continue;
                 };
                 arrived.fetch_add(1, Ordering::SeqCst);
-                // Block here while a test holds the gate (slow worker).
+                if let Some(hook) = on_arrival.lock().unwrap().as_ref() {
+                    hook();
+                }
                 let _hold = gate.lock().await;
                 if !healthy.load(Ordering::Relaxed) || !ingest_ok.load(Ordering::Relaxed) {
                     nack(&tx, sub_batch.seq, "worker unhealthy");
@@ -438,6 +476,9 @@ impl WorkerIngestService for FakeWorkerGrpc {
                 if reject_4xx.load(Ordering::SeqCst) {
                     nack(&tx, sub_batch.seq, "poison batch");
                     return;
+                }
+                if sub_batch.replay && hold_replays.load(Ordering::SeqCst) {
+                    continue;
                 }
                 let entries: Vec<(String, usize)> = sub_batch
                     .messages
@@ -453,13 +494,56 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         (did, seq)
                     })
                     .collect();
-                received.lock().unwrap().extend(entries.iter().cloned());
+                let unfinished_id = if sub_batch.soft_budget_ms > 0 {
+                    leave_unfinished
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .map(|(id, _)| id.clone())
+                } else {
+                    None
+                };
+                let mut done = Vec::new();
+                let mut unfinished = Vec::new();
+                for (message, entry) in sub_batch.messages.iter().zip(entries) {
+                    if unfinished_id.as_deref() == Some(entry.0.as_str()) {
+                        unfinished.push(MessageRef {
+                            partition: message.partition,
+                            offset: message.offset,
+                        });
+                    } else {
+                        done.push(entry);
+                    }
+                }
+                if sub_batch.replay {
+                    replayed.lock().unwrap().extend(done.iter().cloned());
+                }
+                received.lock().unwrap().extend(done.iter().cloned());
                 batch_sizes.lock().unwrap().push(sub_batch.messages.len());
                 if let Some(log) = &delivery_log {
-                    log.lock().unwrap().extend(entries);
+                    log.lock().unwrap().extend(done.iter().cloned());
                 }
-                // Work done and recorded, but the ACK is lost: fail the stream
-                // so the consumer fences and replays.
+                if !unfinished.is_empty() {
+                    let mut frames_left = leave_unfinished.lock().unwrap();
+                    let used_up = frames_left.as_mut().is_some_and(|(_, frames)| {
+                        *frames -= 1;
+                        *frames == 0
+                    });
+                    if used_up {
+                        *frames_left = None;
+                    }
+                    drop(frames_left);
+                    let _ = tx.send(Ok(IngestStreamResponse {
+                        msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                            seq: sub_batch.seq,
+                            status: SubBatchStatus::Partial as i32,
+                            accepted: done.len() as u32,
+                            error: String::new(),
+                            unfinished,
+                        })),
+                    }));
+                    continue;
+                }
                 if ack_lost_once.swap(false, Ordering::SeqCst) {
                     nack(&tx, sub_batch.seq, "ack lost");
                     return;
@@ -488,48 +572,45 @@ impl WorkerIngestService for FakeWorkerGrpc {
     }
 }
 
-// ── Test harness ───────────────────────────────────────────────────────────
+const COMMIT_INTERVAL: Duration = Duration::from_millis(500);
 
 struct Harness {
-    scheduler: SchedulerKind,
     pub workers: Vec<FakeWorker>,
     pub registry: Arc<WorkerRegistry>,
     pub observer: BatcherObserver,
-    /// Cross-worker, receipt-ordered log of every accepted message.
     pub delivery_log: DeliveryLog,
     pub shutdown: CancellationToken,
     task: Option<tokio::task::JoinHandle<()>>,
     _probe_token: CancellationToken,
     topic: String,
-    /// Consumer group id, kept so `restart_consumer` rejoins the same group.
     group_id: String,
-    /// The running consumer's offset ledger, for observing its generations.
     pub ledger: Arc<TopicOffsetLedger>,
+    debug_recorder: Arc<DebugRecorder>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
     pack_targets: PackTargets,
+    budget: Option<RequestBudget>,
+    completion_granularity: CompletionGranularity,
+    partition_budget: BudgetLimits,
+    polling: Polling,
+    in_flight_limit: ChargeLimit,
 }
 
-/// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
-/// the production batch consumer (no auto commit/store, earliest reset). The
-/// short session timeout and heartbeat make group handovers observable
-/// quickly in tests. `instance_id` opts into static membership
-/// (`group.instance.id`).
+// Short session and heartbeat so group handovers finish quickly.
 fn make_kafka_consumer(
     topic: &str,
     group_id: &str,
     instance_id: Option<&str>,
-) -> StreamConsumer<SentinelContext> {
-    make_kafka_consumer_with_context(topic, group_id, instance_id, SentinelContext::detached())
+) -> StreamConsumer<RebalanceContext> {
+    make_kafka_consumer_with_context(topic, group_id, instance_id, RebalanceContext::new())
 }
 
-/// Like `make_kafka_consumer`, under a context the test keeps a hand on.
 fn make_kafka_consumer_with_context(
     topic: &str,
     group_id: &str,
     instance_id: Option<&str>,
-    context: SentinelContext,
-) -> StreamConsumer<SentinelContext> {
+    context: RebalanceContext,
+) -> StreamConsumer<RebalanceContext> {
     let mut config = ClientConfig::new();
     config
         .set("bootstrap.servers", KAFKA_BROKERS)
@@ -543,24 +624,18 @@ fn make_kafka_consumer_with_context(
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    let kafka_consumer: StreamConsumer<SentinelContext> =
+    let kafka_consumer: StreamConsumer<RebalanceContext> =
         config.create_with_context(context).expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
 }
 
-/// The consumer's worker transport, addressed at each FakeWorker's gRPC port
-/// (`GrpcPort::OffsetFromHttp(1)` — HTTP port + 1). One un-acked sub-batch per
-/// worker, and a short ack timeout so a stalled scenario fences within a
-/// test's patience rather than production's 60s.
+/// Each FakeWorker serves gRPC on its HTTP port + 1; a 10 s ack timeout (production: 60 s) so a stalled request fences quickly.
 fn test_transport() -> GrpcTransport {
-    GrpcTransport::new(GrpcPort::OffsetFromHttp(1), 1, Duration::from_secs(10))
+    GrpcTransport::new(GrpcPort::OffsetFromHttp(1), Duration::from_secs(10))
 }
 
-/// Reap drained workers exactly as `main.rs` does in production: complete the
-/// drain of an idle drainer, then remove reaped workers from the registry and
-/// transport. Runs until `token` is cancelled. (A faster tick than production's
-/// 1s keeps test scenarios responsive.)
+/// Ticks every 100 ms, against 1 s in production.
 fn spawn_reaper(
     registry: Arc<WorkerRegistry>,
     transport: Arc<GrpcTransport>,
@@ -588,7 +663,6 @@ fn spawn_reaper(
 
 impl Harness {
     async fn start(
-        kind: SchedulerKind,
         topic: &str,
         partitions: i32,
         worker_count: usize,
@@ -597,7 +671,6 @@ impl Harness {
         registry_config: WorkerRegistryConfig,
     ) -> Self {
         Self::start_inner(
-            kind,
             topic,
             partitions,
             worker_count,
@@ -607,13 +680,52 @@ impl Harness {
             0,
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
+            None,
+            CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
+            BudgetLimits::unset(),
+            Polling::Capped,
+            ChargeLimit::unset(),
+        )
+        .await
+    }
+
+    /// One worker; every request carries a 500 ms soft budget.
+    async fn start_budgeted(topic: &str, partitions: i32) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            1,
+            // A poll can end after one message, so later polls must reach the
+            // packer while the first waits for its run. Every poll under a
+            // held request also stays in flight, and a full cap stops polling.
+            512,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            // A request waits for four events per partition, which one
+            // `alternating_visitors` call per partition fills.
+            PackTargets {
+                events: NonZeroUsize::new(4 * partitions as usize),
+                bytes: None,
+                latency_budget: Duration::from_secs(5),
+            },
+            Some(RequestBudget {
+                soft_budget: Duration::from_millis(500),
+                attempts: BUDGET_ATTEMPTS,
+            }),
+            CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
+            BudgetLimits::unset(),
+            Polling::Capped,
+            ChargeLimit::unset(),
         )
         .await
     }
 
     #[allow(clippy::too_many_arguments)]
     async fn start_with_pack_targets(
-        kind: SchedulerKind,
         topic: &str,
         partitions: i32,
         worker_count: usize,
@@ -623,7 +735,6 @@ impl Harness {
         pack_targets: PackTargets,
     ) -> Self {
         Self::start_inner(
-            kind,
             topic,
             partitions,
             worker_count,
@@ -633,12 +744,17 @@ impl Harness {
             0,
             ComponentOptions::new(),
             pack_targets,
+            None,
+            CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
+            BudgetLimits::unset(),
+            Polling::Capped,
+            ChargeLimit::unset(),
         )
         .await
     }
 
     async fn start_with_liveness(
-        kind: SchedulerKind,
         topic: &str,
         worker_count: usize,
         deferred_flush_timeout: Duration,
@@ -646,7 +762,6 @@ impl Harness {
         stall_threshold: u32,
     ) -> Self {
         Self::start_inner(
-            kind,
             topic,
             1,
             worker_count,
@@ -658,32 +773,205 @@ impl Harness {
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
             common::ONE_MESSAGE_PER_REQUEST,
+            None,
+            CompletionGranularity::Poll,
+            COMMIT_INTERVAL,
+            BudgetLimits::unset(),
+            Polling::Capped,
+            ChargeLimit::unset(),
         )
         .await
     }
 
-    /// Like `start`, but bounds batch collection by payload bytes as well as
-    /// count (`CONSUMER_BATCH_SIZE_KB`). Single worker and partition, so each
-    /// sub-batch is one whole Kafka batch.
-    async fn start_byte_capped(kind: SchedulerKind, topic: &str, batch_size_bytes: usize) -> Self {
+    async fn start_polling(
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        batch_size_bytes: usize,
+        polling: Polling,
+    ) -> Self {
+        let (granularity, partition_budget, in_flight_limit) = match polling {
+            Polling::Capped => (
+                CompletionGranularity::Poll,
+                BudgetLimits::unset(),
+                ChargeLimit::unset(),
+            ),
+            Polling::Continuous => (
+                CompletionGranularity::Group,
+                BudgetLimits::new(
+                    NonZeroU64::new(10_000),
+                    NonZeroU64::new(UNBOUNDED_BYTES),
+                    0.8,
+                )
+                .expect("a valid budget"),
+                ChargeLimit::new(NonZeroU64::new(100_000), NonZeroU64::new(UNBOUNDED_BYTES)),
+            ),
+        };
         Self::start_inner(
-            kind,
             topic,
-            1,
-            1,
-            1,
+            partitions,
+            worker_count,
+            max_in_flight,
             Duration::from_secs(60),
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
+            None,
+            granularity,
+            COMMIT_INTERVAL,
+            partition_budget,
+            polling,
+            in_flight_limit,
+        )
+        .await
+    }
+
+    async fn start_byte_capped(topic: &str, batch_size_bytes: usize, polling: Polling) -> Self {
+        Self::start_polling(topic, 1, 1, 1, batch_size_bytes, polling).await
+    }
+
+    async fn start_group_granularity(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+    ) -> Self {
+        Self::start_group_granularity_committing_every(
+            pack_targets,
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            COMMIT_INTERVAL,
+        )
+        .await
+    }
+
+    async fn start_group_granularity_committing_every(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        commit_interval: Duration,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            pack_targets,
+            None,
+            CompletionGranularity::Group,
+            commit_interval,
+            BudgetLimits::unset(),
+            Polling::Capped,
+            ChargeLimit::unset(),
+        )
+        .await
+    }
+
+    async fn start_with_partition_budget(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        partition_budget: BudgetLimits,
+        polling: Polling,
+    ) -> Self {
+        let (max_in_flight, in_flight_limit) = match polling {
+            Polling::Capped => (8, ChargeLimit::unset()),
+            // One poll slot: the continuous loop must not wait on any poll.
+            Polling::Continuous => (
+                1,
+                ChargeLimit::new(NonZeroU64::new(1_000), NonZeroU64::new(UNBOUNDED_BYTES)),
+            ),
+        };
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            pack_targets,
+            None,
+            CompletionGranularity::Group,
+            COMMIT_INTERVAL,
+            partition_budget,
+            polling,
+            in_flight_limit,
+        )
+        .await
+    }
+
+    async fn start_continuous(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        partition_budget: BudgetLimits,
+        in_flight_limit: ChargeLimit,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            pack_targets,
+            None,
+            CompletionGranularity::Group,
+            COMMIT_INTERVAL,
+            partition_budget,
+            Polling::Continuous,
+            in_flight_limit,
+        )
+        .await
+    }
+
+    async fn start_with_partition_budget_committing_every(
+        pack_targets: PackTargets,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        partition_budget: BudgetLimits,
+        commit_interval: Duration,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            partitions,
+            worker_count,
+            8,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            pack_targets,
+            None,
+            CompletionGranularity::Group,
+            commit_interval,
+            partition_budget,
+            Polling::Capped,
+            ChargeLimit::unset(),
         )
         .await
     }
 
     #[allow(clippy::too_many_arguments)]
     async fn start_inner(
-        kind: SchedulerKind,
         topic: &str,
         partitions: i32,
         worker_count: usize,
@@ -693,6 +981,12 @@ impl Harness {
         batch_size_bytes: usize,
         component_options: ComponentOptions,
         pack_targets: PackTargets,
+        budget: Option<RequestBudget>,
+        completion_granularity: CompletionGranularity,
+        commit_interval: Duration,
+        partition_budget: BudgetLimits,
+        polling: Polling,
+        in_flight_limit: ChargeLimit,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -707,10 +1001,7 @@ impl Harness {
         let probe_token = CancellationToken::new();
         Arc::clone(&registry).start_probing(probe_token.clone());
 
-        let dispatcher = Arc::new(Dispatcher::with_strategy(
-            Arc::clone(&registry),
-            RoutingStrategy::default(),
-        ));
+        let pool_source = WorkerPoolSource::new(Arc::clone(&registry), RoutingStrategy::default());
         let registry_for_test = Arc::clone(&registry);
         let transport = Arc::new(test_transport());
 
@@ -723,18 +1014,18 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let context = SentinelContext::detached();
-        let ledger = context.topic_offset_ledger();
-        let kafka_consumer = make_kafka_consumer_with_context(topic, &group_id, None, context);
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let debug_recorder = DebugRecorder::new(10_000, Duration::from_secs(3600));
+        let kafka_consumer =
+            make_kafka_consumer_with_context(topic, &group_id, None, RebalanceContext::new());
 
         let (batcher, outputs) = common::batcher(
-            kind,
-            &dispatcher,
+            pool_source,
             Arc::clone(&transport),
-            handle.clone(),
             deferred_flush_timeout,
             Duration::from_millis(200),
             pack_targets,
+            budget,
         );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -748,7 +1039,13 @@ impl Harness {
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
-                debug_recorder: None,
+                debug_recorder: Some(Arc::clone(&debug_recorder)),
+                completion_granularity,
+                commit_interval,
+                ledger: Arc::clone(&ledger),
+                partition_budget,
+                polling,
+                in_flight_limit,
             },
             handle,
         );
@@ -766,7 +1063,6 @@ impl Harness {
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         Self {
-            scheduler: kind,
             workers,
             registry: registry_for_test,
             observer,
@@ -777,33 +1073,44 @@ impl Harness {
             topic: topic.to_string(),
             group_id,
             ledger,
+            debug_recorder,
             max_in_flight,
             deferred_flush_timeout,
             pack_targets,
+            budget,
+            completion_granularity,
+            partition_budget,
+            polling,
+            in_flight_limit,
         }
     }
 
-    /// Simulate a crash: abort the consumer task in place — no shutdown signal,
-    /// no draining, no offset commit — as an OOM-kill would.
+    /// Message count of each poll the consumer dispatched, before the packer merges any.
+    fn poll_sizes(&self) -> Vec<usize> {
+        self.debug_recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                DebugEventKind::BatchDispatched { messages, .. } => Some(messages),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Abort the consumer task: no shutdown, no drain, no final commit.
     fn crash_consumer(&mut self) {
         if let Some(task) = self.task.take() {
             task.abort();
         }
     }
 
-    /// Start a fresh consumer stack — a new Kafka client in the same consumer
-    /// group, plus new registry/dispatcher/transport — against the same topic
-    /// and workers, modeling a pod restart. Only the FakeWorkers survive,
-    /// mirroring production where worker pods outlive a consumer pod.
+    /// Model a pod restart: a new consumer stack in the same group, against the same workers.
     async fn restart_consumer(&mut self, registry_config: WorkerRegistryConfig) {
         let worker_urls: Vec<String> = self.workers.iter().map(|w| w.url.clone()).collect();
 
         let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config));
         Arc::clone(&registry).start_probing(self._probe_token.clone());
-        let dispatcher = Arc::new(Dispatcher::with_strategy(
-            Arc::clone(&registry),
-            RoutingStrategy::default(),
-        ));
+        let pool_source = WorkerPoolSource::new(Arc::clone(&registry), RoutingStrategy::default());
         let transport = Arc::new(test_transport());
 
         let mut manager = Manager::builder("e2e-test-restarted")
@@ -812,18 +1119,20 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let context = SentinelContext::detached();
-        self.ledger = context.topic_offset_ledger();
-        let kafka_consumer =
-            make_kafka_consumer_with_context(&self.topic, &self.group_id, None, context);
+        self.ledger = Arc::new(TopicOffsetLedger::new());
+        let kafka_consumer = make_kafka_consumer_with_context(
+            &self.topic,
+            &self.group_id,
+            None,
+            RebalanceContext::new(),
+        );
         let (batcher, outputs) = common::batcher(
-            self.scheduler,
-            &dispatcher,
+            pool_source,
             Arc::clone(&transport),
-            handle.clone(),
             self.deferred_flush_timeout,
             Duration::from_millis(200),
             self.pack_targets,
+            self.budget,
         );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -838,6 +1147,12 @@ impl Harness {
                 max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 debug_recorder: None,
+                completion_granularity: self.completion_granularity,
+                commit_interval: COMMIT_INTERVAL,
+                ledger: Arc::clone(&self.ledger),
+                partition_budget: self.partition_budget,
+                polling: self.polling,
+                in_flight_limit: self.in_flight_limit,
             },
             handle,
         );
@@ -856,8 +1171,6 @@ impl Harness {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
 
-    /// Wait for the consumer's process loop to exit on its own (e.g. after it
-    /// fails a batch), up to `timeout`. Returns true if it exited within the bound.
     async fn wait_for_consumer_exit(&mut self, timeout: Duration) -> bool {
         let Some(task) = self.task.take() else {
             return true;
@@ -865,23 +1178,8 @@ impl Harness {
         tokio::time::timeout(timeout, task).await.is_ok()
     }
 
-    /// The group's committed offset for one partition of the harness topic;
-    /// `None` while nothing is committed.
     fn committed_offset(&self, partition: i32) -> Option<i64> {
-        let probe: BaseConsumer = ClientConfig::new()
-            .set("bootstrap.servers", KAFKA_BROKERS)
-            .set("group.id", &self.group_id)
-            .create()
-            .expect("committed-offset probe");
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition(&self.topic, partition);
-        let committed = probe
-            .committed_offsets(tpl, Duration::from_secs(2))
-            .expect("fetch committed offsets");
-        match committed.elements()[0].offset() {
-            rdkafka::Offset::Offset(offset) => Some(offset),
-            _ => None,
-        }
+        broker_committed_offset(&self.group_id, &self.topic, partition)
     }
 
     async fn wait_for(&self, total: usize, timeout: Duration) {
@@ -905,6 +1203,71 @@ impl Harness {
             let _ = tokio::time::timeout(Duration::from_secs(3), task).await;
         }
     }
+
+    /// A second consumer in the same group, over the same workers, as a second pod.
+    async fn join_second_consumer(&self) -> SecondConsumer {
+        let worker_urls: Vec<String> = self.workers.iter().map(|w| w.url.clone()).collect();
+        let registry = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
+        let probe = CancellationToken::new();
+        Arc::clone(&registry).start_probing(probe.clone());
+        let pool_source = WorkerPoolSource::new(Arc::clone(&registry), RoutingStrategy::default());
+        let transport = Arc::new(test_transport());
+        let mut manager = Manager::builder("e2e-c2").with_trap_signals(false).build();
+        let handle = manager.register("consumer", ComponentOptions::new());
+        let shutdown = handle.shutdown_token();
+        let (batcher, outputs) = common::batcher(
+            pool_source,
+            Arc::clone(&transport),
+            self.deferred_flush_timeout,
+            Duration::from_millis(200),
+            self.pack_targets,
+            self.budget,
+        );
+        let consumer = IngestionConsumer::from_parts(
+            make_kafka_consumer(&self.topic, &self.group_id, None),
+            batcher,
+            outputs,
+            transport,
+            worker_urls,
+            IngestionConsumerOptions {
+                batch_size: 50,
+                batch_size_bytes: 0,
+                batch_timeout: Duration::from_millis(100),
+                max_in_flight_batches: self.max_in_flight,
+                group_id: "e2e-test".to_string(),
+                debug_recorder: None,
+                completion_granularity: self.completion_granularity,
+                commit_interval: COMMIT_INTERVAL,
+                ledger: Arc::new(TopicOffsetLedger::new()),
+                partition_budget: self.partition_budget,
+                polling: self.polling,
+                in_flight_limit: self.in_flight_limit,
+            },
+            handle,
+        );
+        let task = tokio::spawn(async move { consumer.process().await });
+        SecondConsumer {
+            shutdown,
+            probe,
+            task,
+            _manager: manager,
+        }
+    }
+}
+
+struct SecondConsumer {
+    shutdown: CancellationToken,
+    probe: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+    _manager: Manager,
+}
+
+impl SecondConsumer {
+    async fn stop(self) {
+        self.shutdown.cancel();
+        let _ = tokio::time::timeout(Duration::from_secs(5), self.task).await;
+        self.probe.cancel();
+    }
 }
 
 fn fast_registry_config() -> WorkerRegistryConfig {
@@ -921,7 +1284,23 @@ fn fast_registry_config() -> WorkerRegistryConfig {
     }
 }
 
-/// Poll `cond` until it returns true or the timeout elapses (panics on timeout).
+fn broker_committed_offset(group_id: &str, topic: &str, partition: i32) -> Option<i64> {
+    let probe: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", group_id)
+        .create()
+        .expect("committed-offset probe");
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition(topic, partition);
+    let committed = probe
+        .committed_offsets(tpl, Duration::from_secs(2))
+        .expect("fetch committed offsets");
+    match committed.elements()[0].offset() {
+        rdkafka::Offset::Offset(offset) => Some(offset),
+        _ => None,
+    }
+}
+
 async fn wait_until(timeout: Duration, msg: &str, mut cond: impl FnMut() -> bool) {
     let deadline = tokio::time::Instant::now() + timeout;
     while !cond() {
@@ -933,8 +1312,6 @@ async fn wait_until(timeout: Duration, msg: &str, mut cond: impl FnMut() -> bool
     }
 }
 
-/// Index of the single worker that has received a sub-batch so far.
-/// Panics if zero or more than one have — callers rely on a unique pin.
 fn sole_arrived_worker(harness: &Harness) -> usize {
     let arrived: Vec<usize> = harness
         .workers
@@ -951,31 +1328,13 @@ fn sole_arrived_worker(harness: &Harness) -> usize {
     arrived[0]
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────
-
-/// Kafka partition order is preserved per distinct_id on each worker.
-///
-/// With concurrent_batches=1 (sequential processing), pins are evicted after
-/// each batch resolves, so the same distinct_id can be assigned to different
-/// workers across batches. The guarantee is narrower: wherever a distinct_id's
-/// messages land, they arrive in Kafka sequence order on that worker.
-///
-/// Cross-batch stickiness (all distinct_id events always to the same pod) is
-/// the responsibility of the concurrent-batches layer: when concurrent_batches>1,
-/// the Dispatcher's ref-counted pins keep the assignment alive across overlapping
-/// in-flight batches. That invariant is tested in the concurrent-batches suite.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash, common::PRODUCTION_PACK_TARGETS)]
-#[case::key_table(SchedulerKind::KeyTable, common::PRODUCTION_PACK_TARGETS)]
-#[case::key_table_one_message(SchedulerKind::KeyTable, common::ONE_MESSAGE_PER_REQUEST)]
+#[case::production_targets(common::PRODUCTION_PACK_TARGETS)]
+#[case::one_message_per_request(common::ONE_MESSAGE_PER_REQUEST)]
 #[tokio::test]
-async fn messages_per_distinct_id_arrive_in_order(
-    #[case] kind: SchedulerKind,
-    #[case] pack_targets: PackTargets,
-) {
+async fn messages_per_distinct_id_arrive_in_order(#[case] pack_targets: PackTargets) {
     let topic = format!("e2e-ordering-{}", Uuid::new_v4());
     let harness = Harness::start_with_pack_targets(
-        kind,
         &topic,
         3,
         2,
@@ -995,12 +1354,10 @@ async fn messages_per_distinct_id_arrive_in_order(
 
     harness.wait_for(24, Duration::from_secs(15)).await;
 
-    // All messages must arrive.
     let total: usize = harness.workers.iter().map(|w| w.count()).sum();
     assert_eq!(total, 24, "expected 24 messages total, got {total}");
 
-    // On whichever worker(s) a distinct_id's messages land, they must be in
-    // ascending sequence order — no reordering within a single worker's delivery.
+    // A key can move between workers across requests, so order holds per worker.
     for worker in &harness.workers {
         for user in ["user-1", "user-2", "user-3"] {
             let seqs = worker.seqs_for(user);
@@ -1014,21 +1371,248 @@ async fn messages_per_distinct_id_arrive_in_order(
     harness.stop().await;
 }
 
-/// The byte bound ends collection before the count bound when payloads are
-/// large, so batch memory tracks bytes rather than event count.
-///
-/// Twelve 2KiB messages sit far inside the 50-message count cap, so without the
-/// byte bound they batch together; the 4KiB cap admits at most two per batch
-/// (the second crosses it). The count cap alone cannot express that, which is
-/// the regression: a lane whose events are large gets the memory of a full
-/// count batch no matter how the count is tuned.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn byte_bound_caps_batches_below_the_count_bound(#[case] kind: SchedulerKind) {
+async fn a_partial_ack_redelivers_only_the_unfinished_messages() {
+    let topic = format!("e2e-partial-{}", Uuid::new_v4());
+    let harness = Harness::start_budgeted(&topic, 1).await;
+    *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-a".to_string(), 1));
+
+    produce_keyed_in_one_transaction(
+        &topic,
+        "tok",
+        &alternating_visitors(0, "tok:203.0.113.7", 0),
+    )
+    .await;
+    // A commit means every resend settled, so a late duplicate is in the log.
+    wait_until(Duration::from_secs(15), "the offsets commit", || {
+        harness
+            .committed_offset(0)
+            .is_some_and(|offset| offset >= 4)
+    })
+    .await;
+
+    let worker = &harness.workers[0];
+    assert_eq!(
+        worker.batch_sizes()[0],
+        4,
+        "all four messages ride one request: sizes {:?}",
+        worker.batch_sizes()
+    );
+    assert_eq!(worker.seqs_for("visitor-a"), vec![0, 2]);
+    assert_eq!(worker.seqs_for("visitor-b"), vec![1, 3]);
+    assert_eq!(
+        *worker.replayed.lock().unwrap(),
+        vec![("visitor-a".to_string(), 0), ("visitor-a".to_string(), 2)],
+        "only the unfinished messages are redelivered, marked as replay"
+    );
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_crash_before_a_partial_acks_resend_loses_nothing() {
+    let topic = format!("e2e-partial-crash-{}", Uuid::new_v4());
+    let mut harness = Harness::start_budgeted(&topic, 1).await;
+    *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-a".to_string(), 1));
+    // The resend never settles, so it is still in flight at the crash.
+    harness.workers[0]
+        .hold_replays
+        .store(true, Ordering::SeqCst);
+
+    produce_keyed_in_one_transaction(
+        &topic,
+        "tok",
+        &alternating_visitors(0, "tok:203.0.113.7", 0),
+    )
+    .await;
+    wait_until(
+        Duration::from_secs(15),
+        "the resend to reach the worker",
+        || harness.workers[0].arrived_count() >= 2,
+    )
+    .await;
+    assert!(
+        harness.workers[0].seqs_for("visitor-a").is_empty(),
+        "visitor A's messages are unfinished"
+    );
+
+    // Commits are async: wait so a wrong commit lands before the crash.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        harness.committed_offset(0),
+        None,
+        "nothing commits while an unfinished message waits for its resend"
+    );
+
+    harness.crash_consumer();
+    harness.restart_consumer(fast_registry_config()).await;
+
+    wait_until(
+        Duration::from_secs(30),
+        "the offsets to commit after the restart",
+        || {
+            harness
+                .committed_offset(0)
+                .is_some_and(|offset| offset >= 4)
+        },
+    )
+    .await;
+    assert_eq!(
+        harness.workers[0].seqs_for("visitor-a"),
+        vec![0, 2],
+        "the restarted consumer delivers the unfinished messages"
+    );
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_partial_ack_after_a_revoke_resends_nothing() {
+    let topic = format!("e2e-partial-revoke-{}", Uuid::new_v4());
+    let harness = Harness::start_budgeted(&topic, 2).await;
+    *harness.workers[0].leave_unfinished.lock().unwrap() = Some(("visitor-a".to_string(), 1));
+    let partitions = [
+        TopicPartition::new(topic.clone(), 0),
+        TopicPartition::new(topic.clone(), 1),
+    ];
+    let records: Vec<_> = alternating_visitors(0, "tok:203.0.113.7", 0)
+        .into_iter()
+        .chain(alternating_visitors(1, "tok:203.0.113.8", 10))
+        .collect();
+
+    // A trickle keeps the consumer polling, so it takes part in the rebalance.
+    let producer = make_producer();
+    producer
+        .client()
+        .fetch_metadata(Some(&topic), Duration::from_secs(5))
+        .expect("trickle producer metadata");
+
+    // Hold the first request; the trickle's requests queue behind it (one un-acked per worker).
+    let gate = harness.workers[0].block().await;
+    produce_keyed_in_one_transaction(&topic, "tok", &records).await;
+    let trickling = Arc::new(AtomicBool::new(true));
+    let trickle = tokio::spawn({
+        let trickling = Arc::clone(&trickling);
+        let topic = topic.clone();
+        async move {
+            let mut seq = 1000usize;
+            while trickling.load(Ordering::SeqCst) {
+                produce(&producer, &topic, 0, "tok", "trickle", seq).await;
+                seq += 1;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+    });
+    wait_until(
+        Duration::from_secs(15),
+        "a request to reach the worker",
+        || harness.workers[0].arrived_count() > 0,
+    )
+    .await;
+    let generations: Vec<u64> = partitions
+        .iter()
+        .map(|partition| harness.ledger.generation(partition))
+        .collect();
+
+    let second = harness.join_second_consumer().await;
+
+    // Wait under the 10 s ack timeout, after which the held request returns as a replay.
+    wait_until(
+        Duration::from_secs(8),
+        "the rebalance to revoke both partitions",
+        || {
+            partitions
+                .iter()
+                .zip(&generations)
+                .all(|(partition, before)| harness.ledger.generation(partition) > *before)
+        },
+    )
+    .await;
+    trickling.store(false, Ordering::SeqCst);
+    trickle.await.expect("trickle task");
+    drop(gate);
+
+    wait_until(
+        Duration::from_secs(30),
+        "every message to be delivered",
+        || {
+            let delivered: HashSet<(String, usize)> = harness
+                .delivery_log
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+            records
+                .iter()
+                .all(|(_, _, visitor, seq)| delivered.contains(&(visitor.to_string(), *seq)))
+        },
+    )
+    .await;
+    // The old owner may not have settled the partial ack yet; wait for it.
+    wait_until(
+        Duration::from_secs(15),
+        "the old owner to settle the partial ack",
+        || harness.observer.total_in_flight() == 0,
+    )
+    .await;
+    assert!(
+        harness.workers[0]
+            .leave_unfinished
+            .lock()
+            .unwrap()
+            .is_none(),
+        "the held request was acked as partial"
+    );
+    assert_eq!(
+        *harness.workers[0].replayed.lock().unwrap(),
+        Vec::<(String, usize)>::new(),
+        "the old owner resends nothing for a revoked partition"
+    );
+
+    second.stop().await;
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_message_that_never_fits_the_budget_lands_without_one() {
+    let topic = format!("e2e-partial-escalate-{}", Uuid::new_v4());
+    let harness = Harness::start_budgeted(&topic, 1).await;
+    *harness.workers[0].leave_unfinished.lock().unwrap() =
+        Some(("visitor-a".to_string(), usize::MAX));
+
+    produce_keyed_in_one_transaction(
+        &topic,
+        "tok",
+        &alternating_visitors(0, "tok:203.0.113.7", 0),
+    )
+    .await;
+    wait_until(Duration::from_secs(15), "the offsets commit", || {
+        harness
+            .committed_offset(0)
+            .is_some_and(|offset| offset >= 4)
+    })
+    .await;
+
+    let worker = &harness.workers[0];
+    assert_eq!(worker.seqs_for("visitor-a"), vec![0, 2]);
+    assert_eq!(worker.seqs_for("visitor-b"), vec![1, 3]);
+    assert_eq!(
+        worker.batch_sizes(),
+        vec![4, 2, 2],
+        "visitor A goes out once more with a budget, then once without"
+    );
+
+    harness.stop().await;
+}
+
+#[rstest]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
+#[tokio::test]
+async fn byte_bound_caps_batches_below_the_count_bound(#[case] polling: Polling) {
     let topic = format!("e2e-bytecap-{}", Uuid::new_v4());
-    let harness = Harness::start_byte_capped(kind, &topic, 4096).await;
+    let harness = Harness::start_byte_capped(&topic, 4096, polling).await;
 
     let producer = make_producer();
     let payload = vec![b'x'; 2048];
@@ -1046,35 +1630,28 @@ async fn byte_bound_caps_batches_below_the_count_bound(#[case] kind: SchedulerKi
 
     harness.wait_for(12, Duration::from_secs(20)).await;
 
-    let sizes = harness.workers[0].batch_sizes();
+    let sizes = harness.poll_sizes();
     assert_eq!(
         sizes.iter().sum::<usize>(),
         12,
-        "every message must still be delivered, got batches {sizes:?}"
+        "every message must still be polled, got polls {sizes:?}"
     );
-    // A collection timeout can only make a batch smaller, so this holds
-    // regardless of how production interleaves with the 100ms window.
+    // A batch timeout only shrinks polls, so producer timing cannot break this.
     assert!(
         sizes.iter().all(|&n| n <= 2),
-        "no batch may exceed the byte bound by more than one message, got {sizes:?}"
+        "no poll may exceed the byte bound by more than one message, got {sizes:?}"
     );
 
     harness.stop().await;
 }
 
-/// A single message larger than the whole byte bound still moves.
-///
-/// The bound is checked before appending, so the first message of a batch is
-/// always admitted. Checking after would let one oversized payload produce an
-/// empty batch and wedge its partition — the message can never be skipped, and
-/// no smaller batch can ever contain it.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn message_larger_than_byte_bound_is_still_delivered(#[case] kind: SchedulerKind) {
+async fn message_larger_than_byte_bound_is_still_delivered(#[case] polling: Polling) {
     let topic = format!("e2e-bytecap-oversize-{}", Uuid::new_v4());
-    let harness = Harness::start_byte_capped(kind, &topic, 4096).await;
+    let harness = Harness::start_byte_capped(&topic, 4096, polling).await;
 
     let producer = make_producer();
     produce_raw(
@@ -1098,16 +1675,10 @@ async fn message_larger_than_byte_bound_is_still_delivered(#[case] kind: Schedul
     harness.stop().await;
 }
 
-/// When a worker becomes unhealthy, its sticky pins are dropped and subsequent
-/// messages for the same key are rerouted to a healthy worker.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn failing_worker_triggers_rerouting(#[case] kind: SchedulerKind) {
+async fn failing_worker_triggers_rerouting() {
     let topic = format!("e2e-failover-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         2,
         2,
@@ -1119,14 +1690,12 @@ async fn failing_worker_triggers_rerouting(#[case] kind: SchedulerKind) {
 
     let producer = make_producer();
 
-    // Batch 1: 4 messages for user-1 (partition 0) and user-2 (partition 1).
     for seq in 0..4usize {
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
         produce(&producer, &topic, 1, "tok", "user-2", seq).await;
     }
     harness.wait_for(8, Duration::from_secs(10)).await;
 
-    // Identify which worker owns user-1 and take it down.
     let dead_idx = if !harness.workers[0].seqs_for("user-1").is_empty() {
         0
     } else {
@@ -1138,17 +1707,13 @@ async fn failing_worker_triggers_rerouting(#[case] kind: SchedulerKind) {
         .healthy
         .store(false, Ordering::Relaxed);
 
-    // Wait for probe failures → Unhealthy → dead declaration.
-    // probe_interval*probe_failure_threshold + dead_declaration ≈ 300ms; use 600ms to be safe.
     tokio::time::sleep(Duration::from_millis(600)).await;
 
-    // Batch 2: 4 more messages for user-1. The pin was dropped; should route to the live worker.
     for seq in 4..8usize {
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
     }
     harness.wait_for(12, Duration::from_secs(10)).await;
 
-    // Batch-2 messages (seq 4–7) must all be on the live worker and in order.
     let live_seqs = harness.workers[live_idx].seqs_for("user-1");
     let batch2_seqs: Vec<usize> = live_seqs.iter().copied().filter(|&s| s >= 4).collect();
     assert_eq!(
@@ -1160,17 +1725,10 @@ async fn failing_worker_triggers_rerouting(#[case] kind: SchedulerKind) {
     harness.stop().await;
 }
 
-/// A worker whose sends fail (5xx through every retry) is a fault for passive
-/// health, not backpressure: the failed sends must degrade it even though the
-/// readiness probe keeps passing.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn failed_sends_degrade_passive_health(#[case] kind: SchedulerKind) {
+async fn failed_sends_degrade_passive_health() {
     let topic = format!("e2e-passive-fault-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         1,
         1,
@@ -1196,19 +1754,10 @@ async fn failed_sends_degrade_passive_health(#[case] kind: SchedulerKind) {
     harness.stop().await;
 }
 
-/// Graceful drain end-to-end: a worker that begins draining receives no new
-/// work, keeps the messages it already has (no reprocessing, no loss), and
-/// subsequent messages for the same distinct_id reroute in order to a surviving
-/// worker. The drainer stays alive throughout (it is not failed), so the probe
-/// must not declare it dead.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn draining_worker_takes_no_new_work_and_reroutes_in_order(#[case] kind: SchedulerKind) {
+async fn draining_worker_takes_no_new_work_and_reroutes_in_order() {
     let topic = format!("e2e-drain-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         2,
         2,
@@ -1220,14 +1769,12 @@ async fn draining_worker_takes_no_new_work_and_reroutes_in_order(#[case] kind: S
 
     let producer = make_producer();
 
-    // Batch 1: 4 messages each for user-1 (partition 0) and user-2 (partition 1).
     for seq in 0..4usize {
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
         produce(&producer, &topic, 1, "tok", "user-2", seq).await;
     }
     harness.wait_for(8, Duration::from_secs(10)).await;
 
-    // Identify which worker owns user-1 and begin draining it.
     let drain_idx = if !harness.workers[0].seqs_for("user-1").is_empty() {
         0
     } else {
@@ -1237,9 +1784,6 @@ async fn draining_worker_takes_no_new_work_and_reroutes_in_order(#[case] kind: S
     let drain_url = harness.workers[drain_idx].url.clone();
     harness.registry.start_draining(&drain_url);
 
-    // With the reaper running (as in production), an idle drainer is promptly
-    // reaped — cleanly removed from the pool once its in-flight hits zero —
-    // rather than lingering or being probed to death mid-drain.
     wait_until(Duration::from_secs(2), "idle drainer to be reaped", || {
         !harness
             .registry
@@ -1249,14 +1793,11 @@ async fn draining_worker_takes_no_new_work_and_reroutes_in_order(#[case] kind: S
     })
     .await;
 
-    // Batch 2: 4 more messages for user-1. The drainer takes no new work, so
-    // these must route to the live worker, in order.
     for seq in 4..8usize {
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
     }
     harness.wait_for(12, Duration::from_secs(10)).await;
 
-    // No reprocessing / no loss: each user-1 seq 0..8 is delivered exactly once.
     let mut all_user1: Vec<usize> = harness
         .workers
         .iter()
@@ -1269,14 +1810,12 @@ async fn draining_worker_takes_no_new_work_and_reroutes_in_order(#[case] kind: S
         "user-1 messages were lost or duplicated: {all_user1:?}"
     );
 
-    // The draining worker received no new work after draining began.
     let drained_seqs = harness.workers[drain_idx].seqs_for("user-1");
     assert!(
         drained_seqs.iter().all(|&s| s < 4),
         "draining worker received new work: {drained_seqs:?}"
     );
 
-    // Batch-2 messages all landed on the live worker, in ascending order.
     let live_batch2: Vec<usize> = harness.workers[live_idx]
         .seqs_for("user-1")
         .into_iter()
@@ -1291,17 +1830,6 @@ async fn draining_worker_takes_no_new_work_and_reroutes_in_order(#[case] kind: S
     harness.stop().await;
 }
 
-// ── Failure-triggered defer + flush at the consumer level ────────────────────
-//
-// These drive the consumer's defer→stash→flush loop end-to-end through real
-// Kafka. A "blocking" worker holds a batch in flight so a test can flip it to a
-// failure before it responds; the failed send then exercises `defer_failed` and
-// the `complete_oldest_batch` flush loop. (The drain-triggered defer needs a
-// drain signal injected between two overlapping batch assigns, which isn't
-// reachable from a black-box test; that path is covered by the dispatcher unit
-// and dispatcher_integration tests, which drive `assign`/`flush_deferred`
-// directly.)
-
 /// Whether `url` is currently routable (healthy or degraded) per the registry.
 fn in_pool(harness: &Harness, url: &str) -> bool {
     harness
@@ -1311,38 +1839,10 @@ fn in_pool(harness: &Harness, url: &str) -> bool {
         .any(|w| w.as_ref() == url)
 }
 
-/// Whether `url` is routable per a bare registry (no Harness).
-fn registry_has(registry: &WorkerRegistry, url: &str) -> bool {
-    registry.healthy_workers().iter().any(|w| w.as_ref() == url)
-}
-
-/// Build a dispatcher-level message for a distinct_id carrying `seq` in its body,
-/// so a FakeWorker records it the same way it records produced Kafka records.
-fn worker_msg(distinct_id: &str, seq: usize) -> SerializedKafkaMessage {
-    let mut headers = HashMap::new();
-    headers.insert("token".to_string(), "tok".to_string());
-    headers.insert("distinct_id".to_string(), distinct_id.to_string());
-    SerializedKafkaMessage {
-        topic: "t".into(),
-        partition: 0,
-        offset: seq as i64,
-        timestamp: 0,
-        key: Some(format!("tok:{distinct_id}")),
-        value: Some(format!(r#"{{"seq":{seq}}}"#)),
-        headers,
-    }
-}
-
-/// A send that fails mid-flight is deferred and replayed, in order, to the
-/// surviving worker — no loss, no duplication, no reordering.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn send_failure_mid_flight_replays_to_survivor_in_order(#[case] kind: SchedulerKind) {
+async fn send_failure_mid_flight_replays_to_survivor_in_order() {
     let topic = format!("e2e-replay-single-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -1369,7 +1869,6 @@ async fn send_failure_mid_flight_replays_to_survivor_in_order(#[case] kind: Sche
     let failed = sole_arrived_worker(&harness);
     let survivor = 1 - failed;
 
-    // Turn the held request into a failure, then release everything.
     harness.workers[failed]
         .healthy
         .store(false, Ordering::SeqCst);
@@ -1392,23 +1891,15 @@ async fn send_failure_mid_flight_replays_to_survivor_in_order(#[case] kind: Sche
     harness.stop().await;
 }
 
-/// In a batch split across two workers, only the failed sub-batch is deferred
-/// and replayed; the successful one is not re-sent. Everything ends up on the
-/// survivor, in order, with the failed worker having recorded nothing.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn partial_send_failure_replays_only_the_failed_subbatch(#[case] kind: SchedulerKind) {
+async fn partial_send_failure_replays_only_the_failed_subbatch() {
     let topic = format!("e2e-replay-partial-{}", Uuid::new_v4());
-    // Each four-message key fills its own request, so there are two sub-batches.
     let one_key_of_four_per_request = PackTargets {
         events: NonZeroUsize::new(4),
         bytes: None,
         latency_budget: Duration::ZERO,
     };
     let harness = Harness::start_with_pack_targets(
-        kind,
         &topic,
         1,
         2,
@@ -1424,10 +1915,7 @@ async fn partial_send_failure_replays_only_the_failed_subbatch(#[case] kind: Sch
         guards.push(Some(w.block().await));
     }
 
-    // Two equal-size keys → bin-packed one per worker: one batch, two
-    // sub-batches, one per worker. The keys must share one Kafka batch: at
-    // max_in_flight=1 a Kafka batch with only one key blocks the next batch,
-    // so the second worker would never receive a sub-batch.
+    // One poll must carry both keys; at max_in_flight=1 a one-key poll would block the second.
     let records: Vec<(&str, usize)> = (0..4usize)
         .flat_map(|seq| [("user-1", seq), ("user-2", seq)])
         .collect();
@@ -1439,8 +1927,6 @@ async fn partial_send_failure_replays_only_the_failed_subbatch(#[case] kind: Sch
     )
     .await;
 
-    // Fail worker 0's sub-batch only. Whatever key it held replays to worker 1,
-    // so worker 1 ends with both keys and worker 0 with nothing.
     harness.workers[0].healthy.store(false, Ordering::SeqCst);
     guards[1] = None;
     guards[0] = None;
@@ -1466,27 +1952,13 @@ async fn partial_send_failure_replays_only_the_failed_subbatch(#[case] kind: Sch
     harness.stop().await;
 }
 
-/// When a send fails and there is no healthy worker to replay to, the deferred
-/// work is held (not lost, not dropped) and the flush loop retries until a
-/// worker returns, then drains in order. Waiting for a worker, and waiting on
-/// a slow one once found, both outlast the liveness deadline here: neither is
-/// a stall, so the lifecycle monitor must not shut the consumer down.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn deferred_flush_retries_until_a_worker_recovers(#[case] kind: SchedulerKind) {
+async fn deferred_flush_retries_until_a_worker_recovers() {
     let topic = format!("e2e-replay-wait-{}", Uuid::new_v4());
     let liveness_deadline = Duration::from_millis(1500);
-    let harness = Harness::start_with_liveness(
-        kind,
-        &topic,
-        2,
-        Duration::from_secs(60),
-        liveness_deadline,
-        2,
-    )
-    .await;
+    let harness =
+        Harness::start_with_liveness(&topic, 2, Duration::from_secs(60), liveness_deadline, 2)
+            .await;
     let producer = make_producer();
 
     // Take worker 1 out of the pool so the batch routes to worker 0.
@@ -1511,11 +1983,7 @@ async fn deferred_flush_retries_until_a_worker_recovers(#[case] kind: SchedulerK
     harness.workers[0].healthy.store(false, Ordering::SeqCst);
     drop(guard0);
 
-    // Wait until worker 0 has also left the pool. The failed send is now
-    // deferred with nowhere to go. (At max_in_flight=1 the consumer is parked in
-    // the flush loop for the oldest batch and stops consuming, so only that
-    // batch's messages are stashed — Kafka polling may have split the produced
-    // records across batches; the exact count doesn't matter.)
+    // Only the oldest poll is stashed, so read its count rather than assert 4.
     wait_until(
         Duration::from_secs(10),
         "worker 0 to leave the pool",
@@ -1525,16 +1993,14 @@ async fn deferred_flush_retries_until_a_worker_recovers(#[case] kind: SchedulerK
     wait_until(
         Duration::from_secs(10),
         "the failed send to be deferred",
-        || harness.observer.held_messages() > 0,
+        || harness.observer.pending_messages() > 0,
     )
     .await;
 
-    // The deferred work is held steady — the flush loop is backing off, not
-    // dropping anything — for as long as no worker is available.
-    let held = harness.observer.held_messages();
+    let held = harness.observer.pending_messages();
     tokio::time::sleep(liveness_deadline * 4).await;
     assert_eq!(
-        harness.observer.held_messages(),
+        harness.observer.pending_messages(),
         held,
         "deferred work must be held steady while no worker is available"
     );
@@ -1543,8 +2009,7 @@ async fn deferred_flush_retries_until_a_worker_recovers(#[case] kind: SchedulerK
         "waiting for a worker must keep the liveness heartbeat going"
     );
 
-    // Recover worker 1 while it is blocked → the flush loop sends the stash to
-    // it and waits on the in-flight request past the liveness deadline.
+    // Worker 1 rejoins blocked, so the flush waits on it past the liveness deadline.
     let guard1 = harness.workers[1].block().await;
     harness.workers[1].healthy.store(true, Ordering::SeqCst);
     wait_until(Duration::from_secs(10), "replay to reach worker 1", || {
@@ -1557,8 +2022,6 @@ async fn deferred_flush_retries_until_a_worker_recovers(#[case] kind: SchedulerK
         "waiting on a slow worker must keep the liveness heartbeat going"
     );
 
-    // Release worker 1 → the stash drains, then the consumer resumes and
-    // delivers the rest. All of user-1 lands on worker 1, in order.
     drop(guard1);
     harness.wait_for(4, Duration::from_secs(15)).await;
 
@@ -1576,21 +2039,13 @@ async fn deferred_flush_retries_until_a_worker_recovers(#[case] kind: SchedulerK
     harness.stop().await;
 }
 
-/// With no worker ever coming back, the batch must still fail: the flush
-/// loop's own `deferred_flush_timeout` ends it, not a liveness stall, so the
-/// exit lands at the flush timeout rather than at the (shorter) stall window.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn no_worker_exit_comes_from_the_flush_timeout_not_a_liveness_stall(
-    #[case] kind: SchedulerKind,
-) {
+async fn no_worker_exit_comes_from_the_flush_timeout_not_a_liveness_stall() {
     let topic = format!("e2e-flush-timeout-liveness-{}", Uuid::new_v4());
     let flush_timeout = Duration::from_secs(4);
     let liveness_deadline = Duration::from_millis(1500);
     let mut harness =
-        Harness::start_with_liveness(kind, &topic, 2, flush_timeout, liveness_deadline, 2).await;
+        Harness::start_with_liveness(&topic, 2, flush_timeout, liveness_deadline, 2).await;
     let producer = make_producer();
 
     harness.workers[1].healthy.store(false, Ordering::SeqCst);
@@ -1615,7 +2070,7 @@ async fn no_worker_exit_comes_from_the_flush_timeout_not_a_liveness_stall(
     wait_until(
         Duration::from_secs(10),
         "the failed send to be deferred",
-        || harness.observer.held_messages() > 0,
+        || harness.observer.pending_messages() > 0,
     )
     .await;
     let deferred_at = tokio::time::Instant::now();
@@ -1638,20 +2093,13 @@ async fn no_worker_exit_comes_from_the_flush_timeout_not_a_liveness_stall(
     );
 }
 
-/// A drain that is slow but moving must complete even when it outlasts both the
-/// liveness deadline and the flush timeout: every landing resets the flush
-/// deadline, and the wait in between keeps the heartbeat going. Two keys land
-/// in two flush rounds, the first only after the original deadline has passed.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout(#[case] kind: SchedulerKind) {
+async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout() {
     let topic = format!("e2e-slow-drain-{}", Uuid::new_v4());
     let flush_timeout = Duration::from_secs(3);
     let liveness_deadline = Duration::from_millis(1500);
     let harness =
-        Harness::start_with_liveness(kind, &topic, 3, flush_timeout, liveness_deadline, 2).await;
+        Harness::start_with_liveness(&topic, 3, flush_timeout, liveness_deadline, 2).await;
     let producer = make_producer();
 
     // Workers 1 and 2 out, so both keys route to worker 0 together.
@@ -1678,8 +2126,7 @@ async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout(#[case] ki
     })
     .await;
 
-    // Workers 1 and 2 rejoin, blocked, before worker 0 fails, so the flush
-    // sees both and spreads the two keys over them, one request each.
+    // Rejoin workers 1 and 2 before worker 0 fails, so the flush spreads the keys over them.
     let mut guard1 = Some(harness.workers[1].block().await);
     let guard2 = harness.workers[2].block().await;
     for i in [1, 2] {
@@ -1705,7 +2152,7 @@ async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout(#[case] ki
     harness.workers[2].ingest_ok.store(false, Ordering::SeqCst);
     drop(guard2);
     wait_until(Duration::from_secs(10), "worker 2 to answer", || {
-        harness.workers[2].arrived_count() == 1 && harness.observer.held_messages() > 0
+        harness.workers[2].arrived_count() == 1 && harness.observer.pending_messages() > 0
     })
     .await;
     let guard2 = harness.workers[2].block().await;
@@ -1764,20 +2211,13 @@ async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout(#[case] ki
     harness.stop().await;
 }
 
-/// A failed multi-key sub-batch replays every key, each in its own Kafka order,
-/// once a worker is available.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash, common::PRODUCTION_PACK_TARGETS)]
-#[case::key_table(SchedulerKind::KeyTable, common::PRODUCTION_PACK_TARGETS)]
-#[case::key_table_one_message(SchedulerKind::KeyTable, common::ONE_MESSAGE_PER_REQUEST)]
+#[case::production_targets(common::PRODUCTION_PACK_TARGETS)]
+#[case::one_message_per_request(common::ONE_MESSAGE_PER_REQUEST)]
 #[tokio::test]
-async fn multi_key_send_failure_replays_every_key_in_order(
-    #[case] kind: SchedulerKind,
-    #[case] pack_targets: PackTargets,
-) {
+async fn multi_key_send_failure_replays_every_key_in_order(#[case] pack_targets: PackTargets) {
     let topic = format!("e2e-replay-multikey-{}", Uuid::new_v4());
     let harness = Harness::start_with_pack_targets(
-        kind,
         &topic,
         3,
         2,
@@ -1789,7 +2229,7 @@ async fn multi_key_send_failure_replays_every_key_in_order(
     .await;
     let producer = make_producer();
 
-    // Worker 1 out so all three keys land on worker 0 as one sub-batch.
+    // Worker 1 out so all three keys land on worker 0.
     harness.workers[1].healthy.store(false, Ordering::SeqCst);
     wait_until(
         Duration::from_secs(10),
@@ -1809,7 +2249,6 @@ async fn multi_key_send_failure_replays_every_key_in_order(
     })
     .await;
 
-    // Fail worker 0 and bring worker 1 back as the replay target.
     harness.workers[0].healthy.store(false, Ordering::SeqCst);
     harness.workers[1].healthy.store(true, Ordering::SeqCst);
     wait_until(
@@ -1838,16 +2277,10 @@ async fn multi_key_send_failure_replays_every_key_in_order(
     harness.stop().await;
 }
 
-/// A replay whose target also fails is re-deferred and retried until it lands —
-/// cascading failures during flush never lose or reorder the deferred work.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn flush_target_failure_re_defers_then_replays_in_order(#[case] kind: SchedulerKind) {
+async fn flush_target_failure_re_defers_then_replays_in_order() {
     let topic = format!("e2e-replay-cascade-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -1873,8 +2306,7 @@ async fn flush_target_failure_re_defers_then_replays_in_order(#[case] kind: Sche
     let first = sole_arrived_worker(&harness);
     let second = 1 - first;
 
-    // Fail the initial send → the batch defers and the flush re-routes to the
-    // other worker, whose request we are holding via its gate.
+    // Fail the first send; the replay goes to the other, blocked worker.
     harness.workers[first]
         .healthy
         .store(false, Ordering::SeqCst);
@@ -1900,17 +2332,14 @@ async fn flush_target_failure_re_defers_then_replays_in_order(#[case] kind: Sche
         },
     )
     .await;
-    // The failed replay may still be parked on its worker stream (reconnect
-    // backoff) when the pool empties; it lands in the stash once that send
-    // fails too, and stays there with nowhere to route.
+    // The failed replay can wait in reconnect backoff before it reaches the stash.
     wait_until(
         Duration::from_secs(10),
         "re-deferred work to be held after the replay target also fails",
-        || harness.observer.held_messages() > 0,
+        || harness.observer.pending_messages() > 0,
     )
     .await;
 
-    // Recover the second worker → the replay finally lands, in order.
     harness.workers[second]
         .healthy
         .store(true, Ordering::SeqCst);
@@ -1930,99 +2359,10 @@ async fn flush_target_failure_re_defers_then_replays_in_order(#[case] kind: Sche
     harness.stop().await;
 }
 
-/// Drain-triggered defer through the dispatcher + real worker stream transport
-/// — the path the consumer drives. The Kafka poll loop can't inject a drain between two
-/// overlapping batch assigns deterministically (it assigns available batches
-/// back-to-back and parks in `complete_oldest_batch` the moment data dries up),
-/// so this models the consumer's exact sequence — assign, drain, assign (defer),
-/// resolve, flush — and delivers over a real stream, asserting the deferred key
-/// lands on the survivor in order.
 #[tokio::test]
-async fn drain_defer_flush_delivers_to_survivor_over_stream() {
-    let w0 = FakeWorker::start().await;
-    let w1 = FakeWorker::start().await;
-    let urls = vec![w0.url.clone(), w1.url.clone()];
-    let workers = [w0, w1];
-
-    let registry = Arc::new(WorkerRegistry::new(&urls, fast_registry_config()));
-    let probe_token = CancellationToken::new();
-    Arc::clone(&registry).start_probing(probe_token.clone());
-    let dispatcher = Dispatcher::new(Arc::clone(&registry));
-    let transport = test_transport();
-
-    // batch-1: user-1 pins to a worker. Send it for real but DON'T resolve, so it
-    // is genuinely in flight on that worker.
-    let b1 = dispatcher.assign("batch-1", vec![worker_msg("user-1", 0)]);
-    assert_eq!(b1.len(), 1);
-    let pinned_url = b1[0].worker.to_string();
-    let pinned_idx = workers.iter().position(|w| w.url == pinned_url).unwrap();
-    let survivor_idx = 1 - pinned_idx;
-    transport
-        .begin_send(&pinned_url, "batch-1", b1[0].messages.clone(), false)
-        .wait()
-        .await
-        .expect("batch-1 send");
-
-    // Drain the pinned worker. The next batch for the key must defer (its worker
-    // is draining and still has in-flight work — rerouting now would reorder it).
-    registry.start_draining(&pinned_url);
-    let b2 = dispatcher.assign("batch-2", vec![worker_msg("user-1", 1)]);
-    assert!(b2.is_empty(), "must defer while the pinned worker drains");
-    assert!(dispatcher.has_deferred("batch-2"));
-
-    // Resolve batch-1 (the drainer finishes its in-flight), then flush batch-2:
-    // it re-routes to the survivor.
-    dispatcher.on_sub_batch_resolved(
-        &b1[0].worker,
-        b1[0].messages.len(),
-        &b1[0].routing_keys,
-        false,
-        false,
-    );
-    let f2 = dispatcher.flush_deferred("batch-2");
-    assert_eq!(f2.len(), 1);
-    assert_eq!(
-        f2[0].worker.to_string(),
-        workers[survivor_idx].url,
-        "deferred group flushes to the survivor, not the drainer"
-    );
-    transport
-        .begin_send(
-            f2[0].worker.as_ref(),
-            "batch-2",
-            f2[0].messages.clone(),
-            false,
-        )
-        .wait()
-        .await
-        .expect("batch-2 flush send");
-
-    // The drainer kept its in-flight seq 0; the deferred seq 1 landed on the
-    // survivor — delivered over a real stream, in order, with nothing lost.
-    assert_eq!(workers[pinned_idx].seqs_for("user-1"), vec![0]);
-    assert_eq!(workers[survivor_idx].seqs_for("user-1"), vec![1]);
-    assert!(
-        registry_has(&registry, &workers[survivor_idx].url),
-        "survivor stayed routable throughout"
-    );
-
-    probe_token.cancel();
-}
-
-// ── Pool-wide outages, forced reap, crash restart, ambiguous ACKs ────────────
-
-/// A transient full-pool drain — every worker leaving at once, as during a
-/// deploy overlap — must not fail the batch: fresh keys that can't route
-/// anywhere are held and delivered once a worker returns, instead of being
-/// dropped (which fails the batch and restarts the process).
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
-#[tokio::test]
-async fn full_pool_drain_holds_fresh_keys_until_a_worker_returns(#[case] kind: SchedulerKind) {
+async fn full_pool_drain_holds_fresh_keys_until_a_worker_returns() {
     let topic = format!("e2e-full-drain-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -2050,7 +2390,6 @@ async fn full_pool_drain_holds_fresh_keys_until_a_worker_returns(#[case] kind: S
         "nothing can be delivered while the whole pool is drained"
     );
 
-    // One worker returns — the held messages must deliver to it, in order.
     harness
         .registry
         .add_worker(WorkerId::from(harness.workers[0].url.as_str()));
@@ -2064,31 +2403,14 @@ async fn full_pool_drain_holds_fresh_keys_until_a_worker_returns(#[case] kind: S
     harness.stop().await;
 }
 
-/// A worker that leaves the pool but never finishes its in-flight work is
-/// force-reaped at the drain timeout — removed from the registry and transport
-/// while its request is still live. The reap must not break the in-flight
-/// resolve, and the key's deferred messages must re-route to a survivor in
-/// order once the held batch completes.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn forced_reap_at_drain_timeout_reroutes_deferred_work(#[case] kind: SchedulerKind) {
+async fn forced_reap_at_drain_timeout_reroutes_deferred_work() {
     let topic = format!("e2e-forced-reap-{}", Uuid::new_v4());
     let registry_config = WorkerRegistryConfig {
         drain_timeout: Duration::from_millis(400),
         ..fast_registry_config()
     };
-    let harness = Harness::start(
-        kind,
-        &topic,
-        1,
-        2,
-        2,
-        Duration::from_secs(60),
-        registry_config,
-    )
-    .await;
+    let harness = Harness::start(&topic, 1, 2, 2, Duration::from_secs(60), registry_config).await;
     let producer = make_producer();
 
     let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
@@ -2116,12 +2438,10 @@ async fn forced_reap_at_drain_timeout_reroutes_deferred_work(#[case] kind: Sched
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
     }
     wait_until(Duration::from_secs(10), "batch 2 to defer", || {
-        harness.observer.held_messages() > 0
+        harness.observer.pending_messages() > 0
     })
     .await;
 
-    // The drain timeout passes with the batch still held → the reaper force-
-    // removes the worker while its request is live.
     wait_until(
         Duration::from_secs(10),
         "the drainer to be force-reaped",
@@ -2135,8 +2455,7 @@ async fn forced_reap_at_drain_timeout_reroutes_deferred_work(#[case] kind: Sched
     )
     .await;
 
-    // Release everything: batch 1 completes on the (already removed) worker,
-    // then batch 2 flushes to the survivor.
+    // Release all: batch 1 completes on the reaped worker, batch 2 flushes to the survivor.
     guards.clear();
     harness.wait_for(8, Duration::from_secs(15)).await;
 
@@ -2159,18 +2478,10 @@ async fn forced_reap_at_drain_timeout_reroutes_deferred_work(#[case] kind: Sched
     harness.stop().await;
 }
 
-/// A consumer crash after a batch reached a worker but before its offsets were
-/// committed must not lose anything: the restarted consumer resumes from the
-/// last commit and redelivers. Duplicates are allowed (at-least-once); loss is
-/// not.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn consumer_crash_before_commit_redelivers_without_loss(#[case] kind: SchedulerKind) {
+async fn consumer_crash_before_commit_redelivers_without_loss() {
     let topic = format!("e2e-restart-{}", Uuid::new_v4());
     let mut harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -2181,8 +2492,7 @@ async fn consumer_crash_before_commit_redelivers_without_loss(#[case] kind: Sche
     .await;
     let producer = make_producer();
 
-    // Hold both workers so the first batch is in flight but never ACKs — its
-    // offsets are never committed.
+    // Hold both workers so the first batch never acks or commits.
     let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
     for w in &harness.workers {
         guards.push(Some(w.block().await));
@@ -2196,9 +2506,7 @@ async fn consumer_crash_before_commit_redelivers_without_loss(#[case] kind: Sche
     })
     .await;
 
-    // Crash the consumer mid-flight, then release the held requests. Whether
-    // the worker ends up recording that first delivery is exactly the ambiguity
-    // a restart must tolerate: duplicates allowed, loss not.
+    // The worker may record the first delivery after the crash: duplicates allowed, loss not.
     harness.crash_consumer();
     guards.clear();
 
@@ -2221,25 +2529,8 @@ async fn consumer_crash_before_commit_redelivers_without_loss(#[case] kind: Sche
     harness.stop().await;
 }
 
-/// The broker-committed offset is the ledger frontier — one past everything
-/// the workers accepted — and a restart resumes from it with no loss and no
-/// redelivery.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
-#[tokio::test]
-async fn the_committed_offset_is_the_ledger_frontier(#[case] kind: SchedulerKind) {
-    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
-    let mut harness = Harness::start(
-        kind,
-        &topic,
-        1,
-        1,
-        1,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+async fn assert_commits_track_the_ledger_frontier(mut harness: Harness) {
+    let topic = harness.topic.clone();
     let producer = make_producer();
 
     for seq in 0..10usize {
@@ -2253,8 +2544,6 @@ async fn the_committed_offset_is_the_ledger_frontier(#[case] kind: SchedulerKind
     )
     .await;
 
-    // A clean frontier is a usable resume point: after a crash, only the new
-    // messages arrive.
     harness.crash_consumer();
     harness.restart_consumer(fast_registry_config()).await;
     for seq in 10..15usize {
@@ -2277,18 +2566,516 @@ async fn the_committed_offset_is_the_ledger_frontier(#[case] kind: SchedulerKind
     harness.stop().await;
 }
 
-/// A worker that processes a batch but whose ACK is lost is indistinguishable
-/// from a failed send, so the consumer replays the batch: duplicates are the
-/// accepted cost of at-least-once, loss never is, and the replay lands behind
-/// the original delivery.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn lost_ack_after_processing_replays_without_loss(#[case] kind: SchedulerKind) {
+async fn the_committed_offset_is_the_ledger_frontier() {
+    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
+    assert_commits_track_the_ledger_frontier(
+        Harness::start(
+            &topic,
+            1,
+            1,
+            1,
+            Duration::from_secs(60),
+            fast_registry_config(),
+        )
+        .await,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn group_granularity_commits_the_ledger_frontier() {
+    let topic = format!("e2e-group-commit-{}", Uuid::new_v4());
+    assert_commits_track_the_ledger_frontier(
+        Harness::start_group_granularity(common::PRODUCTION_PACK_TARGETS, &topic, 1, 1, 1).await,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn group_granularity_keeps_a_held_frontier_uncommitted_until_the_stop_commits_it() {
+    let metrics = metrics();
+    let topic = format!("e2e-group-stop-commit-{}", Uuid::new_v4());
+    let harness = Harness::start_group_granularity_committing_every(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        1,
+        Duration::from_secs(3600),
+    )
+    .await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let producer = make_producer();
+
+    produce(&producer, &topic, 0, "tok", "user-a", 0).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the first frontier to commit",
+        || harness.committed_offset(0) == Some(1),
+    )
+    .await;
+
+    for seq in 1..10usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "every message to settle", || {
+        harness.workers[0].count() == 10 && harness.ledger.held(&p0).offsets == 0
+    })
+    .await;
+    assert_eq!(
+        harness.committed_offset(0),
+        Some(1),
+        "the interval holds the later frontier"
+    );
+    assert_eq!(
+        uncommitted_offsets(metrics, &topic, 0),
+        Some(9.0),
+        "the held frontier is still uncommitted"
+    );
+
+    let group_id = harness.group_id.clone();
+    harness.stop().await;
+
+    wait_until(Duration::from_secs(10), "the stop to commit", || {
+        broker_committed_offset(&group_id, &topic, 0) == Some(10)
+    })
+    .await;
+    assert_eq!(uncommitted_offsets(metrics, &topic, 0), Some(0.0));
+}
+
+// One recorder per test binary; each test reads only its own topic's series.
+fn metrics() -> &'static Snapshotter {
+    static SNAPSHOTTER: OnceLock<Snapshotter> = OnceLock::new();
+    SNAPSHOTTER.get_or_init(|| {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        metrics::set_global_recorder(recorder).expect("no other recorder in the e2e binary");
+        snapshotter
+    })
+}
+
+fn uncommitted_offsets(metrics: &Snapshotter, topic: &str, partition: i32) -> Option<f64> {
+    let partition = partition.to_string();
+    metrics
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .find_map(|(key, _, _, value)| {
+            let key = key.key();
+            let labeled = |name: &str, expected: &str| {
+                key.labels()
+                    .any(|label| label.key() == name && label.value() == expected)
+            };
+            if key.name() != "kafka_consumer_ledger_uncommitted_offsets"
+                || !labeled("topic", topic)
+                || !labeled("partition", &partition)
+            {
+                return None;
+            }
+            match value {
+                DebugValue::Gauge(value) => Some(value.into_inner()),
+                _ => None,
+            }
+        })
+}
+
+const STALL_KEYS: [(i32, &str); 2] = [(0, "user-a"), (1, "user-b")];
+
+async fn stall_two_partitions_on_two_workers(
+    harness: &Harness,
+    topic: &str,
+) -> Vec<Option<tokio::sync::OwnedMutexGuard<()>>> {
+    let mut guards = Vec::new();
+    for worker in &harness.workers {
+        guards.push(Some(worker.block().await));
+    }
+
+    let producer = make_producer();
+    let mut sends = Vec::new();
+    for seq in 0..5usize {
+        for (partition, key) in STALL_KEYS {
+            sends.push(produce(&producer, topic, partition, "tok", key, seq));
+        }
+    }
+    futures::future::join_all(sends).await;
+
+    wait_until(
+        Duration::from_secs(10),
+        "both workers to hold a sub-batch",
+        || harness.workers.iter().all(|w| w.arrived_count() > 0),
+    )
+    .await;
+
+    guards
+}
+
+fn accepted_partition(harness: &Harness, idx: usize) -> i32 {
+    let worker = &harness.workers[idx];
+    assert_eq!(
+        worker.count(),
+        5,
+        "each worker must hold exactly one key's messages"
+    );
+    STALL_KEYS
+        .iter()
+        .find(|(_, key)| !worker.seqs_for(key).is_empty())
+        .map(|(partition, _)| *partition)
+        .expect("the released worker accepted neither key")
+}
+
+#[tokio::test]
+async fn group_granularity_commits_a_partition_while_another_stalls() {
+    let topic = format!("e2e-group-stall-{}", Uuid::new_v4());
+    // One message per request, or the packer puts both keys on one worker.
+    let harness =
+        Harness::start_group_granularity(common::ONE_MESSAGE_PER_REQUEST, &topic, 2, 2, 2).await;
+    let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
+
+    guards[0] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the released worker to accept its key",
+        || harness.workers[0].count() == 5,
+    )
+    .await;
+    let released = accepted_partition(&harness, 0);
+    let stalled = 1 - released;
+
+    wait_until(
+        Duration::from_secs(10),
+        "the released partition to commit",
+        || harness.committed_offset(released) == Some(5),
+    )
+    .await;
+    assert_eq!(
+        harness.committed_offset(stalled),
+        None,
+        "the stalled send must hold its own partition back"
+    );
+
+    guards[1] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the stalled partition to commit once released",
+        || harness.committed_offset(stalled) == Some(5),
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+#[rstest]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
+#[tokio::test]
+async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it(#[case] polling: Polling) {
+    let topic = format!("e2e-partition-budget-{}", Uuid::new_v4());
+    let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
+        .expect("a valid budget");
+    let harness = Harness::start_with_partition_budget(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        budget,
+        polling,
+    )
+    .await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let guard = harness.workers[0].block().await;
+    let producer = make_producer();
+
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "the budget to fill", || {
+        harness.ledger.held(&p0).offsets == 5
+    })
+    .await;
+
+    for seq in 5..20usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        harness.ledger.held(&p0).offsets,
+        5,
+        "a paused partition fetches nothing more"
+    );
+
+    drop(guard);
+    wait_until(
+        Duration::from_secs(10),
+        "the partition to resume and drain",
+        || harness.committed_offset(0) == Some(20),
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+#[rstest]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
+#[tokio::test]
+async fn a_partition_at_its_budget_does_not_pause_another(#[case] polling: Polling) {
+    let topic = format!("e2e-partition-budget-two-{}", Uuid::new_v4());
+    let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
+        .expect("a valid budget");
+    // One message per request, or the packer puts both keys on one worker.
+    let harness = Harness::start_with_partition_budget(
+        common::ONE_MESSAGE_PER_REQUEST,
+        &topic,
+        2,
+        2,
+        budget,
+        polling,
+    )
+    .await;
+    let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
+
+    guards[0] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the released worker to accept its key",
+        || harness.workers[0].count() == 5,
+    )
+    .await;
+    let released = accepted_partition(&harness, 0);
+    let stalled = 1 - released;
+    let stalled_partition = TopicPartition::new(&topic, stalled);
+
+    let producer = make_producer();
+    for seq in 5..10usize {
+        for (partition, key) in STALL_KEYS {
+            produce(&producer, &topic, partition, "tok", key, seq).await;
+        }
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "the released partition to resume and drain",
+        || harness.committed_offset(released) == Some(10),
+    )
+    .await;
+    assert_eq!(
+        harness.ledger.held(&stalled_partition).offsets,
+        5,
+        "the partition at its budget fetches nothing more"
+    );
+    assert_eq!(harness.committed_offset(stalled), None);
+
+    guards[1] = None;
+    wait_until(
+        Duration::from_secs(10),
+        "the stalled partition to resume and drain",
+        || harness.committed_offset(stalled) == Some(10),
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn continuous_polling_commits_the_ledger_frontier() {
+    let topic = format!("e2e-continuous-commit-{}", Uuid::new_v4());
+    assert_commits_track_the_ledger_frontier(
+        Harness::start_continuous(
+            common::PRODUCTION_PACK_TARGETS,
+            &topic,
+            1,
+            1,
+            BudgetLimits::new(
+                NonZeroU64::new(1_000),
+                NonZeroU64::new(UNBOUNDED_BYTES),
+                0.8,
+            )
+            .expect("a valid budget"),
+            ChargeLimit::new(NonZeroU64::new(1_000), NonZeroU64::new(UNBOUNDED_BYTES)),
+        )
+        .await,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
+    let topic = format!("e2e-in-flight-limit-{}", Uuid::new_v4());
+    let harness = Harness::start_continuous(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        BudgetLimits::new(
+            NonZeroU64::new(1_000),
+            NonZeroU64::new(UNBOUNDED_BYTES),
+            0.8,
+        )
+        .expect("a valid budget"),
+        ChargeLimit::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES)),
+    )
+    .await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let guard = harness.workers[0].block().await;
+    let backlog: Vec<(&str, usize)> = (0..120).map(|seq| ("user-a", seq)).collect();
+
+    produce_in_one_transaction(&topic, 0, "tok", &backlog).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the in-flight limit to fill",
+        || harness.ledger.held(&p0).offsets >= 5,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        harness.ledger.held(&p0).offsets,
+        50,
+        "a ready backlog stops one poll of the batch size past the limit"
+    );
+
+    drop(guard);
+    wait_until(
+        Duration::from_secs(10),
+        "reading to resume and drain",
+        || harness.workers[0].count() == 120,
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+/// On this single-threaded runtime the batcher runs only when the consumer
+/// loop yields. A ready backlog keeps `recv` ready on every turn, so the first
+/// request must reach the worker before the loop has charged the whole backlog.
+#[tokio::test]
+async fn a_ready_backlog_does_not_keep_the_batcher_from_running() {
+    const BACKLOG: usize = 2_000;
+    let topic = format!("e2e-continuous-backlog-{}", Uuid::new_v4());
+    let harness = Harness::start_continuous(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        BudgetLimits::new(
+            NonZeroU64::new(100_000),
+            NonZeroU64::new(UNBOUNDED_BYTES),
+            0.8,
+        )
+        .expect("a valid budget"),
+        ChargeLimit::new(NonZeroU64::new(100_000), NonZeroU64::new(UNBOUNDED_BYTES)),
+    )
+    .await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let held_at_arrival: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(Vec::new()));
+    {
+        let ledger = Arc::clone(&harness.ledger);
+        let p0 = p0.clone();
+        let held_at_arrival = Arc::clone(&held_at_arrival);
+        harness.workers[0].on_arrival(move || {
+            held_at_arrival
+                .lock()
+                .unwrap()
+                .push(ledger.held(&p0).offsets);
+        });
+    }
+    let guard = harness.workers[0].block().await;
+    let backlog: Vec<(&str, usize)> = (0..BACKLOG).map(|seq| ("user-a", seq)).collect();
+
+    produce_in_one_transaction(&topic, 0, "tok", &backlog).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the first request to reach the worker",
+        || harness.workers[0].arrived_count() >= 1,
+    )
+    .await;
+    let held = held_at_arrival.lock().unwrap()[0];
+    assert!(
+        held < BACKLOG / 2,
+        "the loop charged {held} of {BACKLOG} offsets before the first request reached the worker"
+    );
+
+    drop(guard);
+    wait_until(Duration::from_secs(10), "the backlog to drain", || {
+        harness.workers[0].count() == BACKLOG
+    })
+    .await;
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_partition_paused_at_its_budget_fetches_again_after_a_rebalance_returns_it() {
+    let topic = format!("e2e-partition-budget-rebalance-{}", Uuid::new_v4());
+    let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
+        .expect("a valid budget");
+    let harness = Harness::start_with_partition_budget_committing_every(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        budget,
+        Duration::from_secs(20),
+    )
+    .await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let producer = make_producer();
+
+    produce(&producer, &topic, 0, "tok", "user-a", 0).await;
+    wait_until(
+        Duration::from_secs(10),
+        "the first frontier to commit",
+        || harness.committed_offset(0) == Some(1),
+    )
+    .await;
+    for seq in 1..6usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "the interval to hold the budget's worth of settled offsets",
+        || harness.workers[0].count() == 6 && harness.ledger.held(&p0).offsets == 0,
+    )
+    .await;
+
+    let generation_before = harness.ledger.generation(&p0);
+    let second = harness.join_second_consumer().await;
+    wait_until(
+        Duration::from_secs(15),
+        "the rebalance to revoke the partition",
+        || harness.ledger.generation(&p0) > generation_before,
+    )
+    .await;
+    assert_eq!(
+        harness.committed_offset(0),
+        Some(1),
+        "the partition must still be at its budget when it is revoked"
+    );
+    second.stop().await;
+
+    for seq in 6..10usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    wait_until(
+        Duration::from_secs(40),
+        "the returned partition to fetch again",
+        || {
+            let delivered: HashSet<usize> = harness
+                .workers
+                .iter()
+                .flat_map(|w| w.seqs_for("user-a"))
+                .collect();
+            (6..10).all(|seq| delivered.contains(&seq))
+        },
+    )
+    .await;
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn lost_ack_after_processing_replays_without_loss() {
     let topic = format!("e2e-lost-ack-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -2299,8 +3086,7 @@ async fn lost_ack_after_processing_replays_without_loss(#[case] kind: SchedulerK
     .await;
     let producer = make_producer();
 
-    // Arm both workers (the batch could land on either): the first sub-batch each
-    // receives is processed and recorded, but answered with an error.
+    // Arm both workers: the batch can land on either.
     for w in &harness.workers {
         w.ack_lost_once.store(true, Ordering::SeqCst);
     }
@@ -2341,21 +3127,10 @@ async fn lost_ack_after_processing_replays_without_loss(#[case] kind: SchedulerK
     harness.stop().await;
 }
 
-// ── Poison batches and contract violations ───────────────────────────────────
-
-/// A batch every worker permanently rejects with a 4xx must fail the consumer
-/// within the flush timeout — failing safe (nothing ingested, nothing
-/// committed, redelivered after restart) rather than spinning forever. Until a
-/// DLQ path exists, a poison batch crash-loops the process by design; this
-/// pins the "safe" half of that trade-off.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn poison_batch_fails_safely_without_committing(#[case] kind: SchedulerKind) {
+async fn poison_batch_fails_safely_without_committing() {
     let topic = format!("e2e-poison-{}", Uuid::new_v4());
     let mut harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -2387,18 +3162,10 @@ async fn poison_batch_fails_safely_without_committing(#[case] kind: SchedulerKin
     );
 }
 
-/// A worker that ingests a batch but reports fewer accepted messages than were
-/// sent violates the transport contract. The consumer must treat the batch as
-/// incomplete and fail it — never commit offsets over an under-acknowledged
-/// batch, which would silently lose the unaccounted messages.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn partial_acceptance_fails_the_batch_without_commit(#[case] kind: SchedulerKind) {
+async fn partial_acceptance_fails_the_batch_without_commit() {
     let topic = format!("e2e-partial-accept-{}", Uuid::new_v4());
     let mut harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -2430,19 +3197,10 @@ async fn partial_acceptance_fails_the_batch_without_commit(#[case] kind: Schedul
     );
 }
 
-// ── Drain edge cases and malformed input ─────────────────────────────────────
-
-/// A drainer that crashes mid-drain (its in-flight send fails instead of
-/// finishing) must not wedge the drain: both its failed in-flight batch and
-/// the work deferred behind it replay to the survivor, in order.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn drainer_crash_mid_drain_replays_to_survivor_in_order(#[case] kind: SchedulerKind) {
+async fn drainer_crash_mid_drain_replays_to_survivor_in_order() {
     let topic = format!("e2e-drain-crash-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -2477,7 +3235,7 @@ async fn drainer_crash_mid_drain_replays_to_survivor_in_order(#[case] kind: Sche
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
     }
     wait_until(Duration::from_secs(10), "batch 2 to defer", || {
-        harness.observer.held_messages() > 0
+        harness.observer.pending_messages() > 0
     })
     .await;
 
@@ -2502,21 +3260,15 @@ async fn drainer_crash_mid_drain_replays_to_survivor_in_order(#[case] kind: Sche
     harness.stop().await;
 }
 
-/// The whole pool failing at once with multiple keys in flight, at
-/// max_in_flight > 1: everything is stashed while nothing is routable, then
-/// drains to the first recovered worker with per-key order intact.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash, common::PRODUCTION_PACK_TARGETS)]
-#[case::key_table(SchedulerKind::KeyTable, common::PRODUCTION_PACK_TARGETS)]
-#[case::key_table_one_message(SchedulerKind::KeyTable, common::ONE_MESSAGE_PER_REQUEST)]
+#[case::production_targets(common::PRODUCTION_PACK_TARGETS)]
+#[case::one_message_per_request(common::ONE_MESSAGE_PER_REQUEST)]
 #[tokio::test]
 async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(
-    #[case] kind: SchedulerKind,
     #[case] pack_targets: PackTargets,
 ) {
     let topic = format!("e2e-pool-loss-{}", Uuid::new_v4());
     let harness = Harness::start_with_pack_targets(
-        kind,
         &topic,
         2,
         2,
@@ -2537,9 +3289,7 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
         produce(&producer, &topic, 1, "tok", "user-2", seq).await;
     }
-    // One message per request splits the keys into two requests, and
-    // bin-packing places them one per worker. At the production target
-    // both keys fit in one request.
+    // One message per request puts each key on its own worker; production targets pack both.
     let split = pack_targets == common::ONE_MESSAGE_PER_REQUEST;
     wait_until(Duration::from_secs(10), "work to be in flight", || {
         if split {
@@ -2550,8 +3300,6 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(
     })
     .await;
 
-    // The whole pool fails at once with work in flight — everything must be
-    // stashed, not lost, while nothing is routable.
     for w in &harness.workers {
         w.healthy.store(false, Ordering::SeqCst);
     }
@@ -2559,11 +3307,10 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(
     wait_until(
         Duration::from_secs(10),
         "all failed work to be stashed",
-        || harness.observer.held_messages() == 8,
+        || harness.observer.pending_messages() == 8,
     )
     .await;
 
-    // One worker recovers → everything drains to it, per-key order intact.
     harness.workers[1].healthy.store(true, Ordering::SeqCst);
     harness.wait_for(8, Duration::from_secs(15)).await;
 
@@ -2583,17 +3330,10 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(
     harness.stop().await;
 }
 
-/// Messages without token/distinct_id headers route under synthetic
-/// per-message keys; a send failure must replay them exactly once, like any
-/// other message.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn headerless_messages_survive_send_failure_replay(#[case] kind: SchedulerKind) {
+async fn headerless_messages_survive_send_failure_replay() {
     let topic = format!("e2e-headerless-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -2630,7 +3370,6 @@ async fn headerless_messages_survive_send_failure_replay(#[case] kind: Scheduler
     })
     .await;
 
-    // Fail worker 0 and recover worker 1 as the replay target.
     harness.workers[0].healthy.store(false, Ordering::SeqCst);
     harness.workers[1].healthy.store(true, Ordering::SeqCst);
     wait_until(
@@ -2647,8 +3386,7 @@ async fn headerless_messages_survive_send_failure_replay(#[case] kind: Scheduler
         0,
         "failed worker recorded nothing"
     );
-    // Headerless messages record under an empty distinct_id; all three must
-    // replay exactly once (order across distinct synthetic keys is undefined).
+    // Headerless messages have an empty distinct_id and distinct keys, so order is free.
     let mut seqs = harness.workers[1].seqs_for("");
     seqs.sort_unstable();
     assert_eq!(
@@ -2660,17 +3398,10 @@ async fn headerless_messages_survive_send_failure_replay(#[case] kind: Scheduler
     harness.stop().await;
 }
 
-/// A non-UTF-8 payload cannot round-trip the string wire format — its body is
-/// nulled in transit today (a known content-loss gap) — but the event itself
-/// must still route via its headers and reach a worker, not be dropped.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn non_utf8_payload_is_delivered_not_lost(#[case] kind: SchedulerKind) {
+async fn non_utf8_payload_is_delivered_not_lost() {
     let topic = format!("e2e-non-utf8-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         1,
         1,
@@ -2690,7 +3421,6 @@ async fn non_utf8_payload_is_delivered_not_lost(#[case] kind: SchedulerKind) {
             key: "distinct_id",
             value: Some("user-1"),
         });
-    // 0xF0 0x28 0x8C 0x28 is invalid UTF-8.
     produce_raw(
         &producer,
         &topic,
@@ -2711,19 +3441,10 @@ async fn non_utf8_payload_is_delivered_not_lost(#[case] kind: SchedulerKind) {
     harness.stop().await;
 }
 
-// ── Fleet redeploy and consumer-group membership ─────────────────────────────
-
-/// A full fleet replacement, reconciled exactly as EndpointSlice discovery
-/// does: the desired set flips to brand-new workers, the old ones drain and
-/// are reaped, and traffic keeps flowing — exactly once, in per-key order.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn fleet_redeploy_migrates_work_to_new_workers_without_loss(#[case] kind: SchedulerKind) {
+async fn fleet_redeploy_migrates_work_to_new_workers_without_loss() {
     let topic = format!("e2e-redeploy-{}", Uuid::new_v4());
     let mut harness = Harness::start(
-        kind,
         &topic,
         2,
         2,
@@ -2760,13 +3481,11 @@ async fn fleet_redeploy_migrates_work_to_new_workers_without_loss(#[case] kind: 
     }
     harness.wait_for(40, Duration::from_secs(20)).await;
 
-    // The old fleet is drained and reaped out of the pool entirely.
     wait_until(Duration::from_secs(5), "old workers to be reaped", || {
         harness.registry.worker_count() == 2
     })
     .await;
 
-    // Exactly once, in per-key order, across the redeploy.
     let log = harness.delivery_log.lock().unwrap().clone();
     assert_eq!(log.len(), 40, "exactly-once across the redeploy");
     for user in ["user-1", "user-2"] {
@@ -2790,30 +3509,16 @@ async fn fleet_redeploy_migrates_work_to_new_workers_without_loss(#[case] kind: 
     harness.stop().await;
 }
 
-/// A second consumer joining the same group rebalances partitions away from
-/// the first while it holds an uncommitted in-flight batch. Redelivery of that
-/// batch on the new owner may duplicate (at-least-once) — but nothing may be
-/// lost across the handover.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: SchedulerKind) {
+async fn second_consumer_joining_the_group_preserves_all_messages(#[case] polling: Polling) {
     let topic = format!("e2e-two-consumers-{}", Uuid::new_v4());
-    let harness = Harness::start(
-        kind,
-        &topic,
-        2,
-        2,
-        1,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+    let harness = Harness::start_polling(&topic, 2, 2, 1, 0, polling).await;
     let producer = make_producer();
 
-    // The first consumer owns both partitions and has an uncommitted batch
-    // held in flight.
+    // Hold an uncommitted batch while the first consumer owns both partitions.
     let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
     for w in &harness.workers {
         guards.push(Some(w.block().await));
@@ -2827,49 +3532,9 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
     })
     .await;
 
-    // A second consumer joins the same group with its own routing stack but
-    // the same worker pool.
-    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
-    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
-    let probe2 = CancellationToken::new();
-    Arc::clone(&registry2).start_probing(probe2.clone());
-    let dispatcher2 = Arc::new(Dispatcher::with_strategy(
-        Arc::clone(&registry2),
-        RoutingStrategy::default(),
-    ));
-    let transport2 = Arc::new(test_transport());
-    let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
-    let handle2 = manager2.register("consumer", ComponentOptions::new());
-    let shutdown2 = handle2.shutdown_token();
-    let (batcher, outputs) = common::batcher(
-        kind,
-        &dispatcher2,
-        Arc::clone(&transport2),
-        handle2.clone(),
-        Duration::from_secs(60),
-        Duration::from_millis(200),
-        common::PRODUCTION_PACK_TARGETS,
-    );
-    let consumer2 = IngestionConsumer::from_parts(
-        make_kafka_consumer(&topic, &harness.group_id, None),
-        batcher,
-        outputs,
-        transport2,
-        worker_urls,
-        IngestionConsumerOptions {
-            batch_size: 50,
-            batch_size_bytes: 0,
-            batch_timeout: Duration::from_millis(100),
-            max_in_flight_batches: 1,
-            group_id: "e2e-test".to_string(),
-            debug_recorder: None,
-        },
-        handle2,
-    );
-    let task2 = tokio::spawn(async move { consumer2.process().await });
+    let second = harness.join_second_consumer().await;
 
-    // Release the held batch so the first consumer resumes polling and the
-    // rebalance can complete, then keep traffic flowing on both partitions.
+    // Release the batch so the first consumer polls again and the rebalance completes.
     guards.clear();
     tokio::time::sleep(Duration::from_secs(2)).await;
     for seq in 5..10usize {
@@ -2893,38 +3558,18 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
     )
     .await;
 
-    shutdown2.cancel();
-    let _ = tokio::time::timeout(Duration::from_secs(3), task2).await;
-    probe2.cancel();
+    second.stop().await;
     harness.stop().await;
 }
 
-/// A partition leaves for a second consumer while a batch is in flight, and
-/// returns when that consumer shuts down. The first consumer keeps polling
-/// under the held batch, so the rebalance lands before the batch settles:
-/// its offsets are stamped under generations the revoke replaced, and they
-/// drop as stale instead of landing on the new assignment. The returned
-/// partition then starts another generation. A ledger bug here would
-/// surface as ledger errors or a wedged loop, so continued delivery after
-/// both handovers is the health signal.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
+#[case::capped(Polling::Capped)]
+#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: SchedulerKind) {
+async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] polling: Polling) {
     let topic = format!("e2e-regain-{}", Uuid::new_v4());
-    // Room for many in-flight batches, so the first consumer keeps polling
-    // while its batches are held and the rebalance can land underneath them.
-    let harness = Harness::start(
-        kind,
-        &topic,
-        2,
-        2,
-        128,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+    // 128 in-flight polls keep the consumer polling under held batches.
+    let harness = Harness::start_polling(&topic, 2, 2, 128, 0, polling).await;
     let producer = make_producer();
     let partitions = [
         TopicPartition::new(topic.clone(), 0),
@@ -2950,51 +3595,9 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
         .collect();
 
     // A second consumer joins and takes a partition away.
-    let worker_urls: Vec<String> = harness.workers.iter().map(|w| w.url.clone()).collect();
-    let registry2 = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
-    let probe2 = CancellationToken::new();
-    Arc::clone(&registry2).start_probing(probe2.clone());
-    let dispatcher2 = Arc::new(Dispatcher::with_strategy(
-        Arc::clone(&registry2),
-        RoutingStrategy::default(),
-    ));
-    let transport2 = Arc::new(test_transport());
-    let mut manager2 = Manager::builder("e2e-regain-c2")
-        .with_trap_signals(false)
-        .build();
-    let handle2 = manager2.register("consumer", ComponentOptions::new());
-    let shutdown2 = handle2.shutdown_token();
-    let (batcher, outputs) = common::batcher(
-        kind,
-        &dispatcher2,
-        Arc::clone(&transport2),
-        handle2.clone(),
-        Duration::from_secs(60),
-        Duration::from_millis(200),
-        common::PRODUCTION_PACK_TARGETS,
-    );
-    let consumer2 = IngestionConsumer::from_parts(
-        make_kafka_consumer(&topic, &harness.group_id, None),
-        batcher,
-        outputs,
-        transport2,
-        worker_urls,
-        IngestionConsumerOptions {
-            batch_size: 50,
-            batch_size_bytes: 0,
-            batch_timeout: Duration::from_millis(100),
-            max_in_flight_batches: 1,
-            group_id: "e2e-test".to_string(),
-            debug_recorder: None,
-        },
-        handle2,
-    );
-    let task2 = tokio::spawn(async move { consumer2.process().await });
+    let second = harness.join_second_consumer().await;
 
-    // The first consumer polls only while its polls return messages, and
-    // only a polling consumer takes part in a rebalance: a trickle holds it
-    // in the poll loop until the rebalance has reached its ledger. Every
-    // trickle batch is held like the first one.
+    // A trickle keeps the consumer polling until the rebalance reaches its ledger.
     let rebalanced = || {
         partitions
             .iter()
@@ -3013,8 +3616,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
-    // Release the held batch: its offsets are stamped under generations the
-    // rebalance replaced, so they settle as stale.
+    // The released offsets carry replaced generations, so they settle as stale.
     guards.clear();
     for seq in 5..10usize {
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
@@ -3036,11 +3638,8 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
     )
     .await;
 
-    // The second consumer leaves; its partition returns to the first under a
-    // new generation and must consume as a fresh assignment.
-    shutdown2.cancel();
-    let _ = tokio::time::timeout(Duration::from_secs(5), task2).await;
-    probe2.cancel();
+    // The partition returns under a new generation.
+    second.stop().await;
 
     for seq in 10..15usize {
         produce(&producer, &topic, 0, "tok", "user-1", seq).await;
@@ -3065,15 +3664,8 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
     harness.stop().await;
 }
 
-/// A same-name pod restart racing its old instance: a second member joins with
-/// the same `group.instance.id`, so the broker fences the first. The fenced
-/// instance's client is permanently dead — the consumer must exit (so the pod
-/// restarts) rather than keep polling it while reporting healthy.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) {
+async fn fenced_static_member_exits_on_fatal_error() {
     let topic = format!("e2e-fenced-{}", Uuid::new_v4());
     create_topic(&topic, 1).await;
 
@@ -3082,10 +3674,7 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
     let registry = Arc::new(WorkerRegistry::new(&urls, fast_registry_config()));
     let probe = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe.clone());
-    let dispatcher = Arc::new(Dispatcher::with_strategy(
-        Arc::clone(&registry),
-        RoutingStrategy::default(),
-    ));
+    let pool_source = WorkerPoolSource::new(Arc::clone(&registry), RoutingStrategy::default());
     let transport = Arc::new(test_transport());
     let mut manager = Manager::builder("e2e-fenced")
         .with_trap_signals(false)
@@ -3093,13 +3682,12 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
     let handle = manager.register("consumer", ComponentOptions::new());
     let group = format!("e2e-{}", Uuid::new_v4());
     let (batcher, outputs) = common::batcher(
-        kind,
-        &dispatcher,
+        pool_source,
         Arc::clone(&transport),
-        handle.clone(),
         Duration::from_secs(60),
         Duration::from_millis(200),
         common::PRODUCTION_PACK_TARGETS,
+        None,
     );
     let consumer = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &group, Some("pod-1")),
@@ -3114,6 +3702,12 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
             max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             debug_recorder: None,
+            completion_granularity: CompletionGranularity::Poll,
+            commit_interval: Duration::ZERO,
+            ledger: Arc::new(TopicOffsetLedger::new()),
+            partition_budget: BudgetLimits::unset(),
+            polling: Polling::Capped,
+            in_flight_limit: ChargeLimit::unset(),
         },
         handle,
     );
@@ -3131,8 +3725,7 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
     let usurper = make_kafka_consumer(&topic, &group, Some("pod-1"));
     let usurper_task = tokio::spawn(async move {
         let mut stream = usurper.stream();
-        // A transient connect error is an item too; stopping at it would drop
-        // the usurper before it joins.
+        // Errors are items too; read until the timeout so the usurper joins.
         let _ = tokio::time::timeout(Duration::from_secs(30), async {
             while stream.next().await.is_some() {}
         })
@@ -3151,23 +3744,6 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
     probe.cancel();
 }
 
-// ── max_in_flight > 1 churn / invariant suite ────────────────────────────────
-//
-// At max_in_flight > 1 the consumer processes batches concurrently, so exact
-// scenarios can't be scripted deterministically. These tests instead run a high
-// volume across many distinct_ids while aggressively churning the worker pool,
-// and assert the correctness INVARIANTS on the cross-worker delivery log:
-//   - exactly-once: every produced (distinct_id, seq) is delivered once — no
-//     loss, no duplication;
-//   - ordering: under graceful drain, each distinct_id's messages are delivered
-//     in Kafka order despite rerouting (a regression of the deferred-replay
-//     ordering shows up here as an out-of-order seq).
-//
-// Drain churn (the graceful-drain feature) preserves order, so it is asserted
-// strictly. Send-failure churn falls back to at-least-once replay, which can
-// interleave a failed-then-replayed message with a later same-key success on a
-// flapping worker; those variants assert exactly-once but not strict order.
-
 #[derive(Clone, Copy, Debug)]
 enum Churn {
     Drain,
@@ -3182,10 +3758,7 @@ async fn sleep_or_cancel(token: &CancellationToken, ms: u64) -> bool {
     }
 }
 
-/// Continuously churn the worker pool until cancelled, affecting one worker at a
-/// time so the pool always keeps a healthy majority (progress is always
-/// possible). Drain = leave/rejoin the pool (EndpointSlice-style); Fail = stay
-/// ready but error sends (a crash mid-send). Restores all workers on exit.
+/// Churn one worker at a time until cancelled, then restore all.
 fn spawn_churn(
     harness: &Harness,
     churn: Churn,
@@ -3232,12 +3805,7 @@ fn spawn_churn(
     })
 }
 
-async fn run_churn_suite(
-    kind: SchedulerKind,
-    churn: Churn,
-    max_in_flight: usize,
-    strict_order: bool,
-) {
+async fn run_churn_suite(churn: Churn, max_in_flight: usize, strict_order: bool) {
     let topic = format!("e2e-churn-{churn:?}-mif{max_in_flight}-{}", Uuid::new_v4());
     let dids = 8usize;
     let per_did = 60usize;
@@ -3245,7 +3813,6 @@ async fn run_churn_suite(
     let partitions = 4i32;
 
     let harness = Harness::start(
-        kind,
         &topic,
         partitions,
         4,
@@ -3310,70 +3877,42 @@ async fn run_churn_suite(
         }
     }
 
-    // Once everything is delivered and churn has quiesced, the dispatcher's
-    // bookkeeping must drain back to zero. A leak in any of these permanently
-    // skews routing (stale pins / phantom load) or strands messages (stash).
+    // Leaked bookkeeping would skew placement or strand messages.
     wait_until(
         Duration::from_secs(10),
-        "dispatcher pins/in-flight/stash to drain to zero after churn",
-        || {
-            harness.observer.held_messages() == 0
-                && harness.observer.pin_count() == 0
-                && harness.observer.total_in_flight() == 0
-        },
+        "batcher pending/in-flight to drain to zero after churn",
+        || harness.observer.pending_messages() == 0 && harness.observer.total_in_flight() == 0,
     )
     .await;
 
     harness.stop().await;
 }
 
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn churn_drain_preserves_order_at_max_in_flight_2(#[case] kind: SchedulerKind) {
-    run_churn_suite(kind, Churn::Drain, 2, true).await;
+async fn churn_drain_preserves_order_at_max_in_flight_2() {
+    run_churn_suite(Churn::Drain, 2, true).await;
 }
 
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn churn_drain_preserves_order_at_max_in_flight_3(#[case] kind: SchedulerKind) {
-    run_churn_suite(kind, Churn::Drain, 3, true).await;
+async fn churn_drain_preserves_order_at_max_in_flight_3() {
+    run_churn_suite(Churn::Drain, 3, true).await;
 }
 
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn churn_send_failures_are_exactly_once_at_max_in_flight_3(#[case] kind: SchedulerKind) {
-    run_churn_suite(kind, Churn::Fail, 3, false).await;
+async fn churn_send_failures_are_exactly_once_at_max_in_flight_3() {
+    run_churn_suite(Churn::Fail, 3, false).await;
 }
 
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn churn_mixed_drain_and_failures_are_exactly_once_at_max_in_flight_3(
-    #[case] kind: SchedulerKind,
-) {
-    run_churn_suite(kind, Churn::Mixed, 3, false).await;
+async fn churn_mixed_drain_and_failures_are_exactly_once_at_max_in_flight_3() {
+    run_churn_suite(Churn::Mixed, 3, false).await;
 }
 
-/// A flapping worker — ready (in the pool) but failing every send — must not pin
-/// a batch's offsets forever. The flush loop enforces its deadline on the
-/// re-defer path too, so the consumer fails the batch within the configured
-/// flush timeout instead of spinning. Runs at max_in_flight > 1.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn flapping_worker_does_not_pin_batch_past_flush_timeout(#[case] kind: SchedulerKind) {
+async fn flapping_worker_does_not_pin_batch_past_flush_timeout() {
     let topic = format!("e2e-flap-{}", Uuid::new_v4());
     // Short flush timeout so the bound is observable quickly; concurrency > 1.
     let mut harness = Harness::start(
-        kind,
         &topic,
         1,
         2,
@@ -3399,9 +3938,7 @@ async fn flapping_worker_does_not_pin_batch_past_flush_timeout(#[case] kind: Sch
     let target = sole_arrived_worker(&harness);
     let other = 1 - target;
 
-    // `target` flaps: stays ready (in the pool) but fails every send. `other` is
-    // taken out of the pool so the flush can't escape — the flush loop keeps
-    // re-routing to the flapping target and re-deferring on the scatter path.
+    // target stays ready but nacks; other leaves the pool, so the flush has nowhere else to go.
     harness.workers[target]
         .ingest_ok
         .store(false, Ordering::SeqCst);
@@ -3411,8 +3948,6 @@ async fn flapping_worker_does_not_pin_batch_past_flush_timeout(#[case] kind: Sch
     guards[other] = None;
     guards[target] = None;
 
-    // The consumer must fail the batch within ~the flush timeout, not spin
-    // forever on the re-defer path.
     assert!(
         harness
             .wait_for_consumer_exit(Duration::from_secs(20))
@@ -3426,19 +3961,10 @@ async fn flapping_worker_does_not_pin_batch_past_flush_timeout(#[case] kind: Sch
     );
 }
 
-// ── Worker stream fencing ──────────────────────────────────────────────────
-
-/// A worker that nacks fences its worker stream: the fenced messages fail back into
-/// the deferral path with nothing lost, and once the worker leaves the pool
-/// the keys re-route to the survivor in order.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn nacking_worker_fences_worker_stream_and_reroutes_in_order(#[case] kind: SchedulerKind) {
+async fn nacking_worker_fences_worker_stream_and_reroutes_in_order() {
     let topic = format!("e2e-fence-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         2,
         2,
@@ -3456,8 +3982,7 @@ async fn nacking_worker_fences_worker_stream_and_reroutes_in_order(#[case] kind:
     }
     harness.wait_for(8, Duration::from_secs(10)).await;
 
-    // Take down the worker that owns user-1: its stream nacks (fencing the
-    // worker stream) and its /_ready fails (dropping it from the pool and its pins).
+    // Take down user-1's worker: it nacks and leaves the pool.
     let dead_idx = if !harness.workers[0].seqs_for("user-1").is_empty() {
         0
     } else {
@@ -3485,22 +4010,10 @@ async fn nacking_worker_fences_worker_stream_and_reroutes_in_order(#[case] kind:
     harness.stop().await;
 }
 
-/// One routing key arriving on two partitions: a partition-count change
-/// leaves a key's backlog on its old partition while new messages land on the
-/// new one. The dispatcher merges such a key into one sub-batch (the pin
-/// table is partition-blind), so the batcher must split the completion back
-/// per partition — mis-attributed coverage would leave the poll uncommitted
-/// and wedge the consumer. Two waves prove commits keep flowing: with
-/// max_in_flight = 1, the second wave can only deliver after the first wave's
-/// polls completed.
-#[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
 #[tokio::test]
-async fn same_key_across_partitions_completes_and_commits(#[case] kind: SchedulerKind) {
+async fn same_key_across_partitions_completes_and_commits() {
     let topic = format!("e2e-cross-partition-key-{}", Uuid::new_v4());
     let harness = Harness::start(
-        kind,
         &topic,
         2,
         1,
@@ -3527,8 +4040,6 @@ async fn same_key_across_partitions_completes_and_commits(#[case] kind: Schedule
     }
     harness.wait_for(12, Duration::from_secs(15)).await;
 
-    // Everything delivered exactly once; cross-partition interleaving is
-    // free, but each partition's own sequence must arrive in order.
     let seqs = harness.workers[0].seqs_for("user-1");
     let mut sorted = seqs.clone();
     sorted.sort_unstable();

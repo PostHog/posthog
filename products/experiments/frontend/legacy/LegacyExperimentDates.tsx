@@ -2,14 +2,12 @@ import { useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Label } from 'lib/ui/Label/Label'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { LegacyExperimentDate, legacyExperimentLogic } from 'products/experiments/frontend/legacy'
+import { LegacyExperimentDate } from './LegacyExperimentDate'
 
-/**
- * @deprecated use the ExperimentDuration component instead
- */
 export function LegacyExperimentDates(): JSX.Element | null {
-    const { experiment } = useValues(legacyExperimentLogic)
+    const { experiment } = useValues(experimentLogic)
     const { created_at, start_date, end_date } = experiment
 
     // If the experiment has no start date and no creation date, don't show anything

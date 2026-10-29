@@ -6,15 +6,14 @@ import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
-import * as doctorPng from '@posthog/brand/hoggies/png/doctor-1'
 import * as errorPng from '@posthog/brand/hoggies/png/error'
 import * as reaperPng from '@posthog/brand/hoggies/png/reaper'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
-import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
+import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
+import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
@@ -24,7 +23,7 @@ import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconChristmasOrnament, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -59,11 +58,11 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { getRetryCooldown } from '../sharedUtils'
+import { InsightErrorLayout } from './InsightErrorLayout'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
-const HedgehogDoctor = pngHoggie(doctorPng)
 const HedgehogError = pngHoggie(errorPng)
 const HedgehogReaper = pngHoggie(reaperPng)
 const HedgehogStampDenied = pngHoggie(stampDeniedPng)
@@ -564,27 +563,25 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div data-attr="insight-empty-state" className="rounded px-4 py-6 h-full w-full">
-            <h2 className="text-xl leading-tight mb-6 text-center text-balance">
-                <IconWarning className="text-xl shrink-0 mr-2" />
-                Your query took too long to complete
-            </h2>
-
-            <div className="rounded max-w-120 text-xs">
-                Sometimes this happens. Try refreshing the page, reducing the date range, or removing breakdowns. If
-                you're still having issues,{' '}
-                <Link
-                    onClick={() => {
-                        openSupportForm({ kind: 'bug' })
-                    }}
-                >
-                    let us know
-                </Link>
-                .
-            </div>
-
-            <QueryIdDisplay queryId={queryId} />
-        </div>
+        <InsightErrorLayout
+            illustration={<InsightErrorIllustration kind="transient" />}
+            title="Your query took too long to complete"
+            detail={
+                <p>
+                    Sometimes this happens. Try refreshing the page, reducing the date range, or removing breakdowns. If
+                    you're still having issues,{' '}
+                    <Link
+                        onClick={() => {
+                            openSupportForm({ kind: 'bug' })
+                        }}
+                    >
+                        let us know
+                    </Link>
+                    .
+                </p>
+            }
+            footer={<QueryIdDisplay queryId={queryId} />}
+        />
     )
 }
 
@@ -617,13 +614,15 @@ export function InsightValidationError({
     // unless the code says otherwise: a memory failure is not a broken query definition.
     const errorKind = getInsightErrorKind(400, validationErrorCode)
     const isMemoryLimitError = errorKind === 'memory_limit'
+    const isPermissionError = errorKind === 'permission'
     const displayDetail = getInsightValidationDetail(detail)
     const showQueryDebuggerInstruction =
         query &&
         !isMemoryLimitError &&
+        !isPermissionError &&
         displayDetail !== 'Check the query for errors, then run it again.' &&
         placement !== DashboardPlacement.Export
-    const shouldExcludeActions = excludeActions || placement === DashboardPlacement.Export
+    const shouldExcludeActions = excludeActions || isPermissionError || placement === DashboardPlacement.Export
     const defaultCta =
         cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 
@@ -637,32 +636,33 @@ export function InsightValidationError({
     })
 
     return (
-        <div
-            data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
-        >
-            <InsightErrorHoggie kind={errorKind} />
-
-            <h2 data-attr="insight-loading-too-long" className="text-xl leading-tight font-bold mb-0 text-danger">
-                {getInsightErrorTitle(errorKind, null)}
-            </h2>
-
-            <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(displayDetail)}</p>
-
-            {showQueryDebuggerInstruction && !shouldExcludeActions && (
-                <p className="text-sm text-muted max-w-120 mb-2">Open the query debugger and correct the query.</p>
-            )}
-
-            {/* For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
+        <InsightErrorLayout
+            illustration={<InsightErrorIllustration kind={errorKind} />}
+            title={getInsightErrorTitle(errorKind, isPermissionError ? displayDetail : null)}
+            detail={
+                <>
+                    <p>
+                        {isPermissionError
+                            ? 'Ask a project admin to grant you access to this table.'
+                            : renderDetailWithLinks(displayDetail)}
+                    </p>
+                    {showQueryDebuggerInstruction && !shouldExcludeActions && (
+                        <p>Open the query debugger and correct the query.</p>
+                    )}
+                </>
+            }
+            actions={
+                /* For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
                 beside it so users who decline AI consent (or lack AI access) still have a next step.
                 onClick fires when consent was already given (popover hidden); onApprove fires after
-                the consent flow completes — same pattern as InsightAIAnalysis. */}
-            {!shouldExcludeActions &&
+                the consent flow completes — same pattern as InsightAIAnalysis. */
+                !shouldExcludeActions &&
                 (isMemoryLimitError && !cta ? (
-                    <div className="flex items-center gap-2">
+                    <>
                         <AIConsentPopoverWrapper onApprove={debugWithAI}>
                             <LemonButton
                                 type="primary"
+                                size="small"
                                 onClick={debugWithAI}
                                 data-attr="insight-memory-limit-debug-with-ai"
                             >
@@ -670,24 +670,25 @@ export function InsightValidationError({
                             </LemonButton>
                         </AIConsentPopoverWrapper>
                         {defaultCta}
-                    </div>
+                    </>
                 ) : (
                     defaultCta
-                ))}
-
-            {detail.includes('Exclusion') && placement !== DashboardPlacement.Export && (
-                <div className="mt-4">
+                ))
+            }
+            footer={
+                detail.includes('Exclusion') &&
+                placement !== DashboardPlacement.Export && (
                     <Link
                         data-attr="insight-funnels-emptystate-help"
                         to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
+                        targetBlankIcon
                     >
                         Learn more about funnels in PostHog docs
-                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
                     </Link>
-                </div>
-            )}
-        </div>
+                )
+            }
+        />
     )
 }
 
@@ -724,25 +725,25 @@ type InsightErrorKind =
     | 'server'
     | 'unknown'
 
-const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
+const ERROR_HOGGIES: Partial<Record<InsightErrorKind, React.ComponentType<{ className?: string }>>> = {
     rate_limit: HedgehogTrafficController,
     memory_limit: HedgehogReaper,
     invalid_query: HedgehogError,
     permission: HedgehogStampDenied,
-    transient: HedgehogConstruction2,
-    server: HedgehogDoctor,
-    unknown: HedgehogDoctor,
 }
 
-function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
+function InsightErrorIllustration({ kind }: { kind: InsightErrorKind }): JSX.Element {
     const Hoggie = ERROR_HOGGIES[kind]
-    return <Hoggie className="w-24 h-24 mb-2" />
+    return Hoggie ? <Hoggie className="w-24 h-24" /> : <IconErrorOutline className="text-4xl shrink-0 text-danger" />
 }
 
 function getInsightErrorKind(status?: number | null, code?: string | null): InsightErrorKind {
     // The code is the surer signal: a tile failure carries it even when the status was rebuilt.
     if (code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
         return 'memory_limit'
+    }
+    if (code === TABLE_ACCESS_DENIED_ERROR_CODE) {
+        return 'permission'
     }
     if (status === 429) {
         return 'rate_limit'
@@ -905,62 +906,53 @@ export function InsightErrorState({
             If this persists, submit a bug report.
         </Link>
     )
-    const showErrorIcon = errorKind === 'transient' || errorKind === 'server' || errorKind === 'unknown'
-
     return (
-        <div
-            data-attr="insight-empty-state"
-            className="flex flex-1 min-h-0 flex-col items-center justify-center gap-2 rounded px-4 py-6 w-full text-center"
-        >
-            {showErrorIcon ? (
-                <IconErrorOutline className="text-4xl shrink-0 text-danger mb-2" />
-            ) : (
-                <InsightErrorHoggie kind={errorKind} />
-            )}
-
-            <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
-                {/* Note that this default phrasing signals the issue is intermittent, */}
-                {/* and that perhaps the query will complete on retry */}
-                {displayTitle}
-            </h2>
-
-            {!supportOnly && (
-                <div className="mt-4">
-                    {remediation && (
-                        <p className="max-w-120">
-                            {/* A sole string child keeps the countdown updating after page translation replaces its text node. */}
-                            {capacityRetryAt ? remediation : renderDetailWithLinks(remediation)}
-                        </p>
-                    )}
-                    {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
-                </div>
-            )}
-
-            {/* Outside the excludeDetail gate: self-hosted sets excludeDetail=true, but
-                supportOnly still needs the bug-report path or it dead-ends. */}
-            {supportOnly && !isExport && <div className="mt-4">{bugReportLink}</div>}
-
-            {!excludeActions && errorKind !== 'permission' && (
-                <div className="flex gap-2 mt-4">
-                    {onRetry && canRetry ? (
-                        <RetryButton
-                            onRetry={() => {
-                                if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
-                                    onRetry()
-                                }
-                            }}
-                            query={query}
-                            loading={retryLoading}
-                            disabledReason={retryDisabledReason}
-                        />
-                    ) : (
-                        <QueryDebuggerButton query={query} />
-                    )}
-                    {fixWithAIComponent ?? null}
-                </div>
-            )}
-            {!isExport && <QueryIdDisplay queryId={queryId} />}
-        </div>
+        <InsightErrorLayout
+            illustration={<InsightErrorIllustration kind={errorKind} />}
+            // Note that this default phrasing signals the issue is intermittent,
+            // and that perhaps the query will complete on retry
+            title={displayTitle}
+            detail={
+                supportOnly ? (
+                    // Outside the excludeDetail gate: self-hosted sets excludeDetail=true, but
+                    // supportOnly still needs the bug-report path or it dead-ends.
+                    !isExport && <p>{bugReportLink}</p>
+                ) : (
+                    <>
+                        {remediation && (
+                            <p>
+                                {/* A sole string child keeps the countdown updating after page translation replaces its text node. */}
+                                {capacityRetryAt ? remediation : renderDetailWithLinks(remediation)}
+                            </p>
+                        )}
+                        {!excludeDetail && showBugReport && <p>{bugReportLink}</p>}
+                    </>
+                )
+            }
+            actions={
+                !excludeActions &&
+                errorKind !== 'permission' && (
+                    <>
+                        {onRetry && canRetry ? (
+                            <RetryButton
+                                onRetry={() => {
+                                    if (!capacityRetryAt || Date.now() >= capacityRetryAt) {
+                                        onRetry()
+                                    }
+                                }}
+                                query={query}
+                                loading={retryLoading}
+                                disabledReason={retryDisabledReason}
+                            />
+                        ) : (
+                            <QueryDebuggerButton query={query} />
+                        )}
+                        {fixWithAIComponent}
+                    </>
+                )
+            }
+            footer={!isExport && <QueryIdDisplay queryId={queryId} />}
+        />
     )
 }
 

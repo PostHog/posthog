@@ -14,6 +14,8 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.direct_sql.capability import is_direct_capable
+
 from posthog.api.utils import action
 from posthog.permissions import is_service_auth
 
@@ -27,6 +29,7 @@ from products.warehouse_sources.backend.facade.models import (
     discovered_schema_finder,
     sync_old_schemas_with_new_schemas,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     AnySource,
     ClickHouseSource,
@@ -212,7 +215,8 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             team_id=self.team_id,
             source_type=instance.source_type,
         )
-        if not instance.job_inputs:
+        source_inputs = SourceInputsStore.load(instance)
+        if not source_inputs:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Source has no configuration."},
@@ -221,7 +225,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         try:
             source_type = ExternalDataSourceType(instance.source_type)
             source = base.SourceRegistry.get_source(source_type)
-            config = source.parse_config(instance.job_inputs)
+            config = source.parse_config(source_inputs)
             # Explicit user action — bypass any cached schema discovery so newly added
             # upstream resources (e.g. Slack channels) appear immediately.
             schemas = source.get_schemas(
@@ -235,7 +239,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-                if instance.is_direct_query
+                if is_direct_capable(instance)
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
@@ -274,7 +278,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
-            if instance.is_direct_query and connection_metadata != instance.connection_metadata:
+            if connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
@@ -368,6 +372,11 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
         source = base.SourceRegistry.get_source(source_type_model)
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
             return Response(
@@ -453,6 +462,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
                 "webhook_only": schema.webhook_only,
+                "prefers_full_refresh": schema.prefers_full_refresh,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [
@@ -499,7 +509,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         source_impl: AnySource | None = None
         try:
             source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(SourceInputsStore.load(source))
             discovered = source_impl.get_schemas(
                 config,
                 self.team_id,
@@ -613,7 +623,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 # Defaults discovery already confirmed these tables aren't webhook-only; seed the
                 # cache so the warm step below doesn't re-probe the source once per schema.
                 schema_serializer.seed_webhook_only_check(False)
-            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # Do the webhook source-discovery calls (e.g. Google Ads token refresh + field query)
             # here, before the per-schema transaction below. Running it inside update()'s transaction
             # held the DB connection idle-in-transaction long enough for the server to close it.
             # update() reads the cached result, so it still validates and fails per-schema.

@@ -1095,6 +1095,9 @@ class TestAccountsTableQueryRunner(BaseTest):
         CustomPropertyValue.objects.unscoped().create(
             team=self.team, account=beta, definition=custom_property_definition, value_num=5
         )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team, account=beta, definition=custom_property_definition, value_num=50, is_deleted=True
+        )
 
         paginated = self._run(
             AccountsTableQuery(
@@ -1314,8 +1317,10 @@ class TestAccountsTableQueryAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_accounts_table_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
+    @patch("posthog.api.query.report_user_or_team_action")
+    def test_accounts_table_query_endpoint_requires_account_scope_and_dispatches(self, mock_report_action) -> None:
         account = create_account(team_id=self.team.id, name="Acme")
+        request_id = "01234567-89ab-4def-8123-456789abcdef"
         endpoint = f"/api/projects/{self.team.id}/accounts_table_query/"
         accounts_query = AccountsTableQuery(columns=[], filters=[]).model_dump()
         payload = {"query": accounts_query, "refresh": "force_blocking"}
@@ -1332,10 +1337,13 @@ class TestAccountsTableQueryAPI(APIBaseTest):
             endpoint,
             payload,
             format="json",
-            headers={"authorization": f"Bearer {self._token(['account:read'])}"},
+            headers={"authorization": f"Bearer {self._token(['account:read'])}", "x-request-id": request_id},
         )
         assert allowed.status_code == status.HTTP_200_OK, allowed.content
         assert [row["id"] for row in allowed.json()["results"]] == [str(account.id)]
+        assert allowed["X-Request-ID"] == request_id
+        assert f'request_id;desc="{request_id}"' in allowed["Server-Timing"]
+        assert mock_report_action.call_args.kwargs["analytics_props"]["http_request_id"] == request_id
 
     def test_accounts_table_query_endpoint_rejects_other_query_kinds(self) -> None:
         response = self.client.post(

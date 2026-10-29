@@ -3,6 +3,7 @@ import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
 import type { ConversationsWidgetTicket } from '../../widgets/conversations/conversationsWidgetUtils'
 import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
+import { metricsTableWidgetSampleResult } from '../../widgets/metrics/metricsTableWidgetSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -535,6 +536,15 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     totalCount: 25,
                     totalCountCapped: true,
                 },
+            }
+        case 'metrics_table':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig, groupBy: 'http.route' },
+                loading: false,
+                result: metricsTableWidgetSampleResult,
             }
         case 'conversations_recent_tickets':
             return {

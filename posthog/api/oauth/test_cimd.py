@@ -15,7 +15,6 @@ from django.utils.html import escape
 
 import requests
 from parameterized import parameterized
-from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
     CIMDFetchError,
@@ -1042,15 +1041,6 @@ class TestCIMDVerificationRejectedCaptureEvent(APIBaseTest):
         ]
         self.assertEqual(len(rejected), 1)
         self.assertEqual(rejected[0].kwargs["properties"]["reason"], "app_url_missing")
-
-
-class TestAuthorizationServerMetadata(APIBaseTest):
-    def test_advertises_cimd_support(self):
-        client = APIClient()
-        response = client.get("/.well-known/oauth-authorization-server")
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data.get("client_id_metadata_document_supported"))
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})

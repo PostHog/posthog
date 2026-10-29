@@ -1,8 +1,10 @@
 use std::io::Write;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::config::KafkaConfig;
 use common_liveness::SyncLivenessReporter;
+use lifecycle::Handle;
 use lz4::EncoderBuilder;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{
@@ -186,6 +188,60 @@ where
     ping_brokers(&api)?;
 
     Ok(api)
+}
+
+/// Completes the kafka-producer lifecycle component with a bounded
+/// flush instead of waiting for the last producer reference to drop.
+///
+/// The component's handle rides inside the producer context, which
+/// every clone of the producer shares — so without explicit shutdown
+/// work, the component completed only when everything holding the
+/// producer let go, and a queue wedged against a stalled broker held
+/// its shutdown phase to the global timeout. This task flushes what
+/// the queue holds within `bound` once the component's phase shuts
+/// down, then reports completion either way.
+///
+/// A timed-out flush drops only records nobody awaited: a caller that
+/// awaits each record's delivery before it commits or acks has already
+/// seen those records leave the queue, and anything left is best effort
+/// or retried by the caller's own redelivery.
+pub fn spawn_bounded_flush_on_shutdown(
+    producer: FutureProducer<KafkaContext>,
+    handle: Handle,
+    bound: Duration,
+) {
+    tokio::spawn(async move {
+        handle.shutdown_recv().await;
+        let queued = producer.in_flight_count();
+        // Flush blocks, and so can the producer teardown after it; both
+        // stay off the async workers. Completion is reported first, so
+        // a teardown that outlives the flush bound cannot hold the
+        // phase.
+        let flushed = tokio::task::spawn_blocking(move || {
+            let outcome = producer.flush(bound);
+            let remaining = producer.in_flight_count();
+            drop(producer);
+            (outcome, remaining)
+        })
+        .await;
+        match flushed {
+            Ok((Ok(()), _)) => {
+                info!(queued, "kafka producer flushed at shutdown");
+            }
+            Ok((Err(e), remaining)) => {
+                warn!(
+                    queued,
+                    remaining,
+                    error = %e,
+                    "kafka producer flush hit its shutdown bound; undelivered records dropped"
+                );
+            }
+            Err(e) => {
+                warn!(error = %e, "kafka producer shutdown flush task failed");
+            }
+        }
+        handle.work_completed();
+    });
 }
 
 /// A producer context that reports liveness (like [`KafkaContext`]) and, for

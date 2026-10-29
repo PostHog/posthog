@@ -1,17 +1,18 @@
 import { useActions } from 'kea'
 import { memo } from 'react'
 
-import { IconFilter, IconFolder, IconPerson, IconSparkles } from '@posthog/icons'
-import { Button, cn } from '@posthog/quill'
+import { IconArrowRight, IconFilter, IconFolder, IconPerson, IconSparkles } from '@posthog/icons'
+import { Button, Skeleton, cn } from '@posthog/quill'
 
 import { getIconForItem, getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
-import { formatRelativeTimeShort } from 'lib/components/Search/utils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { commandKSearchLogic } from './commandKSearchLogic'
+import { CommandKSearchRankedItem } from './CommandKSearchRankedItem'
+import { CommandKSearchTime } from './CommandKSearchTime'
 import { CommandKRow } from './commandKSections'
 
 export const rowDomId = (key: string): string => `command-k-row-${key.replace(/[^a-zA-Z0-9_-]/g, '_')}`
@@ -66,6 +67,9 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
             )
         case 'item': {
             const { item } = row
+            if (row.ranked) {
+                return <CommandKSearchRankedItem row={row} />
+            }
             const typeLabel = SECTIONS_WITH_TYPE_LABEL.has(row.section)
                 ? item.groupNoun || getItemTypeDisplayName(item.itemType)
                 : null
@@ -84,6 +88,7 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
                     {item.productCategory && (
                         <span className="shrink-0 text-xs text-muted-foreground">{item.productCategory}</span>
                     )}
+                    {item.keybinding && <span className="ml-auto shrink-0">{item.keybinding}</span>}
                     {item.matchedSearchKeyword && (
                         <span className="ml-auto truncate text-xxs text-muted-foreground">
                             Matches "{item.matchedSearchKeyword}"
@@ -92,16 +97,23 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
                     {item.lastViewedAt && (
                         <span
                             className={cn(
-                                'shrink-0 whitespace-nowrap text-xs text-muted-foreground',
+                                'shrink-0 text-xs text-muted-foreground',
                                 item.matchedSearchKeyword ? 'ml-2' : 'ml-auto'
                             )}
                         >
-                            {formatRelativeTimeShort(item.lastViewedAt)}
+                            <CommandKSearchTime time={item.lastViewedAt} tooltipLabel="Last used" />
                         </span>
                     )}
                 </>
             )
         }
+        case 'scope':
+            return (
+                <>
+                    <IconArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-muted-foreground">{row.label}</span>
+                </>
+            )
         default:
             return null
     }
@@ -123,21 +135,42 @@ const rowContent = (row: CommandKRow): unknown => {
             return row.filter
         case 'ask-ai':
             return row.question
+        case 'scope':
+            return row.label
+        case 'notice':
+            return row.key
         case 'message':
             return row.text
+        case 'skeleton':
+        case 'loading-more':
+            return null
     }
 }
+
+const rowDisplay = (row: CommandKRow): string | null =>
+    row.kind === 'item'
+        ? [row.highlightWords?.join(' '), row.duplicates, row.showType, row.showCreator].join('|')
+        : null
 
 export const CommandKSearchRow = memo(
     CommandKSearchRowInner,
     (prev: CommandKSearchRowProps, next: CommandKSearchRowProps) =>
         prev.highlighted === next.highlighted &&
         prev.row.key === next.row.key &&
-        rowContent(prev.row) === rowContent(next.row)
+        rowContent(prev.row) === rowContent(next.row) &&
+        rowDisplay(prev.row) === rowDisplay(next.row)
 )
 
 function CommandKSearchRowInner({ row, highlighted }: CommandKSearchRowProps): JSX.Element {
     const { activateRow, setHighlightedKey } = useActions(commandKSearchLogic)
+
+    if (row.kind === 'skeleton') {
+        return (
+            <div className="flex h-8 items-center px-1" role="presentation">
+                <Skeleton className="h-5 w-full" />
+            </div>
+        )
+    }
 
     if (row.kind === 'message') {
         return (

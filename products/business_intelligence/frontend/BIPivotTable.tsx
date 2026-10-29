@@ -3,12 +3,17 @@ import { useMemo, useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
+import { getContrastingTextClass } from '~/queries/nodes/DataVisualization/colorUtils'
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { captureBIWorksheetAction } from './biEditorAnalytics'
+import { getBIFieldPillLabel } from './biEditorTypes'
 import { biPivotCellKey, biPivotKey, BIPivotMember, buildBIPivotModel, visibleBIPivotMembers } from './biPivot'
 import { formatBIMeasure, getBIResultMeasures } from './biResultPresentation'
+
+// Virtualization still needs a full-width scroll area, which browsers cap even with only a few cells mounted.
+const MAX_PIVOT_MEASURE_COLUMNS = 10000
 
 export function BIPivotTable({
     config,
@@ -16,7 +21,13 @@ export function BIPivotTable({
     results,
     chartSettings,
     onInspect,
+    embedded,
+    cellBackground,
+    formattingLoadFailed,
 }: {
+    embedded?: boolean
+    cellBackground?: (record: Record<string, unknown>, column: string) => string | undefined
+    formattingLoadFailed?: boolean
     config: BIConfig
     columns: string[]
     results: unknown[][]
@@ -26,15 +37,18 @@ export function BIPivotTable({
     const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set())
     const [collapsedColumns, setCollapsedColumns] = useState<Set<string>>(new Set())
     const model = useMemo(() => buildBIPivotModel(config, columns, results), [config, columns, results])
+    const columnMembers = useMemo(
+        () => new Map(visibleBIPivotMembers(model.columns, new Set(), true).map((member) => [member.key, member])),
+        [model.columns]
+    )
     const measures = getBIResultMeasures(config, chartSettings)
-    const rows = visibleBIPivotMembers(model.rows, collapsedRows, true)
+    const rows = useMemo(() => visibleBIPivotMembers(model.rows, collapsedRows, true), [model.rows, collapsedRows])
     const visibleColumns = visibleBIPivotMembers(model.columns, collapsedColumns, !!config.totals?.subtotals)
-    if (
-        rows.length * visibleColumns.length * measures.length > 50000 ||
-        visibleColumns.length * measures.length > 500
-    ) {
+    if (visibleColumns.length * measures.length > MAX_PIVOT_MEASURE_COLUMNS) {
         return (
-            <LemonBanner type="info">Too many pivot cells to display. Reduce the dimensions or use Top N.</LemonBanner>
+            <LemonBanner type="info">
+                This pivot has more than 10,000 measure columns. Reduce the column dimensions or use Top N.
+            </LemonBanner>
         )
     }
     const toggle = (member: BIPivotMember, side: 'rows' | 'columns'): void => {
@@ -68,19 +82,10 @@ export function BIPivotTable({
             <span>{member.label}</span>
         )
     }
-    const findMember = (path: unknown[]): BIPivotMember | undefined => {
-        let siblings = model.columns
-        let member: BIPivotMember | undefined
-        for (let depth = 1; depth <= path.length; depth++) {
-            member = siblings.find((item) => item.key === biPivotKey(path.slice(0, depth)))
-            siblings = member?.children ?? []
-        }
-        return member
-    }
     const headerRows = Array.from({ length: config.columns.length }, (_, depth) => {
         const cells: { title: React.ReactNode; colSpan: number; key: string }[] = [
             {
-                title: depth === 0 ? config.columns.map((field) => field.name).join(' / ') : '',
+                title: depth === 0 ? config.columns.map(getBIFieldPillLabel).join(' / ') : '',
                 colSpan: 1,
                 key: 'rows',
             },
@@ -92,7 +97,7 @@ export function BIPivotTable({
             if (previous.key === key) {
                 previous.colSpan += measures.length
             } else {
-                const member = findMember(path)
+                const member = columnMembers.get(key)
                 cells.push({
                     key,
                     colSpan: measures.length,
@@ -110,9 +115,18 @@ export function BIPivotTable({
         return cells
     })
     return (
-        <div className="p-2 w-full min-w-0" data-attr="bi-pivot-table">
+        <div className="h-full w-full min-h-0 min-w-0 flex flex-col" data-attr="bi-pivot-table">
+            {formattingLoadFailed && (
+                <LemonBanner type="warning">
+                    Couldn't load conditional formatting. Reload the page to try again.
+                </LemonBanner>
+            )}
             <LemonTable<BIPivotMember>
-                size="small"
+                className="DataVisualizationTable"
+                embedded={embedded}
+                allowContentScroll
+                virtualized
+                virtualizedColumnWidth={visibleColumns.length * measures.length > 50 ? 192 : undefined}
                 rowKey="key"
                 dataSource={rows}
                 useURLForSorting={false}
@@ -123,7 +137,7 @@ export function BIPivotTable({
                 columns={[
                     {
                         key: 'rows',
-                        title: config.rows.map((field) => field.name).join(' / '),
+                        title: config.rows.map(getBIFieldPillLabel).join(' / '),
                         render: (_, member) => (
                             <div className="flex items-center gap-1 whitespace-nowrap">
                                 {member.path.slice(1).map((_, index) => (
@@ -134,35 +148,59 @@ export function BIPivotTable({
                         ),
                     },
                     ...visibleColumns.flatMap((column) =>
-                        measures.map((measure) => ({
-                            key: `${column.key}:${measure.column}`,
-                            title: measure.label,
-                            align: 'right' as const,
-                            render: (_: unknown, row: BIPivotMember) => {
-                                const record = model.cells.get(biPivotCellKey(row.path, column.path))
-                                const showValue =
-                                    !row.children.length || collapsedRows.has(row.key) || config.totals?.subtotals
-                                const label = formatBIMeasure(
-                                    showValue ? record?.[measure.column] : null,
-                                    measure.settings
-                                )
-                                return record && showValue && onInspect ? (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="tertiary"
-                                        fullWidth
-                                        className="justify-end"
-                                        data-attr="bi-pivot-inspect"
-                                        onClick={() => onInspect(record)}
-                                        tooltip="Explore this result"
-                                    >
-                                        {label}
-                                    </LemonButton>
-                                ) : (
-                                    label
-                                )
-                            },
-                        }))
+                        measures.map((measure) => {
+                            let cachedRow: BIPivotMember | undefined
+                            let background: string | undefined
+                            const getBackground = (row: BIPivotMember): string | undefined => {
+                                if (cachedRow !== row) {
+                                    const record = model.cells.get(biPivotCellKey(row.path, column.path))
+                                    const showValue =
+                                        !row.children.length || collapsedRows.has(row.key) || config.totals?.subtotals
+                                    background =
+                                        record && showValue ? cellBackground?.(record, measure.column) : undefined
+                                    cachedRow = row
+                                }
+                                return background
+                            }
+                            return {
+                                key: `${column.key}:${measure.column}`,
+                                title: measure.label,
+                                align: 'right' as const,
+                                style: (_: unknown, row: BIPivotMember) => ({ backgroundColor: getBackground(row) }),
+                                className: (_: unknown, row: BIPivotMember) => {
+                                    const color = getBackground(row)
+                                    return color ? getContrastingTextClass(color) : ''
+                                },
+                                render: (_: unknown, row: BIPivotMember) => {
+                                    const record = model.cells.get(biPivotCellKey(row.path, column.path))
+                                    const showValue =
+                                        !row.children.length || collapsedRows.has(row.key) || config.totals?.subtotals
+                                    const label = formatBIMeasure(
+                                        showValue ? record?.[measure.column] : null,
+                                        measure.settings
+                                    )
+                                    return record && showValue && onInspect ? (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="tertiary"
+                                            fullWidth
+                                            noPadding
+                                            data-attr="bi-pivot-inspect"
+                                            onClick={() => onInspect(record)}
+                                            tooltip="Explore this result"
+                                        >
+                                            <span
+                                                className={`w-full text-right ${getBackground(row) ? getContrastingTextClass(getBackground(row)!) : ''}`}
+                                            >
+                                                {label}
+                                            </span>
+                                        </LemonButton>
+                                    ) : (
+                                        label
+                                    )
+                                },
+                            }
+                        })
                     ),
                 ]}
             />

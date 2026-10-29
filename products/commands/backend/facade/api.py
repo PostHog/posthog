@@ -69,16 +69,15 @@ def accept_slack_mention(mention: SlackMention) -> str | None:
     # Deferred: the Slack channel imports the dispatcher, and the GitHub consumer imports this module
     # inside the request for every pull request comment.
     from ..channels.slack.mentions import read_slack_command  # noqa: PLC0415
+    from ..logic.subjects import subject_payload  # noqa: PLC0415
     from ..tasks.tasks import run_slack_command  # noqa: PLC0415
 
     command = read_slack_command(mention)
     if command is None:
         return None
     run_slack_command.delay(
-        installation_id=command.installation_id,
+        subject=subject_payload(command.subject),
         team_ids=list(command.team_ids),
-        repository=command.repository,
-        pr_number=command.pr_number,
         verb=command.verb,
         argument=command.argument,
         slack_team_id=command.slack_team_id,

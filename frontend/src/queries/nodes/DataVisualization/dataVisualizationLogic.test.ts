@@ -116,6 +116,73 @@ describe('dataVisualizationLogic', () => {
         }
     })
 
+    it.each([true, false])(
+        'applies aliases only to BI=%s display cells while retaining raw sort, drill and export values',
+        (bi) => {
+            logic.unmount()
+            const field = {
+                id: 'event',
+                name: 'Event',
+                expression: 'event',
+                type: 'string' as const,
+                source: { table: 'events' },
+            }
+            const config = {
+                ...DEFAULT_BI_CONFIG,
+                source: field.source,
+                rows: [field],
+                memberAliases: [
+                    {
+                        field,
+                        aliases: [
+                            { value: '$pageview', label: 'Same' },
+                            { value: 'Pageview', label: 'Same' },
+                            { value: '', label: 'Blank' },
+                            { value: null, label: 'Missing' },
+                        ],
+                    },
+                ],
+            }
+            const generated = buildBIQuery(config)!.node
+            const query: VisualizationNode = bi
+                ? { ...generated, kind: NodeKind.BIVisualizationNode, config }
+                : generated
+            const results = [
+                ['$pageview', 4],
+                ['Pageview', 5],
+                ['', 1],
+                [null, 2],
+            ]
+            logic = dataVisualizationLogic({
+                key: testKey,
+                query,
+                dataNodeCollectionId,
+                cachedResults: {
+                    columns: ['event', 'count'],
+                    types: [
+                        ['event', 'String'],
+                        ['count', 'Int64'],
+                    ],
+                    results,
+                },
+            })
+            logic.mount()
+            expect(logic.values.tableResults.map((_, row) => logic.values.getSourceTableCell(row, 0).value)).toEqual(
+                results.map((row) => row[0])
+            )
+            expect(
+                logic.values.tableResults
+                    .slice(0, 2)
+                    .map((_, row) => logic.values.getSourceTableCell(row, 0).formattedValue)
+            ).toEqual(bi ? ['Same', 'Same'] : ['$pageview', 'Pageview'])
+            expect(logic.values.xData?.data.slice(0, 2)).toEqual(
+                bi ? ['$pageview', 'Pageview'] : ['Pageview', 'Pageview']
+            )
+            expect(queryExportContext(query)).toMatchObject({ source: { query: generated.source.query } })
+            expect(results[0][0]).toBe('$pageview')
+        }
+    )
+
     test.each([
         [true, 0, false],
         [true, 99, false],
@@ -742,6 +809,78 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsLineGraph, ChartDisplayType.Metric])(
+        'restores numeric series when switching from a table to %s and back',
+        async (display) => {
+            const response = {
+                columns: ['day', 'value'],
+                types: [
+                    ['day', 'Date'],
+                    ['value', 'Float64'],
+                ],
+                results: [
+                    ['2026-01-01', 2],
+                    ['2026-01-02', 4],
+                ],
+            }
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse(
+                response
+            )
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsTable)
+            expect(logic.values.yData.every((series) => series.data.length === 0)).toBe(true)
+
+            logic.actions.setVisualizationType(display)
+            await expectLogic(logic).toMatchValues({
+                yData: [expect.objectContaining({ data: [2, 4] })],
+            })
+
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsTable)
+            expect(logic.values.yData.every((series) => series.data.length === 0)).toBe(true)
+            expect(logic.values.getTableCell(0, 1).value).toBe(2)
+            expect(logic.values.tableResults).toEqual(response.results)
+        }
+    )
+
+    it.each([false, true])(
+        'prepares only requested cells with transpose=%s and uses updated formatting',
+        (transpose) => {
+            logic.actions._setQuery({
+                ...defaultQuery,
+                display: ChartDisplayType.ActionsTable,
+                tableSettings: { transpose, columns: [{ column: 'value' }] },
+            })
+            const visibleValue = jest.fn(() => 7)
+            const hiddenValue = jest.fn(() => {
+                throw new Error('An unused cell was read')
+            })
+            const row = [7, 8]
+            Object.defineProperty(row, 0, { get: visibleValue })
+            Object.defineProperty(row, 1, { get: hiddenValue })
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+                columns: ['value', 'other'],
+                types: [
+                    ['value', 'Int64'],
+                    ['other', 'Int64'],
+                ],
+                results: [row],
+            })
+
+            expect(logic.values.tableRows).toHaveLength(transpose ? 2 : 1)
+            expect(logic.values.tabularColumns).toHaveLength(2)
+            expect(logic.values.yData.every((series) => series.data.length === 0)).toBe(true)
+            expect(visibleValue).not.toHaveBeenCalled()
+            expect(hiddenValue).not.toHaveBeenCalled()
+            const columnIndex = transpose ? 1 : 0
+            expect(logic.values.getTableCell(0, columnIndex).formattedValue).toBe('7')
+            expect(visibleValue).toHaveBeenCalledTimes(1)
+            expect(hiddenValue).not.toHaveBeenCalled()
+
+            logic.actions.updateSeries('value', { formatting: { prefix: 'USD ' } })
+            expect(logic.values.getTableCell(0, columnIndex).formattedValue).toBe('USD 7')
+            expect(hiddenValue).not.toHaveBeenCalled()
+        }
+    )
+
     it('transposes table results without changing the query source', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['region', 'value'],
@@ -760,51 +899,55 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             isTransposed: true,
             isPinningEnabled: false,
-            tabularData: [
-                [
-                    {
-                        value: 'region',
-                        formattedValue: null,
-                        type: 'STRING',
-                        sourceColumnName: 'region',
-                        isTransposedHeader: true,
-                    },
-                    {
-                        value: 'US',
-                        formattedValue: 'US',
-                        type: 'STRING',
-                        sourceColumnName: 'region',
-                    },
-                    {
-                        value: 'EU',
-                        formattedValue: 'EU',
-                        type: 'STRING',
-                        sourceColumnName: 'region',
-                    },
-                ],
-                [
-                    {
-                        value: 'value',
-                        formattedValue: null,
-                        type: 'STRING',
-                        sourceColumnName: 'value',
-                        isTransposedHeader: true,
-                    },
-                    {
-                        value: 10,
-                        formattedValue: '10',
-                        type: 'INTEGER',
-                        sourceColumnName: 'value',
-                    },
-                    {
-                        value: 20,
-                        formattedValue: '20',
-                        type: 'INTEGER',
-                        sourceColumnName: 'value',
-                    },
-                ],
-            ],
         })
+        expect(
+            logic.values.tableRows.map((row) =>
+                logic.values.tabularColumns.map((_, column) => logic.values.getTableCell(row.rowIndex, column))
+            )
+        ).toEqual([
+            [
+                {
+                    value: 'region',
+                    formattedValue: null,
+                    type: 'STRING',
+                    sourceColumnName: 'region',
+                    isTransposedHeader: true,
+                },
+                {
+                    value: 'US',
+                    formattedValue: 'US',
+                    type: 'STRING',
+                    sourceColumnName: 'region',
+                },
+                {
+                    value: 'EU',
+                    formattedValue: 'EU',
+                    type: 'STRING',
+                    sourceColumnName: 'region',
+                },
+            ],
+            [
+                {
+                    value: 'value',
+                    formattedValue: null,
+                    type: 'STRING',
+                    sourceColumnName: 'value',
+                    isTransposedHeader: true,
+                },
+                {
+                    value: 10,
+                    formattedValue: '10',
+                    type: 'INTEGER',
+                    sourceColumnName: 'value',
+                },
+                {
+                    value: 20,
+                    formattedValue: '20',
+                    type: 'INTEGER',
+                    sourceColumnName: 'value',
+                },
+            ],
+        ])
 
         expect(logic.values.query.source).toEqual(defaultQuery.source)
         expect(logic.values.query.tableSettings?.transpose).toEqual(true)
@@ -826,6 +969,13 @@ describe('dataVisualizationLogic', () => {
             hogVm: expect.anything(),
         },
         {
+            name: 'loads the Hog VM for a BI hierarchy pivot with formatting rules',
+            display: ChartDisplayType.TwoDimensionalHeatmap,
+            rules: [equalsRule],
+            hogVm: expect.anything(),
+            pivot: true,
+        },
+        {
             name: 'does not load the Hog VM for a table without formatting rules',
             display: ChartDisplayType.ActionsTable,
             rules: [],
@@ -843,10 +993,28 @@ describe('dataVisualizationLogic', () => {
             rules: [equalsRule],
             hogVm: null,
         },
-    ])('$name', async ({ display, rules, hogVm }) => {
+    ])('$name', async ({ display, rules, hogVm, pivot }) => {
         const tableLogic = dataVisualizationLogic({
             key: 'hog-vm-loading',
-            query: { ...defaultQuery, display, tableSettings: { conditionalFormatting: rules } },
+            query: {
+                ...defaultQuery,
+                ...(pivot
+                    ? {
+                          kind: NodeKind.BIVisualizationNode,
+                          config: {
+                              source: null,
+                              chartType: display,
+                              rows: [],
+                              columns: [],
+                              values: [],
+                              filters: [],
+                              limit: 100,
+                          },
+                      }
+                    : {}),
+                display,
+                tableSettings: { conditionalFormatting: rules },
+            },
             dataNodeCollectionId,
         } as DataVisualizationLogicProps)
         tableLogic.mount()
@@ -983,9 +1151,7 @@ describe('dataVisualizationLogic', () => {
             results: [[12.345]],
         })
 
-        await expectLogic(logic).toMatchValues({
-            tabularData: [[expect.objectContaining({ value: 12.345, formattedValue: '12.3' })]],
-        })
+        expect(logic.values.getTableCell(0, 0)).toMatchObject({ value: 12.345, formattedValue: '12.3' })
     })
 
     it.each<[string, number, AxisSeriesSettings | undefined, string]>([

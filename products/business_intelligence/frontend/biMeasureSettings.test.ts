@@ -48,6 +48,39 @@ const config: BIConfig = {
 }
 
 describe('BI measure display', () => {
+    it('keeps edited axis labels while refreshing generated labels after a field rename', () => {
+        const original = buildBIQuery(config)!.node.chartSettings!
+        const renamed = buildBIQuery({ ...config, rows: [{ ...config.rows[0], name: 'Order date' }] })!.node
+            .chartSettings!
+        expect(mergeBIChartSettings(original, renamed, original)?.xAxisLabel).toBe('DAY(Order date)')
+        const edited = {
+            ...original,
+            xAxisLabel: 'Date',
+            leftYAxisSettings: { label: 'Revenue', scale: 'logarithmic' as const },
+        }
+        const merged = mergeBIChartSettings(edited, renamed, original)
+        expect(merged?.xAxisLabel).toBe('Date')
+        expect(merged?.leftYAxisSettings).toMatchObject({ label: 'Revenue', scale: 'logarithmic' })
+        expect(
+            mergeBIChartSettings(edited, { ...renamed, xAxis: { column: 'country' }, xAxisLabel: 'Country' }, original)
+                ?.xAxisLabel
+        ).toBe('Country')
+        const tableDefaults = buildBIQuery(config)!.node.tableSettings!
+        const renamedTable = buildBIQuery({ ...config, rows: [{ ...config.rows[0], name: 'Order date' }] })!.node
+            .tableSettings!
+        expect(
+            mergeBITableSettings(tableDefaults, renamedTable, tableDefaults)?.columns?.[0].settings?.display?.label
+        ).toBe('DAY(Order date)')
+        const editedTable = {
+            ...tableDefaults,
+            columns: tableDefaults.columns?.map((column, index) =>
+                index === 0 ? { ...column, settings: { display: { label: 'Date' } } } : column
+            ),
+        }
+        expect(
+            mergeBITableSettings(editedTable, renamedTable, tableDefaults)?.columns?.[0].settings?.display?.label
+        ).toBe('Date')
+    })
     it.each([ChartDisplayType.ActionsBar, ChartDisplayType.TwoDimensionalHeatmap])(
         'persists independent formats and axes for %s',
         (chartType) => {

@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import builtins
 import dataclasses
@@ -10,10 +11,12 @@ from django.conf import settings
 from django.db.models import TextChoices
 
 import structlog
+from dateutil.parser import parse as parse_datetime
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     extend_schema_field,
     extend_schema_serializer,
@@ -30,9 +33,10 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ActorsQuery, ProductKey
+from posthog.schema import ActionsNode, ActorsQuery, EventsNode, InsightActorsQuery, ProductKey, TrendsQuery
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
@@ -47,6 +51,7 @@ from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_que
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.actor_strategies import PERSON_EMAIL_PROPERTY_KEYS, person_email_property_keys
 from posthog.hogql_queries.properties_timeline import PropertiesTimeline
 from posthog.hogql_queries.serialized_actors import SerializedPerson, get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
@@ -54,14 +59,13 @@ from posthog.models import Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
 )
-from posthog.models.person.divergence import repair_distinct_id
+from posthog.models.person.divergence.repairs import is_person_busy, is_retryable, repair_distinct_id
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
@@ -74,6 +78,7 @@ from posthog.models.person.util import (
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.delete_persons import queue_person_deletion
@@ -215,13 +220,29 @@ class PersonsDeleteSustainedThrottle(PersonalApiKeyRateThrottle):
 
 
 class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="The property key to set.")
-    value = serializers.JSONField(help_text="The property value. Can be a string, number, boolean, or object.")
+    key = serializers.CharField(
+        required=False, help_text="The property key to set. Pair it with 'value' to set one property."
+    )
+    value = serializers.JSONField(
+        required=False, help_text="The property value. Can be a string, number, boolean, or object."
+    )
+    properties = serializers.DictField(
+        required=False,
+        child=serializers.JSONField(),
+        help_text=(
+            "Property keys and values to set together, instead of 'key' and 'value'. "
+            "One request sets up to 1000 properties and emits a single $set event."
+        ),
+    )
 
 
-# Matches the cap on the persons bulk-delete endpoint; also keeps the resulting
-# capture event safely under the ~1 MB Kafka message limit.
-MAX_UNSET_KEYS_PER_REQUEST = 1000
+# Matches the cap on the persons bulk-delete endpoint.
+MAX_PROPERTY_KEYS_PER_REQUEST = 1000
+
+# Capture refuses an event over the ~1 MB Kafka message limit, and _set_properties
+# discards that failure, so an oversized request would answer 202 having written
+# nothing. The headroom covers the event envelope around the properties.
+MAX_PROPERTIES_PAYLOAD_BYTES = 900_000
 
 
 @extend_schema_field(
@@ -232,7 +253,7 @@ MAX_UNSET_KEYS_PER_REQUEST = 1000
                 "type": "array",
                 "items": {"type": "string", "minLength": 1},
                 "minItems": 1,
-                "maxItems": MAX_UNSET_KEYS_PER_REQUEST,
+                "maxItems": MAX_PROPERTY_KEYS_PER_REQUEST,
             },
         ]
     }
@@ -248,7 +269,7 @@ class PersonDeletePropertyRequestSerializer(serializers.Serializer):
         fields = super().get_fields()
         # The handler reads validated_data["$unset"], so the field name must include the $ prefix.
         fields["$unset"] = UnsetPropertyKeysField(
-            max_items=MAX_UNSET_KEYS_PER_REQUEST,
+            max_items=MAX_PROPERTY_KEYS_PER_REQUEST,
             help_text="A property key, or a list of property keys, to remove from this person.",
         )
         return fields
@@ -515,6 +536,76 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     )
 
 
+def _is_date_string(day: str | int) -> bool:
+    if not isinstance(day, str):
+        return False
+    # The trends actors query parses the day with dateutil, so the same parse checks it here.
+    try:
+        parse_datetime(day)
+    except (ValueError, OverflowError):
+        return False
+    return True
+
+
+@extend_schema_field(InsightActorsQuery)  # type: ignore[arg-type]  # Supported by the Pydantic schema extension.
+class InsightActorsQueryField(serializers.JSONField):
+    """Types the field as an `InsightActorsQuery` in the OpenAPI schema. `validate_query` parses it."""
+
+
+class PropertiesTimelineRequestSerializer(serializers.Serializer):
+    query = InsightActorsQueryField(
+        help_text=(
+            "The actors query of the insight data point, as the persons modal sends it. The timeline reads the "
+            "person's events in the data point's time window, and tracks the person properties that the series, "
+            "the insight's filters and its breakdown use. The source must be a Trends query, and the selected "
+            "series must be an events or actions series."
+        )
+    )
+
+    def validate_query(self, value: Any) -> InsightActorsQuery:
+        try:
+            query = InsightActorsQuery.model_validate(upgrade(value) if isinstance(value, dict) else value)
+        except (ValueError, TypeError):
+            raise serializers.ValidationError("Provide a valid insight actors query.")
+        if not isinstance(query.source, TrendsQuery):
+            raise serializers.ValidationError("The properties timeline supports Trends insights only.")
+        series_index = query.series or 0
+        if not 0 <= series_index < len(query.source.series):
+            raise serializers.ValidationError("The query's series index is out of range.")
+        if not isinstance(query.source.series[series_index], EventsNode | ActionsNode):
+            raise serializers.ValidationError("The properties timeline supports events and actions series only.")
+        if query.source.aggregation_group_type_index is not None:
+            # The actor is a person, so a group-aggregated source would read the group's properties.
+            raise serializers.ValidationError("The properties timeline supports person aggregation only.")
+        if query.day is not None and not _is_date_string(query.day):
+            raise serializers.ValidationError("A Trends data point's day must be a date string.")
+        return query
+
+
+class PropertiesTimelinePointSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(
+        help_text="The time of the first event in the window that has this combination of key property values."
+    )
+    properties = serializers.DictField(
+        child=serializers.JSONField(), help_text="The person's properties as that event recorded them."
+    )
+    relevant_event_count = serializers.IntegerField(
+        help_text="The number of the person's events in the window from this point until the next point."
+    )
+
+
+class PropertiesTimelineResponseSerializer(serializers.Serializer):
+    points = PropertiesTimelinePointSerializer(
+        many=True, help_text="One point for each change of the key property values, oldest first."
+    )
+    crucial_property_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The key person properties: those the insight's query uses. Empty when it uses none.",
+    )
+    effective_date_from = serializers.DateTimeField(help_text="The start of the window, in the project's time zone.")
+    effective_date_to = serializers.DateTimeField(help_text="The end of the window, in the project's time zone.")
+
+
 # Not in `posthog/api/cohort.py` because that module cannot be imported here at module level: it
 # reaches back into this one through `posthog/hogql_queries/actors_query_runner.py`.
 class CohortMinimalSerializer(serializers.ModelSerializer):
@@ -539,6 +630,10 @@ _PERSON_ID_PARAMETER = OpenApiParameter(
 _id_schema = extend_schema(parameters=[_PERSON_ID_PARAMETER])
 
 
+# A send with no person attached is matched to a person by its distinct ID. The cap keeps the query small
+# for a person with thousands of distinct IDs.
+_MESSAGE_ASSET_DISTINCT_ID_LIMIT = 100
+
 # Per-action distinct-id fetch caps for the person loaded by ``safely_get_object``. Listed actions
 # read only one distinct_id (property updates) or none (``destroy``/``activity`` use the uuid/pk;
 # ``properties_timeline``/``delete_events`` don't read distinct_ids), so the fetch is capped here.
@@ -560,9 +655,6 @@ _GET_OBJECT_DISTINCT_ID_LIMITS: dict[str, int] = {
 # matches one person exactly while the user is still typing, and short-circuiting there would
 # hide the other matches.
 _COMPLETE_EMAIL_TERM = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-# Keep in sync with the email arms of `PersonStrategy.filter_conditions`.
-_EMAIL_PROPERTY_KEYS = ("email", "Email")
 
 
 def _is_canonical_uuid(value: str) -> bool:
@@ -606,7 +698,7 @@ def _search_match_fields(search: str, person: SerializedPerson, known_fields: Co
         (PersonSearchMatchField.DISTINCT_ID, any(needle in did.lower() for did in person["distinct_ids"])),
         (
             PersonSearchMatchField.EMAIL,
-            any(needle in str(properties.get(key) or "").lower() for key in _EMAIL_PROPERTY_KEYS),
+            any(needle in str(properties.get(key) or "").lower() for key in PERSON_EMAIL_PROPERTY_KEYS),
         ),
         (PersonSearchMatchField.NAME, needle in str(properties.get("name") or "").lower()),
         (PersonSearchMatchField.ID, needle in str(person["id"]).lower()),
@@ -852,7 +944,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             {"type": "hogql", "key": identifier_hit},
                             *(
                                 {"type": "person", "key": key, "value": search, "operator": "icontains"}
-                                for key in (*_EMAIL_PROPERTY_KEYS, "name")
+                                for key in (*person_email_property_keys(team), "name")
                             ),
                         ],
                     }
@@ -1313,11 +1405,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "The original person always retains its properties. To clear individual "
             "properties afterward, use the `delete_property` endpoint.\n\n"
             "The split runs asynchronously: a 201 response means the task was enqueued. "
-            "Newly-created split-off persons get a deterministic UUID derived from "
-            "`(team_id, distinct_id)`, so they can be located client-side without polling. "
-            "If you need to delete a split-off person after this call, prefer looking it up by "
-            "that deterministic UUID rather than by distinct_id, since the latter still "
-            "resolves to the original merged person until the async task completes."
+            "A split-off person usually gets a UUID derived from `(team_id, distinct_id)`, "
+            "but gets a random UUID when another person already holds that UUID, so do not "
+            "compute it client-side. To find or delete a split-off person, look it up by its "
+            "distinct_id once the task completes. Until then the distinct_id still resolves "
+            "to the original person."
         ),
         request=PersonSplitRequestSerializer,
         responses={201: PersonSplitResponseSerializer},
@@ -1343,6 +1435,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             unknown = set(distinct_ids_to_split) - set(distinct_ids)
             if unknown:
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+            if set(distinct_ids) <= set(distinct_ids_to_split):
+                raise ValidationError({"distinct_ids_to_split": "must leave at least one distinct ID on this person"})
+        elif main_distinct_id and main_distinct_id not in distinct_ids:
+            # An unknown main ID would split off every distinct ID and leave the person unreachable.
+            raise ValidationError({"main_distinct_id": "not on this person"})
 
         split_person.delay(
             person.id,
@@ -1381,31 +1478,52 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(request=PersonUpdatePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        if "value" not in request.data:
-            return Response(
-                {
-                    "attr": "value",
-                    "code": "This field is required.",
-                    "detail": "required",
-                    "type": "validation_error",
-                },
-                status=400,
+        properties = request.data.get("properties")
+        if properties is None:
+            if "value" not in request.data:
+                return Response(
+                    {
+                        "attr": "value",
+                        "code": "This field is required.",
+                        "detail": "required",
+                        "type": "validation_error",
+                    },
+                    status=400,
+                )
+            if request.data.get("key") is None:
+                return Response(
+                    {
+                        "attr": "key",
+                        "code": "This field is required.",
+                        "detail": "required",
+                        "type": "validation_error",
+                    },
+                    status=400,
+                )
+            properties = {request.data["key"]: request.data["value"]}
+        elif not isinstance(properties, dict) or not properties:
+            raise ValidationError(
+                {"properties": "Provide 'properties' as a non-empty object of property keys to values."}
             )
-        if request.data.get("key") is None:
-            return Response(
-                {
-                    "attr": "key",
-                    "code": "This field is required.",
-                    "detail": "required",
-                    "type": "validation_error",
-                },
-                status=400,
+        elif len(properties) > MAX_PROPERTY_KEYS_PER_REQUEST:
+            raise ValidationError(
+                {"properties": f"Set at most {MAX_PROPERTY_KEYS_PER_REQUEST} properties in one request."}
             )
-        key = request.data["key"]
+
+        payload_size = len(json.dumps(properties, default=str).encode())
+        if payload_size > MAX_PROPERTIES_PAYLOAD_BYTES:
+            raise ValidationError(
+                {
+                    "properties": f"Property values total {payload_size} bytes, over the "
+                    f"{MAX_PROPERTIES_PAYLOAD_BYTES} byte limit for one request. Send them in smaller batches."
+                }
+            )
+
         non_writable = self._get_non_writable_person_properties(request)
-        if key in non_writable:
-            raise ValidationError(f'You do not have write access to the property "{key}".')
-        self._set_properties({key: request.data["value"]}, request.user)
+        for key in properties:
+            if key in non_writable:
+                raise ValidationError(f'You do not have write access to the property "{key}".')
+        self._set_properties(properties, request.user)
         return Response(status=202)
 
     @validated_request(PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
@@ -1627,15 +1745,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    @action(methods=["GET"], detail=True)
-    def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    @validated_request(
+        request_serializer=PropertiesTimelineRequestSerializer,
+        parameters=[_PERSON_ID_PARAMETER],
+        responses={200: PropertiesTimelineResponseSerializer},
+        summary="Get a person's properties timeline for an insight data point",
+        description=(
+            "Shows how the person's key properties changed within the time window of a Trends data point. The key "
+            "properties are the person properties that the insight's query uses."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["person:read"])
+    def properties_timeline(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
         person = self.get_object()
-        filter = PropertiesTimelineFilter(request=request, team=self.team)
-
-        properties_timeline = PropertiesTimeline().run(filter, self.team, person)
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
+        try:
+            properties_timeline = PropertiesTimeline().run(request.validated_data["query"], self.team, person)
+        except ExposedHogQLError as error:
+            # Covers both `QueryError` and the `SyntaxError` a malformed HogQL filter parses into.
+            raise ValidationError({"query": [str(error)]})
 
         return response.Response(data=properties_timeline)
 
@@ -1654,6 +1785,25 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
     def push_notifications(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return self._message_assets_response(request, kind="push")
+
+    def _person_email(self, person: Person) -> Optional[str]:
+        # Person properties come from ClickHouse, not from the personhog lookup that loaded the person.
+        from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
+        from posthog.hogql.parser import parse_select  # noqa: PLC0415
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
+        results = execute_hogql_query(
+            parse_select(
+                "SELECT properties.email FROM persons WHERE id = {person_id} LIMIT 1",
+                placeholders={"person_id": ast.Constant(value=str(person.uuid))},
+            ),
+            team=self.team,
+            # A property rule can hide the email from this user. Without the user, only the team-wide rules apply.
+            user=self.request.user,
+            query_type="person_message_assets_email",
+        ).results
+        email = results[0][0] if results else None
+        return email if isinstance(email, str) and email.strip() else None
 
     def _message_assets_response(self, request: request.Request, kind: str) -> response.Response:
         person = self.get_object()
@@ -1676,6 +1826,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             after=after_date,
             before=before_date,
             kind=kind,
+            distinct_ids=person.distinct_ids[:_MESSAGE_ASSET_DISTINCT_ID_LIMIT],
+            email=self._person_email(person) if kind == "email" else None,
         )
         # Single lookup for every workflow referenced by this page of rows so the tab shows
         # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
@@ -1721,6 +1873,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         description="Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.",
+        responses={
+            202: OpenApiResponse(description="The fix was applied, or nothing needed fixing."),
+            409: OpenApiResponse(description="The person is being updated by another operation. Try again shortly."),
+            503: OpenApiResponse(description="Person data is temporarily unavailable. Try again shortly."),
+        },
     )
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def reset_person_distinct_id(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -1728,9 +1885,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_id or not isinstance(distinct_id, str):
             raise ValidationError(detail="distinct_id is required")
 
-        summary = repair_distinct_id(
-            self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
-        )
+        try:
+            summary = repair_distinct_id(
+                self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
+            )
+        except Exception as error:
+            if is_person_busy(error):
+                return response.Response(
+                    {"detail": "This person is being updated right now. Try again in a few seconds."},
+                    status=409,
+                )
+            if is_retryable(error):
+                return response.Response(
+                    {"detail": "Person data is temporarily unavailable. Try again in a minute."},
+                    status=503,
+                )
+            raise
         if summary is not None:
             logger.info(
                 "person_reset_distinct_id",

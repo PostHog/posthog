@@ -1,6 +1,8 @@
 import asyncio
 import dataclasses
 
+from django.db import transaction
+
 import deltalake
 from structlog import get_logger
 from temporalio import activity
@@ -9,9 +11,14 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_modeling.activities.materialize_view import get_aws_storage_options
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
-from products.data_modeling.backend.facade.api import promote_view_nodes_to_matview
+from products.data_modeling.backend.facade.api import (
+    link_table_if_materializing,
+    promote_view_nodes_to_matview,
+    unlink_table,
+)
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import create_table_from_saved_query
+from products.warehouse_sources.backend.facade.api import discard_backing_table, record_table_row_count
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying
 
@@ -41,19 +48,32 @@ def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWare
     return saved_query
 
 
+def _link_or_discard_table(saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable) -> bool:
+    with transaction.atomic():
+        if link_table_if_materializing(saved_query.team_id, saved_query.id, saved_query_table.id):
+            return True
+        unlink_table(saved_query.team_id, saved_query.id, saved_query_table.id)
+        discard_backing_table(saved_query.team_id, saved_query_table.id)
+    LOGGER.info(
+        "discarded_table_published_after_revert",
+        team_id=saved_query.team_id,
+        saved_query_id=str(saved_query.id),
+        table_id=str(saved_query_table.id),
+    )
+    return False
+
+
 @database_sync_to_async_pool
 def _update_saved_query_with_table(
     inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
 ):
-    saved_query.refresh_from_db()
-    saved_query.table_id = saved_query_table.id
-    saved_query.save()
+    if not _link_or_discard_table(saved_query, saved_query_table):
+        return
 
     if not inputs.incremental:
         # `create_table_from_saved_query` already counted the published files, which is the whole
         # table. Keep that for an incremental run rather than overwriting it with the window.
-        saved_query_table.row_count = inputs.row_count
-        saved_query_table.save()
+        record_table_row_count(saved_query.team_id, saved_query_table.id, inputs.row_count)
 
     # Every other materialization entry point can leave a stale node type behind, so repair it here.
     # A query reverted mid-run is left alone: it no longer asks to materialize.

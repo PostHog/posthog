@@ -34,7 +34,6 @@ describe('DashboardTextItem', () => {
         dashboardWidgetMenusLogic({
             instanceKey: 'text-10',
             dashboardId: 99,
-            dashboards: undefined,
             dashboard_tiles: [],
         }).mount()
     })
@@ -44,7 +43,6 @@ describe('DashboardTextItem', () => {
         dashboardWidgetMenusLogic({
             instanceKey: 'text-10',
             dashboardId: 99,
-            dashboards: undefined,
             dashboard_tiles: [],
         }).unmount()
     })

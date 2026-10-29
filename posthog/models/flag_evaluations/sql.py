@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import (
@@ -7,6 +9,7 @@ from posthog.clickhouse.kafka_engine import (
     trim_quotes_expr,
     ttl_period,
 )
+from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
@@ -20,8 +23,8 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 # person properties, lifecycle insights read the person's created_at, and a
 # persons join at query time does not fit in memory on the largest teams.
 # person_mode tells a call processed without a person profile from a person with
-# no properties, because both store '{}' in person_properties. The 90-day TTL is
-# what makes rows that wide affordable.
+# no properties, because both store '{}' in person_properties. The TTL is what
+# makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
 #   * `sharded_flag_evaluations` — sharded ReplicatedReplacingMergeTree on DATA nodes.
@@ -37,8 +40,17 @@ FLAG_EVALUATIONS_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_TABLE}"
 KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
+# PostHog tells customers that this table keeps this many days. The frontend mirrors this value as
+# FLAG_EVALUATIONS_RETENTION_DAYS in flagEvaluationsTable.ts. Change both together.
+FLAG_EVALUATIONS_RETENTION_DAYS = 90
+
+# A row dated day D expires when day D + FLAG_EVALUATIONS_TTL_DAYS starts in UTC. A "Last 90 days" range starts at
+# midnight 90 days back in the team's timezone. That midnight falls on the UTC day 90 or 91 days back, depending on
+# the timezone and the time of day. A 92-day TTL keeps every UTC day that such a range covers.
+# This value sets the TTL only when the table is created. Changing the TTL of an existing table takes a
+# migration, such as 0362_flag_evaluations_ttl_92_days.
 # The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
-FLAG_EVALUATIONS_TTL_DAYS = 90
+FLAG_EVALUATIONS_TTL_DAYS = 92
 
 # The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
 # for deletion requests that name other events, so a producer writing a second event name here has
@@ -172,11 +184,30 @@ _FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS = """
     , request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id'
 """
 
+
+# posthog/clickhouse/test/test_schema.py reads one column per line, so each piece renders on one line.
+def _single_line(pieces: Iterable[str]) -> str:
+    return "".join(f"\n    , {' '.join(piece.split())}" for piece in pieces)
+
+
+# Property-group maps with the events tables' key filters. On cloud, HogQL reads custom event and
+# person properties on events from the same maps instead of the JSON. They are MATERIALIZED, unlike
+# the typed columns above, because no writer sets them. Property removal copies rows without them,
+# and the reingest recomputes them from the cleaned JSON, as on sharded_events.
+_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS = _single_line(
+    property_groups.get_create_table_pieces(FLAG_EVALUATIONS_DATA_TABLE)
+)
+
+# The read table declares the map columns plain, without their indexes, like the typed columns.
+_FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS = _single_line(
+    property_groups.get_create_table_pieces(FLAG_EVALUATIONS_TABLE)
+)
+
 # The bloom filters cover point lookups the sort key can't serve (a specific user,
 # person, session, or flags-service request). The minmax on inserted_at serves
 # incremental consumers that checkpoint on it: partitioning is on timestamp, so an
 # inserted_at range predicate prunes no partitions on its own and would otherwise
-# read all 90 days. A skip index only covers parts written after it exists, so
+# read every retained day. A skip index only covers parts written after it exists, so
 # retrofitting one means a full MATERIALIZE INDEX mutation — much cheaper to
 # declare up front.
 _FLAG_EVALUATIONS_INDEXES = """
@@ -211,18 +242,19 @@ CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
     {_FLAG_EVALUATIONS_TYPED_COLUMNS}
+    {_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS}
     {_FLAG_EVALUATIONS_INDEXES}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {FLAG_EVALUATIONS_DATA_TABLE_ENGINE()}
--- Monthly, matching the events family. Daily partitions would put ~90 of them
--- under a 90-day TTL, and enough parts across them to strain merges. The cost
+-- Monthly, matching the events family. Daily partitions would put one partition
+-- under the TTL for each retained day, and enough parts across them to strain merges. The cost
 -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
 -- row expires, so rows survive up to a month past the TTL.
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY {FLAG_EVALUATIONS_ORDER_BY}
 {ttl_period("timestamp", FLAG_EVALUATIONS_TTL_DAYS, unit="DAY")}
-SETTINGS ttl_only_drop_parts = 1
+SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
 """
 )
 
@@ -247,12 +279,12 @@ def DROP_FLAG_EVALUATIONS_TABLE_SQL() -> str:
     return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_DATA_TABLE} SYNC"
 
 
-def _distributed_table_sql(table_name: str, *, typed_columns: str = "") -> str:
+def _distributed_table_sql(table_name: str, *, proxy_columns: str = "") -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
-    {typed_columns}
+    {proxy_columns}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}
@@ -264,7 +296,8 @@ WRITABLE_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUA
 
 # Read path on DATA nodes, and the name queries use.
 DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(
-    FLAG_EVALUATIONS_TABLE, typed_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS
+    FLAG_EVALUATIONS_TABLE,
+    proxy_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS + _FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS,
 )
 
 

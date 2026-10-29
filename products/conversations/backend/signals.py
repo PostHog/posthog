@@ -14,7 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.signals import secret_api_token_rotated
+from posthog.models.signals import secret_api_token_backup_deleted, secret_api_token_rotated
 
 from .ai.human_outcome import maybe_record_human_outcome
 from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
@@ -143,6 +143,14 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     if not created:
         return
 
+    if (
+        instance.created_by_id is None
+        and isinstance(instance.item_context, dict)
+        and instance.item_context.get("author_type") == "AI"
+        and instance.item_context.get("automated_update_key")
+    ):
+        return
+
     # Capture values for closure (avoid referencing instance in deferred callback)
     team_id = instance.team_id
     item_id = instance.item_id
@@ -220,7 +228,15 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 capture_message_sent(ticket, comment_id, content or "", author=author)
             elif not is_team_message:
                 author = None
-                capture_message_received(ticket, comment_id, content or "")
+                capture_message_received(
+                    ticket,
+                    comment_id,
+                    content or "",
+                    # The comments API stores the request's item_context, and a thread reply copies its
+                    # parent's item_context. Only channel handlers write a customer comment with no
+                    # created_by, so only those comments can attest the message author.
+                    item_context=item_context if isinstance(item_context, dict) and created_by_id is None else None,
+                )
 
             # Internal analytics (PostHog tracking its own usage)
             props = {"channel_source": ticket.channel_source}
@@ -607,5 +623,45 @@ def sync_signing_secret_on_rotation(sender, team, **kwargs):
 
     Runs inside the rotation's transaction (Team.rotate_secret_token_and_save), so a
     failure here rolls the whole rotation back: the two stores can never diverge.
+    A secret rotated independently via the conversations endpoint is its own authority
+    and must not be clobbered by a legacy-token rotation.
     """
-    SigningSecret.objects.for_team(team.id).update_or_create(team=team, defaults={"secret": team.secret_api_token})
+    # Locked get_or_create: a plain select_for_update().first() holds no lock when the row
+    # doesn't exist yet, letting a concurrent independent rotation be overwritten.
+    row, created = (
+        SigningSecret.objects.for_team(team.id)
+        .select_for_update()
+        .get_or_create(team=team, defaults={"secret": team.secret_api_token})
+    )
+    if created:
+        return
+    # A second legacy rotation retires the old backup for good (expired_token). An
+    # independent row may still hold that credential as its grace copy from the
+    # rotation that decoupled it; a revoked key must not keep verifying through it.
+    expired_token = kwargs.get("expired_token")
+    if expired_token and row.previous_secret == expired_token:
+        row.previous_secret = None
+        row.previous_secret_rotated_at = None
+        row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])
+    if row.rotated_independently:
+        return
+    # No grace here: for a legacy rotation the backup column is the grace mechanism
+    # (the old key keeps working until the backup is deleted or expires on the next
+    # rotation). A previous_secret copy would outlive or duplicate those semantics,
+    # so a mirroring row never carries one.
+    row.previous_secret = None
+    row.previous_secret_rotated_at = None
+    row.secret = team.secret_api_token
+    row.save(update_fields=["secret", "previous_secret", "previous_secret_rotated_at"])
+
+
+@receiver(secret_api_token_backup_deleted)
+def revoke_signing_secret_grace_on_backup_deletion(sender, team, deleted_token, **kwargs):
+    """Deleting the legacy backup is an explicit revocation: the same credential must not
+    keep verifying through the signing secret's grace copy. Runs inside the deletion's
+    transaction (Team.delete_secret_token_backup_and_save)."""
+    row = SigningSecret.objects.for_team(team.id).select_for_update().first()
+    if row and row.previous_secret == deleted_token:
+        row.previous_secret = None
+        row.previous_secret_rotated_at = None
+        row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])

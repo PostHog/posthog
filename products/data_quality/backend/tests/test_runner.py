@@ -165,6 +165,7 @@ class TestCheckRunner(BaseTest):
                 name="revenue",
                 description="Revenue",
                 definition={"kind": "HogQLQuery", "query": "SELECT 1 AS replacement"},
+                overwrite=True,
             )
             outcome = run_check(check, self.suite_run, self.team)
         assert outcome.status == CheckRunStatus.ERRORED

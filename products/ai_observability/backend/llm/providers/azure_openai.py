@@ -15,7 +15,12 @@ from posthoganalytics.ai.openai import AzureOpenAI as WrappedAzureOpenAI
 
 from posthog.exceptions_capture import capture_exception
 
-from products.ai_observability.backend.llm.errors import error_field_for_message
+from products.ai_observability.backend.llm.errors import (
+    ClaudeDeploymentOnAzureOpenAIError,
+    LLMError,
+    ModelNotFoundError,
+    error_field_for_message,
+)
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext
 
@@ -158,6 +163,17 @@ class AzureOpenAIAdapter(OpenAIAdapter):
             max_retries=self.max_retries,
             http_client=http_client,
         )
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        mapped = super()._mapped_error(error, model)
+        # A Foundry resource can host Claude next to OpenAI models, but Claude only answers on the
+        # Anthropic API. The chat completions call then fails with a 404 or 400 that names neither
+        # cause nor fix, so point the user at the Anthropic key instead.
+        if "claude" in model.lower() and (
+            isinstance(mapped, ModelNotFoundError) or (mapped is None and isinstance(error, openai.BadRequestError))
+        ):
+            return ClaudeDeploymentOnAzureOpenAIError(model)
+        return mapped
 
     @staticmethod
     def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:

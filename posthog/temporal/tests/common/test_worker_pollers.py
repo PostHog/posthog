@@ -5,7 +5,7 @@ from django.test import override_settings
 
 from temporalio.worker import PollerBehaviorAutoscaling
 
-from posthog.temporal.common.worker import build_poller_autoscaling, create_worker
+from posthog.temporal.common.worker import ActivityWorkerConfig, build_poller_autoscaling, create_worker
 
 
 @pytest.mark.parametrize(
@@ -61,7 +61,7 @@ async def test_create_worker_passes_poller_behavior_only_when_configured(
 ):
     with (
         override_settings(**poller_settings),
-        mock.patch("posthog.temporal.common.worker.connect", new=mock.AsyncMock()),
+        mock.patch("posthog.temporal.common.worker.connect", new=mock.AsyncMock()) as connect,
         mock.patch("posthog.temporal.common.worker.Runtime"),
         mock.patch("posthog.temporal.common.worker.configure_asyncify_executor"),
         mock.patch("posthog.temporal.common.worker.WorkerTuner"),
@@ -77,11 +77,20 @@ async def test_create_worker_passes_poller_behavior_only_when_configured(
             activities=[],
             enable_combined_metrics_server=False,
             target_memory_usage=target_memory_usage,
+            activity_worker_configs=[
+                ActivityWorkerConfig(task_queue="aggregation-queue", activities=[], max_concurrent_activities=1)
+            ],
         )
 
-    kwargs = worker_cls.call_args.kwargs
+    primary, aggregation = worker_cls.call_args_list
+    kwargs = primary.kwargs
     poller_kwargs = {k: v for k, v in kwargs.items() if k.endswith("poller_behavior")}
     assert poller_kwargs == expected_kwargs
+    assert aggregation.args == primary.args
+    assert aggregation.kwargs["task_queue"] == "aggregation-queue"
+    assert aggregation.kwargs["max_concurrent_activities"] == 1
+    assert "tuner" not in aggregation.kwargs
+    connect.assert_awaited_once()
 
 
 @pytest.mark.asyncio

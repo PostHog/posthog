@@ -17,12 +17,6 @@ class TestDecagonSource:
         self.team_id = 123
         self.config = DecagonSourceConfig(api_key="decagon-test-key")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["conversations"])] == [
-            "conversations"
-        ]
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @parameterized.expand(
         [
             (

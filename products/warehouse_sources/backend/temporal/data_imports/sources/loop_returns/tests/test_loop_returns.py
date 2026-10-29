@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.loopreturns import (
@@ -220,6 +221,109 @@ class TestLoopReturnsSource:
         assert result.queries == [{}]
         assert result.saved_states == []
 
+    @pytest.mark.parametrize(
+        ("label", "last_next_page_url"),
+        [
+            ("null_next_link", None),
+        ],
+    )
+    def test_a_cursor_endpoint_walks_pages_until_the_next_link_ends(
+        self, label: str, last_next_page_url: str | None
+    ) -> None:
+        result = self._driver().run(
+            "orders",
+            [
+                ScriptedResponse(
+                    json={
+                        "orders": [{"id": 1}, {"id": 2}],
+                        "next_page_url": "https://api.loopreturns.com/api/v1/orders?cursor=c1",
+                    }
+                ),
+                ScriptedResponse(json={"orders": [{"id": 3}], "next_page_url": last_next_page_url}),
+            ],
+            api_version=API_VERSION,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.params("cursor") == [None, "c1"]
+        # Our own page size and sort stay on every page, whatever Loop's next link carries.
+        assert result.params("limit") == ["250", "250"]
+        assert result.params("sort_order") == ["asc", "asc"]
+        assert result.saved_states == [LoopReturnsResumeConfig(cursor="c1")]
+
+    @pytest.mark.parametrize(
+        ("label", "second_link", "message"),
+        [
+            ("repeated_cursor", "https://api.loopreturns.com/api/v1/orders?cursor=c1", "not advancing"),
+            ("link_without_cursor", "https://api.loopreturns.com/api/v1/orders?limit=250", "no usable cursor"),
+        ],
+    )
+    def test_a_cursor_endpoint_fails_when_the_next_link_cannot_be_followed(
+        self, label: str, second_link: str, message: str
+    ) -> None:
+        result = self._driver().run(
+            "orders",
+            [
+                ScriptedResponse(
+                    json={"orders": [{"id": 1}], "next_page_url": "https://api.loopreturns.com/api/v1/orders?cursor=c1"}
+                ),
+                ScriptedResponse(json={"orders": [{"id": 2}], "next_page_url": second_link}),
+            ],
+            api_version=API_VERSION,
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert message in str(result.raised)
+
+    def test_a_resumed_cursor_endpoint_starts_at_the_saved_cursor(self) -> None:
+        result = self._driver().run(
+            "customers",
+            [ScriptedResponse(json={"customers": [{"id": 7}], "next_page_url": None})],
+            resume_state=LoopReturnsResumeConfig(cursor="c5"),
+            api_version=API_VERSION,
+        )
+
+        assert result.raised is None
+        assert result.params("cursor") == ["c5"]
+        assert [row["id"] for row in result.rows] == [7]
+
+    def test_product_variants_fan_out_over_every_product(self) -> None:
+        result = self._driver().run(
+            "product_variants",
+            route(
+                {
+                    "/products": [
+                        ScriptedResponse(json={"products": [{"id": 10}, {"id": 20}], "next_page_url": None}),
+                    ],
+                    "/products/10/product-variants": [
+                        ScriptedResponse(
+                            json={
+                                "product_variants": [{"id": 1}],
+                                "next_page_url": "https://api.loopreturns.com/api/v1/products/10/product-variants?cursor=v1",
+                            }
+                        ),
+                        ScriptedResponse(json={"product_variants": [{"id": 2}], "next_page_url": None}),
+                    ],
+                    # A product deleted after the product listing ran.
+                    "/products/20/product-variants": [ScriptedResponse(status=404, json={"message": "Not found"})],
+                }
+            ),
+            api_version=API_VERSION,
+        )
+
+        assert result.raised is None
+        assert [(row["product_id"], row["id"]) for row in result.rows] == [(10, 1), (10, 2)]
+        assert all("_products_id" not in row for row in result.rows)
+        assert result.paths == [
+            "/api/v1/products",
+            "/api/v1/products/10/product-variants",
+            "/api/v1/products/10/product-variants",
+            "/api/v1/products/20/product-variants",
+        ]
+        assert result.params("cursor") == [None, None, "v1", None]
+        assert result.saved_states == []
+
 
 class TestCredentialValidation:
     @pytest.mark.parametrize(
@@ -228,14 +332,16 @@ class TestCredentialValidation:
             ("returns_readable", [200], True),
             # A key scoped only for destinations still works, just for fewer tables.
             ("returns_denied_destinations_readable", [401, 200], True),
-            ("everything_denied", [401, 401], False),
-            ("forbidden", [403, 403], False),
-            ("server_error", [500, 500], False),
+            # One probe per scope: returns, destinations, orders, products, then customers.
+            ("only_customers_readable", [401, 401, 401, 401, 200], True),
+            ("everything_denied", [401] * 5, False),
+            ("forbidden", [403] * 5, False),
+            ("server_error", [500], False),
         ],
     )
     def test_validate_credentials(self, label: str, status_codes: list[int], expected_valid: bool) -> None:
         responses = [ScriptedResponse(status=code, json={}) for code in status_codes]
-        script = always(responses[0]) if status_codes == [500, 500] else responses
+        script = always(responses[0]) if status_codes == [500] else responses
         with scripted_network(script):
             is_valid, error = validate_credentials(API_KEY, API_VERSION)
 
@@ -243,18 +349,26 @@ class TestCredentialValidation:
         assert (error is None) is expected_valid
 
     def test_a_denied_key_names_the_scope_to_add(self) -> None:
-        with scripted_network([ScriptedResponse(status=401), ScriptedResponse(status=401)]):
+        with scripted_network(always(ScriptedResponse(status=401))):
             _, error = validate_credentials(API_KEY, API_VERSION)
 
         assert error is not None
         assert "Returns" in error
 
-    def test_validating_one_schema_probes_only_that_endpoint(self) -> None:
-        with scripted_network([ScriptedResponse(json={"destinations": []})]) as network:
-            is_valid, error = validate_credentials(API_KEY, API_VERSION, schema_name="destinations")
+    @pytest.mark.parametrize(
+        ("schema_name", "expected_url"),
+        [
+            ("destinations", "https://api.loopreturns.com/api/v1/destinations"),
+            # A variant request needs a product id, so the product list stands in for it.
+            ("product_variants", "https://api.loopreturns.com/api/v1/products?limit=1"),
+        ],
+    )
+    def test_validating_one_schema_probes_only_that_endpoint(self, schema_name: str, expected_url: str) -> None:
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            is_valid, error = validate_credentials(API_KEY, API_VERSION, schema_name=schema_name)
 
         assert (is_valid, error) == (True, None)
-        assert network.requests_log[0].url == "https://api.loopreturns.com/api/v1/destinations"
+        assert [request.url for request in network.requests_log] == [expected_url]
 
     def test_a_network_failure_is_reported_not_raised(self) -> None:
         with scripted_network(always(RequestsConnectionError("no route to host"))):

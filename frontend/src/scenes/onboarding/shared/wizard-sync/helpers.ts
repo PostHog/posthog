@@ -12,6 +12,10 @@ export function startedByFromSession(session: WizardSessionDTOApi | null): { nam
     return { name: createdBy.first_name || createdBy.email, email: createdBy.email }
 }
 
+export function sessionErrorMessage(session: WizardSessionDTOApi | null): string | undefined {
+    return (session?.error as { message?: string } | null)?.message
+}
+
 // Ceiling on the displayed elapsed time. The clock is driven by a persisted handle that outlives the
 // run it names, so without a cap a run nobody ever settled counts up for as long as the browser keeps
 // the handle. Display only: telemetry keeps the true elapsed.

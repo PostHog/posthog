@@ -1,0 +1,96 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_LOGS_API = "https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/"
+_MONITORING_API = "https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "log_groups": {
+        "description": "A log group in the region. Log groups hold log streams that share retention, monitoring and access control settings.",
+        "docs_url": f"{_LOGS_API}API_LogGroup.html",
+        "columns": {
+            "log_group_name": "Name of the log group.",
+            "arn": "ARN of the log group, with a trailing `:*`.",
+            "log_group_arn": "ARN of the log group without the trailing `:*`.",
+            "creation_time": "When the log group was created.",
+            "retention_in_days": "Days CloudWatch keeps events in this group. Empty means events never expire.",
+            "stored_bytes": "Bytes of log data stored in the group.",
+            "metric_filter_count": "Number of metric filters defined on the group.",
+            "kms_key_id": "ARN of the KMS key encrypting the group, when one is set.",
+            "log_group_class": "Storage class of the group: STANDARD, INFREQUENT_ACCESS or DELIVERY.",
+            "data_protection_status": "Whether a data protection policy is active on the group.",
+        },
+    },
+    "log_events": {
+        "description": "A log event from one of the synced log groups.",
+        "docs_url": f"{_LOGS_API}API_FilteredLogEvent.html",
+        "columns": {
+            "log_group_name": "Log group the event belongs to.",
+            "event_id": "Identifier of the event, unique within its log group.",
+            "log_stream_name": "Log stream the event was written to.",
+            "timestamp": "When the event occurred, as reported by the writer.",
+            "ingestion_time": "When CloudWatch Logs received the event.",
+            "message": "The raw log line.",
+        },
+    },
+    "alarms": {
+        "description": "A metric or composite alarm with its current state and configuration.",
+        "docs_url": f"{_MONITORING_API}API_MetricAlarm.html",
+        "columns": {
+            "alarm_arn": "ARN of the alarm.",
+            "alarm_name": "Name of the alarm.",
+            "alarm_type": "MetricAlarm or CompositeAlarm.",
+            "alarm_description": "Description of the alarm.",
+            "state_value": "Current state: OK, ALARM or INSUFFICIENT_DATA.",
+            "state_reason": "Human-readable explanation of the current state.",
+            "state_reason_data": "JSON explanation of the current state, as CloudWatch recorded it.",
+            "state_updated_timestamp": "When the state was last updated.",
+            "state_transitioned_timestamp": "When the state last changed value.",
+            "alarm_configuration_updated_timestamp": "When the alarm configuration was last changed.",
+            "actions_enabled": "Whether actions run when the alarm changes state.",
+            "alarm_actions": "Actions taken when the alarm enters ALARM.",
+            "ok_actions": "Actions taken when the alarm enters OK.",
+            "insufficient_data_actions": "Actions taken when the alarm enters INSUFFICIENT_DATA.",
+            "metric_name": "Metric the alarm watches, for a single-metric alarm.",
+            "namespace": "Namespace of the watched metric.",
+            "statistic": "Statistic applied to the metric (Average, Sum, ...).",
+            "extended_statistic": "Percentile statistic applied to the metric, when one is used.",
+            "dimensions": "Dimensions of the watched metric.",
+            "period": "Seconds over which the statistic is applied.",
+            "unit": "Unit of the watched metric.",
+            "evaluation_periods": "Number of periods compared with the threshold.",
+            "datapoints_to_alarm": "Number of breaching datapoints needed to enter ALARM.",
+            "threshold": "Value the statistic is compared with.",
+            "comparison_operator": "How the statistic is compared with the threshold.",
+            "treat_missing_data": "How missing datapoints are treated.",
+            "metrics": "Metric math queries, for an alarm built on an expression.",
+            "alarm_rule": "Rule expression, for a composite alarm.",
+        },
+    },
+    "alarm_history": {
+        "description": "A change recorded for an alarm: a state transition, a configuration update or an action execution. CloudWatch keeps 30 days of history.",
+        "docs_url": f"{_MONITORING_API}API_AlarmHistoryItem.html",
+        "columns": {
+            "alarm_name": "Name of the alarm.",
+            "alarm_type": "MetricAlarm or CompositeAlarm.",
+            "timestamp": "When the change happened.",
+            "history_item_type": "ConfigurationUpdate, StateUpdate or Action.",
+            "history_summary": "Summary of the change.",
+            "history_data": "JSON detail of the change, as CloudWatch recorded it.",
+            "alarm_contributor_id": "Contributor the item relates to, for alarms with contributors.",
+            "history_id": "Hash of the whole history item. CloudWatch gives items no id, and an alarm with contributors records several at the same instant.",
+        },
+    },
+    "metric_data": {
+        "description": "A datapoint returned by one of the metric queries configured on the source.",
+        "docs_url": f"{_MONITORING_API}API_GetMetricData.html",
+        "columns": {
+            "query_id": "Id of the metric query the datapoint belongs to.",
+            "label": "Label of the query, defaulting to its id.",
+            "timestamp": "Start of the period the datapoint covers.",
+            "value": "Value of the statistic for the period.",
+            "status_code": "Complete, or PartialData when CloudWatch sent the query's datapoints across several pages.",
+        },
+    },
+}

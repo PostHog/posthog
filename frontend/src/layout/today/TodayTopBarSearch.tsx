@@ -1,14 +1,12 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
 import { Button, Kbd } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { isMac } from 'lib/utils/dom'
-import { teamLogic } from 'scenes/teamLogic'
 
 export function TodayTopBarSearch(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
     const { toggleCommand } = useActions(commandLogic)
 
     return (
@@ -20,7 +18,7 @@ export function TodayTopBarSearch(): JSX.Element {
             data-attr="today-top-bar-search"
         >
             <IconSearch className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-start">Search {currentTeam?.name ?? 'PostHog'}</span>
+            <span className="min-w-0 flex-1 truncate text-start">Search this project</span>
             <Kbd className="shrink-0">{isMac() ? '⌘K' : 'Ctrl+K'}</Kbd>
         </Button>
     )

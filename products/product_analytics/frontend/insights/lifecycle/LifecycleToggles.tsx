@@ -3,15 +3,16 @@ import { useActions, useValues } from 'kea'
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import {
-    AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
-    getAggregationTargetPronoun,
-} from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { LifecycleFilter, LifecycleQuery } from '~/queries/schema/schema-general'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
+
+import {
+    AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
+    getAggregationTargetPronoun,
+} from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'
 
 const lifecycles: { name: LifecycleToggle; color: string }[] = [
     {

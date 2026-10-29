@@ -2369,6 +2369,8 @@ export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneC
     '^[a-f0-9]{64}$'
 )
 
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemBaseArtifactIdMax = 255
+
 export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -2440,6 +2442,13 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                     })
                     .optional()
                     .describe('Skill bundle metadata, required when the artifact type is skill_bundle.'),
+                base_artifact_id: zod
+                    .string()
+                    .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemBaseArtifactIdMax)
+                    .optional()
+                    .describe(
+                        'ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when its base artifact can.'
+                    ),
             })
         )
         .describe('Array of uploaded artifacts to finalize'),
@@ -2666,32 +2675,6 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
         id: zod.unknown().optional().describe('Optional JSON-RPC request ID (string or number)'),
     })
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
-
-/**
- * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
- * @summary Send a message to a peer agent run
- */
-export const tasksRunsPeersMessageCreateBodyContentMax = 16000
-
-export const tasksRunsPeersMessageCreateBodyArtifactIdsItemMax = 128
-
-export const tasksRunsPeersMessageCreateBodyArtifactIdsMax = 10
-
-export const TasksRunsPeersMessageCreateBody = /* @__PURE__ */ zod.object({
-    content: zod
-        .string()
-        .max(tasksRunsPeersMessageCreateBodyContentMax)
-        .describe(
-            'Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.'
-        ),
-    artifact_ids: zod
-        .array(zod.string().max(tasksRunsPeersMessageCreateBodyArtifactIdsItemMax))
-        .max(tasksRunsPeersMessageCreateBodyArtifactIdsMax)
-        .optional()
-        .describe(
-            "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot."
-        ),
-})
 
 /**
  * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
@@ -3066,6 +3049,10 @@ export const TasksMeConfigAgentInstructionsCreateBody = /* @__PURE__ */ zod
 /**
  * Update your per-project defaults for new tasks. Fields you leave out keep their stored value.
  */
+export const tasksMeConfigTaskDefaultsCreateBodyDefaultCloudTargetRegExp = new RegExp(
+    '^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
+
 export const TasksMeConfigTaskDefaultsCreateBody = /* @__PURE__ */ zod
     .object({
         start_in_plan_mode: zod
@@ -3079,6 +3066,13 @@ export const TasksMeConfigTaskDefaultsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.'
+            ),
+        default_cloud_target: zod
+            .string()
+            .regex(tasksMeConfigTaskDefaultsCreateBodyDefaultCloudTargetRegExp)
+            .nullish()
+            .describe(
+                'The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.'
             ),
     })
     .describe("A partial update of the requesting user's task defaults. Fields left out keep their stored value.")

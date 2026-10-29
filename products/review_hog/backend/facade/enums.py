@@ -121,6 +121,7 @@ class RepositoryOverviewView(LabeledStrEnum):
     IN_PROJECT = "in_project", "In this project"
     EXCEPTIONS = "exceptions", "With exceptions"
     MINE = "mine", "My choices"
+    DIFFERS = "differs", "Different from the project"
 
 
 class IssuePriority(Enum):

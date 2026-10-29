@@ -103,4 +103,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "first": "Number of users in the cohort.",
         },
     },
+    "lexicon_schemas": {
+        "description": "Lexicon data dictionary: the schema Mixpanel holds for each event and profile, with its property definitions.",
+        "docs_url": "https://developer.mixpanel.com/reference/list-all-schemas-for-project",
+        "columns": {
+            "entityType": "Kind of entity the schema describes: event or profile.",
+            "name": "Name of the entity, for example the event name.",
+            "schemaJson": "Schema of the entity: its description and the type and description of each property.",
+        },
+    },
+    "lookup_tables": {
+        "description": "Lookup tables defined in the Mixpanel project, by id and name.",
+        "docs_url": "https://developer.mixpanel.com/reference/list-lookup-tables",
+        "columns": {
+            "id": "Unique identifier (UUID) of the lookup table.",
+            "name": "The lookup table's name.",
+        },
+    },
 }

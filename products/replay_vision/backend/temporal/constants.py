@@ -138,6 +138,10 @@ RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
 REAPER_OP_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=2)
 REAPER_MAX_ATTEMPTS = 3
+# Room past both sweep budgets for one workflow-step wake that started just before the deadline: its POST
+# can time out and fall back to an internal event, the completion events still flush after it, and the
+# stamping queries still need room inside bounded_queries, which takes 75% of this.
+COMPLETE_OBSERVATION_REQUESTS_TIMEOUT = dt.timedelta(seconds=100)
 
 # The backfill reaper pages through every backfill schedule and only applies fixes at the end, so a
 # healthy pass needs minutes; per-page heartbeats catch a dead worker instead of a short attempt cap.
@@ -248,22 +252,6 @@ def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     """Deterministic Temporal workflow id for one (scanner, session) application."""
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
 
-
-# Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
-SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
-SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"
-SEARCH_SUGGESTIONS_SCHEDULE_ID = "replay-vision-search-suggestions-refresher-schedule"
-# Short, so a new scanner or team has phrases minutes after its first observations land.
-SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(minutes=10)
-SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
-# With the concurrency below and a 30s model timeout, a full run of slow calls still ends inside the execution timeout.
-SEARCH_SUGGESTIONS_MAX_PER_RUN = 200
-# Backstop against a bug that makes every scope look stale. Sized for every active scanner and team refreshing
-# each REFRESH_INTERVAL, at a fraction of a cent per call.
-SEARCH_SUGGESTIONS_MAX_PER_DAY = 40_000
-SEARCH_SUGGESTIONS_CONCURRENCY = 16
-LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=60)
-REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=90)
 
 # Learned rules: ratings settle for a while before a team is distilled, so a 10-minute tick is prompt enough.
 LEARNED_RULES_WORKFLOW_NAME = "replay-vision-refresh-learned-rules"

@@ -40,7 +40,6 @@ def compare_interval_length(
         return ORDERED_INTERVALS.index(interval1) >= ORDERED_INTERVALS.index(interval2)
 
 
-# Originally similar to the legacy QueryDateRange (now posthog/hogql_queries/properties_timeline/query_date_range.py) but rewritten to be used in HogQL queries
 class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
@@ -572,7 +571,9 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
         # if date_from is present in retention query then use it
         if self._date_range and self._date_range.date_from:
-            date_from = super().date_from()
+            # Unclipped: the start is already widened to a whole interval, so the base class's
+            # excludeIncompletePeriods start clip would drop a complete cohort.
+            date_from = self._date_from_unclipped()
             return date_to_start_of_interval(date_from, self._interval, self._team)
 
         # otherwise calculate from date_to and lookahead

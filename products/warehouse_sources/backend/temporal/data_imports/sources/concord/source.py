@@ -59,7 +59,7 @@ class ConcordSource(ResumableSource[ConcordSourceConfig, ConcordResumeConfig]):
             name=ExternalDataSourceType.CONCORD,
             category=DataWarehouseSourceCategory.SALES,
             label="Concord",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Concord API key to pull your contract lifecycle data into the PostHog Data warehouse.
 
 You can generate an API key in your Concord account settings (API key generation requires a paid plan). Concord sends it as an `X-API-KEY` header.

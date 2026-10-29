@@ -112,5 +112,5 @@ class EcbDataPortalSource(ResumableSource[EcbDataPortalSourceConfig, ECBResumeCo
             docsUrl="https://posthog.com/docs/cdp/sources/ecb-data-portal",
             keywords=["ecb", "exchange rates", "eur fx", "interest rates", "inflation", "hicp"],
             fields=cast(list[FieldType], []),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

@@ -29,6 +29,10 @@ const OVERVIEW: RepoOverviewApi = {
     rerun_cycles_prev: 30,
     merged_pr_count: 56,
     merged_pr_count_prev: 49,
+    reverting_pr_count: 3,
+    reverting_pr_count_prev: 1,
+    revert_share: 3 / 56,
+    revert_share_prev: 1 / 49,
     median_open_to_merge_seconds: 14 * 3600,
     median_open_to_merge_seconds_prev: 19 * 3600,
     median_ready_to_merge_seconds: 9 * 3600,
@@ -42,6 +46,8 @@ const OVERVIEW: RepoOverviewApi = {
     // A slice of billable_minutes above, not an addition to it.
     merge_queue_billable_minutes: 1180,
     merge_queue_billable_minutes_prev: 940,
+    depot_ci_billable_minutes: 2610,
+    depot_ci_billable_minutes_prev: 1730,
     merge_queue_merged_pr_count: 48,
     merge_queue_merged_pr_count_prev: 41,
     merge_queue_median_first_gate_to_merge_seconds: 32 * 60,
@@ -77,6 +83,8 @@ const OVERVIEW: RepoOverviewApi = {
     open_to_merge_series_granularity: 'day',
     ready_to_merge_series: [],
     ready_to_merge_series_granularity: 'day',
+    revert_share_series: [],
+    revert_share_series_granularity: 'day',
     delivery_pipeline: {
         merged_pr_count: 52,
         stages: [

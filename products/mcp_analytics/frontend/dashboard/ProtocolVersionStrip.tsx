@@ -109,8 +109,6 @@ export function ProtocolVersionStrip({
                         totalCalls={totalCalls}
                         theme={theme}
                         tooltip={renderTooltip}
-                        label="Calls by MCP protocol version"
-                        fitContent
                     />
                 ))}
             </div>

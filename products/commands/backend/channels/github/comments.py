@@ -29,9 +29,10 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from ...logic.admission import claim, release, rolled_out_team_ids, within_rate_limit
-from ...logic.commands import CommandRequest, DispatchOutcome, PullRequestRef
+from ...logic.commands import Answer, CommandRequest, DispatchOutcome, FollowUpAddress, PullRequestRef
 from ...logic.dispatcher import Admission, CommandDispatcher
 from ...logic.github import CommandGitHub, GitHubCallFailed, InstallationGitHub, Reaction
+from ...logic.subjects import open_subject
 from .intake import CommentCommandRequest
 
 logger = structlog.get_logger(__name__)
@@ -63,6 +64,8 @@ def _linked_users(github_user_id: int) -> list[User]:
 
 class GitHubCommentChannel:
     name = "github"
+    # The work posts its result on the pull request the comment sits on.
+    follow_up: FollowUpAddress | None = None
     unlinked_message = (
         "Your GitHub account is not linked to a PostHog account, so I can't tell who to run this as. "
         "Connect GitHub in your PostHog personal settings, then comment again."
@@ -86,7 +89,7 @@ class GitHubCommentChannel:
         comment = self._comment
         # Before any GitHub call: the App is installed on repositories of organizations that never
         # turned commands on, and the bot must stay silent there.
-        team_ids = rolled_out_team_ids(ROLLOUT_FLAG, comment.installation_id)
+        team_ids = rolled_out_team_ids(ROLLOUT_FLAG, self.request.subject)
         if not team_ids:
             return "not_rolled_out"
         claim_refusal = claim(_claim_key(comment.comment_id))
@@ -110,7 +113,10 @@ class GitHubCommentChannel:
         if permission not in _WRITE_PERMISSIONS:
             return "no_write_access"
         self._react("eyes")
-        return Admission(team_ids=team_ids, github=self._github)
+        subject = open_subject(self.request.subject, team_ids, github=self._github)
+        if isinstance(subject, Answer):
+            return subject.outcome
+        return Admission(team_ids=team_ids, subject=subject)
 
     def linked_users(self) -> list[User]:
         return _linked_users(self._comment.commenter_github_id)

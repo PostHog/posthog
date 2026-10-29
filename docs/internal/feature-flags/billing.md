@@ -116,6 +116,30 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-flutter`      | Flutter SDK             |
 | `other`                | Unknown or unrecognized |
 
+### Django flag list endpoint
+
+The Django flag list endpoint counts each request made with a personal API key as a local evaluation request.
+This applies to `/api/feature_flag/` and to `/api/projects/:project_id/feature_flags/`.
+Browser-session and unauthenticated requests are not counted.
+
+Each counted request increments two Redis hashes in one pipelined round trip:
+
+- The legacy team counter, `posthog:local_evaluation_requests:{team_id}`, which the 30-minute aggregation reads.
+- `posthog:django_local_evaluation_usage`, which holds one per-team count of the requests that Django served.
+
+The second hash exists because the Rust definitions service also writes to the legacy team counter and reports its own usage records.
+
+Every minute, `report_django_local_evaluation_usage_task` reads and deletes `posthog:django_local_evaluation_usage` in one Redis transaction.
+It then sends one `feature_flag_local_evaluation_requests` record per team as the `feature-flags-django` producer.
+The task sends at most 500 records in each request, because usage ingestion rejects a request above its batch limit.
+The task runs on the `feature_flags_long_running` queue, so a stalled usage-ingestion service cannot delay the cache rebuilds on the `feature_flags` queue.
+
+The workers on that queue need `USAGE_INGESTION_ADDR` with an explicit port, and an enabled `USAGE_INGESTION_REPORT_TEAMS` allowlist.
+The Python gRPC client connects to port 443 when the address has no port, but the usage-ingestion Service listens on port 80.
+The task discards counts for teams that the allowlist does not enable.
+Delivery is best effort: the shared usage-ingestion client logs a failed send, and the task does not put the counts back.
+This counter is in `RECORD_REALTIME_BLOCKERS`, so its `realtime` mode resolves to `both` and legacy totals stay authoritative during the comparison rollout.
+
 ### Redis pipelining
 
 Both the team-level and SDK-level counters are incremented in a single Redis round-trip using pipelining:
@@ -227,6 +251,37 @@ The usage report task queries ClickHouse for aggregated billing data.
 
 **Source file:** `posthog/tasks/usage_report.py`
 
+Daily reports, usage reports v2, and quota limiting read the billed request counters through `posthog.usage_counters.UsageCounterService`.
+Each counter's feature flag selects `legacy`, `both`, or `realtime`.
+A counter in `RECORD_REALTIME_BLOCKERS` resolves `realtime` to `both` until its producer discrepancy is resolved or confirmed as intended billing behavior.
+All record-backed counters are guarded for the initial comparison rollout.
+These guards cover event, enhanced-person, and exception timestamp attribution, Django local-evaluation requests, replay sessions, and workflow invocations.
+Feature-flag request records use Rust flush time, while legacy billing events use the later Celery export time.
+That counter remains guarded until cutover reconciles requests across those dates.
+CDP and workflow dispatches use independent flush-time clocks for legacy app metrics and usage records.
+Their counters remain guarded until cutover reconciles dispatches across those dates.
+They also cover producer gaps in the exemptions for product-tour survey responses, wallet-billed AI gateway events, and sponsored relay events.
+Guarded counters still collect comparisons while legacy totals remain authoritative.
+`legacy` queries billing events. `both` queries billing events and `billing_usage_records`, and keeps the legacy count authoritative.
+`realtime` uses the usage record count. A report for a complete day also queries billing events, for the comparison. Each caller states whether its period is a complete day. The daily report and finalized usage reports v2 runs pass a complete day. Intraday usage reports v2 runs and quota limiting pass a partial day and skip that query.
+Reports retain both totals in `counter_comparisons` for every counter that ran both queries. Both totals count each team under its current organization, the same as the report fields. A failed comparison query omits that counter's pair. A failure in a query needed for normal report fields still fails the report.
+The usage record query checks units separately for each usage key and discards all totals for a key with incompatible units.
+A mismatch in a comparison-only source omits that counter's pair and records a shadow validation failure; other counters remain available.
+A mismatch in a source used for a realtime total fails the report.
+Removing the complete-day legacy query will be a later code change.
+The mode selects the authoritative count for every caller and time window.
+Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
+Usage reports v2 saves each completed legacy query in S3 under its workflow run.
+Each legacy counter runs in its own activity, sharing the workflow's four-query limit with other queries.
+Activity retries reuse checkpoints and rerun only unfinished legacy queries.
+The counter-report activity reads those checkpoints before its shared usage-record scan, without rerunning legacy queries.
+Cancellation stops the counter worker between queries and before checkpoint or report writes; an in-flight query or write can still finish.
+Usage reports v2 records query latency and failures under the existing query names, plus `usage_records` for the shared scan and `usage_counters` for the combined activity.
+A failed counter activity or remaining query fails the workflow without waiting for the other queries to finish.
+Quota runs log resolved sources as `usage_counter_sources` and successful comparisons as `usage_counter_comparison`.
+Each comparison includes both totals, the number of differing teams, and the sum of absolute differences, so opposite discrepancies cannot cancel each other out.
+Missing-organization diagnostics use size-bounded events. Temporal runs their capture and flush outside the event loop.
+
 ### Billable calculation
 
 Local evaluation requests are weighted 10x compared to decide requests:
@@ -242,7 +297,7 @@ This reflects the higher resource cost of local evaluation requests, which retur
 
 ### Token validation
 
-Queries filter events by the billing token to ensure only legitimate usage events are counted:
+Legacy queries filter events by the billing token to ensure only legitimate usage events are counted:
 
 ```sql
 AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))

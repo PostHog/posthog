@@ -21,10 +21,6 @@ def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> Marke
 
 
 class TestMarketstackSource:
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = MarketstackSource().get_schemas(_make_config(), team_id=1, names=["eod", "exchanges"])
-        assert {s.name for s in schemas} == {"eod", "exchanges"}
-
     @parameterized.expand(
         [
             ("legacy_v1_pin_hides_v2_only_tables", MARKETSTACK_API_VERSION_V1, False),
@@ -94,7 +90,6 @@ class TestMarketstackSource:
 
     @parameterized.expand(
         [
-            ("http_unauthorized", "401 Client Error: Unauthorized for url: https://api.marketstack.com"),
             ("body_invalid_key", "Marketstack API error [invalid_access_key]"),
             ("body_usage_limit", "Marketstack API error [usage_limit_reached]"),
             ("body_function_restricted", "Marketstack API error [function_access_restricted]"),

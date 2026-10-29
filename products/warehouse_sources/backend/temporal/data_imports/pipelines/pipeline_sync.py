@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 
 import dlt
@@ -30,10 +30,11 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     mark_initial_sync_complete,
+    self_managed_table_ref,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -322,6 +323,48 @@ def find_orphan_table(schema: ExternalDataSchema, source: ExternalDataSource) ->
     ).first()
 
 
+def find_replaced_self_managed_table(
+    schema: ExternalDataSchema, source: ExternalDataSource
+) -> DataWarehouseTable | None:
+    """The self-managed table the schema's first sync replaces, when it still reads the files the schema copies.
+
+    A table the user edited after the migration reads other files now, so the sync must not replace it,
+    and gets a table of its own. A table this source already took over but that no schema owns is
+    the result of a publish that stopped before the link, so the next publish finishes it.
+    """
+    ref = self_managed_table_ref(schema)
+    if ref is None:
+        return None
+    return (
+        DataWarehouseTable.objects.filter(team_id=schema.team_id, id=ref.table_id, deleted=False)
+        .filter(externaldataschema__isnull=True)
+        .filter(
+            Q(external_data_source__isnull=True, url_pattern=ref.url_pattern, format=ref.format)
+            | Q(external_data_source_id=source.id)
+        )
+        .first()
+    )
+
+
+def find_adopted_self_managed_table(
+    schema: ExternalDataSchema, source: ExternalDataSource
+) -> DataWarehouseTable | None:
+    """The self-managed table an earlier publish of the schema already moved into the source, but didn't link.
+
+    The table keeps its own name, so the name lookup in `find_orphan_table` can't find it.
+    """
+    ref = self_managed_table_ref(schema)
+    if ref is None:
+        return None
+    return DataWarehouseTable.objects.filter(
+        team_id=schema.team_id,
+        id=ref.table_id,
+        external_data_source_id=source.id,
+        deleted=False,
+        externaldataschema__isnull=True,
+    ).first()
+
+
 def relink_orphan_table(
     schema: ExternalDataSchema, source: ExternalDataSource, logger: FilteringBoundLogger
 ) -> DataWarehouseTable | None:
@@ -334,7 +377,7 @@ def relink_orphan_table(
     if schema.table_id is not None or (schema.is_cdc and schema.cdc_table_mode == "cdc_only"):
         return schema.table
 
-    orphan = find_orphan_table(schema, source)
+    orphan = find_orphan_table(schema, source) or find_adopted_self_managed_table(schema, source)
     if orphan is None:
         return None
 
@@ -436,6 +479,9 @@ async def validate_schema_and_update_table(
                 if table_created is not None:
                     logger.debug(f"Found existing table {table_created.id} - reusing it for schema {_schema_id}")
 
+            if table_created is None:
+                table_created = find_replaced_self_managed_table(external_data_schema, job.pipeline)
+
             # A reported row_count of 0 does not always mean the run wrote nothing: the v3 consumer
             # can read 0 on a redelivered final batch, and a resumed run counts only its own attempt.
             # A publish step with nothing to make queryable is what an empty first sync looks like.
@@ -466,6 +512,10 @@ async def validate_schema_and_update_table(
                 # new_url_pattern above is derived from the job's own destination folder, not from
                 # request input, so this sync is a trusted writer of a credential-less table's URL.
                 update_fields = ["format", "url_pattern", "queryable_folder", "row_count"]
+                if table.external_data_source_id is None:
+                    # A self-managed table this schema replaces reads its own bucket until now.
+                    update_fields.extend(table.adopt_into_source(job.pipeline))
+                    logger.info(f"Adopted self-managed table {table.id} into source {job.pipeline.id}")
                 if live_size_mib is not None:
                     table.size_in_s3_mib = live_size_mib
                     update_fields.append("size_in_s3_mib")
@@ -649,6 +699,7 @@ async def register_cdc_companion_table(
                 table.format = table_format
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
+                table.mark_as_history_table()
                 _refresh_cumulative_row_count(table, logger, companion_table_name, live_row_count)
                 # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
                 # `columns` with its pre-merge value before the column save below.
@@ -657,7 +708,7 @@ async def register_cdc_companion_table(
                 # on a fresh connection rather than let this escape as error-tracking noise.
                 # new_url_pattern above is derived from the job's own destination folder, not from
                 # request input, so this sync is a trusted writer of a credential-less table's URL.
-                update_fields = ["format", "url_pattern", "queryable_folder", "row_count"]
+                update_fields = ["format", "url_pattern", "queryable_folder", "options", "row_count"]
                 if live_size_mib is not None:
                     table.size_in_s3_mib = live_size_mib
                     update_fields.append("size_in_s3_mib")
@@ -670,6 +721,7 @@ async def register_cdc_companion_table(
                     external_data_source_id=job.pipeline.id,
                     created_via=DataWarehouseTableCreatedVia.SOURCE,
                     size_in_s3_mib=live_size_mib,
+                    options={HISTORY_TABLE_OPTION: True},
                     **table_params,
                 )
             _record_storage_delta(job, storage_delta_mib)

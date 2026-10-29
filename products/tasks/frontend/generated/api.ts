@@ -89,6 +89,7 @@ import type {
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactPreviewResponseApi,
     TaskRunArtifactsDismissRequestApi,
     TaskRunArtifactsDismissResponseApi,
     TaskRunArtifactsFinalizeUploadRequestApi,
@@ -110,9 +111,6 @@ import type {
     TaskRunLivingArtifactOpenResponseApi,
     TaskRunLivingArtifactResponseApi,
     TaskRunLivingArtifactsResponseApi,
-    TaskRunPeerMessageRequestApi,
-    TaskRunPeerMessageResponseApi,
-    TaskRunPeersResponseApi,
     TaskRunPostHogReferencesRequestApi,
     TaskRunPostHogReferencesResponseApi,
     TaskRunRelayMessageRequestApi,
@@ -124,6 +122,7 @@ import type {
     TaskSearchResultApi,
     TaskSessionResponseApi,
     TaskSessionSyncResponseApi,
+    TaskSourcesResponseApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
     TaskStagedArtifactsPrepareUploadRequestApi,
@@ -142,6 +141,7 @@ import type {
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksReviewRetrieveParams,
+    TasksRunsArtifactsPreviewRetrieveParams,
     TasksRunsListParams,
     TasksRunsLivingArtifactsVersionContentParams,
     TasksRunsSessionLogsRetrieveParams,
@@ -1733,6 +1733,49 @@ export const tasksRunsArtifactsDownloadRetrieve = async (
     })
 }
 
+export const getTasksRunsArtifactsPreviewRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    params?: TasksRunsArtifactsPreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/${artifactId}/preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/${artifactId}/preview/`
+}
+
+/**
+ * Returns a short-lived URL for one HTML artifact version on the artifact origin. The page runs its scripts only when scripts=true.
+ * @summary Open an isolated HTML artifact preview
+ */
+export const tasksRunsArtifactsPreviewRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    params?: TasksRunsArtifactsPreviewRetrieveParams,
+    options?: RequestInit
+): Promise<TaskRunArtifactPreviewResponseApi> => {
+    return apiMutator<TaskRunArtifactPreviewResponseApi>(
+        getTasksRunsArtifactsPreviewRetrieveUrl(projectId, taskId, id, artifactId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getTasksRunsArtifactsDismissCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/dismiss/`
 }
@@ -1967,58 +2010,6 @@ export const tasksRunsConnectionTokenRetrieve = async (
         ...options,
         method: 'GET',
     })
-}
-
-export const getTasksRunsPeersRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/`
-}
-
-/**
- * Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, currently in progress or queued. Discovery and send validation share one visibility policy, so a run can only message what it can list; the per-entry `sendable` flag is the liveness contract.
- * @summary List peer agent runs
- */
-export const tasksRunsPeersRetrieve = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    options?: RequestInit
-): Promise<TaskRunPeersResponseApi> => {
-    return apiMutator<TaskRunPeersResponseApi>(getTasksRunsPeersRetrieveUrl(projectId, taskId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTasksRunsPeersMessageCreateUrl = (
-    projectId: string,
-    taskId: string,
-    id: string,
-    targetRunId: string
-) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/${targetRunId}/message/`
-}
-
-/**
- * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
- * @summary Send a message to a peer agent run
- */
-export const tasksRunsPeersMessageCreate = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    targetRunId: string,
-    taskRunPeerMessageRequestApi: TaskRunPeerMessageRequestApi,
-    options?: RequestInit
-): Promise<TaskRunPeerMessageResponseApi> => {
-    return apiMutator<TaskRunPeerMessageResponseApi>(
-        getTasksRunsPeersMessageCreateUrl(projectId, taskId, id, targetRunId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(taskRunPeerMessageRequestApi),
-        }
-    )
 }
 
 export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
@@ -3101,6 +3092,24 @@ export const tasksSlackThreadContextRetrieve = async (
     options?: RequestInit
 ): Promise<SlackThreadContextResponseApi> => {
     return apiMutator<SlackThreadContextResponseApi>(getTasksSlackThreadContextRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSourcesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/sources/`
+}
+
+/**
+ * Return the distinct sources of the requester's own non-archived tasks, in the words of the task list `sources` filter. Used to populate a source filter picker without being constrained by task list pagination.
+ * @summary List task sources
+ */
+export const tasksSourcesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TaskSourcesResponseApi> => {
+    return apiMutator<TaskSourcesResponseApi>(getTasksSourcesRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

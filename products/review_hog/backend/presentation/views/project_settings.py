@@ -104,7 +104,8 @@ class ReviewRepositoryOverviewQuerySerializer(serializers.Serializer):
         required=False,
         default="all",
         help_text="'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository "
-        "exception), or 'mine' (with the requesting user's own choice).",
+        "exception), 'mine' (with the requesting user's own choice), or 'differs' (every repository except the ones "
+        "this project reviews with no exception and no own choice, which the response counts as 'folded').",
     )
     offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Entries to skip.")
     limit = serializers.IntegerField(
@@ -167,6 +168,20 @@ class ReviewRepositoryOverviewSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Repositories that match the search and the view.")
     has_more = serializers.BooleanField(help_text="Whether more entries follow this page.")
     next_offset = serializers.IntegerField(allow_null=True, help_text="Offset of the next page, or null.")
+    folded = serializers.IntegerField(
+        help_text="With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out "
+        "because this project reviews them with no exception and no own choice. 0 otherwise."
+    )
+    folded_preview = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="With view 'differs', or 'all' without a search: the names of the first left-out repositories, "
+        "at most 3. Empty otherwise.",
+    )
+    folded_result = AutomaticReviewDecisionSerializer(
+        allow_null=True,
+        help_text="With view 'differs', or 'all' without a search: what the requesting user's own pull requests get "
+        "in every left-out repository, which is the same for all of them. Null otherwise, or when nothing is left out.",
+    )
     my_choices_unlike_default = serializers.IntegerField(
         help_text="How many of the requesting user's own repository choices in this project give something other "
         "than their default. Counts every installation, so the search, the view, and the page do not change it."
@@ -338,6 +353,9 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
             "total": page.total,
             "has_more": has_more,
             "next_offset": offset + len(page.entries) if has_more else None,
+            "folded": page.folded,
+            "folded_preview": page.folded_preview,
+            "folded_result": decision_data(page.folded_result) if page.folded_result is not None else None,
             "my_choices_unlike_default": page.my_choices_unlike_default,
         }
         return Response(ReviewRepositoryOverviewSerializer(data).data)

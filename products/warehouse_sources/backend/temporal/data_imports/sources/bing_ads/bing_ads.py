@@ -6,10 +6,9 @@ from dataclasses import dataclass
 import structlog
 from dateutil.relativedelta import relativedelta
 
-from posthog.settings import integrations
-
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import initial_datetime
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
@@ -88,20 +87,25 @@ def bing_ads_source(
 
     # Define generator function for lazy evaluation - dlt will call this when ready to fetch data
     def get_rows() -> collections.abc.Iterator[list[dict]]:
-        developer_token = integrations.BING_ADS_DEVELOPER_TOKEN
+        secrets = credentials_service.get_secrets(
+            ["BING_ADS_DEVELOPER_TOKEN", "BING_ADS_CLIENT_ID", "BING_ADS_CLIENT_SECRET"]
+        )
+        developer_token = secrets["BING_ADS_DEVELOPER_TOKEN"]
         if not developer_token:
             raise ValueError("Bing Ads developer token not configured")
 
         # Without these the SDK posts a token request omitting client_id, and Microsoft replies with the
         # opaque AADSTS900144 ("request body must contain client_id") — fail fast so it isn't mis-surfaced
         # as a customer "reconnect your integration" error when it's really a missing PostHog config.
-        if not integrations.BING_ADS_CLIENT_ID or not integrations.BING_ADS_CLIENT_SECRET:
+        if not secrets["BING_ADS_CLIENT_ID"] or not secrets["BING_ADS_CLIENT_SECRET"]:
             raise ValueError("Bing Ads OAuth application credentials not configured")
 
         client = BingAdsClient(
             access_token=access_token,
             refresh_token=refresh_token,
             developer_token=developer_token,
+            client_id=secrets["BING_ADS_CLIENT_ID"],
+            client_secret=secrets["BING_ADS_CLIENT_SECRET"],
         )
         resource = BingAdsResource(resource_name)
 

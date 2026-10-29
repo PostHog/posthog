@@ -382,8 +382,9 @@ class TestCheckProductAccess:
         assert error is not None
         assert "not allowed" in error
 
-    def test_slack_app_routing_allows_claude_haiku_via_api_key(self):
-        allowed, error = check_product_access("slack_app_routing", "personal_api_key", None, "claude-haiku-4-5")
+    @pytest.mark.parametrize("model", ["claude-haiku-4-5", "gpt-5.6-luna", "gpt-6-luna"])
+    def test_slack_app_routing_allows_its_models_via_api_key(self, model):
+        allowed, error = check_product_access("slack_app_routing", "personal_api_key", None, model)
         assert allowed is True
         assert error is None
 

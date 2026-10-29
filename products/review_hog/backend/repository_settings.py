@@ -6,8 +6,10 @@ repositories of an installation, and a project only stores what differs from wha
 """
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
+from functools import cached_property
 from typing import Any
 from uuid import UUID
 
@@ -51,9 +53,19 @@ logger = logging.getLogger(__name__)
 
 def load_project_ref(team_id: int, *, viewer_organization_id: Any) -> ProjectRef:
     """Another project, with its name only when it is in the viewer's organization."""
-    team = Team.objects.filter(id=team_id).values("name", "organization_id").first() or {}
-    same_organization = team.get("organization_id") == viewer_organization_id
-    return ProjectRef(team_id=team_id, name=team.get("name") if same_organization else None)
+    return load_project_refs([team_id], viewer_organization_id=viewer_organization_id)[team_id]
+
+
+def load_project_refs(team_ids: Iterable[int], *, viewer_organization_id: Any) -> dict[int, ProjectRef]:
+    """Other projects in one query, each with its name only when it is in the viewer's organization."""
+    ids = set(team_ids)
+    teams = {team["id"]: team for team in Team.objects.filter(id__in=ids).values("id", "name", "organization_id")}
+    refs: dict[int, ProjectRef] = {}
+    for team_id in ids:
+        team = teams.get(team_id, {})
+        same_organization = team.get("organization_id") == viewer_organization_id
+        refs[team_id] = ProjectRef(team_id=team_id, name=team.get("name") if same_organization else None)
+    return refs
 
 
 @frozen
@@ -383,6 +395,7 @@ class RepositoryOverview:
         self.team = team
         self.user = user
         self.installation_id = installation_id
+        self.repositories = repositories
         self.rows = RepositoryOwnership.rows_for_listing(
             (str(repository["full_name"]) for repository in repositories),
             (repository["id"] for repository in repositories if isinstance(repository.get("id"), int)),
@@ -391,20 +404,32 @@ class RepositoryOverview:
         own_rows = [row for row in self.rows if row.team_id == team.id]
         self.rules = ProjectRuleContext.load(team.id, own_rows)
         self.viewer: AuthorPreferences = load_author_preferences(team.id, user_id=user.id, is_bot=False)
-        self._projects: dict[int, ProjectRef] = {}
+        # Some views compute every entry, so each lookup below must not scan all rows or query per owner.
+        self._rows_by_id: dict[int, list[ReviewRepository]] = defaultdict(list)
+        self._rows_by_name: dict[str, list[ReviewRepository]] = defaultdict(list)
+        for row in self.rows:
+            if row.github_repo_id is not None:
+                self._rows_by_id[row.github_repo_id].append(row)
+            self._rows_by_name[row.full_name.lower()].append(row)
+        owner_team_ids = {row.team_id for row in self.rows}
+        if self.all_claim is not None:
+            owner_team_ids.add(self.all_claim.team_id)
+        owner_team_ids.discard(team.id)
+        self._projects = load_project_refs(owner_team_ids, viewer_organization_id=team.organization_id)
 
-    def _project(self, team_id: int) -> ProjectRef:
-        if team_id not in self._projects:
-            self._projects[team_id] = load_project_ref(team_id, viewer_organization_id=self.team.organization_id)
-        return self._projects[team_id]
+    def _candidate_rows(self, ref: RepositoryRef) -> list[ReviewRepository]:
+        """The rows that can match `ref`. Id matches come first, which keeps the result of `find_matching_row`."""
+        by_id = self._rows_by_id.get(ref.github_repo_id, []) if ref.github_repo_id is not None else []
+        return by_id + self._rows_by_name.get(ref.full_name.lower(), [])
 
     def entry(self, repository: Mapping[str, Any]) -> OverviewEntry:
         github_repo_id = repository.get("id") if isinstance(repository.get("id"), int) else None
         ref = RepositoryRef(
             installation_id=self.installation_id, github_repo_id=github_repo_id, full_name=str(repository["full_name"])
         )
-        owner = resolve_owner(ref, self.rows, self.all_claim)
-        own_row = find_matching_row(ref, [row for row in self.rows if row.team_id == self.team.id])
+        rows = self._candidate_rows(ref)
+        owner = resolve_owner(ref, rows, self.all_claim)
+        own_row = find_matching_row(ref, [row for row in rows if row.team_id == self.team.id])
         in_project = owner is not None and owner.team_id == self.team.id
         choice = self.viewer.choice_for(ref)
         if in_project:
@@ -424,7 +449,7 @@ class RepositoryOverview:
         elif in_project:
             owner_kind, owner_project = RepositoryOwnerKind.THIS_PROJECT, None
         else:
-            owner_kind, owner_project = RepositoryOwnerKind.OTHER_PROJECT, self._project(owner.team_id)
+            owner_kind, owner_project = RepositoryOwnerKind.OTHER_PROJECT, self._projects[owner.team_id]
         has_exception = own_row is not None and own_row.flash_for is not None
         return OverviewEntry(
             full_name=ref.full_name,
@@ -447,7 +472,29 @@ class RepositoryOverview:
             return len(self.viewer.choices)
         return sum(1 for choice in self.viewer.choices if choice.mode != self.viewer.default_mode)
 
+    @cached_property
+    def all_entries(self) -> list[OverviewEntry]:
+        # Every view except 'all' filters on computed entries, and the 'differs' view also counts the rest.
+        return [self.entry(repository) for repository in self.repositories]
+
+    @staticmethod
+    def follows_project(entry: OverviewEntry) -> bool:
+        """No exception and no own choice, so the entry gets exactly what every other such entry gets."""
+        has_exception = entry.repository is not None and entry.repository.flash_for is not None
+        return (
+            entry.owner == RepositoryOwnerKind.THIS_PROJECT
+            and entry.in_project
+            and not has_exception
+            and entry.my_choice is None
+        )
+
+    def folded(self) -> list[OverviewEntry]:
+        """The entries the 'differs' view leaves out."""
+        return [entry for entry in self.all_entries if self.follows_project(entry)]
+
     def _in_view(self, entry: OverviewEntry, view: str) -> bool:
+        if view == RepositoryOverviewView.DIFFERS:
+            return not self.follows_project(entry)
         if view == RepositoryOverviewView.IN_PROJECT:
             return entry.in_project
         if view == RepositoryOverviewView.EXCEPTIONS:
@@ -456,15 +503,12 @@ class RepositoryOverview:
             return entry.my_choice is not None
         return True
 
-    def page(
-        self, repositories: Sequence[Mapping[str, Any]], *, view: str, offset: int, limit: int
-    ) -> tuple[list[OverviewEntry], int]:
+    def page(self, *, view: str, offset: int, limit: int) -> tuple[list[OverviewEntry], int]:
         """One page of entries and the total that match the view."""
         if view == RepositoryOverviewView.ALL:
-            return [self.entry(repository) for repository in repositories[offset : offset + limit]], len(repositories)
-        matching = [
-            entry for entry in (self.entry(repository) for repository in repositories) if self._in_view(entry, view)
-        ]
+            page = self.repositories[offset : offset + limit]
+            return [self.entry(repository) for repository in page], len(self.repositories)
+        matching = [entry for entry in self.all_entries if self._in_view(entry, view)]
         return matching[offset : offset + limit], len(matching)
 
 

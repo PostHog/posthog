@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendgrid import (
@@ -168,16 +169,202 @@ class TestOffHostGuard:
         assert len(result.requests) == 1
         assert result.saved_states == []
 
-    def test_off_host_resume_url_raises(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "resume_state"),
+        [
+            ("marketing_lists", SendGridResumeConfig(next_url="http://169.254.169.254/latest/meta-data/")),
+            # The fan-out child seeds its page from the saved child_state, a different path than
+            # the top-level `next_url`, so the host check has to hold there too.
+            (
+                "singlesend_link_stats",
+                SendGridResumeConfig(
+                    fanout_state={
+                        "completed": [],
+                        "current": "/marketing/stats/singlesends/s1/links",
+                        "child_state": {"next_url": "http://169.254.169.254/latest/meta-data/"},
+                    }
+                ),
+            ),
+        ],
+    )
+    def test_off_host_resume_url_raises(self, endpoint: str, resume_state: SendGridResumeConfig) -> None:
         result = _run(
-            "marketing_lists",
-            [],
-            SendGridResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"),
+            endpoint,
+            route({"/marketing/singlesends": [_response({"result": [{"id": "s1"}], "_metadata": {}})]}),
+            resume_state,
         )
 
         assert isinstance(result.raised, ValueError)
         assert "unexpected URL" in str(result.raised)
-        assert result.requests == []
+        assert not any("169.254.169.254" in url for url in result.urls)
+
+
+_SINGLESENDS_PATH = "/marketing/singlesends"
+
+
+def _links_path(singlesend_id: str) -> str:
+    return f"/marketing/stats/singlesends/{singlesend_id}/links"
+
+
+class TestSingleSendLinkStatsFanOut:
+    def test_walks_every_single_send_and_tags_rows_with_its_id(self) -> None:
+        singlesends_next = "https://api.sendgrid.com/v3/marketing/singlesends?page_token=p2&page_size=100"
+        links_next = "https://api.sendgrid.com/v3/marketing/stats/singlesends/s1/links?page_token=l2&page_size=50"
+        link = {"url": "https://example.com/a", "url_location": 0, "ab_variation": "all", "ab_phase": "all"}
+
+        result = _run(
+            "singlesend_link_stats",
+            route(
+                {
+                    _SINGLESENDS_PATH: [
+                        _response({"result": [{"id": "s1"}, {"id": "gone"}], "_metadata": {"next": singlesends_next}}),
+                        _response({"result": [{"id": "s3"}], "_metadata": {}}),
+                    ],
+                    _links_path("s1"): [
+                        _response({"results": [{**link, "clicks": 4}], "_metadata": {"next": links_next}}),
+                        _response({"results": [{**link, "url_location": 1, "clicks": 2}], "_metadata": {}}),
+                    ],
+                    # A single send deleted after the parent listing must not fail the table.
+                    _links_path("gone"): [ScriptedResponse(status=404, json={"errors": [{"message": "not found"}]})],
+                    _links_path("s3"): [_response({"results": [{**link, "clicks": 9}], "_metadata": {}})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        # Without the parent id the rows of different single sends collide on the primary key.
+        assert result.rows == [
+            {**link, "clicks": 4, "singlesend_id": "s1"},
+            {**link, "url_location": 1, "clicks": 2, "singlesend_id": "s1"},
+            {**link, "clicks": 9, "singlesend_id": "s3"},
+        ]
+        assert result.urls[2] == links_next
+        assert result.requests[0].param("page_size") == "100"
+        assert result.requests[1].param("page_size") == "50"
+
+    def test_resume_skips_completed_single_sends_and_continues_the_current_one(self) -> None:
+        links_next = "https://api.sendgrid.com/v3/marketing/stats/singlesends/s2/links?page_token=l2&page_size=50"
+
+        result = _run(
+            "singlesend_link_stats",
+            route(
+                {
+                    _SINGLESENDS_PATH: [_response({"result": [{"id": "s1"}, {"id": "s2"}], "_metadata": {}})],
+                    _links_path("s2"): [_response({"results": [{"url": "https://example.com/b"}], "_metadata": {}})],
+                }
+            ),
+            SendGridResumeConfig(
+                fanout_state={
+                    "completed": [_links_path("s1")],
+                    "current": _links_path("s2"),
+                    "child_state": {"next_url": links_next},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.urls[1] == links_next
+        assert result.rows == [{"url": "https://example.com/b", "singlesend_id": "s2"}]
+
+
+def _automation_links_path(automation_id: str) -> str:
+    return f"/marketing/stats/automations/{automation_id}/links"
+
+
+class TestAutomationLinkStatsFanOut:
+    def test_walks_every_automation_and_tags_rows_with_its_id(self) -> None:
+        stats_next = "https://api.sendgrid.com/v3/marketing/stats/automations?page_token=p2&page_size=50"
+        link = {"url": "https://example.com/a", "url_location": 0, "step_id": "all"}
+
+        result = _run(
+            "automation_link_stats",
+            route(
+                {
+                    "/marketing/stats/automations": [
+                        _response(
+                            {
+                                "results": [
+                                    {"id": "a1", "aggregation": "total", "step_id": "all"},
+                                    {"id": "gone", "aggregation": "total", "step_id": "all"},
+                                ],
+                                "_metadata": {"next": stats_next},
+                            }
+                        ),
+                        _response(
+                            {"results": [{"id": "a3", "aggregation": "total", "step_id": "all"}], "_metadata": {}}
+                        ),
+                    ],
+                    _automation_links_path("a1"): [_response({"results": [{**link, "clicks": 4}], "_metadata": {}})],
+                    _automation_links_path("gone"): [ScriptedResponse(status=404, json={"errors": [{"message": "x"}]})],
+                    _automation_links_path("a3"): [_response({"results": [{**link, "clicks": 9}], "_metadata": {}})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {**link, "clicks": 4, "automation_id": "a1"},
+            {**link, "clicks": 9, "automation_id": "a3"},
+        ]
+        assert stats_next in result.urls
+
+
+def _category_stats_bucket(day: str, category: str, delivered: int) -> dict[str, Any]:
+    return {"date": day, "stats": [{"type": "category", "name": category, "metrics": {"delivered": delivered}}]}
+
+
+class TestCategoryStatsFanOut:
+    @pytest.mark.parametrize(
+        ("inputs", "expected_start_date"),
+        [
+            # start_date is required, so a full refresh backfills a fixed window.
+            ({}, "2025-08-07"),
+            (
+                {
+                    "should_use_incremental_field": True,
+                    "db_incremental_field_last_value": date(2026, 8, 1),
+                    "incremental_field": "date",
+                },
+                "2026-08-01",
+            ),
+        ],
+    )
+    @time_machine.travel("2026-08-07T12:00:00Z", tick=False)
+    def test_requests_each_category_and_keys_rows_by_it(self, inputs: dict[str, Any], expected_start_date: str) -> None:
+        categories_page = [{"category": f"c{i}"} for i in range(49)] + [{"category": "news & offers"}]
+
+        result = _run(
+            "category_stats",
+            route(
+                {
+                    "/v3/categories": [_response(categories_page), _response([{"category": "a/b"}])],
+                    "/v3/categories/stats": [
+                        *[_response([]) for _ in range(49)],
+                        _response(
+                            [
+                                _category_stats_bucket("2026-08-01", "news & offers", 3),
+                                _category_stats_bucket("2026-08-02", "news & offers", 5),
+                            ]
+                        ),
+                        _response([_category_stats_bucket("2026-08-01", "a/b", 7)]),
+                    ],
+                }
+            ),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"date": "2026-08-01", "category": "news & offers", "delivered": 3},
+            {"date": "2026-08-02", "category": "news & offers", "delivered": 5},
+            {"date": "2026-08-01", "category": "a/b", "delivered": 7},
+        ]
+        stats_requests = [r for r in result.requests if r.path == "/v3/categories/stats"]
+        # Names with `&` or `/` must reach the API whole, not split into extra params or path segments.
+        assert [r.param("categories") for r in stats_requests[-2:]] == ["news & offers", "a/b"]
+        assert {r.param("start_date") for r in stats_requests} == {expected_start_date}
+        assert {r.param("aggregated_by") for r in stats_requests} == {"day"}
+        assert [r.param("offset") for r in result.requests if r.path == "/v3/categories"] == ["0", "50"]
 
 
 def _messages_page(count: int, last_event_time: str) -> list[dict[str, Any]]:
@@ -331,6 +518,31 @@ class TestGetEndpointPermissions:
         for fragment in fragments:
             assert fragment in reason
 
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_path"),
+        [
+            # The child path needs a parent id, so probing it as is would 404 and hide a denial.
+            ("singlesend_link_stats", "/v3/marketing/singlesends"),
+            ("automation_link_stats", "/v3/marketing/stats/automations"),
+            # The category listing reads with `categories.read`, so it can't stand in for the
+            # `categories.stats.read` this child needs.
+            ("category_stats", "/v3/categories/stats"),
+        ],
+    )
+    def test_fanout_endpoint_probe_path(self, endpoint: str, expected_path: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
+            permissions = get_endpoint_permissions("k", [endpoint])
+
+        assert network.requests_log[0].path == expected_path
+        assert permissions[endpoint] is not None
+
+    def test_unbounded_endpoint_probes_a_small_one_with_the_same_scope(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, json={}))) as network:
+            permissions = get_endpoint_permissions("k", ["unsubscribe_group_suppressions"])
+
+        assert network.requests_log[0].path == "/v3/asm/groups"
+        assert permissions["unsubscribe_group_suppressions"] is not None
+
     def test_unknown_endpoint_is_treated_as_reachable(self) -> None:
         assert self._probe(403, ["not_an_endpoint"]) == {"not_an_endpoint": None}
 
@@ -343,6 +555,8 @@ class TestGetEndpointPermissions:
             ("marketing_lists", {"page_size": "1"}),
             ("templates", {"page_size": "1", "generations": "legacy,dynamic"}),
             ("unsubscribe_groups", {}),
+            # /categories/stats requires `categories` and `start_date`.
+            ("category_stats", {"categories": "posthog", "start_date": "2026-08-07", "aggregated_by": "day"}),
             # /messages requires `query`, so a probe without one risks the same masking 400.
             (
                 "message_activity",

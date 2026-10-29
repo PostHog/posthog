@@ -2,9 +2,7 @@
 
 Runs a PostHog AI-evals dataset (curated at /ai-evals/datasets) through fresh hosted-MCP agent
 sessions, scores each resulting trace with the three online judge rubrics (fetched live so
-offline scoring can never drift from them), and emits `$ai_evaluation` events tagged with
-`$ai_experiment_id` so runs land in the offline experiments view
-(/ai-evals/evaluations/offline/experiments) and are comparable run over run.
+offline scoring can never drift from them), and prints each verdict and its reasoning locally.
 
 Dataset item shape:
     input:           {"prompt": "<the metric-shaped task>"}
@@ -17,8 +15,7 @@ Usage:
 
 --compare runs every item twice: a control session (bare prompt, like a pre-fix scout) and a
 treatment session whose system prompt carries the approved-metric-name listing the scout harness
-now injects, fetched live from the catalog. The two land as separate experiments in the offline
-experiments view, so the fix's effect is the verdict diff between them.
+now injects, fetched live from the catalog. The two variants print separate results for comparison.
 
 Run it after each remediation deploy and on a cadence; a previously-passing item failing is the
 regression signal. See products/data_catalog/docs/production-monitoring.md.
@@ -30,7 +27,6 @@ Environment:
     POSTHOG_PROJECT_ID     numeric project id the judges and dataset live in
     POSTHOG_HOST           default https://us.posthog.com
     POSTHOG_MCP_URL        default https://mcp.posthog.com/mcp
-    POSTHOG_CAPTURE_TOKEN  project API token the emitted evaluation events are captured with
 """
 
 import os
@@ -61,7 +57,6 @@ DATASET_ITEM_PAGE_SIZE = 25
 
 EXPERIMENT_NAME = "semantic-layer-governance-regressions"
 DATASET_NAME = EXPERIMENT_NAME
-DISTINCT_ID = "offline-governance-experiment"
 
 JUDGES = {
     "canonical_metric_bypass": "019fd294-e77a-0000-8a4e-93af107576b5",
@@ -344,53 +339,6 @@ def judge_trace(client: anthropic.Anthropic, rubric: str, transcript: str) -> di
     return json.loads(text)
 
 
-def emit_evaluation_event(
-    *,
-    experiment_id: str,
-    experiment_name: str,
-    dataset_id: str,
-    item: ExperimentItem,
-    metric_name: str,
-    verdict: dict,
-    trace_id: str,
-) -> None:
-    properties = {
-        "$ai_experiment_id": experiment_id,
-        "$ai_experiment_name": experiment_name,
-        "$ai_experiment_item_id": f"{experiment_id}:{item.name}",
-        "$ai_experiment_item_name": item.name,
-        "$ai_dataset_id": dataset_id,
-        "$ai_dataset_item_id": item.id,
-        "$ai_metric_name": metric_name,
-        "$ai_metric_version": "1",
-        "$ai_status": "completed",
-        "$ai_result_type": "boolean",
-        "$ai_reasoning": verdict["reasoning"],
-        "$ai_trace_id": trace_id,
-        "$ai_target_id": trace_id,
-        "$ai_target_type": "trace",
-        "$ai_expected": item.expected,
-        "$ai_evaluation_applicable": verdict["applicable"],
-    }
-    # The offline experiments view aggregates `$ai_score` without reading
-    # `$ai_evaluation_applicable`, so scoring an N/A verdict 0 would read as a governance failure.
-    # Leave the score off entirely and let the applicable flag plus the reasoning carry the N/A.
-    if verdict["applicable"]:
-        properties |= {"$ai_score": 1 if verdict["result"] else 0, "$ai_score_min": 0, "$ai_score_max": 1}
-    response = requests.post(
-        f"{POSTHOG_HOST.replace('us.posthog.com', 'us.i.posthog.com')}/i/v0/e/",
-        json={
-            "api_key": os.environ["POSTHOG_CAPTURE_TOKEN"],
-            "event": "$ai_evaluation",
-            "distinct_id": DISTINCT_ID,
-            "properties": properties,
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-
-
 def run_experiment(dataset_id: str, only_items: list[str] | None, system: str | None, variant: str) -> int:
     client = anthropic.Anthropic()
     rubrics = fetch_judge_rubrics()
@@ -416,17 +364,8 @@ def run_experiment(dataset_id: str, only_items: list[str] | None, system: str | 
 
         for metric_name, rubric in rubrics.items():
             verdict = judge_trace(client, rubric, session.transcript)
-            emit_evaluation_event(
-                experiment_id=experiment_id,
-                experiment_name=experiment_name,
-                dataset_id=dataset_id,
-                item=item,
-                metric_name=metric_name,
-                verdict=verdict,
-                trace_id=session.trace_id,
-            )
             label = "N/A" if not verdict["applicable"] else ("PASS" if verdict["result"] else "FAIL")
-            print(f"[{item.name}] {metric_name}: {label}")
+            print(f"[{item.name}] {metric_name}: {label} — {verdict['reasoning']}")
             if verdict["applicable"] and not verdict["result"]:
                 failures += 1
 

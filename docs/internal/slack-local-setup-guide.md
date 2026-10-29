@@ -273,6 +273,8 @@ It does not move bot events to production or change the production Slack app's c
    Do not replace `SLACK_APP_CLIENT_ID`, `SLACK_APP_CLIENT_SECRET`, or `SLACK_APP_SIGNING_SECRET`.
 3. Set `MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS` to a comma-separated list of permitted project IDs in that region's server configuration.
    The default is empty, which blocks access.
+   Use `*` to permit all projects in the region, for example on the dev region where every user is internal.
+   Do not use `*` in a production region.
    Apply the same configuration to the web processes and workers.
    Production deployments must also add these variables to `posthog/charts` and provision their values through `posthog/secrets`.
    Adding the settings in this repository does not configure production.
@@ -306,7 +308,7 @@ Tokens from the development app cannot be transferred to the production app.
   you and shows the response. A `202` here means the event arrived and the problem is downstream;
   this is how we confirmed delivery during setup.
 - **Temporal Web** (`http://localhost:8233`, filter workflow type
-  `posthog-code-slack-mention-processing`) — shows which activity the run reached. The happy path
+  `slack-app-mention-processing`) — shows which activity the run reached. The happy path
   ends at `create_posthog_code_task_for_repo_activity`.
 - Going deeper, the `django` / `temporal-django-worker` logs carry `posthog_code_*` structlog
   lines, and Slack's app **Event Deliveries** page shows delivery failures — neither was needed in

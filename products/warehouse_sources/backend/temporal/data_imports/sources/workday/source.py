@@ -13,6 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -65,7 +68,7 @@ class WorkdaySource(ResumableSource[WorkdaySourceConfig, WorkdayResumeConfig]):
             name=ExternalDataSourceType.WORKDAY,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Workday",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Pull your Workday HCM data into the PostHog Data warehouse over the Workday REST API.
 
 Register an API client for integrations in Workday (**Register API Client for Integrations**) with the `staffing` scope, then paste its client ID, client secret and refresh token below.
@@ -123,6 +126,7 @@ Your hostname and tenant are the first two parts of your Workday URL — for `ht
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            OAUTH2_PERMANENT_ERROR_MARKER: "Workday rejected your API client credentials. Check the client ID, secret and refresh token, then reconnect.",
             TOKEN_ERROR: "Workday rejected your API client credentials. Please check the client ID, secret and refresh token, then reconnect.",
             "401 Client Error": "Workday rejected the access token. Please reconnect the source with a fresh refresh token.",
             "403 Client Error": "Your Workday API client is not authorized for this resource. Please check its scopes and domain security policies.",

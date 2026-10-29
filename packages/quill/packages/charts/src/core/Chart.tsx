@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     AxisLabels,
@@ -28,6 +28,7 @@ import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
+import { useResolvedChartTheme } from './theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -46,6 +47,8 @@ import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
+// Horizontal charts let category labels use this share of the chart width when it beats the fixed cap.
+const HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO = 0.3
 
 function resolveHoverAnimationMs(animateHover: boolean | number | undefined): number {
     if (animateHover === true) {
@@ -61,7 +64,8 @@ export interface ChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: ChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     createScales: CreateScalesFn
     /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
     drawStatic: (args: ChartDrawArgs) => void
@@ -70,6 +74,10 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Fires on a right click with the series nearest the cursor. It never pins or unpins the
+     *  tooltip. The browser menu still opens unless the host calls `preventDefault()` on the
+     *  `contextmenu` event. `isPointClickable` limits it like `onPointClick`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** Limits `onPointClick` and the pointer cursor to the points it returns true for. */
     isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
@@ -122,12 +130,13 @@ export function Chart<Meta = unknown>({
     series,
     labels,
     config,
-    theme,
+    theme: themeProp,
     createScales: createScalesFn,
     drawStatic,
     drawHover,
     tooltip: renderTooltipProp,
     onPointClick,
+    onPointContextMenu,
     isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
@@ -142,6 +151,7 @@ export function Chart<Meta = unknown>({
     wrapClickData,
     resolveHoverIndex,
 }: ChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xTickFormatter,
         xTickLabelRotation = 0,
@@ -157,9 +167,16 @@ export function Chart<Meta = unknown>({
         isPercent = false,
         animateHover,
         margins: marginsOverride,
-        maxCategoryLabelWidth,
+        maxCategoryLabelWidth: baseMaxCategoryLabelWidth,
         yAxes,
     } = config ?? {}
+
+    // Width from the last layout. Margins feed the canvas size, so the cap can only react to it one render later.
+    const [chartWidth, setChartWidth] = useState(0)
+    const maxCategoryLabelWidth =
+        baseMaxCategoryLabelWidth && axisOrientation === 'horizontal'
+            ? Math.max(baseMaxCategoryLabelWidth, Math.floor(chartWidth * HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO))
+            : baseMaxCategoryLabelWidth
 
     const {
         formatters: yAxisFormatters,
@@ -174,39 +191,12 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip = false,
         resolveClickToNearestSeries = false,
         placement: tooltipPlacement = 'follow-data',
-        valueFormatter: tooltipValueFormatter,
-        labelFormatter: tooltipLabelFormatter,
-        showTotal: tooltipShowTotal,
-        totalLabel: tooltipTotalLabel,
-        totalFormatter: tooltipTotalFormatter,
-        sortedByValue: tooltipSortedByValue,
+        ...defaultTooltipOptions
     } = tooltipConfig ?? {}
 
-    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
-    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
-        () =>
-            renderTooltipProp ??
-            ((ctx: TooltipContext<Meta>) => (
-                <DefaultTooltip
-                    {...ctx}
-                    valueFormatter={tooltipValueFormatter}
-                    labelFormatter={tooltipLabelFormatter}
-                    showTotal={tooltipShowTotal}
-                    totalLabel={tooltipTotalLabel}
-                    totalFormatter={tooltipTotalFormatter}
-                    sortedByValue={tooltipSortedByValue}
-                />
-            )),
-        [
-            renderTooltipProp,
-            tooltipValueFormatter,
-            tooltipLabelFormatter,
-            tooltipShowTotal,
-            tooltipTotalLabel,
-            tooltipTotalFormatter,
-            tooltipSortedByValue,
-        ]
-    )
+    // No render prop: render DefaultTooltip with config.tooltip's content options.
+    const renderTooltip =
+        renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} {...defaultTooltipOptions} />)
 
     const margins = useChartMargins({
         series,
@@ -229,6 +219,8 @@ export function Chart<Meta = unknown>({
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
+    const containerWidth = dimensions?.width ?? 0
+    useLayoutEffect(() => setChartWidth(containerWidth), [containerWidth])
 
     const coloredSeries = useColoredSeries<Meta>(series, theme)
 
@@ -338,6 +330,7 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip,
         resolveClickToNearestSeries,
         onPointClick,
+        onPointContextMenu,
         isPointClickable,
         onDateRangeZoom,
         onAreaSelect,
@@ -446,7 +439,9 @@ export function Chart<Meta = unknown>({
                         (isPointClickable?.(hoverIndex) ?? true)
                     }
                     crosshair={!!onDateRangeZoom || !!onAreaSelect}
+                    contextMenu={!!onPointContextMenu}
                     ariaLabel={ariaLabel}
+                    labelCount={labels.length}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
                 >

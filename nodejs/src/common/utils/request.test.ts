@@ -7,8 +7,10 @@ import { register } from 'prom-client'
 import { getExternalRequestConfig } from '~/common/config'
 
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 import {
     FetchOptions,
+    ResponseTooLargeError,
     SecureRequestError,
     fetch,
     internalFetch,
@@ -37,6 +39,9 @@ beforeAll(async () => {
         } else if (url.pathname === '/status/404') {
             res.writeHead(404)
             res.end()
+        } else if (url.pathname === '/bom') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end('\ufeff{"ok":true}')
         } else if (url.pathname === '/stream/50') {
             res.writeHead(200, { 'content-type': 'application/json' })
             for (let i = 0; i < 50; i++) {
@@ -151,6 +156,56 @@ describe('fetch', () => {
         ])('should raise against unsafe URLs: %s', async (url, error) => {
             await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(error)
         })
+    })
+
+    describe('out-of-band domain detection', () => {
+        const originalCloudDeployment = process.env.CLOUD_DEPLOYMENT
+        let info: jest.SpyInstance
+
+        beforeEach(() => {
+            process.env.CLOUD_DEPLOYMENT = 'US'
+            info = jest.spyOn(logger, 'info').mockImplementation(() => undefined)
+            // A real lookup of a listed name is the interaction this detection reports, so answer
+            // it here instead of letting the suite query the collaborator.
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as any)
+        })
+
+        afterEach(() => {
+            info.mockRestore()
+            if (originalCloudDeployment === undefined) {
+                delete process.env.CLOUD_DEPLOYMENT
+            } else {
+                process.env.CLOUD_DEPLOYMENT = originalCloudDeployment
+            }
+        })
+
+        // Both modes run the check, because it sits above the `allowUnsafe` early return. Every
+        // caller passes `!isProdEnv()`, so a check below that return never runs in a test.
+        it.each(['production', 'test'])(
+            'logs a listed host in NODE_ENV=%s and still allows the request',
+            async (nodeEnv) => {
+                const originalNodeEnv = process.env.NODE_ENV
+                process.env.NODE_ENV = nodeEnv
+                try {
+                    // A host per case: noteOobDomain logs one line per host, team and guard per
+                    // window, so a shared host would suppress the second case.
+                    await expect(
+                        raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)
+                    ).resolves.not.toThrow()
+                } finally {
+                    process.env.NODE_ENV = originalNodeEnv
+                }
+
+                expect(info).toHaveBeenCalledWith(
+                    'security.oob_domain_seen',
+                    expect.objectContaining({
+                        host: `${nodeEnv}.abc.oast.me`,
+                        domain: 'oast.me',
+                        guard: 'node_request',
+                    })
+                )
+            }
+        )
     })
 
     describe('fetch call', () => {
@@ -675,6 +730,29 @@ describe('_fetch response body handling', () => {
     it('should parse headers', async () => {
         const response = await internalFetch(baseUrl)
         expect(response.headers['content-type']).toBeDefined()
+    })
+
+    const streamedBodyBytes = range(50).reduce((total, i) => total + JSON.stringify({ id: i }).length + 1, 0)
+
+    it.each([
+        ['under the limit', streamedBodyBytes + 1, false],
+        ['exactly at the limit', streamedBodyBytes, false],
+        ['over the limit', streamedBodyBytes - 1, true],
+    ])('caps a streamed body %s', async (_name, maxResponseBytes, rejects) => {
+        const response = await internalFetch(`${baseUrl}/stream/50`, { maxResponseBytes })
+        if (rejects) {
+            await expect(response.text()).rejects.toBeInstanceOf(ResponseTooLargeError)
+        } else {
+            expect(await response.text()).toHaveLength(streamedBodyBytes)
+        }
+    })
+
+    it.each([
+        ['uncapped', undefined],
+        ['capped', 1024],
+    ])('strips a leading BOM from a %s body', async (_name, maxResponseBytes) => {
+        const response = await internalFetch(`${baseUrl}/bom`, { maxResponseBytes })
+        expect(await response.json()).toEqual({ ok: true })
     })
 
     it('should fully read streamed/chunked response bodies', async () => {

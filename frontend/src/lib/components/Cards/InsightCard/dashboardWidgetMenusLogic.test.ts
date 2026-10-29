@@ -12,20 +12,20 @@ describe('dashboardWidgetMenusLogic', () => {
         dashboardsModel.mount()
     })
 
-    it('merges dashboardId, legacy dashboards ids, and dashboard_tiles into dashboardIdsWithThisWidget', async () => {
+    it('merges dashboardId and live dashboard_tiles into dashboardIdsWithThisWidget, skipping soft-deleted tiles', async () => {
         const logic = dashboardWidgetMenusLogic({
             instanceKey: 'test',
             dashboardId: 10,
-            dashboards: [5, 6],
             dashboard_tiles: [
                 { id: 1, dashboard_id: 7 },
                 { id: 2, dashboard_id: 10 },
+                { id: 3, dashboard_id: 8, deleted: true },
             ],
         })
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
-            dashboardIdsWithThisWidget: new Set([5, 6, 7, 10]),
+            dashboardIdsWithThisWidget: new Set([7, 10]),
         })
     })
 
@@ -44,7 +44,6 @@ describe('dashboardWidgetMenusLogic', () => {
         const logic = dashboardWidgetMenusLogic({
             instanceKey: 'test',
             dashboardId: 1,
-            dashboards: undefined,
             dashboard_tiles: [{ id: 10, dashboard_id: 1 }],
         })
         logic.mount()
@@ -58,7 +57,7 @@ describe('dashboardWidgetMenusLogic', () => {
         })
     })
 
-    it('marks a destination disabled when the widget is already placed there (legacy dashboards list)', async () => {
+    it('marks a destination disabled when the widget is already placed there', async () => {
         dashboardsModel.actions.addDashboardSuccess({
             id: 1,
             name: 'A',
@@ -73,8 +72,7 @@ describe('dashboardWidgetMenusLogic', () => {
         const logic = dashboardWidgetMenusLogic({
             instanceKey: 'test',
             dashboardId: 1,
-            dashboards: [2],
-            dashboard_tiles: [],
+            dashboard_tiles: [{ id: 11, dashboard_id: 2 }],
         })
         logic.mount()
         await expectLogic(logic).toMatchValues({

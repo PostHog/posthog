@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "retry": {
+            "default": false,
+            "description": "Start a new build when the last one failed. Leave it false when asking for a running build's status.",
+            "type": "boolean"
+        },
+        "suggestion_id": {
+            "description": "The id of a suggestion from the list endpoint.",
+            "type": "string"
+        }
+    },
+    "required": ["suggestion_id"],
+    "type": "object"
+}

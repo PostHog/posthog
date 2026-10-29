@@ -52,10 +52,10 @@ class SecodaSource(ResumableSource[SecodaSourceConfig, SecodaResumeConfig]):
             name=ExternalDataSourceType.SECODA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Secoda",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Secoda API key to pull your data catalog into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API** in [Secoda](https://app.secoda.co). The key inherits your workspace permissions and grants read access to your tables, columns, collections, users, groups, and tags.
+You can create an API key under **Settings → API** in [Secoda](https://app.secoda.co). The key inherits your workspace permissions and grants read access to your databases, schemas, tables, columns, lineage, integrations, collections, users, groups, and tags.
 """,
             iconPath="/static/services/secoda.png",
             docsUrl="https://posthog.com/docs/cdp/sources/secoda",

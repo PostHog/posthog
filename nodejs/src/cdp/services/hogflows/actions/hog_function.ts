@@ -14,9 +14,11 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
+    MessageOptOutRecord,
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
+import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
@@ -25,6 +27,24 @@ import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+
+const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
+
+/** The run's recorded opt-outs after a step that succeeded, adding the one an "Opt out of messages" step made. */
+export function messageOptOutsAfterStep(
+    optOuts: MessageOptOutRecord[] | undefined,
+    templateId: string,
+    inputs: Record<string, unknown> | undefined
+): MessageOptOutRecord[] | undefined {
+    if (
+        templateId !== OPT_OUT_OF_MESSAGES_TEMPLATE_ID ||
+        typeof inputs?.identifier !== 'string' ||
+        typeof inputs.category_id !== 'string'
+    ) {
+        return optOuts
+    }
+    return [...(optOuts ?? []), { identifier: inputs.identifier.trim(), categoryId: inputs.category_id }]
+}
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
@@ -40,8 +60,9 @@ type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 type AwaitingResume = NonNullable<NonNullable<HogFlowInvocationContext['currentAction']>['awaitingResume']>
 
-// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`.
-type AwaitRequest = { maxWait: Duration; label: string }
+// A template parks the step by returning `{ ..., 'await': { 'max_wait': '190m', 'label': 'task' } }`. When the
+// job already finished, `'result': {...}` in the request hands over its answer as a wake would, without parking.
+type AwaitRequest = { maxWait: Duration; label: string; settled: Record<string, unknown> | null }
 
 const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
@@ -56,7 +77,11 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     if (typeof request !== 'object') {
         throw new Error(`await must be an object, got ${typeof request}`)
     }
-    const { max_wait: maxWait, label } = request as { max_wait?: unknown; label?: unknown }
+    const {
+        max_wait: maxWait,
+        label,
+        result: settled,
+    } = request as { max_wait?: unknown; label?: unknown; result?: unknown }
     const match = typeof maxWait === 'string' ? AWAIT_DURATION_REGEX.exec(maxWait) : null
     if (!match) {
         throw new Error(`await.max_wait must be a duration like '190m' or '2h', got ${JSON.stringify(maxWait)}`)
@@ -65,6 +90,10 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     return {
         maxWait: requested > AWAIT_MAX_WAIT_CEILING ? AWAIT_MAX_WAIT_CEILING : requested,
         label: typeof label === 'string' && label ? label : 'run',
+        settled:
+            settled && typeof settled === 'object' && !Array.isArray(settled)
+                ? (settled as Record<string, unknown>)
+                : null,
     }
 }
 
@@ -81,6 +110,26 @@ const counterAwaitedStepResumedWithWarnings = new Counter({
     name: 'cdp_hogflow_awaited_step_resumed_with_warnings',
     help: 'A parked step resumed and continued, but the product that ran the job reported a warning.',
 })
+
+// The product that ran the job reports what went wrong short of failing it, such as
+// an agent whose output misses a field. The step continues; the author reads the log.
+const logStepWarnings = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+    action: Action,
+    stepResult: unknown
+): void => {
+    const warnings = readWarnings(stepResult)
+    if (warnings.length > 0) {
+        counterAwaitedStepResumedWithWarnings.inc()
+    }
+    for (const warning of warnings) {
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `${actionIdForLogging(action)} ${warning}`,
+        })
+    }
+}
 
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
@@ -114,6 +163,9 @@ export class HogFunctionHandler implements ActionHandler {
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: HogFlowActionBillingType,
+        // Required, so that a caller which builds an email handler without it fails to compile. The
+        // handlers for other channels pass null.
+        private emailStatusService: EmailStatusService | null,
         private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
@@ -138,6 +190,10 @@ export class HogFunctionHandler implements ActionHandler {
         }
 
         const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+
+        if (functionResult.emailSendResult) {
+            result.emailSendResult = functionResult.emailSendResult
+        }
 
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
@@ -185,6 +241,14 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
+        if (!functionResult.error) {
+            result.invocation.state.messageOptOuts = messageOptOutsAfterStep(
+                result.invocation.state.messageOptOuts,
+                action.config.template_id,
+                functionResult.invocation.state.globals?.inputs
+            )
+        }
+
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
             // A step that does not send leaves this undefined and bills as before.
@@ -194,12 +258,14 @@ export class HogFunctionHandler implements ActionHandler {
                     billingMetricType: this.hogFlowActionBillingType,
                 })
 
-                // actionStepCount holds across a retry of this step but changes on a loop revisit.
-                this.usageReporter?.reportBillableInvocation({
-                    teamId: invocation.teamId,
-                    usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
-                    recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-                })
+                if (!hogExecutorOptions?.isTest || !hogExecutorOptions.functions) {
+                    // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                    this.usageReporter?.reportBillableInvocation({
+                        teamId: invocation.teamId,
+                        usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
+                        recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                    })
+                }
             }
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
@@ -224,6 +290,21 @@ export class HogFunctionHandler implements ActionHandler {
                     timestamp: DateTime.now(),
                     message: `${actionIdForLogging(action)} Ignored the template's wait request: ${(error as Error).message}`,
                 })
+            }
+        }
+        if (awaitRequest?.settled) {
+            const { await: _await, ...dispatch } = functionResult.execResult as Record<string, unknown>
+            // Read before sizing, which can drop the warnings themselves.
+            logStepWarnings(result, action, awaitRequest.settled)
+            // Sized like a woken step's answer, so it fits the variables the run already holds.
+            return {
+                nextAction: findContinueAction(invocation),
+                result: capWorkflowStepResult(
+                    { ...dispatch, status: 'completed' },
+                    awaitRequest.settled,
+                    result.invocation.state.variables ?? {},
+                    action.output_variable
+                ),
             }
         }
         if (awaitRequest) {
@@ -308,19 +389,7 @@ export class HogFunctionHandler implements ActionHandler {
                 timestamp: DateTime.now(),
                 message: `${actionIdForLogging(action)} The ${label} finished`,
             })
-            // The product that ran the job reports what went wrong short of failing it, such as
-            // an agent whose output misses a field. The step continues; the author reads the log.
-            const warnings = readWarnings(resume.result)
-            if (warnings.length > 0) {
-                counterAwaitedStepResumedWithWarnings.inc()
-            }
-            for (const warning of warnings) {
-                result.logs.push({
-                    level: 'warn',
-                    timestamp: DateTime.now(),
-                    message: `${actionIdForLogging(action)} ${warning}`,
-                })
-            }
+            logStepWarnings(result, action, resume.result)
             return {
                 nextAction: findContinueAction(invocation),
                 result: payload,
@@ -337,6 +406,18 @@ export class HogFunctionHandler implements ActionHandler {
         }
         // Woken early with nothing (clock skew): park again.
         return { scheduledAt: deadline }
+    }
+
+    // These checks skip the send before the email service runs, so the email's status is recorded here.
+    private recordSkippedEmail(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: Action,
+        reason: EmailSkipReason,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+    ): void {
+        if (action.type === 'function_email') {
+            this.emailStatusService?.queueSkippedSend(invocation, reason, hogExecutorOptions?.isTest ?? false)
+        }
     }
 
     private async executeHogFunction(
@@ -361,7 +442,12 @@ export class HogFunctionHandler implements ActionHandler {
 
         const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
-            () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
+            () =>
+                this.recipientPreferencesService.shouldSkipAction(
+                    hogFunctionInvocation,
+                    action,
+                    invocation.state.messageOptOuts
+                )
         )
         if (skipReason) {
             // Suppression and opt-out both short-circuit the send, but a customer reading the run
@@ -385,9 +471,16 @@ export class HogFunctionHandler implements ActionHandler {
                           },
                       ]
                     : []
+            this.recordSkippedEmail(
+                hogFunctionInvocation,
+                action,
+                skipReason === 'suppressed' ? 'recipient_suppressed' : 'recipient_opted_out',
+                hogExecutorOptions
+            )
             return {
                 finished: true,
                 skipped: true,
+                emailSendResult: action.type === 'function_email' ? { status: 'skipped', reason: message } : undefined,
                 invocation: hogFunctionInvocation,
                 logs: [{ level: 'info', timestamp: DateTime.now(), message }],
                 metrics,
@@ -406,9 +499,11 @@ export class HogFunctionHandler implements ActionHandler {
             () => this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
         )
         if (emailSkipReason) {
+            this.recordSkippedEmail(hogFunctionInvocation, action, 'recipient_unreachable', hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,
+                emailSendResult: { status: 'skipped', reason: emailSkipReason },
                 invocation: hogFunctionInvocation,
                 logs: [{ level: 'info', timestamp: DateTime.now(), message: emailSkipReason }],
                 metrics: [
@@ -434,6 +529,7 @@ export class HogFunctionHandler implements ActionHandler {
             !hogExecutorOptions?.isTest &&
             (await this.recipientPreferencesService.isFrequencyCapped(hogFunctionInvocation, action))
         ) {
+            this.recordSkippedEmail(hogFunctionInvocation, action, 'frequency_capped', hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,

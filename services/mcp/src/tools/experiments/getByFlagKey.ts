@@ -3,9 +3,12 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import { ToolInputValidationError } from '@/lib/errors'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { withConditionIds } from '@/tools/featureFlags/conditionIds'
 import { resolveFlagsByKey } from '@/tools/featureFlags/resolveFlagsByKey'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
+
+import { withVariantScreenshotUrls } from './variantDetails'
 
 /**
  * `experiment-get-by-flag-key` fetches an experiment by its feature flag key, the identifier
@@ -49,7 +52,9 @@ interface ExperimentLookupMiss {
     candidates?: ExperimentCandidate[]
 }
 
-type Result = (WithPostHogUrl<Schemas.Experiment> & { found: true }) | ExperimentLookupMiss
+type Result =
+    | (WithPostHogUrl<Schemas.Experiment> & { variant_screenshot_urls: Record<string, string[]>; found: true })
+    | ExperimentLookupMiss
 
 type LinkedPick = { experimentId: number } | { candidates: ExperimentCandidate[] }
 
@@ -157,7 +162,10 @@ const experimentGetByFlagKey = (): ToolBase<typeof schema, Result> => ({
             path: `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(String(experimentId))}/`,
         })
         const experimentWithUrl = await withPostHogUrl(context, experiment, `/experiments/${experiment.id}`)
-        return { ...experimentWithUrl, found: true }
+        return {
+            ...withConditionIds(withVariantScreenshotUrls(experimentWithUrl, context.api.publicBaseUrl)),
+            found: true,
+        }
     },
 })
 

@@ -11,6 +11,12 @@ It ranks below a source with 25 paid events, regardless of that source's total t
 
 These counts guide connection suggestions; they do not change report attribution or connected-source sync checks.
 
+## Background source checks
+
+Source health checks run when the window regains focus and every 30 seconds while a source is syncing.
+These checks update source metadata and validation without forcing all dashboard queries to refresh.
+Queries reload when their inputs change or when the user refreshes the dashboard.
+
 ## MCP setup recommendations
 
 The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP server exposes the read-only `marketing-analytics-setup-plan` tool.
@@ -103,7 +109,10 @@ Ad-level reporting is unavailable because the connector does not import promoted
 ## Search performance
 
 Keywords and queries includes paid keywords from ad platforms and organic queries from Google Search Console.
-Search Console requires a synced `search_analytics_by_query` or `search_analytics_by_query_page` table; the integration and paid/organic filters determine which sources appear.
+Search Console keyword rankings require a synced `search_analytics_by_query` table, and landing page rankings require `search_analytics_by_page`.
+Drill-downs use `search_analytics_by_query_page`.
+A missing or stale dedicated table shows a source notice and excludes that source from the ranking; it does not fall back to query-and-page data because aggregation by page can change clicks, impressions, CTR, and position.
+The integration and paid/organic filters determine which sources appear.
 Each search table has a reload control and query duration.
 Pagination stays within the table without scrolling the scene, and changing between keywords and landing pages starts on page 1.
 Long landing URLs truncate within the first column; hover over the URL to read it in full.
@@ -184,7 +193,7 @@ The source scan, enhanced catalog, dashboard section changes, and header feedbac
 Google Search Console onboarding stays behind its independent `marketing-analytics-organic-keywords` flag.
 Mounting source setup state does not start the UTM audit; Integration health loads the audit when opened.
 Search onboarding stays independent under `marketing-analytics-organic-keywords`.
-The read-only setup plan is available with `marketing-analytics-source-onboarding`, `marketing-analytics-setup`, or `new-marketing-analytics-dashboard`; other setup operations keep their existing flag requirements.
+The read-only setup plan is available with `marketing-analytics-source-onboarding` or `marketing-analytics-setup`; other setup operations keep their existing flag requirements.
 
 Source setup uses a consistent panel for connection checks, event scanning, suggestions, empty results, and recoverable errors.
 Detected platforms show concise evidence with expandable details.
@@ -233,8 +242,8 @@ Integration buttons show the external-link icon because their connection panels 
 
 The native integration catalog uses a consistent display order: Google Ads, Meta Ads, Bing Ads, LinkedIn Ads, TikTok Ads, Reddit Ads, Pinterest Ads, Snapchat Ads, OpenAI Ads, Apple Ads, Amazon Ads, Rokt Ads, and X Ads. Google Search Console stays in the search section.
 
-The separate Ad performance tab is available only with `new-marketing-analytics-dashboard` enabled.
-Enabling Search performance alone keeps paid and organic reporting inside the current Dashboard tab.
+The separate Ad performance tab appears when `marketing-analytics-organic-keywords` is on and `marketing-analytics-source-onboarding` is off.
+Otherwise paid and organic reporting stay inside the Dashboard tab.
 
 Detected-source suggestions keep the money hedgehog in the header, matching the empty state and manual catalog.
 
@@ -280,3 +289,42 @@ The banner only appears when a project has a Bing Ads integration marked with `o
 It asks users to reconnect before November 30, 2026.
 The flag controls the warning only; changing it does not disable fallback credentials or migrate existing grants.
 Use project targeting to release the warning gradually.
+
+## Required table status
+
+The source status banner names each required table that needs attention and links native connections directly to their Schemas tab.
+Disabled imports, missing tables, running syncs, failures, pauses, cancellations, and tables awaiting a completed sync have separate messages.
+Multiple table problems remain visible together, even when the connection has one overall status.
+Google Ads connections using the legacy `campaign_stats` schema retain support and display that actual schema name.
+
+## Connection issues
+
+The source onboarding panel groups connected sources by integration and identifies each connection by its prefix, or its source ID when no prefix exists.
+Expand an integration to review the affected tables and open the connection’s source settings.
+The panel includes the source validation details shown by the status banner.
+When the panel displays a connection, its duplicate status banner entry is hidden.
+Configuration validation failures and issues for sources outside the panel remain in the banner.
+With source onboarding disabled, the existing banner remains available.
+
+## Ad performance metric cards
+
+The Ad performance summary uses the same metric cards as Web analytics.
+Cards preserve period comparisons, currency formatting, and missing-value labels, and wrap to the available scene width.
+
+Ad performance cards include time-series sparklines for advertising metrics, including platform-reported conversions.
+Select an advertising metric card to update the existing trend chart while keeping the date range, interval, and source filters.
+CPC, CTR, reported ROAS, and cost per reported conversion use ratios of bucket totals in both sparklines and the main trend, with monetary values converted to the project currency; undefined ratios leave gaps rather than zeroes.
+Attributed PostHog conversion goals retain their summary cards without sparklines or selection.
+
+Advertising metrics appear first, followed by attributed conversion goals and their cost per conversion.
+The goal cards use a separate grid so cards without sparklines keep a compact height.
+
+The overview loads on demand so other query surfaces do not load marketing-specific validation eagerly.
+
+The Ad performance summary groups metrics by source: Ad platforms contains platform-reported metrics, and PostHog contains configured conversion goals and their costs.
+Configure metrics uses the same apply-and-cancel interaction as Configure columns.
+It lets users show or hide individual metrics, show or hide an entire group, and reorder metrics within each group with the move buttons.
+Each group can also collapse without changing which metrics are selected.
+The summary saves visibility, order, and collapsed groups in browser storage per project and view, matching table column preferences.
+These preferences survive reloads in the same browser; they do not change table columns or the underlying queries.
+New metrics appear by default, and removed goals do not leave empty cards.

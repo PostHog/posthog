@@ -66,11 +66,11 @@ class LoopReturnsSource(ResumableSource[LoopReturnsSourceConfig, LoopReturnsResu
             name=ExternalDataSourceType.LOOPRETURNS,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Loop Returns",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             docsUrl="https://posthog.com/docs/cdp/sources/loop-returns",
             caption="""Enter your Loop API key to pull your returns data into the PostHog Data warehouse.
 
-Create a key in Loop under **Settings** > **Developers**. The key needs the `Returns` scope for the returns and advanced shipping notice tables, and `Destinations (Read)` for the destinations table.
+Create a key in Loop under **Settings** > **Developers**. The key needs the `Returns` scope for the returns and advanced shipping notice tables, `Destinations (Read)` for the destinations table, `Order (Read)` for the orders table, `Product (Read)` for the products and product variants tables, and `Customers (Read)` for the customers table.
 
 Start date is optional and sets how far back the first sync reaches. Without it, syncing starts two years ago.""",
             iconPath="/static/services/loop_returns.png",
@@ -87,6 +87,7 @@ Start date is optional and sets how far back the first sync reaches. Without it,
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
