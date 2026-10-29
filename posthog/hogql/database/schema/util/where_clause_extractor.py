@@ -613,6 +613,20 @@ def unwrap_table_alias_type(table_type: Optional[ast.Type]) -> Optional[ast.Type
     return table_type
 
 
+def event_field_type(expr: ast.Expr) -> ast.FieldType | None:
+    """The type of the `event` column that resolved `expr` reads, or None when it reads something else."""
+    # The resolver wraps a field without a table prefix in an alias when the query has several tables.
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    if not isinstance(expr, ast.Field):
+        return None
+    # A select alias used in WHERE wraps the column in one FieldAliasType per alias.
+    field_type = expr.type
+    while isinstance(field_type, ast.FieldAliasType):
+        field_type = field_type.type
+    return field_type if isinstance(field_type, ast.FieldType) and field_type.name == "event" else None
+
+
 def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableType]:
     """If the expression resolves to $session_id on the events table, return its (possibly aliased) table type."""
     from posthog.hogql.database.schema.events import EventsTable  # noqa: PLC0415 - breaks the schema import cycle

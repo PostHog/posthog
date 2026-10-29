@@ -25,9 +25,12 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import ELEMENT_STAND_INS, FlagEvaluationsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts, unwrap_table_alias_type
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    event_field_type,
+    top_level_conjuncts,
+    unwrap_table_alias_type,
+)
 from posthog.hogql.errors import BaseHogQLError, QueryError
-from posthog.hogql.flag_called_warnings import event_field_type
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.resolver import JoinSources
