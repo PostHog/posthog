@@ -2,6 +2,7 @@ import os
 import uuid
 import socket
 import asyncio
+from typing import TYPE_CHECKING
 
 import pytest
 from unittest.mock import Mock, patch
@@ -23,6 +24,9 @@ from products.batch_exports.backend.destination_tests.s3 import (
 from products.batch_exports.backend.service import AWSCredentials
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import InvalidS3EndpointError, s3_client
 from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
+
+if TYPE_CHECKING:
+    from aiohappyeyeballs import AddrInfoType
 
 TEST_ROOT_BUCKET = "test-destination-tests"
 
@@ -154,6 +158,7 @@ async def test_custom_s3_connections_pin_the_sdk_hostname_and_preserve_proxies(v
 
 
 @override_settings(FORCE_URL_VALIDATION=True)
+@pytest.mark.parametrize("initial_failure", ["dns", "connection_refused", "connect_timeout"])
 @pytest.mark.parametrize(
     "address,expected_error,expected_message",
     [
@@ -163,8 +168,22 @@ async def test_custom_s3_connections_pin_the_sdk_hostname_and_preserve_proxies(v
     ],
 )
 async def test_custom_s3_retries_dns_failures(
-    address: str | None, expected_error: type[Exception], expected_message: str
+    initial_failure: str, address: str | None, expected_error: type[Exception], expected_message: str
 ) -> None:
+    connection_errors: list[Exception] = []
+    if initial_failure == "connection_refused":
+        connection_errors.append(ConnectionRefusedError("Endpoint address retired"))
+    elif initial_failure == "connect_timeout":
+        connection_errors.append(TimeoutError())
+
+    attempted_addresses: list[str] = []
+
+    async def connect_socket(*, addr_infos: list["AddrInfoType"], **kwargs: object) -> None:
+        attempted_addresses.append(addr_infos[0][4][0])
+        if connection_errors and len(attempted_addresses) == 1:
+            raise connection_errors[0]
+        raise RuntimeError("Socket connection intercepted")
+
     with (
         patch.dict(
             os.environ,
@@ -177,13 +196,15 @@ async def test_custom_s3_retries_dns_failures(
         patch(
             "dns.resolver.Resolver.resolve_name",
             side_effect=[
-                dns.exception.Timeout(),
+                dns.exception.Timeout() if initial_failure == "dns" else Mock(addresses=Mock(return_value=["8.8.8.8"])),
                 Mock(addresses=Mock(return_value=[address])) if address is not None else dns.exception.Timeout(),
             ],
         ) as resolve,
+        patch("aiohttp.connector.DefaultResolver.resolve", side_effect=AssertionError("Unexpected unpinned DNS")),
         patch("botocore.retries.standard.ExponentialBackoff.delay_amount", return_value=0),
         patch(
-            "aiohappyeyeballs.start_connection", side_effect=RuntimeError("Socket connection intercepted")
+            "aiohappyeyeballs.start_connection",
+            side_effect=connect_socket,
         ) as connect,
     ):
         async with s3_client(
@@ -195,11 +216,64 @@ async def test_custom_s3_retries_dns_failures(
                 await client.head_bucket(Bucket="exports")
 
     assert resolve.call_count == 2
+    assert connect.await_count == len(connection_errors) + (1 if address == "93.184.216.34" else 0)
+    if connection_errors:
+        assert attempted_addresses[0] == "8.8.8.8"
     if address == "93.184.216.34":
-        connect.assert_awaited_once()
-        assert connect.call_args.kwargs["addr_infos"][0][4][0] == address
-    else:
-        connect.assert_not_awaited()
+        assert attempted_addresses[-1] == address
+
+
+@override_settings(FORCE_URL_VALIDATION=True)
+async def test_custom_s3_concurrent_connection_failures_share_refreshed_pins() -> None:
+    both_connections_started = asyncio.Event()
+    refreshed_connection_started = asyncio.Event()
+    attempted_addresses: list[str] = []
+
+    async def connect_socket(*, addr_infos: list["AddrInfoType"], **kwargs: object) -> None:
+        address = addr_infos[0][4][0]
+        attempted_addresses.append(address)
+        if address == "1.1.1.1":
+            refreshed_connection_started.set()
+            raise RuntimeError("Socket connection intercepted")
+
+        if len(attempted_addresses) == 1:
+            await both_connections_started.wait()
+        else:
+            both_connections_started.set()
+            await refreshed_connection_started.wait()
+        raise ConnectionRefusedError("Endpoint address retired")
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                **{key: "" for key in os.environ if key.lower().endswith("_proxy")},
+                "AWS_MAX_ATTEMPTS": "2",
+                "AWS_RETRY_MODE": "standard",
+            },
+        ),
+        patch(
+            "dns.resolver.Resolver.resolve_name",
+            side_effect=[Mock(addresses=Mock(return_value=[ip])) for ip in ["8.8.8.8", "1.1.1.1", "127.0.0.1"]],
+        ) as resolve,
+        patch("botocore.retries.standard.ExponentialBackoff.delay_amount", return_value=0),
+        patch("aiohappyeyeballs.start_connection", side_effect=connect_socket),
+        patch("aiohttp.connector.DefaultResolver.resolve", side_effect=AssertionError("Unexpected unpinned DNS")),
+    ):
+        async with s3_client(
+            AWSCredentials(aws_access_key_id="fake-key", aws_secret_access_key="fake-secret"),
+            region="us-east-1",
+            endpoint_url="https://storage.example.com",
+        ) as client:
+
+            async def head_bucket() -> None:
+                with pytest.raises(HTTPClientError, match="Socket connection intercepted"):
+                    await client.head_bucket(Bucket="exports")
+
+            await asyncio.wait_for(asyncio.gather(head_bucket(), head_bucket()), timeout=10)
+
+    assert resolve.call_count == 2
+    assert attempted_addresses == ["8.8.8.8", "8.8.8.8", "1.1.1.1", "1.1.1.1"]
 
 
 @override_settings(FORCE_URL_VALIDATION=True)

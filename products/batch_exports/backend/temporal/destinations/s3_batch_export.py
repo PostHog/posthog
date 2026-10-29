@@ -601,6 +601,7 @@ class PinnedS3HTTPSession(AIOHTTPSession):
         super().__init__(**kwargs)
         self._bypass_validation = bypass_validation
         self._host_to_resolved_ips: dict[str, ResolvedIPs] = {}
+        self._hosts_to_refresh: set[str] = set()
         self._pin_lock = asyncio.Lock()
 
     def _create_connector(self, proxy_url: str | None) -> PinnedTCPConnector:
@@ -615,6 +616,27 @@ class PinnedS3HTTPSession(AIOHTTPSession):
             **self._connector_args,  # type: ignore[attr-defined]
         )
 
+    async def _pin_host(self, host: str, origin: str) -> None:
+        if host in self._host_to_resolved_ips and host not in self._hosts_to_refresh:
+            return
+
+        async with self._pin_lock:
+            # Another request may have populated or refreshed the pins while we waited.
+            if host in self._host_to_resolved_ips and host not in self._hosts_to_refresh:
+                return
+
+            verdict = await asyncio.to_thread(validate_url_and_pin_ips, origin)
+
+            if verdict.reason == UNRESOLVED_HOST_REASON:
+                # Raise this to allow the SDK to retry.
+                raise botocore.exceptions.EndpointConnectionError(endpoint_url=origin)
+
+            if not verdict.allowed or not verdict.pinned_ips:
+                raise InvalidS3EndpointError()
+
+            self._host_to_resolved_ips[host] = verdict.pinned_ips
+            self._hosts_to_refresh.discard(host)
+
     async def send(self, request):
         """Validate IPs before sending the request."""
         if self._bypass_validation:
@@ -627,27 +649,20 @@ class PinnedS3HTTPSession(AIOHTTPSession):
             raise InvalidS3EndpointError()
 
         host = canonicalize_host(host)
-        if host in self._host_to_resolved_ips:
-            # Host already resolved, we can fire the request
+        origin = url._replace(path="", query="", fragment="").geturl()
+        await self._pin_host(host, origin)
+        pinned_ips = self._host_to_resolved_ips[host]
+
+        try:
             return await super().send(request)
-
-        async with self._pin_lock:
-            if host not in self._host_to_resolved_ips:
-                # We could have been waiting with another request, which ran first
-                # so we check again if we even have to do anything.
-                origin = url._replace(path="", query="", fragment="").geturl()
-                verdict = await asyncio.to_thread(validate_url_and_pin_ips, origin)
-
-                if verdict.reason == UNRESOLVED_HOST_REASON:
-                    # Raise this to allow the SDK to retry.
-                    raise botocore.exceptions.EndpointConnectionError(endpoint_url=origin)
-
-                if not verdict.allowed or not verdict.pinned_ips:
-                    raise InvalidS3EndpointError()
-
-                self._host_to_resolved_ips[host] = verdict.pinned_ips
-
-        return await super().send(request)
+        except (botocore.exceptions.EndpointConnectionError, botocore.exceptions.ConnectTimeoutError):
+            if self._proxy_config.proxy_url_for(request.url):  # type: ignore[attr-defined]
+                raise
+            # A delayed failure must not invalidate pins refreshed by another request.
+            if self._host_to_resolved_ips[host] is pinned_ips:
+                # IMPORTANT: Do not clear validated ips as an empty dict permits normal DNS
+                self._hosts_to_refresh.add(host)
+            raise
 
 
 @contextlib.asynccontextmanager
