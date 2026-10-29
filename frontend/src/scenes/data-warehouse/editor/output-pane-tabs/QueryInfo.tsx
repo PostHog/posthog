@@ -301,6 +301,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                                 to={
                                                     combineUrl(urls.models('lineage'), {
                                                         search: `+${targetView.name}+`,
+                                                        node_id: currentNodeId,
                                                     }).url
                                                 }
                                                 targetBlank

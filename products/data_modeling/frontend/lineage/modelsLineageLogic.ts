@@ -37,6 +37,7 @@ export interface modelsLineageLogicValues {
     edgesLoading: boolean // lineageDataLogic
     searchTerm: string
     debouncedSearchTerm: string
+    searchAnchorNodeId: string | null
     typeFilter: DataModelingNodeType[]
     legendCollapsed: boolean
     selectedSearchResultId: string | null
@@ -58,6 +59,7 @@ export interface modelsLineageLogicValues {
 }
 
 export interface modelsLineageLogicActions {
+    setSearchAnchorNodeId: (nodeId: string | null) => { nodeId: string | null }
     setSearchTerm: (searchTerm: string) => { searchTerm: string }
     setDebouncedSearchTerm: (searchTerm: string) => { searchTerm: string }
     setTypeFilter: (typeFilter: DataModelingNodeType[]) => { typeFilter: DataModelingNodeType[] }
@@ -93,6 +95,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                 actions.resetFilters()
                 actions.setSearchTerm(searchTerm)
                 actions.setDebouncedSearchTerm(searchTerm)
+                actions.setSearchAnchorNodeId(typeof searchParams.node_id === 'string' ? searchParams.node_id : null)
             }
         },
     })),
@@ -100,6 +103,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         values: [lineageDataLogic, ['nodes', 'nodesLoading', 'edges', 'edgesLoading']],
     })),
     actions({
+        setSearchAnchorNodeId: (nodeId: string | null) => ({ nodeId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setDebouncedSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setTypeFilter: (typeFilter: DataModelingNodeType[]) => ({ typeFilter }),
@@ -112,6 +116,14 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         resetNodePositions: true,
     }),
     reducers({
+        searchAnchorNodeId: [
+            null as string | null,
+            {
+                setSearchAnchorNodeId: (_, { nodeId }) => nodeId,
+                setSearchTerm: () => null,
+                resetFilters: () => null,
+            },
+        ],
         searchTerm: [
             '',
             {
@@ -226,13 +238,25 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         },
     })),
     selectors({
-        parsedSearchTerm: [(s) => [s.searchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
-        parsedSearch: [(s) => [s.debouncedSearchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
+        parsedSearchTerm: [
+            (s) => [s.searchTerm, s.searchAnchorNodeId],
+            (searchTerm: string, anchorNodeId: string | null): ParsedLineageSearch =>
+                anchorNodeId ? { ...parseLineageSearch(searchTerm), anchorNodeId } : parseLineageSearch(searchTerm),
+        ],
+        parsedSearch: [
+            (s) => [s.debouncedSearchTerm, s.searchAnchorNodeId],
+            (searchTerm: string, anchorNodeId: string | null): ParsedLineageSearch =>
+                anchorNodeId ? { ...parseLineageSearch(searchTerm), anchorNodeId } : parseLineageSearch(searchTerm),
+        ],
 
         lineageSearchAnchor: [
             (s) => [s.nodes, s.parsedSearchTerm],
             (nodes: DataModelingNode[], parsedSearchTerm: ParsedLineageSearch): DataModelingNode | null =>
-                parsedSearchTerm.mode === 'search' ? null : (matchNodesByName(nodes, parsedSearchTerm.term)[0] ?? null),
+                parsedSearchTerm.mode === 'search'
+                    ? null
+                    : parsedSearchTerm.anchorNodeId
+                      ? (nodes.find((node) => node.id === parsedSearchTerm.anchorNodeId) ?? null)
+                      : (matchNodesByName(nodes, parsedSearchTerm.term)[0] ?? null),
         ],
 
         // Both the result list and the graph need the lineage cone. Walking it once here keeps the

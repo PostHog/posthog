@@ -42,23 +42,42 @@ describe('modelsLineageLogic', () => {
         logic.unmount()
     })
 
-    it('opens a lineage URL with the selected model and its dependencies', async () => {
+    it.each([false, true])('opens the selected lineage from a URL with a stable ID: %s', async (useNodeId) => {
+        const selectedNode = { ...NODES[0], id: 'selected-view' }
+        const baseNodes = [selectedNode, ...NODES.slice(1)]
+        const nodes = useNodeId
+            ? [{ ...NODES[0], id: 'namesake-metric', type: 'metric' as const }, ...baseNodes]
+            : baseNodes
+        const edges = EDGES.map((edge) => ({ ...edge, target_id: selectedNode.id }))
+        lineageDataLogic.actions.loadNodesSuccess(nodes)
+        lineageDataLogic.actions.loadEdgesSuccess(edges)
         logic.actions.setTypeFilter(['view'])
 
         await expectLogic(logic, () => {
-            router.actions.push(combineUrl(urls.models('lineage'), { search: '+website_leads+' }).url)
+            router.actions.push(
+                combineUrl(urls.models('lineage'), {
+                    search: '+website_leads+',
+                    ...(useNodeId ? { node_id: selectedNode.id } : {}),
+                }).url
+            )
         }).toMatchValues({
             searchTerm: '+website_leads+',
             debouncedSearchTerm: '+website_leads+',
-            visibleNodes: [NODES[0], NODES[3]],
-            visibleEdges: EDGES,
+            visibleNodes: [selectedNode, NODES[3]],
+            visibleEdges: edges,
+            lineageSearchAnchor: selectedNode,
         })
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearchTerm('+customers+')
+            logic.actions.setDebouncedSearchTerm('+customers+')
+        }).toMatchValues({ searchAnchorNodeId: null, lineageSearchAnchor: NODES[3] })
 
         await expectLogic(logic, () => {
             router.actions.push(urls.models('lineage'))
         }).toMatchValues({
             searchTerm: '',
-            visibleNodes: NODES,
+            visibleNodes: nodes,
         })
     })
 
