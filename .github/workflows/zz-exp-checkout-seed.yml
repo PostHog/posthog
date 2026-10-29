@@ -22,7 +22,7 @@ jobs:
         timeout-minutes: 30
         strategy:
             matrix:
-                age_hours: [0, 24, 168]
+                age_hours: [0, 1, 3, 6]
         steps:
             - name: Fetch master commit of the requested age at depth 1
               env:
@@ -52,8 +52,8 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                arm: [fresh, seed-0h, seed-24h, seed-168h]
-                rep: [1, 2, 3, 4, 5]
+                arm: [fresh, seed-0h, seed-1h, seed-3h, seed-6h]
+                rep: [1, 2, 3]
         steps:
             - name: Start clock
               run: echo "T0=$(date +%s.%N)" >> "$GITHUB_ENV"
@@ -71,7 +71,7 @@ jobs:
                   path: |
                       .git/objects
                       .git/shallow
-                  key: exp-git-${{ matrix.arm == 'seed-0h' && 'seed-0' || matrix.arm == 'seed-24h' && 'seed-24' || 'seed-168' }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  key: exp-git-${{ matrix.arm == 'seed-0h' && 'seed-0' || matrix.arm == 'seed-1h' && 'seed-1' || matrix.arm == 'seed-3h' && 'seed-3' || 'seed-6' }}-${{ github.run_id }}-${{ github.run_attempt }}
                   fail-on-cache-miss: true
 
             - name: Verify and attach seed
@@ -101,10 +101,10 @@ jobs:
                   git fsck --connectivity-only --no-dangling HEAD
                   if [ "$ARM" != fresh ]; then
                       test -f .git/seed-marker
-                      test "$(ls .git/objects/pack/*.pack | wc -l)" -eq 2
                   fi
                   pack_bytes=$(stat -c %s .git/objects/pack/*.pack | awk '{s+=$1} END {print s}')
-                  fetched_bytes=$(( pack_bytes - ${SEED_PACK_BYTES:-0} ))
+                  loose_kib=$(git count-objects -v | awk '/^size:/ {print $2}')
+                  fetched_bytes=$(( pack_bytes - ${SEED_PACK_BYTES:-0} + loose_kib * 1024 ))
                   total=$(awk -v a="$t_end" -v b="$T0" 'BEGIN {printf "%.1f", a-b}')
                   verify=$(awk -v a="${T_VERIFIED:-0}" -v b="${T_RESTORED:-0}" 'BEGIN {printf "%.1f", a-b}')
                   line="RESULT arm=$ARM rep=$REP total_s=$total verify_s=$verify fetched_bytes=$fetched_bytes files=$(git ls-files | wc -l)"
