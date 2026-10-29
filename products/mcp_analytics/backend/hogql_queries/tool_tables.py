@@ -62,6 +62,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
+    HarnessLabelQueryRunner,
     display_person_properties,
     effective_tool_expr,
     mcp_query_date_range,
@@ -139,7 +140,7 @@ def _tool_call_where(
     return ast.And(exprs=exprs)
 
 
-class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryResponse]):
+class MCPToolTopUsersQueryRunner(HarnessLabelQueryRunner[MCPToolTopUsersQueryResponse]):
     query: MCPToolTopUsersQuery
     cached_response: CachedMCPToolTopUsersQueryResponse
 
@@ -225,7 +226,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
         )
 
 
-class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryResponse]):
+class MCPToolFailuresQueryRunner(HarnessLabelQueryRunner[MCPToolFailuresQueryResponse]):
     query: MCPToolFailuresQuery
     cached_response: CachedMCPToolFailuresQueryResponse
 
@@ -321,7 +322,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
 _ERROR_MESSAGE = "substring(coalesce(toString(properties.$mcp_error_message), ''), 1, 2048)"
 
 
-class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOccurrencesQueryResponse]):
+class MCPToolFailureOccurrencesQueryRunner(HarnessLabelQueryRunner[MCPToolFailureOccurrencesQueryResponse]):
     query: MCPToolFailureOccurrencesQuery
     cached_response: CachedMCPToolFailureOccurrencesQueryResponse
 
@@ -672,7 +673,7 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
         )
 
 
-class MCPToolSampleIntentsQueryRunner(AnalyticsQueryRunner[MCPToolSampleIntentsQueryResponse]):
+class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleIntentsQueryResponse]):
     query: MCPToolSampleIntentsQuery
     cached_response: CachedMCPToolSampleIntentsQueryResponse
 
