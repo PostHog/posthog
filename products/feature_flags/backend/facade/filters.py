@@ -224,6 +224,12 @@ def replace_release_conditions(current_filters: dict, groups: list[dict]) -> dic
     return {**current_filters, "groups": deepcopy(groups)}
 
 
+def without_payloads(current_filters: Mapping[str, Any] | None) -> dict:
+    """Every key but ``payloads``, for a reader of who gets which value. Stored payloads can be ciphertext."""
+    require_v1_config(current_filters)
+    return {key: value for key, value in (current_filters or {}).items() if key != "payloads"}
+
+
 def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_percentage: float | None) -> dict:
     """Set (or clear) the flag-level ``holdout`` object on the filters.
 
