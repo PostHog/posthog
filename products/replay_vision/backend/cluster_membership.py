@@ -21,7 +21,6 @@ from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
     ReplayScannerSearchTheme,
 )
-from products.replay_vision.backend.watch_rank import ISSUE_CATEGORIES
 
 _WRITE_CHUNK = 500
 _BACKFILL_CHUNK = 2_000
@@ -34,6 +33,7 @@ class Membership:
     group_id: uuid.UUID
     theme_id: uuid.UUID | None
     category: str
+    contrast: float
     variant: str
     experiment_id: int
 
@@ -73,40 +73,39 @@ def record_memberships(
         batch_size=_WRITE_CHUNK,
     )
     row_team_id = resolve_effective_team_id(team_id)
-    group_days: Counter[tuple[uuid.UUID, date, str, int]] = Counter()
-    group_issue_days: Counter[tuple[uuid.UUID, date, str, int]] = Counter()
+    group_days: Counter[tuple[uuid.UUID, date, str, int, str]] = Counter()
+    group_best: dict[tuple[uuid.UUID, date, str, int, str], float] = {}
     theme_days: Counter[tuple[uuid.UUID, date]] = Counter()
     for m in members:
         day = m.created_at.astimezone(UTC).date()
-        key = (m.group_id, day, m.variant, m.experiment_id)
+        key = (m.group_id, day, m.variant, m.experiment_id, m.category)
         if live_groups is None or m.group_id in live_groups:
             group_days[key] += 1
-            if m.category in ISSUE_CATEGORIES:
-                group_issue_days[key] += 1
+            group_best[key] = max(group_best.get(key, m.contrast), m.contrast)
         if m.theme_id is not None and (live_themes is None or m.theme_id in live_themes):
             theme_days[(m.theme_id, day)] += 1
-    _add_group_days(row_team_id, [(*key, count, group_issue_days[key]) for key, count in group_days.items()])
+    _add_group_days(row_team_id, [(*key, count, group_best[key]) for key, count in group_days.items()])
     _add_theme_days(row_team_id, [(*key, count) for key, count in theme_days.items()])
 
 
-def _add_group_days(team_id: int, rows: list[tuple[uuid.UUID, date, str, int, int, int]]) -> None:
+def _add_group_days(team_id: int, rows: list[tuple[uuid.UUID, date, str, int, str, int, float]]) -> None:
     # Counts add onto the stored day, which an ORM upsert can't express: it only overwrites.
     for chunk in batched(rows, _WRITE_CHUNK, strict=False):
-        values = ", ".join(["(%s, %s, %s, %s, %s, %s, %s)"] * len(chunk))
+        values = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s)"] * len(chunk))
         params: list[Any] = []
-        for group_id, day, variant, experiment_id, observations, issues in chunk:
-            params += [team_id, group_id, day, variant, experiment_id, observations, issues]
+        for group_id, day, variant, experiment_id, category, observations, best in chunk:
+            params += [team_id, group_id, day, variant, experiment_id, category, observations, best]
         with connection.cursor() as cursor:
             cursor.execute(
                 # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
                 f"""
                 INSERT INTO replay_vision_replayscannerfeedgroupday
-                    (team_id, group_id, day, variant, experiment_id, observation_count, issue_count)
+                    (team_id, group_id, day, variant, experiment_id, category, observation_count, best_contrast)
                 VALUES {values}
-                ON CONFLICT (group_id, day, variant, experiment_id) DO UPDATE SET
+                ON CONFLICT (group_id, day, variant, experiment_id, category) DO UPDATE SET
                     observation_count = replay_vision_replayscannerfeedgroupday.observation_count
                         + EXCLUDED.observation_count,
-                    issue_count = replay_vision_replayscannerfeedgroupday.issue_count + EXCLUDED.issue_count
+                    best_contrast = GREATEST(replay_vision_replayscannerfeedgroupday.best_contrast, EXCLUDED.best_contrast)
                 """,
                 params,
             )
@@ -197,9 +196,15 @@ def _membership_from_rank(row: Mapping[str, Any]) -> Membership | None:
         group_id=group_id,
         theme_id=_uuid_or_none(rank.get("theme")),
         category=str(rank.get("category") or ""),
+        contrast=_contrast(rank),
         variant=variant_of(row["scanner_result"]),
         experiment_id=experiment_id_of(row["scanner_snapshot"]),
     )
+
+
+def _contrast(rank: Mapping[str, Any]) -> float:
+    contrast = rank.get("contrast")
+    return float(contrast) if isinstance(contrast, int | float) and not isinstance(contrast, bool) else 0.0
 
 
 def _uuid_or_none(value: Any) -> uuid.UUID | None:

@@ -163,6 +163,7 @@ def assign_semantics_batch(
                         group_id=group_id,
                         theme_id=theme.theme_id if theme else None,
                         category=rank["category"],
+                        contrast=float(rank["contrast"]),
                         variant=variant_of(row["scanner_result"]),
                         experiment_id=experiment_id_of(row["scanner_snapshot"]),
                     )

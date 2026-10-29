@@ -212,8 +212,11 @@ class TestAssignSemantics(BaseTest):
         assert "duplicate_of" not in first.watch_rank
         assert (first.feed_group_id, first.search_theme_id) == (joined[0].group_id, joined[0].theme.theme_id)
         # The redelivered row is not counted twice, and the routine row counts towards the group but not its issues.
-        group_day = ReplayScannerFeedGroupDay.objects.for_team(self.team.id).get(group_id=joined[0].group_id)
-        assert (group_day.observation_count, group_day.issue_count) == (3, 2)
+        group_days = ReplayScannerFeedGroupDay.objects.for_team(self.team.id).filter(group_id=joined[0].group_id)
+        assert sorted((day.category, day.observation_count, day.best_contrast) for day in group_days) == [
+            ("failure", 2, 0.2),
+            ("routine", 1, 0.2),
+        ]
         theme_days = ReplayScannerSearchThemeDay.objects.for_team(self.team.id).filter(
             theme_id=joined[0].theme.theme_id
         )
@@ -332,7 +335,10 @@ class TestAssignSemantics(BaseTest):
             pruned,
         }
         days = ReplayScannerFeedGroupDay.objects.for_team(self.team.id)
-        assert [(day.group_id, day.observation_count, day.issue_count) for day in days] == [(live.id, 2, 1)]
+        assert sorted((day.group_id, day.category, day.observation_count) for day in days) == [
+            (live.id, "failure", 1),
+            (live.id, "routine", 1),
+        ]
 
     def test_clusters_without_a_member_for_the_retention_window_are_pruned(self) -> None:
         stale = timezone.now() - timedelta(days=91)

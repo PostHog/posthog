@@ -62,7 +62,8 @@ class ReplayScannerFeedGroup(TeamScopedRootMixin, UUIDModel):
 
 
 class ReplayScannerFeedGroupDay(TeamScopedRootMixin, models.Model):
-    """One feed group's members that joined on one UTC day, per experiment variant, so trends read a few rows."""
+    """One feed group's members that joined on one UTC day, per category and experiment variant, so trends and the
+    feed's ranking read a few rows per group instead of every member."""
 
     group = models.ForeignKey(
         "replay_vision.ReplayScannerFeedGroup", on_delete=models.CASCADE, related_name="days", db_index=False
@@ -73,14 +74,17 @@ class ReplayScannerFeedGroupDay(TeamScopedRootMixin, models.Model):
     variant = models.CharField(max_length=400, blank=True, default="")
     # Zero for a member scanned without experiment targeting, so reads can leave out experiments a viewer can't open.
     experiment_id = models.BigIntegerField(default=0)
+    # The members' feed category, so counts and ranking can keep to the categories a reader asked for.
+    category = models.CharField(max_length=16)
     observation_count = models.PositiveIntegerField(default=0)
-    issue_count = models.PositiveIntegerField(default=0)
+    # The day's highest feed score among these members, which ranks the group without reading them.
+    best_contrast = models.FloatField()
 
     class Meta:
         app_label = "replay_vision"
         constraints = [
             models.UniqueConstraint(
-                fields=["group", "day", "variant", "experiment_id"], name="rv_feed_group_day_unique"
+                fields=["group", "day", "variant", "experiment_id", "category"], name="rv_feed_group_day_unique"
             )
         ]
 
