@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
@@ -136,7 +137,11 @@ describe('InternalLogsProducer', () => {
     })
 
     it.each([
-        { name: 'waits for a free request, then sends it', maxBufferedBytes: 64 * 1024 * 1024, expectedCalls: 2 },
+        {
+            name: 'waits, then leaves with the other waiting batches in one request',
+            maxBufferedBytes: 64 * 1024 * 1024,
+            expectedCalls: 2,
+        },
         { name: 'is dropped when the buffer is full', maxBufferedBytes: 15_000, expectedCalls: 1 },
     ])('a batch over the in-flight cap $name', async ({ maxBufferedBytes, expectedCalls }) => {
         const held = heldResponse()
@@ -151,12 +156,12 @@ describe('InternalLogsProducer', () => {
         const message = 'x'.repeat(10_000)
 
         const first = send(producer, [entry({ message })])
-        const second = send(producer, [entry({ message })])
+        const waiting = [send(producer, [entry({ message })]), send(producer, [entry({ message })])]
         await jest.advanceTimersByTimeAsync(0)
         expect(fetchMock).toHaveBeenCalledTimes(1)
 
         held.release()
-        await Promise.all([first, second])
+        await Promise.all([first, ...waiting])
         expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
     })
 
@@ -244,15 +249,22 @@ describe('InternalLogsProducer', () => {
         expect(drained).toBe(true)
     })
 
-    it('drain returns at its timeout while capture-logs still holds a request', async () => {
+    it('drain returns at its timeout and counts every unsent batch as abandoned', async () => {
+        register.resetMetrics()
         fetchMock.mockReturnValueOnce(heldResponse().response)
-        const producer = new InternalLogsProducer(config(), teamManager)
-        producer.enqueue('hog_flow', [entry()])
+        const producer = new InternalLogsProducer(
+            config({ LOGS_INTERNAL_PRODUCER_TEAMS: '2,3', LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 1 }),
+            teamManager
+        )
+        void send(producer, [entry()])
+        producer.enqueue('hog_flow', [entry({ team_id: 3 })])
 
         const drain = producer.drain(1_000)
         await jest.advanceTimersByTimeAsync(1_000)
 
         await expect(drain).resolves.toBeUndefined()
+        const metric = await register.getSingleMetric('logs_internal_producer_batches_total')!.get()
+        expect(metric.values.find((v) => v.labels.outcome === 'abandoned')?.value).toBe(2)
     })
 
     it('splits a large team batch into requests under the capture-logs body limit', async () => {
