@@ -31,7 +31,7 @@ export function HomeDashboardStarterModal({
     const creationDisabledReason = creatingWithAI ? 'Creating your dashboard…' : undefined
     const choices = [
         {
-            title: 'Copy the default dashboard',
+            title: 'Copy and edit the default dashboard',
             description:
                 'Copy the charts on this page so you can edit, add, or remove them. You can reset to the PostHog default at any time.',
             icon: <IconCopy />,
