@@ -581,7 +581,15 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             by_run=[
                 contracts.RunCost(run_id=9100, run_attempt=1, billable_minutes=2510.0, estimated_cost_usd=61.2),
             ],
-            llm_spend=contracts.PRLLMSpend(cost_usd=1.5, input_tokens=1200, output_tokens=340, generations=4),
+            llm_spend=contracts.PRLLMSpend(
+                cost_usd=1.5,
+                input_tokens=1200,
+                output_tokens=340,
+                generations=4,
+                cache_read_input_tokens=90000,
+                cache_creation_input_tokens=8000,
+                peak_context_tokens=45000,
+            ),
         )
         with mock.patch(f"{_VIEWS}.get_pr_cost", return_value=summary) as getter:
             response = self.client.get(self._url("pr_cost"), {"pr_number": "10", "repo": "PostHog/posthog"})
@@ -595,6 +603,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             "input_tokens": 1200,
             "output_tokens": 340,
             "generations": 4,
+            "cache_read_input_tokens": 90000,
+            "cache_creation_input_tokens": 8000,
+            "peak_context_tokens": 45000,
         }
         assert getter.call_args.kwargs["pr_number"] == 10
         assert getter.call_args.kwargs["repo"] == "PostHog/posthog"

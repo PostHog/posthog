@@ -23,14 +23,17 @@ from products.signals.backend.ranking.serving_manifest import (
 )
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset import dag
-from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_SCHEMA, LABELS_SCHEMA
+from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_SCHEMA, LABELS_SCHEMA, USER_INTERACTIONS_SCHEMA
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     HISTORY_LIMIT,
     LABEL_COLUMNS,
     MIN_HISTORY_REPORTS,
     PROJECT_VECTORS_SCHEMA,
     PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_HISTORY_LIMIT,
+    USER_VECTORS_SCHEMA,
     project_vectors,
+    user_vectors,
 )
 from products.signals.dags.inbox_ranking.mirror import dag as mirror_dag
 from products.signals.dags.inbox_ranking.multihead.prototype import project_context
@@ -138,6 +141,70 @@ def test_a_team_below_the_history_threshold_keeps_a_zero_vector_row() -> None:
     }
     for row in rows.values():
         assert row["vector"] == [0.0] * EMBEDDING_DIMENSIONS
+
+
+ORGANIZATIONS = {2: "org-a", 3: "org-a", 7: "org-b"}
+
+
+def _interactions(views: list[tuple[int, int, str, str, datetime.datetime]]) -> pa.Table:
+    return pa.Table.from_pylist(
+        [
+            {
+                "snapshot_date": AS_OF.date(),
+                "report_id": _report_id(team_id, index),
+                "report_team_id": team_id,
+                "user_distinct_id": user,
+                column: moment,
+            }
+            for team_id, index, user, column, moment in views
+        ],
+        schema=USER_INTERACTIONS_SCHEMA,
+    )
+
+
+def _user_rows(table: pa.Table) -> dict[tuple[str, str, str], dict[str, Any]]:
+    return {(row["organization_id"], row["user_distinct_id"], row["kind"]): row for row in table.to_pylist()}
+
+
+@parameterized.expand(
+    [
+        ("view_at_as_of", (2, 1, 9.0, BEFORE), (2, 1, "u1", "first_viewed_at", AS_OF)),
+        ("dismiss_at_as_of", (2, 1, 9.0, BEFORE), (2, 1, "u1", "first_ui_dismissed_at", AS_OF)),
+        ("embedding_after_as_of", (2, 1, 9.0, AFTER), (2, 1, "u1", "first_viewed_at", BEFORE)),
+        ("other_organization", (7, 1, 9.0, BEFORE), (7, 1, "u1", "first_viewed_at", BEFORE)),
+    ]
+)
+def test_user_vectors_take_only_history_known_at_as_of_from_the_same_organization(
+    _name: str, report: tuple[int, int, float, datetime.datetime], view: tuple[int, int, str, str, datetime.datetime]
+) -> None:
+    # A view in another team of the same organization counts; the parameterized row must not.
+    reports = [(2, 0, 1.0, BEFORE), (3, 0, 1.0, BEFORE), report]
+    views = [(2, 0, "u1", "first_viewed_at", BEFORE), (3, 0, "u1", "first_viewed_at", BEFORE), view]
+
+    table = user_vectors(_interactions(views), _embeddings(reports), AS_OF, organizations=ORGANIZATIONS)
+    rows = _user_rows(table)
+
+    assert table.schema == USER_VECTORS_SCHEMA
+    assert rows[("org-a", "u1", "open")]["n_reports"] == 2
+    assert rows[("org-a", "u1", "open")]["vector"] == pytest.approx([1.0] * EMBEDDING_DIMENSIONS)
+    assert ("org-a", "u1", "dismiss") not in rows
+
+
+def test_user_vectors_average_the_last_reports_and_skip_a_user_without_history() -> None:
+    history = USER_HISTORY_LIMIT + 5
+    reports = [(2, index, float(index), BEFORE) for index in range(history)]
+    views = [
+        (2, index, "u1", "first_viewed_at", BEFORE + datetime.timedelta(minutes=index)) for index in range(history)
+    ]
+    views.append((2, 0, "u2", "first_viewed_at", AFTER))
+
+    rows = _user_rows(user_vectors(_interactions(views), _embeddings(reports), AS_OF, organizations=ORGANIZATIONS))
+
+    newest = range(history - USER_HISTORY_LIMIT, history)
+    assert set(rows) == {("org-a", "u1", "open")}
+    assert rows[("org-a", "u1", "open")]["n_reports"] == USER_HISTORY_LIMIT
+    assert rows[("org-a", "u1", "open")]["vector"] == pytest.approx([sum(newest) / len(newest)] * EMBEDDING_DIMENSIONS)
+    assert rows[("org-a", "u1", "open")]["last_at"] == BEFORE + datetime.timedelta(minutes=history - 1)
 
 
 def test_the_asset_writes_only_teams_opted_in_to_ai_training(monkeypatch) -> None:

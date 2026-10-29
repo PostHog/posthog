@@ -120,6 +120,10 @@ Region selection is available for `devbox:start` via `--region` (`us-east-1` or 
 
 `devbox:start --start-app` opts a workspace into bringing the PostHog app up (`hogli up`) in the background on every start — useful for scripted, ephemeral devboxes that should be usable without an interactive `hogli up`. The setting is stored as a workspace parameter (`auto_start_app`), so it stays in effect for future starts. The flag applies only when hogli creates the devbox; on an existing devbox hogli refuses it, and the parameter can be changed in the Coder dashboard. Requires a template version that defines the parameter; on older templates hogli drops it with a warning.
 
+When a build fails with `InsufficientInstanceCapacity`, AWS has no free capacity for the box's instance type in its availability zone.
+`devbox:start`, `devbox:restart` and `devbox:update` then start the box on the template's other instance types in turn, through the Coder build API, because the Coder CLI keeps a parameter's last-build value.
+The template changes the type of the same instance, so the disk stays, and the box keeps the type that started.
+
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
 When in doubt, `hogli devbox:doctor` reports which prerequisite is missing.

@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "destination_type": {
+            "description": "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3",
+            "enum": ["Redshift", "Snowflake", "BigQuery", "Postgres", "Databricks", "AzureBlob", "S3"],
+            "type": "string"
+        },
+        "integration_kind": {
+            "description": "Which integration kind to connect when the type accepts more than one. Only S3 does: 'aws-s3' (the default) or 's3-compatible' for MinIO, Wasabi, R2, GCS and similar.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["destination_type"],
+    "type": "object"
+}
