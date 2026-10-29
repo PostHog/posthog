@@ -3,10 +3,12 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { featureFlagFilterSummaryLogic } from './featureFlagFilterSummaryLogic'
+import { featureFlagSummaryLogic } from './featureFlagSummaryLogic'
 
-describe('featureFlagFilterSummaryLogic', () => {
-    test.each([
+type FlagRow = { key: string; active: boolean; archived?: boolean; filters: Record<string, unknown> }
+
+describe('featureFlagSummaryLogic', () => {
+    test.each<[string, FlagRow[], Record<string, unknown> | null]>([
         [
             'summarizes a multivariate flag',
             [
@@ -76,7 +78,7 @@ describe('featureFlagFilterSummaryLogic', () => {
             },
         })
         initKeaTests()
-        const logic = featureFlagFilterSummaryLogic({ flagKey: 'my-flag' })
+        const logic = featureFlagSummaryLogic({ flagKey: 'my-flag' })
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ summary: expectedSummary })
@@ -84,27 +86,28 @@ describe('featureFlagFilterSummaryLogic', () => {
         logic.unmount()
     })
 
-    it('reuses a recent lookup when the logic mounts again', async () => {
+    test.each([
+        ['a found flag', [{ key: 'my-flag', active: true, filters: { groups: [] } }], 1],
+        ['a missing key, after the live and archived lookups', [], 2],
+    ])('reuses a recent lookup for %s when the logic mounts again', async (_name, results, expectedRequests) => {
         let requests = 0
         useMocks({
             get: {
                 '/api/projects/:team_id/feature_flags/': () => {
                     requests++
-                    return [200, { count: 1, results: [{ key: 'my-flag', active: true, filters: { groups: [] } }] }]
+                    return [200, { count: results.length, results }]
                 },
             },
         })
         initKeaTests()
 
         for (let mount = 0; mount < 2; mount++) {
-            const logic = featureFlagFilterSummaryLogic({ flagKey: 'my-flag' })
+            const logic = featureFlagSummaryLogic({ flagKey: 'my-flag' })
             logic.mount()
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({ summary: expect.objectContaining({ active: true }) })
+            await expectLogic(logic).toFinishAllListeners()
             logic.unmount()
         }
 
-        expect(requests).toBe(1)
+        expect(requests).toBe(expectedRequests)
     })
 })

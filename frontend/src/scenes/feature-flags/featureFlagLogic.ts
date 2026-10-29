@@ -110,6 +110,7 @@ import {
     reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { forgetFlagLookup } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -4470,6 +4471,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
+            forgetFlagLookup(featureFlag.key)
             lemonToast.success(
                 'Feature flag saved',
                 liveFlagToastOptions(

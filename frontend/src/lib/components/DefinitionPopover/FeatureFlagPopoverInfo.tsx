@@ -5,16 +5,16 @@ import { Spinner } from '@posthog/lemon-ui'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { pluralize } from 'lib/utils/strings'
 
-import { featureFlagFilterSummaryLogic } from 'products/feature_flags/frontend/featureFlagFilterSummaryLogic'
+import { featureFlagSummaryLogic } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
 
-export function FeatureFlagPopoverInfo({ flagKey }: { flagKey: string }): JSX.Element | null {
-    const { summary, flagLoading } = useValues(featureFlagFilterSummaryLogic({ flagKey }))
+export function FeatureFlagPopoverInfo({ flagKey }: { flagKey: string }): JSX.Element {
+    const { summary, flagLoading } = useValues(featureFlagSummaryLogic({ flagKey }))
 
     if (flagLoading) {
         return <Spinner />
     }
     if (!summary) {
-        return null
+        return <span className="text-secondary">No flag with this key in this project</span>
     }
 
     return (
