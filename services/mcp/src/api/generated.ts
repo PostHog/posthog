@@ -65897,11 +65897,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum = typeof IntegrationAuthTypeEnum[keyof typeof IntegrationAuthTypeEnum];
+
+
+    export const IntegrationAuthTypeEnum = {
+      Oauth: 'oauth',
+      Token: 'token',
+      Credentials: 'credentials',
+    } as const;
+
+    /**
      * Standard Integration serializer.
      */
     export interface IntegrationConfig {
       readonly id: number;
       kind: IntegrationKindEnum;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -88937,6 +88957,12 @@ export namespace Schemas {
     export interface PatchedIntegrationConfig {
       readonly id?: number;
       kind?: IntegrationKindEnum;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type?: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
