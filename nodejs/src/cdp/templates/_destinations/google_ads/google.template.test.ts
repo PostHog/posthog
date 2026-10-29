@@ -308,7 +308,7 @@ describe('google template', () => {
         )
     })
 
-    it.each(['EXPIRED_EVENT', 'UNPARSEABLE_GBRAID', 'INVALID_CUSTOMER_FOR_CLICK'])(
+    it.each(['EXPIRED_EVENT', 'UNPARSEABLE_GBRAID', 'INVALID_CUSTOMER_FOR_CLICK', 'UNAUTHORIZED_CUSTOMER'])(
         'retries once with hashed identifiers only when Google rejects the click ID with %s',
         async (code) => {
             const response = await invokeConversion({ gclid: 'g1', gbraid: 'b1' })
@@ -329,9 +329,31 @@ describe('google template', () => {
         }
     )
 
+    it.each(['INVALID_USER_IDENTIFIER', 'CUSTOMER_NOT_ACCEPTED_CUSTOMER_DATA_TERMS'])(
+        'retries once with the click ID only when Google rejects the hashed email/phone with %s',
+        async (code) => {
+            const response = await invokeConversion({ gclid: 'g1', gbraid: 'b1' })
+            const retry = await tester.invokeFetchResponse(response.invocation, {
+                status: 200,
+                body: partialFailure(code),
+            })
+
+            expect(retry.finished).toBe(false)
+            const conversion = sentConversion(retry.invocation)
+            expect(conversion.user_identifiers).toBeUndefined()
+            expect({ gclid: conversion.gclid, gbraid: conversion.gbraid }).toEqual({ gclid: 'g1', gbraid: 'b1' })
+
+            const done = await tester.invokeFetchResponse(retry.invocation, { status: 200, body: { results: [{}] } })
+            expect(done.finished).toBe(true)
+            expect(done.error).toBeUndefined()
+        }
+    )
+
     it.each([
         ['a click ID rejection without user identifiers', { gclid: 'g1', email: null, phone: null }, ['EXPIRED_EVENT']],
         ['a click ID rejection mixed with another error', {}, ['EXPIRED_EVENT', 'NO_CONVERSION_ACTION_FOUND']],
+        ['a user data rejection without a click ID', { gclid: null }, ['INVALID_USER_IDENTIFIER']],
+        ['both the click ID and the user data rejected', {}, ['EXPIRED_EVENT', 'INVALID_USER_IDENTIFIER']],
         ['a non click ID error', {}, ['TOO_RECENT_EVENT']],
     ])('fails without retrying on %s', async (_, properties, codes) => {
         const response = await invokeConversion(properties)

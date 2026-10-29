@@ -118,7 +118,9 @@ export const template: HogFunctionTemplate = {
     code_language: 'hog',
     code: `
 // Google rejects these for the click ID only, so the same conversion can still match on hashed email or phone.
-let CLICK_ID_REJECTED_CODES := ['UNPARSEABLE_GCLID', 'UNPARSEABLE_GBRAID', 'UNPARSEABLE_WBRAID', 'EXPIRED_EVENT', 'EVENT_NOT_FOUND', 'CONVERSION_PRECEDES_EVENT', 'INVALID_CUSTOMER_FOR_CLICK', 'ONE_PER_CLICK_CONVERSION_ACTION_NOT_PERMITTED_WITH_BRAID']
+let CLICK_ID_REJECTED_CODES := ['UNPARSEABLE_GCLID', 'UNPARSEABLE_GBRAID', 'UNPARSEABLE_WBRAID', 'EXPIRED_EVENT', 'EVENT_NOT_FOUND', 'CONVERSION_PRECEDES_EVENT', 'INVALID_CUSTOMER_FOR_CLICK', 'UNAUTHORIZED_CUSTOMER', 'ONE_PER_CLICK_CONVERSION_ACTION_NOT_PERMITTED_WITH_BRAID']
+// Google rejects these for the hashed email or phone only, so the same conversion can still match on the click ID.
+let USER_DATA_REJECTED_CODES := ['INVALID_USER_IDENTIFIER', 'UNSUPPORTED_USER_IDENTIFIER', 'CUSTOMER_NOT_ACCEPTED_CUSTOMER_DATA_TERMS', 'CUSTOMER_DATA_POLICY_PROHIBITS_ENHANCED_CONVERSIONS', 'CUSTOMER_NOT_ENABLED_ENHANCED_CONVERSIONS_FOR_LEADS']
 let ALREADY_RECORDED_CODES := ['ORDER_ID_ALREADY_IN_USE', 'CLICK_CONVERSION_ALREADY_EXISTS']
 
 fun normalizeEmail(raw) {
@@ -249,6 +251,10 @@ let codes := uploadErrorCodes(res)
 if (not empty(clickIds) and not empty(userIdentifiers) and allIn(codes, CLICK_ID_REJECTED_CODES)) {
     print(f'Google rejected the click ID ({arrayStringConcat(codes, ', ')}). Retrying with hashed email/phone only.')
     res := upload({}, userIdentifiers)
+    codes := uploadErrorCodes(res)
+} else if (not empty(clickIds) and not empty(userIdentifiers) and allIn(codes, USER_DATA_REJECTED_CODES)) {
+    print(f'Google rejected the hashed email/phone ({arrayStringConcat(codes, ', ')}). Retrying with the click ID only.')
+    res := upload(clickIds, [])
     codes := uploadErrorCodes(res)
 }
 
