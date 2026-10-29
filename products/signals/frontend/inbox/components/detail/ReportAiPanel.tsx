@@ -1,8 +1,5 @@
 import { useValues } from 'kea'
 
-import { IconDocument } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -14,14 +11,13 @@ import { ReportDiscussionComposer } from './ReportDiscussionComposer'
 export function ReportAiPanel({ panelId }: { panelId: string }): JSX.Element {
     const { reportChatContext } = useValues(inboxTaskKickoffLogic)
     const report = reportChatContext?.report
-    const reportTitle = report?.title || 'Untitled report'
     useAttachedContext(
         report
             ? [
                   {
                       type: 'signal_report',
                       key: report.id,
-                      label: `Report: ${reportTitle}`,
+                      label: `Report: ${report.title || 'Untitled report'}`,
                       dismissible: false,
                   },
               ]
@@ -30,25 +26,6 @@ export function ReportAiPanel({ panelId }: { panelId: string }): JSX.Element {
 
     return (
         <div className="flex flex-col flex-1 min-h-0 min-w-0">
-            {reportChatContext && (
-                <div className="shrink-0 border-b border-primary px-2 py-1.5">
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        fullWidth
-                        to={reportChatContext.reportUrl}
-                        icon={<IconDocument />}
-                        tooltip={reportTitle}
-                        aria-label={`Open report: ${reportTitle}`}
-                        data-attr="inbox-report-ai-context"
-                    >
-                        <span className="flex min-w-0 items-center gap-1.5">
-                            <span className="shrink-0 text-secondary">Working on report:</span>
-                            <span className="truncate font-medium">{reportTitle}</span>
-                        </span>
-                    </LemonButton>
-                </div>
-            )}
             <SidePanelRunner
                 panelId={panelId}
                 composer={

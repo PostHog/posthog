@@ -9,16 +9,20 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiConfig } from 'lib/api'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
+import { SidePanelTab } from '~/types'
 
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
+import { REPORT_AI_PANEL, REPORT_AI_PANEL_ID, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, SignalReport, SignalReportStatus } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
@@ -1290,6 +1294,146 @@ describe('inboxReportDetailLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.reportChecksError).toBeNull()
             expect(logic.values.reportChecks).toEqual([approved])
+        })
+    })
+
+    describe('report sidebar alignment', () => {
+        const taskRunArtefact = (taskId: string, createdAt: string): Record<string, unknown> => ({
+            id: `artefact-${taskId}`,
+            type: 'task_run',
+            content: { task_id: taskId, product: 'signals', type: 'discussion' },
+            created_at: createdAt,
+        })
+
+        const useReportTaskMocks = (
+            artefactsByReport: Record<string, Record<string, unknown>[]>,
+            tasks: Record<string, any>
+        ): void => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': (req) => {
+                        const reportId = String(req.params.id)
+                        return { results: artefactsByReport[reportId] ?? [] }
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                    '/api/projects/:team_id/tasks/:id/': (req) => [200, tasks[String(req.params.id)]],
+                },
+                post: {
+                    '/api/projects/:team/tasks/warm/': { task_id: 'warm-task', run_id: 'warm-run' },
+                },
+            })
+        }
+
+        it('follows the selected report to its active task, then clears it for a report without tasks', async () => {
+            const reportB = { ...REPORT, id: 'report-2', title: 'Second report' }
+            useReportTaskMocks(
+                {
+                    [REPORT.id]: [
+                        taskRunArtefact('active-task', '2026-01-01T00:00:00Z'),
+                        taskRunArtefact('completed-task', '2026-01-02T00:00:00Z'),
+                    ],
+                    [reportB.id]: [],
+                },
+                {
+                    'active-task': {
+                        id: 'active-task',
+                        latest_run: { id: 'active-run', status: TaskRunStatus.IN_PROGRESS },
+                    },
+                    'completed-task': {
+                        id: 'completed-task',
+                        latest_run: { id: 'completed-run', status: TaskRunStatus.COMPLETED },
+                    },
+                }
+            )
+            initKeaTests()
+            const kickoff = inboxTaskKickoffLogic()
+            const runner = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            const unmountKickoff = kickoff.mount()
+            const unmountRunner = runner.mount()
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
+            const reportALogic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            reportALogic.mount()
+            try {
+                await expectLogic(reportALogic).toFinishAllListeners()
+                expect(runner.values.activeCreation).toMatchObject({
+                    taskId: 'active-task',
+                    runId: 'active-run',
+                })
+
+                reportALogic.unmount()
+                const reportBLogic = inboxReportDetailLogic({ reportId: reportB.id, report: reportB })
+                reportBLogic.mount()
+                try {
+                    expect(kickoff.values.reportChatContext?.report.id).toBe(reportB.id)
+                    expect(runner.values.activeCreation).toBeNull()
+                    await expectLogic(reportBLogic).toFinishAllListeners()
+                    expect(runner.values.activeCreation).toBeNull()
+                } finally {
+                    reportBLogic.unmount()
+                }
+            } finally {
+                reportALogic.unmount()
+                unmountRunner()
+                unmountKickoff()
+            }
+        })
+
+        it('leaves a generic PostHog AI sidebar unchanged', async () => {
+            useReportTaskMocks({ [REPORT.id]: [] }, {})
+            initKeaTests()
+            const kickoff = inboxTaskKickoffLogic()
+            const runner = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            const unmountKickoff = kickoff.mount()
+            const unmountRunner = runner.mount()
+            runner.actions.setActiveCreation({ streamKey: 'generic-run', taskId: 'generic-task', runId: 'generic-run' })
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                expect(runner.values.activeCreation).toMatchObject({ taskId: 'generic-task', runId: 'generic-run' })
+                expect(kickoff.values.reportChatContext).toBeNull()
+            } finally {
+                logic.unmount()
+                unmountRunner()
+                unmountKickoff()
+            }
+        })
+
+        it('does not reopen a linked task after the user goes back', async () => {
+            useReportTaskMocks(
+                { [REPORT.id]: [taskRunArtefact('linked-task', '2026-01-01T00:00:00Z')] },
+                {
+                    'linked-task': {
+                        id: 'linked-task',
+                        latest_run: { id: 'linked-run', status: TaskRunStatus.IN_PROGRESS },
+                    },
+                }
+            )
+            initKeaTests()
+            const kickoff = inboxTaskKickoffLogic()
+            const runner = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            const unmountKickoff = kickoff.mount()
+            const unmountRunner = runner.mount()
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                expect(runner.values.activeCreation?.taskId).toBe('linked-task')
+
+                runner.actions.goBack()
+                logic.actions.loadReportTasksSuccess(logic.values.reportTasks ?? [])
+
+                expect(runner.values.activeCreation).toBeNull()
+            } finally {
+                logic.unmount()
+                unmountRunner()
+                unmountKickoff()
+            }
         })
     })
 })
