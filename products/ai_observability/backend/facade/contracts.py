@@ -415,7 +415,9 @@ class PassRateOverviewEntry(Contract):
 
 
 class PassRateOverview(Contract):
-    entries: list[PassRateOverviewEntry] = Field(description="Enabled pass rate evaluations, lowest rate first.")
+    entries: list[PassRateOverviewEntry] = Field(
+        description="Pass rate evaluations with results in the period, paused ones included, lowest rate first."
+    )
     median: float | None = Field(description="Median of the per-evaluation pass rates without low evidence.")
     median_comparison: PeriodComparison | None = Field(
         description="Median pass rate in each period, over evaluations with results in both. Null when none has."
@@ -455,7 +457,9 @@ class EvaluationsOverview(OverviewPeriodFields):
         "bucket can start before `start`."
     )
     evaluations: list[EvaluationResult]
-    totals: OverviewTotals = Field(description="Totals over the enabled evaluations.")
+    totals: OverviewTotals = Field(
+        description="Totals over every evaluation's results in the period, paused ones included."
+    )
     pass_rate_overview: PassRateOverview
 
 

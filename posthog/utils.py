@@ -490,19 +490,16 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
 APP_EVALUATION_CONTEXT = "posthog-web-app"
 
 
-def flags_for_app_evaluation_context(
-    flags: dict[str, Any] | None, definitions: list[dict[str, Any]] | None
-) -> dict[str, Any] | None:
+def app_flag_keys(definitions: list[dict[str, Any]] | None) -> list[str] | None:
     """
-    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
+    The flags /flags returns for the app, which sends `evaluation_contexts: ['posthog-web-app']`
     from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts, and it
     also returns disabled flags and server-only flags, which /flags never sends to a browser.
+    None means the definitions have not loaded yet.
     """
-    # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
-    if flags is None:
+    if definitions is None:
         return None
-    excluded = {definition["key"] for definition in definitions or [] if not _app_evaluates_flag(definition)}
-    return {key: value for key, value in flags.items() if key not in excluded}
+    return [definition["key"] for definition in definitions if _app_evaluates_flag(definition)]
 
 
 def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
@@ -875,15 +872,22 @@ def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Option
     )
     if identity is None:
         return None
+    flag_keys = app_flag_keys(posthoganalytics.feature_flag_definitions())
+    # Without definitions the SDK loads them and evaluates every flag, server-only flags included.
+    if flag_keys is None:
+        return None
+    # The SDK reads an empty list as "evaluate every flag".
+    if not flag_keys:
+        return {}
     with tracer.start_as_current_span("template.feature_flag_bootstrap"):
-        feature_flags = posthoganalytics.get_all_flags(
+        return posthoganalytics.get_all_flags(
             identity.distinct_id,
             only_evaluate_locally=True,
             person_properties=identity.person_properties,
             groups=identity.groups,
             group_properties=identity.group_properties,
+            flag_keys_to_evaluate=flag_keys,
         )
-    return flags_for_app_evaluation_context(feature_flags, posthoganalytics.feature_flag_definitions())
 
 
 def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, Any]) -> None:
