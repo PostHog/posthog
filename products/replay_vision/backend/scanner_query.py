@@ -134,6 +134,9 @@ class QueryReferences:
 
     actions: list[int | str]
     cohorts: list[int | str]
+    # A HogQL filter can name actions and cohorts inside its expression, where they cannot be read
+    # reliably, so a caller who cannot read both is refused one.
+    hogql: bool = False
 
 
 def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
@@ -147,10 +150,12 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
     try:
         builder = ReplayFiltersEventsSubQuery(team, parsed)
         entities = [*builder.entities, *builder.negated_entities]
-    except DRFValidationError:
+    except (DRFValidationError, TypeError, ValueError):
+        # Entities are untyped in the query, so a malformed one only fails when it is built.
         raise ScannerQueryError("Recording filter is invalid.")
     actions: dict[int | str, None] = {}
     cohorts: dict[int | str, None] = {}
+    hogql = False
 
     def as_id(value: object) -> int | str:
         try:
@@ -159,6 +164,7 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
             return str(value)
 
     def visit(item: object) -> None:
+        nonlocal hogql
         if isinstance(item, BaseModel):
             item = item.model_dump(exclude_none=True)
         if isinstance(item, list):
@@ -171,6 +177,8 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
             cohorts[as_id(item.get("value"))] = None
         elif item.get("type") == "behavioral" and item.get("event_type") == "actions":
             actions[as_id(item.get("key"))] = None
+        elif item.get("type") == "hogql":
+            hogql = True
         # A property group holds its filters in `values`, and a filter can nest its own `properties`.
         visit(item.get("values"))
         visit(item.get("properties"))
@@ -181,7 +189,7 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
         visit(entity.properties)
     visit(parsed.properties)
     visit(parsed.having_predicates)
-    return QueryReferences(actions=list(actions), cohorts=list(cohorts))
+    return QueryReferences(actions=list(actions), cohorts=list(cohorts), hogql=hogql)
 
 
 class NarrowingRefusal(StrEnum):
@@ -258,6 +266,11 @@ def chosen_scope(value: object, *, experiment_id: int | None) -> ChosenScope:
         return ChosenScope(
             query=query, experiment_id=experiment_id, experiment_variants=None, experiment_from_query=False
         )
+    # The replay list's exposure resolver refuses these, so the scope would be one it cannot honor.
+    if exposure.variant is not None and exposure.variants is not None:
+        raise ScannerQueryError("The experiment exposure can set 'variant' or 'variants', not both.")
+    if exposure.variants is not None and not exposure.variants:
+        raise ScannerQueryError("The experiment exposure's 'variants' must name at least one variant.")
     if exposure.in_session:
         raise ScannerQueryError("A scanner can't keep the in-session exposure condition. Remove it and try again.")
     if experiment_id is not None and experiment_id != exposure.experiment_id:

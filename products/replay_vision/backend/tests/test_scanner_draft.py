@@ -588,6 +588,22 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             # Exposure is read only after the whole filter parses, so a malformed one is a 400, not a 500.
             ("exposure without an experiment", {"kind": "RecordingsQuery", "experiment_exposure": {}}, {}, "invalid"),
             ("exposure that is not an object", {"kind": "RecordingsQuery", "experiment_exposure": "x"}, {}, "invalid"),
+            # The replay list's exposure resolver refuses both, so the draft cannot honor them either.
+            (
+                "exposure with an empty variant list",
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1, "variants": []}},
+                {},
+                "at least one variant",
+            ),
+            (
+                "exposure with both variant forms",
+                {
+                    "kind": "RecordingsQuery",
+                    "experiment_exposure": {"experiment_id": 1, "variant": "test", "variants": ["control"]},
+                },
+                {},
+                "not both",
+            ),
         ]
     )
     @patch(_GENERATE_PATH)

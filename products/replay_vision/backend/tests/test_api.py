@@ -4238,14 +4238,27 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             ("query_experiment_exposure", {"query": {"experiment_exposure": {"experiment_id": 1}}}),
             ("query_not_an_object", {"query": ["kind", "RecordingsQuery"]}),
             ("query_missing_cohort", {"query": {"properties": [{"type": "cohort", "key": "id", "value": 999999}]}}),
+            # Entities are untyped in the query, so a malformed one only fails when the builder reads it.
+            ("query_malformed_entity", {"query": {"events": [{"id": "$pageview", "properties": 1}]}}),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
         resp = self.client.post(self.estimate_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
 
-    @parameterized.expand([("estimate",), ("create",)])
-    def test_a_token_without_cohort_read_cannot_filter_by_cohort(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("estimate", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
+            ("create", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
+            # An expression can name a cohort where no reference check can read it.
+            (
+                "estimate",
+                "hogql",
+                "This recording filter uses a HogQL expression, which can use actions and cohorts your access doesn't cover.",
+            ),
+        ]
+    )
+    def test_a_token_without_cohort_read_cannot_filter_by_cohort(self, endpoint: str, form: str, detail: str) -> None:
         # Both run the filter, so either would otherwise count or watch a cohort the token cannot read.
         cohort = Cohort.objects.create(team=self.team, name="Paying customers")
         key = generate_random_token_personal()
@@ -4255,7 +4268,12 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             secure_value=hash_key_value(key),
             scopes=["replay_scanner:write", "session_recording:read"],
         )
-        query = {"kind": "RecordingsQuery", "properties": [{"type": "cohort", "key": "id", "value": cohort.id}]}
+        cohort_filter = (
+            {"type": "cohort", "key": "id", "value": cohort.id}
+            if form == "cohort"
+            else {"type": "hogql", "key": f"person_id IN COHORT {cohort.id}"}
+        )
+        query = {"kind": "RecordingsQuery", "properties": [cohort_filter]}
         url, data = (
             (self.estimate_url, {"query": query})
             if endpoint == "estimate"
@@ -4274,7 +4292,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         resp = self.client.post(url, data=data, format="json", HTTP_AUTHORIZATION=f"Bearer {key}")
 
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["detail"], "This recording filter uses cohorts, which your access doesn't cover.")
+        self.assertEqual(resp.json()["detail"], detail)
 
     def test_estimate_scopes_to_an_experiment_scanners_experiment(self) -> None:
         # An experiment scanner keeps its experiment in its config, so the estimate has to take that

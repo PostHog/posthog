@@ -285,6 +285,8 @@ def query_reference_error(
     for kind, ids in (("action", refs.actions), ("cohort", refs.cohorts)):
         if ids and kind not in kinds:
             return f"This recording filter uses {kind}s, which your access doesn't cover."
+    if refs.hogql and not {"action", "cohort"} <= kinds:
+        return "This recording filter uses a HogQL expression, which can use actions and cohorts your access doesn't cover."
     missing = unresolved_references(
         query,
         team,

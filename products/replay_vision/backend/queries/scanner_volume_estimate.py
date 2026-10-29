@@ -148,6 +148,7 @@ def has_recent_matching_recording(
             extra_having_predicates=extra_having,
             skip_negative_blocklists=True,
             max_execution_time=seconds_left(),
+            throw_on_timeout=True,
         )
         page = listing.run()
         session_ids = [row["session_id"] for row in page.results]

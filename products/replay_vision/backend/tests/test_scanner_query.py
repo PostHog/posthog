@@ -110,7 +110,7 @@ class TestUnresolvedReferences(BaseTest):
             "properties": [{"value": 903}],
         }
 
-        assert query_references(query, self.team) == QueryReferences(actions=[901], cohorts=[902, 903])
+        assert query_references(query, self.team) == QueryReferences(actions=[901], cohorts=[902, 903], hogql=False)
 
     def test_refuses_an_action_id_that_is_not_a_number(self):
         with self.assertRaises(ScannerQueryError):
