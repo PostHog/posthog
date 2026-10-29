@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -39,8 +40,6 @@ import {
     signalsReportPrReviewCommentReactionsCreate,
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
-    signalsReportsClaim,
-    signalsReportsRetrieve,
     signalsReportsFeedbackCreate,
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
@@ -84,7 +83,7 @@ import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
-import { isReportClaimable, reportClaimant, reportClaimRequest } from '../utils/reportClaim'
+import { isReportClaimable, reportClaimant, requestReportClaim } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
@@ -93,6 +92,11 @@ const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRun
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
+
+const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
+    in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
+    shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
+}
 
 export type PrChecksError = {
     message: string
@@ -110,26 +114,6 @@ function prChecksErrorFrom(error: unknown): PrChecksError {
         }
     }
     return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
-}
-
-type FreshClaimAttempt = { fresh: SignalReportApi | null; updated: SignalReportApi | null }
-
-/** Claims again from the server's current record. The page can still show the list's copy, whose claim may be out of date. */
-async function claimFromFreshReport(teamId: string, reportId: string): Promise<FreshClaimAttempt> {
-    let fresh: SignalReportApi
-    try {
-        fresh = await signalsReportsRetrieve(teamId, reportId)
-    } catch {
-        return { fresh: null, updated: null }
-    }
-    if (!isReportClaimable({ status: fresh.status as SignalReportStatus, assignee: fresh.assignee })) {
-        return { fresh, updated: null }
-    }
-    try {
-        return { fresh, updated: await signalsReportsClaim(teamId, reportId, reportClaimRequest(fresh, true)) }
-    } catch {
-        return { fresh, updated: null }
-    }
 }
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
@@ -345,6 +329,7 @@ export interface inboxReportDetailLogicValues {
     feedbackSubmitting: boolean
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
+    implementationDisabledReason: string | null
     implementationSlotClaim: ImplementationSlotClaim | null
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
@@ -762,6 +747,11 @@ export interface inboxReportDetailLogicMeta {
         isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
         isReportClaimable: (report: SignalReport | null) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
+        implementationDisabledReason: (
+            implementationSlotClaim: ImplementationSlotClaim | null,
+            reportClaimant: _UserApi | null,
+            isClaimedByMe: boolean
+        ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
@@ -1521,6 +1511,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null =>
                 implementationSlotClaim(reportTasks),
         ],
+        implementationDisabledReason: [
+            (s) => [s.implementationSlotClaim, s.reportClaimant, s.isClaimedByMe],
+            (
+                slotClaim: ImplementationSlotClaim | null,
+                claimant: _UserApi | null,
+                isClaimedByMe: boolean
+            ): string | null =>
+                slotClaim
+                    ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
+                    : claimant && !isClaimedByMe
+                      ? `${fullNameOrEmail(claimant)} is working on this report.`
+                      : null,
+        ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
         // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
         primaryTask: [
@@ -1574,6 +1577,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, asyncActions, values, props, selectors, cache }) => ({
+        // A claim from the report's list row writes a work-log entry, and a ready report without a running task
+        // does not poll its artefacts. The pane's own claim reloads them itself, so skip it while that claim saves.
+        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId }: { reportId: string }) => {
+            if (reportId === props.reportId && !values.claimSaving) {
+                actions.loadReportArtefacts()
+            }
+        },
         changeReportState: async ({ state }) => {
             if (values.reportStateSaving) {
                 return
@@ -1639,35 +1649,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 surface: 'detail_pane',
             })
             const scene = inboxSceneLogic.findMounted()
-            let updated: SignalReportApi | null = null
-            try {
-                updated = await signalsReportsClaim(
-                    String(teamId),
-                    props.reportId,
-                    reportClaimRequest(currentReport, claimed)
-                )
-            } catch (error) {
-                const conflict = error instanceof ApiError && error.status === 409
-                const retry = conflict && claimed ? await claimFromFreshReport(String(teamId), props.reportId) : null
-                updated = retry?.updated ?? null
-                if (!updated) {
-                    if (inboxReportDetailLogic.isMounted(props)) {
-                        actions.setClaimSaving(false)
-                        if (!conflict) {
-                            lemonToast.error("Couldn't update who's working on this report. Try again.")
-                        } else if (!retry || (retry.fresh && reportClaimant(retry.fresh))) {
-                            lemonToast.error('Someone else is already working on this report.')
-                        } else {
-                            lemonToast.error('This report changed. Check it and try again.')
-                        }
-                        if (conflict) {
-                            // Reload so the page shows who holds the claim now.
-                            scene?.actions.loadSelectedReport({ id: props.reportId })
-                        }
+            const outcome = await requestReportClaim(
+                String(teamId),
+                { id: props.reportId, assignee: currentReport.assignee },
+                claimed
+            )
+            if (!outcome.ok) {
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setClaimSaving(false)
+                    lemonToast.error(outcome.message)
+                    if (outcome.conflict) {
+                        // Reload so the page shows who holds the claim now.
+                        scene?.actions.loadSelectedReport({ id: props.reportId })
                     }
-                    return
                 }
+                return
             }
+            const updated = outcome.updated
             if (!inboxReportDetailLogic.isMounted(props)) {
                 return
             }
@@ -2142,6 +2140,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const interval = setInterval(() => {
                 if (
                     values.report?.status !== SignalReportStatus.RESOLVED &&
+                    values.report?.status !== SignalReportStatus.CLOSED &&
                     values.report?.status !== SignalReportStatus.SUPPRESSED &&
                     values.report?.status !== SignalReportStatus.DELETED &&
                     !values.reportChecksLoading &&

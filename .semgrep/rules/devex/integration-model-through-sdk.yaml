@@ -1,0 +1,130 @@
+rules:
+    # Severity INFO keeps this rule out of the three semgrep-devex passes, which select WARNING and
+    # ERROR. The "Integration model ratchet" step of that job runs it on its own and compares the
+    # findings per file with posthog/integrations/model_access_baseline.txt.
+    - id: integration-model-through-sdk
+      message: |
+          Read and write integration rows through the integrations SDK, not through the `Integration` model:
+
+              from posthog.integrations import IntegrationManager, IntegrationRecord
+
+              IntegrationManager.github.oauth.get(team_id, integration_id)
+              IntegrationManager.stripe.any.list(team_id)
+              IntegrationManager.any.get(team_id, integration_id)
+
+          The integration rows move to a separate service. The SDK is the closed set of operations that
+          keeps working after the move, so code outside it must not import the model, use one of its
+          managers (`Integration.objects`, `_default_manager`, `_base_manager`), load it with
+          `apps.get_model`, add a relation field to it, join it with `select_related`, `prefetch_related`
+          or an `integration__` lookup, or call `.save()` on a row. For a DRF field, use
+          `IntegrationReferenceField` from `posthog/integrations/fields.py`.
+          See `posthog/integrations/README.md`.
+
+          After you move a file to the SDK, lower its count in
+          `posthog/integrations/model_access_baseline.txt`, or remove the line at zero.
+      severity: INFO
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              - 'products/desktop/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest*.py'
+              - '**/migrations/**'
+              # The model, its per-kind adapters and the SDK are the implementation.
+              - 'posthog/models/integration/**'
+              - 'posthog/models/github_integration_base.py'
+              - 'posthog/integrations/**'
+              # Django admin works on the model by design.
+              - 'posthog/admin/**'
+              - 'products/*/backend/admin.py'
+              - 'products/*/backend/admin/**'
+      pattern-either:
+          # The model class, imported by name or reached through its module.
+          - pattern: from posthog.models import Integration
+          - pattern: from posthog.models.integration import Integration
+          - pattern: from posthog.models.integration.model import Integration
+          - pattern: import posthog.models.integration.model
+          # A manager of the model. `IntegrationRecord` is the same class while the SDK returns models.
+          # `$MODULE.Integration` also matches an import alias such as `Integration as TeamIntegration`,
+          # because semgrep resolves the alias to its module path.
+          - pattern: Integration.objects
+          - pattern: $MODULE.Integration.objects
+          - pattern: $MODULE.Integration._base_manager
+          - pattern: $MODULE.Integration._default_manager
+          - patterns:
+                - pattern-either:
+                      - pattern: $MODEL.objects
+                      - pattern: $MODEL._base_manager
+                      - pattern: $MODEL._default_manager
+                - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: ^(.*\.)?(Integration|IntegrationRecord)$
+          # The model class looked up by its label.
+          - patterns:
+                - pattern-either:
+                      - pattern: $APPS.get_model($APP, "$NAME")
+                      - pattern: $APPS.get_model("$NAME")
+                - metavariable-regex:
+                      metavariable: $NAME
+                      regex: ^(?i:(posthog\.)?integration)$
+          # A relation field to the model: the class, or its label in any letter case.
+          - patterns:
+                - pattern-either:
+                      - pattern: $FIELD($TARGET, ...)
+                      - pattern: $FIELD(..., to=$TARGET, ...)
+                - metavariable-regex:
+                      metavariable: $FIELD
+                      regex: ^(\w+\.)*(ForeignKey|OneToOneField|ManyToManyField)$
+                - metavariable-regex:
+                      metavariable: $TARGET
+                      regex: ^((\w+\.)*(Integration|IntegrationRecord)|["'](?i:posthog\.integration)["'])$
+          # A join through an integration relation.
+          - patterns:
+                - pattern-either:
+                      - pattern: $QUERYSET.select_related(..., "$RELATION", ...)
+                      - pattern: $QUERYSET.prefetch_related(..., "$RELATION", ...)
+                # `user_integration` and `organization_integration` name other models.
+                - metavariable-regex:
+                      metavariable: $RELATION
+                      regex: ^(?!(\w+_)?(user|org|organization)_integration)(\w+_)?integration(_set)?(__.*)?$
+          # A lookup through an integration relation, such as `filter(integration__kind="slack")`.
+          - patterns:
+                - pattern-either:
+                      - pattern: $QUERYSET.filter(...)
+                      - pattern: $QUERYSET.exclude(...)
+                      - pattern: $QUERYSET.get(...)
+                      - pattern: $QUERYSET.update(...)
+                      - pattern: Q(...)
+                - pattern-regex: \b(?!\w*(user|org|organization)_integration__)(\w+__)?(\w+_)?integration__\w+\s*=
+          # The same lookup as a string, such as `values("integration__kind")` or `filter(**{"integration__kind": k})`.
+          - patterns:
+                - pattern-either:
+                      - pattern: $QUERYSET.filter(...)
+                      - pattern: $QUERYSET.exclude(...)
+                      - pattern: $QUERYSET.get(...)
+                      - pattern: $QUERYSET.values(...)
+                      - pattern: $QUERYSET.values_list(...)
+                      - pattern: $QUERYSET.order_by(...)
+                      - pattern: F(...)
+                      - pattern: Q(...)
+                - pattern-regex: '["'']-?(\w+__)*(?!(\w+_)?(user|org|organization)_integration__)(\w+_)?integration__\w+["'']'
+          - pattern: $OBJECT.integration_set
+          # A write to a row outside the SDK. Names only: `self.integration` and `org_integration` are
+          # often a UserIntegration or an OrganizationIntegration.
+          - patterns:
+                - pattern: $ROW.save(...)
+                - metavariable-regex:
+                      metavariable: $ROW
+                      regex: ^(?!self\.)(?!(.*\.)?(user|org|organization)_integration$)(.*\.)?(\w+_)?integration$
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

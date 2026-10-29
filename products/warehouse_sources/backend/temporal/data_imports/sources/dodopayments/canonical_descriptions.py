@@ -484,6 +484,60 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the wallet was last modified.",
         },
     },
+    "customer_wallet_ledger_entries": {
+        "description": "Credits and debits on each customer's wallet, with the balance before and after each one.",
+        "docs_url": f"{_DOCS_ROOT}/customers/get-customer-wallets-ledger-entries",
+        "columns": {
+            "id": "Unique identifier of the wallet transaction.",
+            "customer_id": "Customer the wallet belongs to.",
+            "business_id": "Identifier of the business that owns the wallet.",
+            "currency": "Currency of the wallet, as an ISO 4217 code.",
+            "amount": "Transaction amount, in the currency's smallest unit.",
+            "is_credit": "Whether the transaction adds funds to the wallet (true) or removes them (false).",
+            "event_type": (
+                "Event that caused the transaction: payment, payment_reversal, refund, refund_reversal, "
+                "dispute, dispute_reversal or merchant_adjustment."
+            ),
+            "before_balance": "Wallet balance before the transaction, in the currency's smallest unit.",
+            "after_balance": "Wallet balance after the transaction, in the currency's smallest unit.",
+            "reason": "Optional reason recorded for the transaction.",
+            "reference_object_id": "Identifier of the object that caused the transaction, such as a payment or refund.",
+            "created_at": "Timestamp when the transaction was recorded.",
+        },
+    },
+    "entitlement_grants": {
+        "description": "Grants of each entitlement to customers, with their delivery and revocation state.",
+        "docs_url": f"{_DOCS_ROOT}/entitlements/list-grants",
+        "columns": {
+            "id": "Unique identifier of the grant.",
+            "entitlement_id": "Identifier of the entitlement this grant was issued from.",
+            "customer_id": "Identifier of the customer the grant was issued to.",
+            "business_id": "Identifier of the business that owns the grant.",
+            "brand_id": "Brand id this grant belongs to.",
+            "status": "Lifecycle status of the grant: Pending, Delivered, Failed or Revoked.",
+            "integration_type": "The integration type of the grant's entitlement (e.g. `license_key`).",
+            "metadata": "Arbitrary key-value metadata recorded on the grant.",
+            "payment_id": "Identifier of the payment that triggered this grant, when applicable.",
+            "subscription_id": "Identifier of the subscription that triggered this grant, when applicable.",
+            "delivered_at": "Timestamp when the grant transitioned to `delivered`, when applicable.",
+            "revoked_at": "Timestamp when the grant transitioned to `revoked`, when applicable.",
+            "revocation_reason": "Reason recorded when the grant was revoked, when applicable.",
+            "error_code": "Machine-readable code reported when delivery failed, when applicable.",
+            "error_message": "Human-readable message reported when delivery failed, when applicable.",
+            "digital_product_delivery": (
+                "Digital-product-delivery payload, present when the entitlement integration is `digital_files`."
+            ),
+            "feature": (
+                "Typed feature payload, present only when the entitlement integration is `feature_flag`; "
+                "`null` for every other integration type."
+            ),
+            "license_key": "License-key delivery payload, present when the entitlement integration is `license_key`.",
+            "oauth_url": "Customer-facing OAuth URL for OAuth-style integrations, when applicable.",
+            "oauth_expires_at": "Timestamp when `oauth_url` stops being valid, when applicable.",
+            "created_at": "Timestamp when the grant was created.",
+            "updated_at": "Timestamp when the grant was last modified.",
+        },
+    },
     "customer_emails": {
         "description": "Emails Dodo Payments sent to each customer, with their delivery status.",
         "docs_url": f"{_DOCS_ROOT}/customers/list-customer-emails",

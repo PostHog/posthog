@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -253,14 +253,16 @@ export const LemonFormDialog = ({
                       }
             }
         >
-            <LemonDialog
-                ref={ref}
-                {...props}
-                content={resolvedContent}
-                primaryButton={primaryButton}
-                secondaryButton={secondaryButton}
-                isLoadingCallback={setIsLoading}
-            />
+            <BindLogic logic={lemonDialogLogic} props={logicProps}>
+                <LemonDialog
+                    ref={ref}
+                    {...props}
+                    content={resolvedContent}
+                    primaryButton={primaryButton}
+                    secondaryButton={secondaryButton}
+                    isLoadingCallback={setIsLoading}
+                />
+            </BindLogic>
         </Form>
     )
 }

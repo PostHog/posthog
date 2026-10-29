@@ -1,10 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
-from django.db import transaction
-
 from requests import PreparedRequest
 
-from posthog.models.integration import Integration, OauthIntegration
+from posthog.integrations import IntegrationManager
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 
@@ -19,20 +17,17 @@ def resolve_resend_oauth_token(integration_id: int, team_id: int, current_token:
 
     Resend access tokens are short-lived (~15m) and its refresh tokens rotate on every use, with
     reuse-detection that revokes the whole grant if a rotated token is dropped or spent twice. So a
-    refresh MUST (a) persist the newly rotated refresh token — ``refresh_access_token`` does — and
-    (b) be serialized against the parallel schema syncs that share one integration. ``select_for_update``
-    gives us that Postgres row lock, and we reload inside it so a sync that lost the race picks up the
-    token another already rotated instead of re-spending the old one.
+    refresh MUST (a) persist the newly rotated refresh token and (b) be serialized against the parallel
+    schema syncs that share one integration. The SDK's ``refresh_access_token`` does both: it holds a
+    row lock and reads the row inside it, so a sync that lost the race picks up the token another
+    already rotated instead of re-spending the old one.
 
     ``current_token`` is the token the caller just refreshed from; when it still matches the row
     (nobody else rotated past it) we refresh, otherwise we hand back the fresher token already on the row.
     """
-    with transaction.atomic():
-        integration = Integration.objects.select_for_update().get(id=integration_id, team_id=team_id, kind="resend")
-        oauth = OauthIntegration(integration)
-        if oauth.access_token_expired() or (current_token is not None and integration.access_token == current_token):
-            oauth.refresh_access_token()
-        token = integration.access_token
+    token = IntegrationManager.resend.oauth.refresh_access_token(
+        team_id, integration_id, stale_access_token=current_token
+    ).access_token
 
     if not token:
         raise ValueError("Resend access token not found")

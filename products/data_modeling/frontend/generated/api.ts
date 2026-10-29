@@ -21,7 +21,7 @@ import type {
     NodeResumeApi,
     NodeRunApi,
     NodeRunResponseApi,
-    PaginatedEdgeListApi,
+    PaginatedEdgeSummaryListApi,
     PaginatedNodeListApi,
     PatchedEdgeApi,
     PatchedNodeApi,
@@ -64,8 +64,8 @@ export const dataModelingEdgesList = async (
     projectId: string,
     params?: DataModelingEdgesListParams,
     options?: RequestInit
-): Promise<PaginatedEdgeListApi> => {
-    return apiMutator<PaginatedEdgeListApi>(getDataModelingEdgesListUrl(projectId, params), {
+): Promise<PaginatedEdgeSummaryListApi> => {
+    return apiMutator<PaginatedEdgeSummaryListApi>(getDataModelingEdgesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
