@@ -1488,7 +1488,8 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'schedule'
         timeout-minutes: 5
-        permissions: {}
+        permissions:
+            contents: read
         name: SDK major-version guard (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         steps:
