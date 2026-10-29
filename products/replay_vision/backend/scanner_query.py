@@ -19,6 +19,11 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import ActionsNode, FilterLogicalOperator, RecordingsQuery
 
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
+
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -134,17 +139,51 @@ class QueryReferences:
 
     actions: list[int | str]
     cohorts: list[int | str]
-    # A HogQL filter can name actions and cohorts inside its expression, where they cannot be read
-    # reliably, so a caller who cannot read both is refused one.
-    hogql: bool = False
+
+
+class _HogQLReferences(TraversingVisitor):
+    """The actions and cohorts a HogQL filter names, through `matchesAction(id)` and `IN COHORT id`.
+
+    Refuses what it cannot read: a subquery, which can select from cohort tables directly, and a
+    reference that is not a constant id. A name is refused too, since resolving it here would tell the
+    caller which id it belongs to before any access check.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.actions: list[int] = []
+        self.cohorts: list[int] = []
+
+    @staticmethod
+    def _id(arg: ast.Expr | None, kind: str) -> int:
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, int) and not isinstance(arg.value, bool):
+            return arg.value
+        raise ScannerQueryError(f"A HogQL expression in a scanner filter must name each {kind} by its numeric id.")
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name == "matchesAction":
+            self.actions.append(self._id(node.args[0] if node.args else None, "action"))
+        super().visit_call(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.cohorts.append(self._id(node.right, "cohort"))
+        super().visit_compare_operation(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        raise ScannerQueryError("A HogQL expression in a scanner filter can't use a subquery.")
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        raise ScannerQueryError("A HogQL expression in a scanner filter can't use a subquery.")
 
 
 def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
     """Every action and cohort id the query names, read from the filters the query builder runs.
 
     The builder reads typed filters, not the raw JSON: an untyped `{"value": 7}` is a cohort filter,
-    an event entry of type `actions` is an action, and a property group nests its filters. Reading the
-    same typed filters means a reference cannot run without being found here.
+    an event entry of type `actions` is an action, and a property group nests its filters. A HogQL
+    filter is parsed for the references in its expression. Reading the same typed filters means a
+    reference cannot run without being found here.
     """
     parsed = _parsed(query)
     try:
@@ -155,7 +194,6 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
         raise ScannerQueryError("Recording filter is invalid.")
     actions: dict[int | str, None] = {}
     cohorts: dict[int | str, None] = {}
-    hogql = False
 
     def as_id(value: object) -> int | str:
         try:
@@ -164,7 +202,6 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
             return str(value)
 
     def visit(item: object) -> None:
-        nonlocal hogql
         if isinstance(item, BaseModel):
             item = item.model_dump(exclude_none=True)
         if isinstance(item, list):
@@ -178,7 +215,14 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
         elif item.get("type") == "behavioral" and item.get("event_type") == "actions":
             actions[as_id(item.get("key"))] = None
         elif item.get("type") == "hogql":
-            hogql = True
+            try:
+                expression = parse_expr(str(item.get("key") or ""))
+            except BaseHogQLError:
+                raise ScannerQueryError("Recording filter has a HogQL expression that doesn't parse.")
+            embedded = _HogQLReferences()
+            embedded.visit(expression)
+            actions.update(dict.fromkeys(embedded.actions))
+            cohorts.update(dict.fromkeys(embedded.cohorts))
         # A property group holds its filters in `values`, and a filter can nest its own `properties`.
         visit(item.get("values"))
         visit(item.get("properties"))
@@ -189,7 +233,7 @@ def query_references(query: dict[str, Any], team: Team) -> QueryReferences:
         visit(entity.properties)
     visit(parsed.properties)
     visit(parsed.having_predicates)
-    return QueryReferences(actions=list(actions), cohorts=list(cohorts), hogql=hogql)
+    return QueryReferences(actions=list(actions), cohorts=list(cohorts))
 
 
 class NarrowingRefusal(StrEnum):

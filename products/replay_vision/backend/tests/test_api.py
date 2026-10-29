@@ -34,6 +34,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
@@ -4246,16 +4247,32 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         resp = self.client.post(self.estimate_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
 
+    def test_an_action_the_caller_cannot_read_is_refused_inside_hogql(self) -> None:
+        # The HogQL action resolver loads any action in the project, so the object-level check has to
+        # reach the ids an expression names, or a member could count a restricted action's sessions.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        action = Action.objects.create(team=self.team, name="Restricted", created_by=self.user)
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        self.client.force_login(member)
+        query = {"kind": "RecordingsQuery", "properties": [{"type": "hogql", "key": f"matchesAction({action.id})"}]}
+
+        resp = self.client.post(self.estimate_url, data={"query": query}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(
+            resp.json()["detail"], f"This recording filter uses action {action.id}, which this project doesn't have."
+        )
+
     @parameterized.expand(
         [
             ("estimate", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
             ("create", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
-            # An expression can name a cohort where no reference check can read it.
-            (
-                "estimate",
-                "hogql",
-                "This recording filter uses a HogQL expression, which can use actions and cohorts your access doesn't cover.",
-            ),
+            # An expression names its cohort inside a string, so the check has to parse it.
+            ("estimate", "hogql", "This recording filter uses cohorts, which your access doesn't cover."),
         ]
     )
     def test_a_token_without_cohort_read_cannot_filter_by_cohort(self, endpoint: str, form: str, detail: str) -> None:

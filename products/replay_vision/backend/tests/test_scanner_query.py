@@ -125,11 +125,27 @@ class TestUnresolvedReferences(BaseTest):
                     "properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": 902}]},
                 },
             ],
-            "properties": [{"value": 903}],
+            "properties": [
+                {"value": 903},
+                {"type": "hogql", "key": "matchesAction(904) AND person_id NOT IN COHORT 905"},
+            ],
         }
 
-        assert query_references(query, self.team) == QueryReferences(actions=[901], cohorts=[902, 903], hogql=False)
+        assert query_references(query, self.team) == QueryReferences(actions=[901, 904], cohorts=[902, 903, 905])
 
-    def test_refuses_an_action_id_that_is_not_a_number(self):
+    @parameterized.expand(
+        [
+            ("a non-numeric action id", {"actions": [{"id": float("inf")}]}),
+            # Resolving a name here would tell the caller which id it has before any access check.
+            ("an action named in HogQL", {"properties": [{"type": "hogql", "key": "matchesAction('Signed up')"}]}),
+            ("a cohort named in HogQL", {"properties": [{"type": "hogql", "key": "person_id IN COHORT 'Paying'"}]}),
+            # A subquery can select from the cohort tables directly, where no reference is visible.
+            (
+                "a HogQL subquery",
+                {"properties": [{"type": "hogql", "key": "person_id IN (SELECT person_id FROM cohort_people)"}]},
+            ),
+        ]
+    )
+    def test_refuses_references_it_cannot_read(self, _name, filters):
         with self.assertRaises(ScannerQueryError):
-            query_references({"kind": "RecordingsQuery", "actions": [{"id": float("inf")}]}, self.team)
+            query_references({"kind": "RecordingsQuery", **filters}, self.team)
