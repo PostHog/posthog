@@ -5,6 +5,7 @@ from typing import Any
 
 from django.conf import settings
 
+import posthoganalytics
 from google.genai import (
     Client as RawGenAIClient,
     errors,
@@ -43,11 +44,33 @@ async def replay_gemini_client(team_id: int, *, properties: Mapping[str, Any] | 
     return ReplayGemini(RawGenAIClient(api_key=gemini_api_key()), direct.models)
 
 
+def gemini_text_models(team_id: int, *, timeout_ms: int) -> Any:
+    """Sync `models` for text-only calls; takes the analytics wrapper's `posthog_*` kwargs on both routes."""
+    # Text calls upload no files, so unlike `replay_gemini_client` the gateway does not need Replay Vision's own key.
+    if (
+        resolve_ai_gateway_config() is not None
+        and _flag_enabled(team_id, str(Team.objects.values_list("organization_id", flat=True).get(id=team_id)))
+        and (client := build_gemini_client(ai_product=AI_PRODUCT, privacy_mode=True, timeout_ms=timeout_ms))
+    ):
+        return _SyncGatewayModels(client.models)
+    # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+    return genai.Client(
+        api_key=gemini_api_key(),
+        posthog_privacy_mode=True,
+        posthog_client=posthoganalytics.default_client,
+        http_options={"timeout": timeout_ms},
+    ).models
+
+
 async def _gateway_enabled(team_id: int) -> bool:
     # Cleanup and the sweep delete files with the direct key, so gateway mode also needs Replay Vision's own key.
     if not settings.REPLAY_VISION_GEMINI_API_KEY or resolve_ai_gateway_config() is None:
         return False
     organization_id = str(await Team.objects.values_list("organization_id", flat=True).aget(id=team_id))
+    return _flag_enabled(team_id, organization_id)
+
+
+def _flag_enabled(team_id: int, organization_id: str) -> bool:
     # Local evaluation only, so a flag outage leaves a scan's many calls direct and fast; conditions must use the
     # org or project id.
     return feature_enabled_or_false(
@@ -74,34 +97,58 @@ class ReplayGemini:
         await self.raw.aio.aclose()
 
 
+def _gateway_config(
+    config: types.GenerateContentConfig | None,
+    base_properties: Mapping[str, Any],
+    posthog_distinct_id: str | None,
+    posthog_trace_id: str | None,
+    posthog_properties: Mapping[str, Any] | None,
+) -> types.GenerateContentConfig | None:
+    """Turn the analytics wrapper's `posthog_*` kwargs into gateway headers; groups have none, so they drop."""
+    # The client's default headers carry the product, privacy mode and base labels; a call adds its own.
+    labels = (
+        _gateway_labels({**base_properties, **posthog_properties, "ai_product": AI_PRODUCT})
+        if posthog_properties
+        else None
+    )
+    headers = ai_gateway_headers(trace_id=posthog_trace_id, properties=labels, distinct_id=posthog_distinct_id) or {}
+    # The gateway sets `$ai_span_name` only from this header; it strips `$` keys from the properties.
+    if posthog_properties and (span_name := posthog_properties.get("$ai_span_name")):
+        headers["X-PostHog-Span-Name"] = str(span_name)
+    return _with_headers(config, headers)
+
+
+class _SyncGatewayModels:
+    """Buffered, unlike the async path: text calls finish far inside the gateway's 290s cut."""
+
+    def __init__(self, models: Any) -> None:
+        self._models = models
+
+    def generate_content(
+        self,
+        *,
+        model: str,
+        contents: Any,
+        config: types.GenerateContentConfig | None = None,
+        posthog_distinct_id: str | None = None,
+        posthog_trace_id: str | None = None,
+        posthog_properties: Mapping[str, Any] | None = None,
+        posthog_privacy_mode: bool | None = None,
+        posthog_groups: Mapping[str, Any] | None = None,
+    ) -> types.GenerateContentResponse:
+        return self._models.generate_content(
+            model=model,
+            contents=contents,
+            config=_gateway_config(config, {}, posthog_distinct_id, posthog_trace_id, posthog_properties),
+        )
+
+
 class _AsyncGatewayModels:
-    """Takes the analytics wrapper's `posthog_*` kwargs as gateway headers; groups have none, so they drop. Streams
-    every call: the gateway cuts a buffered call at 290s and long scans run past that."""
+    """Streams every call: the gateway cuts a buffered call at 290s and long scans run past that."""
 
     def __init__(self, models: Any, base_properties: Mapping[str, Any]) -> None:
         self._models = models
         self._base_properties = base_properties
-
-    def _config(
-        self,
-        config: types.GenerateContentConfig | None,
-        posthog_distinct_id: str | None,
-        posthog_trace_id: str | None,
-        posthog_properties: Mapping[str, Any] | None,
-    ) -> types.GenerateContentConfig | None:
-        # The client's default headers carry the product, privacy mode and base labels; a call adds its own.
-        labels = (
-            _gateway_labels({**self._base_properties, **posthog_properties, "ai_product": AI_PRODUCT})
-            if posthog_properties
-            else None
-        )
-        headers = (
-            ai_gateway_headers(trace_id=posthog_trace_id, properties=labels, distinct_id=posthog_distinct_id) or {}
-        )
-        # The gateway sets `$ai_span_name` only from this header; it strips `$` keys from the properties.
-        if posthog_properties and (span_name := posthog_properties.get("$ai_span_name")):
-            headers["X-PostHog-Span-Name"] = str(span_name)
-        return _with_headers(config, headers)
 
     async def generate_content(
         self,
@@ -118,7 +165,9 @@ class _AsyncGatewayModels:
         stream = await self._models.generate_content_stream(
             model=model,
             contents=contents,
-            config=self._config(config, posthog_distinct_id, posthog_trace_id, posthog_properties),
+            config=_gateway_config(
+                config, self._base_properties, posthog_distinct_id, posthog_trace_id, posthog_properties
+            ),
         )
         chunks = [chunk async for chunk in stream]
         return assemble_stream(chunks)

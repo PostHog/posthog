@@ -8,14 +8,11 @@ prompt or scale can tell the question no longer describes it.
 
 import uuid
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
@@ -23,6 +20,7 @@ from posthog.dataclasses import frozen
 from products.replay_vision.backend.built_in_scans import built_in_scan_for
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import gemini_text_models
 from products.replay_vision.backend.models.replay_scanner import (
     PromptValence,
     ReplayScanner,
@@ -139,16 +137,9 @@ def _generate(
         response_mime_type="application/json",
         response_json_schema=_LlmQuestion.model_json_schema(),
     )
-    # Client setup is inside the guard too: a missing key must fall back, not fail the save.
+    # Client setup is inside the guard too: a missing key or a failed flag lookup must fall back, not fail the save.
     try:
-        client = genai.Client(
-            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-        )
-        response = client.models.generate_content(
+        response = gemini_text_models(team_id, timeout_ms=_MODEL_CALL_TIMEOUT_MS).generate_content(
             model=_QUESTION_MODEL,
             contents=f"Scanner type: {scanner_type}{scale_line}\n\nInstructions:\n{prompt}"
             + (f"\n\nQuestion already written:\n{question}" if question else ""),

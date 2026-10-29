@@ -22,6 +22,7 @@ from products.replay_vision.backend.gemini_client import (
     _AsyncGatewayModels,
     _with_headers,
     assemble_stream,
+    gemini_text_models,
     replay_gemini_client,
 )
 from products.replay_vision.backend.temporal import pii_check
@@ -246,6 +247,48 @@ def test_pii_rewrite_uses_the_gateway_when_configured() -> None:
     assert request_headers["X-PostHog-Span-Name"] == "pii_rewrite"
     sdk.close.assert_called_once()
     sdk.aio.aclose.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "gateway_settings, flag, via_gateway",
+    [
+        # Web pods carry the gateway but not Replay Vision's own key; text calls still use the gateway there.
+        ({**_GATEWAY, "REPLAY_VISION_GEMINI_API_KEY": ""}, True, True),
+        (_GATEWAY, False, False),
+        ({"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}, True, False),
+    ],
+)
+def test_text_models_route(
+    gateway_settings: dict[str, str], flag: bool, via_gateway: bool, flag_on: MagicMock, team_org: MagicMock
+) -> None:
+    flag_on.return_value = flag
+    team_org.objects.values_list.return_value.get.return_value = _ORG
+    with (
+        override_settings(**gateway_settings),
+        patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
+        patch("products.replay_vision.backend.gemini_client.genai.Client") as direct_client,
+    ):
+        gemini_text_models(42, timeout_ms=1000).generate_content(
+            model="m",
+            contents="c",
+            posthog_trace_id="t",
+            posthog_properties={"feature": "prompt_question", "team_id": 42},
+            posthog_groups={"project": "42"},
+        )
+
+    if via_gateway:
+        direct_client.assert_not_called()
+        assert gateway_client.call_args.kwargs["http_options"].timeout == 1000
+        headers = gateway_client.return_value.models.generate_content.call_args.kwargs["config"].http_options.headers
+        assert headers["X-PostHog-Trace-Id"] == "t"
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "feature": "prompt_question",
+            "team_id": "42",
+            "ai_product": "replay_vision",
+        }
+    else:
+        gateway_client.assert_not_called()
+        direct_client.return_value.models.generate_content.assert_called_once()
 
 
 def _chunk(*parts: types.Part, finish: types.FinishReason | None = None) -> types.GenerateContentResponse:
