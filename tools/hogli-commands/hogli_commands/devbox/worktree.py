@@ -36,6 +36,7 @@ from .config import (
     claim_worktree_box,
     clear_worktree_auto_sources,
     clear_worktree_box_cleanup,
+    ensure_worktree_id,
     load_worktree_boxes,
     record_worktree_box,
     save_worktree_auto_sources,
@@ -157,10 +158,13 @@ def _resolve_target(
     """Return the devbox this worktree uses.
 
     A worktree that already has a registered box keeps it, even after a branch
-    rename, so a re-run never creates a second box.
+    rename, so a re-run never creates a second box. A record saved for an
+    earlier worktree at the same path does not count.
     """
     boxes = load_worktree_boxes()
     registered = boxes.get(str(root))
+    if registered is not None and registered.worktree_id is not None and not registered.tracks_worktree(_git_dir(root)):
+        registered = None
     registered_box = get_workspace(registered.workspace, workspaces) if registered is not None else None
     if registered is not None and registered_box is not None and not registered.may_adopt(registered_box):
         registered = registered_box = None
@@ -293,13 +297,15 @@ def devbox_worktree(
         click.echo("[DRY-RUN] Nothing changed.")
         return
 
-    git_dir = str(_git_dir(root))
+    git_dir = _git_dir(root)
+    worktree_id = ensure_worktree_id(git_dir)
     owner = claim_worktree_box(
         root,
         WorktreeBoxRecord(
             workspace=target.workspace_name,
-            git_dir=git_dir,
+            git_dir=str(git_dir),
             workspace_id=None if existing is None else existing.get("id"),
+            worktree_id=worktree_id,
         ),
         existing,
     )
@@ -322,7 +328,13 @@ def devbox_worktree(
     created = get_workspace(target.workspace_name, workspaces)
     if existing is None and created is not None:
         record_worktree_box(
-            root, WorktreeBoxRecord(workspace=target.workspace_name, git_dir=git_dir, workspace_id=created.get("id"))
+            root,
+            WorktreeBoxRecord(
+                workspace=target.workspace_name,
+                git_dir=str(git_dir),
+                workspace_id=created.get("id"),
+                worktree_id=worktree_id,
+            ),
         )
     ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
     click.echo()

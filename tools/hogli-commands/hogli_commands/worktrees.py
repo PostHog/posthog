@@ -47,7 +47,13 @@ from .devbox.coder import (
     get_workspace_status,
     stop_workspace,
 )
-from .devbox.config import WorktreeBoxRecord, forget_worktree_boxes, load_worktree_boxes, saved_worktree_box_cleanup
+from .devbox.config import (
+    WorktreeBoxRecord,
+    forget_worktree_boxes,
+    load_worktree_boxes,
+    read_worktree_id,
+    saved_worktree_box_cleanup,
+)
 from .doctor import _format_size
 
 
@@ -429,14 +435,17 @@ def _boxes_of_removed_worktrees(
     """Registered boxes whose worktree is gone, limited to the selected repo and sources.
 
     The admin directory in the shared git dir outlives a moved or unmounted
-    checkout, so only its absence shows that the worktree was removed.
+    checkout, so only its absence shows that the worktree was removed. A
+    record without a worktree ID cannot tell its admin directory from a
+    reused one, so any directory at that path counts as its own.
     """
     if repo_common is None:
         return []
     boxes: list[WorktreeBox] = []
     for path, record in registry.items():
         admin_dir = Path(record.git_dir)
-        if Path(path).exists() or admin_dir.exists() or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
+        admin_dir_is_its_own = record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
+        if Path(path).exists() or admin_dir_is_its_own or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
             continue
         if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
             continue
@@ -468,22 +477,19 @@ def _clean_boxes_of_removed_worktrees(
 def _match_worktree_boxes(worktrees: list[Worktree], registry: dict[str, WorktreeBoxRecord]) -> list[WorktreeBox]:
     """Pair each worktree with the devbox registered for it.
 
-    A record keeps the path the worktree had when it was registered, so a
-    worktree that `git worktree move` relocated is found through its admin
-    directory, which the move carries over. A path match with another admin
-    directory is a new worktree at a reused path, so it does not count.
+    The match uses the ID that `devbox:worktree` stored in the worktree's admin
+    directory. `git worktree move` carries that directory over, so a moved
+    worktree still matches. A worktree recreated at a reused path gets a new,
+    empty admin directory, so it never matches its predecessor's box.
     """
-    registry_by_path = {_resolve(Path(path)): (Path(path), record) for path, record in registry.items()}
-    registry_by_git_dir = {_resolve(Path(record.git_dir)): (Path(path), record) for path, record in registry.items()}
+    registry_by_worktree_id = {
+        record.worktree_id: (Path(path), record) for path, record in registry.items() if record.worktree_id
+    }
     boxes: list[WorktreeBox] = []
     for wt in worktrees:
         git_dir = _gitdir_for(wt.path)
-        resolved_git_dir = _resolve(git_dir) if git_dir is not None else None
-        match = registry_by_path.get(_resolve(wt.path))
-        if match is not None and resolved_git_dir is not None and _resolve(Path(match[1].git_dir)) != resolved_git_dir:
-            match = None
-        if match is None and resolved_git_dir is not None:
-            match = registry_by_git_dir.get(resolved_git_dir)
+        worktree_id = read_worktree_id(git_dir) if git_dir is not None else None
+        match = registry_by_worktree_id.get(worktree_id) if worktree_id is not None else None
         if match is not None:
             boxes.append(WorktreeBox(worktree_path=match[0], record=match[1], current_path=wt.path))
     return boxes

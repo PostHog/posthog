@@ -972,6 +972,7 @@ class TestDevboxWorktreeCommand:
         root = tmp_path / "wt"
         root.mkdir()
         (root / ".git").write_text("gitdir: elsewhere\n")
+        (root / "admin").mkdir()
         monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
@@ -1062,16 +1063,22 @@ class TestDevboxWorktreeCommand:
         assert (started, synced) == (expected_calls, expected_calls)
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
 
-    def test_label_claimed_by_another_worktree_is_refused_before_the_box_exists(
-        self, monkeypatch: pytest.MonkeyPatch, worktree_root: Path
+    @pytest.mark.parametrize("box_exists", [False, True], ids=["before-the-box-exists", "while-the-box-is-set-up"])
+    def test_label_claimed_by_another_worktree_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_root: Path, box_exists: bool
     ) -> None:
         other = worktree_root.parent / "other-worktree"
         other.mkdir()
         devbox_config.record_worktree_box(
             other, devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-shared", git_dir="admin")
         )
-        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: [])
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        workspaces = (
+            [{"name": "devbox-test-user-shared", "id": "id-shared", "latest_build": {"status": "running"}}]
+            if box_exists
+            else []
+        )
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
         monkeypatch.setattr(devbox_worktree, "devbox_start", lambda **kwargs: pytest.fail("started a claimed box"))
 
         result = runner.invoke(cli, ["devbox:worktree", "--label", "shared"])
@@ -4528,6 +4535,29 @@ class TestDevboxSyncCommand:
             assert result.returncode == expected_exit, result.stderr
         assert _git(tmp_path, "rev-parse", "HEAD") == (box_head if box_keeps_head else target)
         assert (tmp_path / ".env.local").read_text() == "box secret\n"
+
+    def test_checkout_script_runs_no_box_hook_while_fetching(self, tmp_path: Path) -> None:
+        origin, box = tmp_path / "origin", tmp_path / "box"
+        _git(tmp_path, "init", "--quiet", "--initial-branch=master", str(origin))
+        _git(origin, "commit", "--quiet", "--allow-empty", "-m", "init")
+        _git(tmp_path, "clone", "--quiet", str(origin), str(box))
+        _git(origin, "checkout", "--quiet", "-b", "feat/x")
+        _git(origin, "commit", "--quiet", "--allow-empty", "-m", "target")
+        target = _git(origin, "rev-parse", "HEAD")
+        marker = tmp_path / "hook-ran"
+        for hook in ("reference-transaction", "post-checkout"):
+            hook_path = box / ".hooks" / hook
+            hook_path.parent.mkdir(exist_ok=True)
+            hook_path.write_text(f"#!/bin/sh\ntouch {marker}\n")
+            hook_path.chmod(0o755)
+        _git(box, "config", "core.hooksPath", ".hooks")
+
+        script = devbox_sync._CHECKOUT_SCRIPT.replace(devbox_sync._REMOTE_REPO_PATH, str(box))
+        result = subprocess.run(["bash", "-c", script, "hogli-sync", "feat/x", target], capture_output=True, text=True)
+
+        assert result.returncode == 0, result.stderr
+        assert _git(box, "rev-parse", "HEAD") == target
+        assert not marker.exists()
 
     def test_detect_local_checkout_fails_outside_repo(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.chdir(tmp_path)

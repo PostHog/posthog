@@ -33,8 +33,12 @@ from hogli_commands.worktrees import (
 )
 
 
-def _box(name: str, git_dir: Path | str = "admin", workspace_id: str | None = None) -> devbox_config.WorktreeBoxRecord:
-    return devbox_config.WorktreeBoxRecord(workspace=name, git_dir=str(git_dir), workspace_id=workspace_id)
+def _box(
+    name: str, git_dir: Path | str = "admin", workspace_id: str | None = None, worktree_id: str | None = None
+) -> devbox_config.WorktreeBoxRecord:
+    return devbox_config.WorktreeBoxRecord(
+        workspace=name, git_dir=str(git_dir), workspace_id=workspace_id, worktree_id=worktree_id
+    )
 
 
 def _make_worktree(path: Path) -> Worktree:
@@ -354,36 +358,30 @@ class TestWorktreeBoxes:
         monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: path)
         return path
 
-    def test_matches_only_registered_worktrees_by_resolved_path(self, tmp_path) -> None:
-        real = tmp_path / "real" / "feature"
-        real.mkdir(parents=True)
-        linked = tmp_path / "linked"
-        linked.symlink_to(tmp_path / "real")
-        unregistered = tmp_path / "other"
-        unregistered.mkdir()
-
-        registry = {str(real): _box("devbox-test-user-feature")}
-
-        boxes = _match_worktree_boxes([_make_worktree(linked / "feature"), _make_worktree(unregistered)], registry)
-
-        assert boxes == [
-            WorktreeBox(worktree_path=real, record=_box("devbox-test-user-feature"), current_path=linked / "feature")
-        ]
-
-    def test_matches_a_moved_worktree_through_its_admin_directory(self, tmp_path) -> None:
+    @pytest.mark.parametrize(
+        ("case", "matched"),
+        [("same-path", True), ("moved", True), ("recreated-at-same-path", False), ("no-worktree-id-recorded", False)],
+    )
+    def test_matches_a_worktree_only_by_the_id_in_its_admin_directory(self, tmp_path, case, matched) -> None:
         admin = tmp_path / "repo" / ".git" / "worktrees" / "feature"
         admin.mkdir(parents=True)
-        moved = tmp_path / "moved" / "feature"
-        moved.mkdir(parents=True)
-        (moved / ".git").write_text(f"gitdir: {admin}\n")
-        reused = tmp_path / "old" / "feature"
-        reused.mkdir(parents=True)
-        (reused / ".git").write_text(f"gitdir: {admin.parent / 'feature1'}\n")
-        record = _box("devbox-test-user-feature", git_dir=admin)
+        registered_path = tmp_path / "old" / "feature"
+        current = tmp_path / "moved" / "feature" if case == "moved" else registered_path
+        current.mkdir(parents=True)
+        (current / ".git").write_text(f"gitdir: {admin}\n")
+        worktree_id = devbox_config.ensure_worktree_id(admin)
+        if case == "recreated-at-same-path":
+            (admin / "hogli-devbox-worktree-id").unlink()
+        record = _box(
+            "devbox-test-user-feature",
+            git_dir=admin,
+            worktree_id=None if case == "no-worktree-id-recorded" else worktree_id,
+        )
 
-        boxes = _match_worktree_boxes([_make_worktree(reused), _make_worktree(moved)], {str(reused): record})
+        boxes = _match_worktree_boxes([_make_worktree(current)], {str(registered_path): record})
 
-        assert boxes == [WorktreeBox(worktree_path=reused, record=record, current_path=moved)]
+        expected = [WorktreeBox(worktree_path=registered_path, record=record, current_path=current)]
+        assert boxes == (expected if matched else [])
 
     @pytest.mark.parametrize(
         ("case", "sources", "pending"),
@@ -392,9 +390,17 @@ class TestWorktreeBoxes:
             ("removed", {"claude"}, True),
             ("removed", {"phw"}, False),
             ("moved", None, False),
+            ("admin-dir-reused", None, True),
             ("other-repo", None, False),
         ],
-        ids=["removed", "removed-source-selected", "source-not-selected", "moved-or-unmounted", "other-repo"],
+        ids=[
+            "removed",
+            "removed-source-selected",
+            "source-not-selected",
+            "moved-or-unmounted",
+            "admin-dir-reused-by-another-worktree",
+            "other-repo",
+        ],
     )
     def test_pending_boxes_need_a_removed_worktree_in_the_selected_scope(
         self, tmp_path, case, sources, pending
@@ -405,9 +411,10 @@ class TestWorktreeBoxes:
         (common / "worktrees").mkdir(parents=True)
         (other_common / "worktrees").mkdir(parents=True)
         admin = (other_common if case == "other-repo" else common) / "worktrees" / "feature"
-        if case == "moved":
+        if case in ("moved", "admin-dir-reused"):
             admin.mkdir()
-        record = _box("devbox-test-user-feature", git_dir=admin)
+        worktree_id = devbox_config.ensure_worktree_id(admin) if case == "moved" else "id-of-the-removed-worktree"
+        record = _box("devbox-test-user-feature", git_dir=admin, worktree_id=worktree_id)
         registry = {str(repo / ".claude" / "worktrees" / "feature"): record}
 
         boxes = _boxes_of_removed_worktrees(registry, repo, common, sources)

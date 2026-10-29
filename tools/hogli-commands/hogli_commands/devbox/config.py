@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import uuid
 import fcntl
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -25,6 +26,7 @@ _PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri", "region", "worktre
 
 WORKTREE_BOX_CLEANUP_ACTIONS = ("stop", "delete")
 WORKTREE_AUTO_SOURCES = ("claude", "codex", "posthog-code", "phw", "other")
+_WORKTREE_ID_FILE = "hogli-devbox-worktree-id"
 
 
 def get_config_path() -> Path:
@@ -173,6 +175,27 @@ def saved_worktree_auto_sources() -> frozenset[str]:
     return frozenset(source.strip() for source in saved.split(",")) & frozenset(WORKTREE_AUTO_SOURCES)
 
 
+def read_worktree_id(git_dir: Path) -> str | None:
+    try:
+        return (git_dir / _WORKTREE_ID_FILE).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def ensure_worktree_id(git_dir: Path) -> str:
+    """Return the random ID stored in this worktree's admin directory, writing one first if it has none.
+
+    Git reuses an admin directory name when a worktree is recreated at the same
+    path, but the new directory starts empty, so the ID tells the two apart.
+    """
+    existing = read_worktree_id(git_dir)
+    if existing is not None:
+        return existing
+    worktree_id = uuid.uuid4().hex
+    (git_dir / _WORKTREE_ID_FILE).write_text(f"{worktree_id}\n")
+    return worktree_id
+
+
 @dataclass(frozen=True)
 class WorktreeBoxRecord:
     """The devbox that `devbox:worktree` set up for one worktree.
@@ -180,12 +203,22 @@ class WorktreeBoxRecord:
     ``workspace_id`` is Coder's immutable ID, so a box destroyed and recreated
     under the same name is never mistaken for this one. ``git_dir`` is the
     worktree's admin directory in the shared git dir, which survives
-    `git worktree move` and an unmounted checkout.
+    `git worktree move` and an unmounted checkout. ``worktree_id`` is the ID
+    that `ensure_worktree_id` stored in that directory.
     """
 
     workspace: str
     git_dir: str
     workspace_id: str | None = None
+    worktree_id: str | None = None
+
+    def tracks_worktree(self, git_dir: Path) -> bool:
+        """Whether the worktree with admin directory *git_dir* is the one this record was saved for.
+
+        A record without the ID cannot answer that, so it answers no, and
+        `worktrees:clean` leaves its box alone.
+        """
+        return self.worktree_id is not None and read_worktree_id(git_dir) == self.worktree_id
 
     def owns(self, workspace: Mapping[str, Any]) -> bool:
         """Whether *workspace* is the box this record was saved for.
@@ -222,12 +255,14 @@ def load_worktree_boxes() -> dict[str, WorktreeBoxRecord]:
     for path, entry in data.items():
         if not isinstance(path, str) or not isinstance(entry, dict):
             continue
-        workspace, git_dir, workspace_id = entry.get("workspace"), entry.get("git_dir"), entry.get("workspace_id")
+        workspace, git_dir = entry.get("workspace"), entry.get("git_dir")
+        workspace_id, worktree_id = entry.get("workspace_id"), entry.get("worktree_id")
         if isinstance(workspace, str) and workspace and isinstance(git_dir, str) and git_dir:
             boxes[path] = WorktreeBoxRecord(
                 workspace=workspace,
                 git_dir=git_dir,
                 workspace_id=workspace_id if isinstance(workspace_id, str) and workspace_id else None,
+                worktree_id=worktree_id if isinstance(worktree_id, str) and worktree_id else None,
             )
     return boxes
 
@@ -258,14 +293,18 @@ def worktree_box_claimant(
     """The other worktree that holds *workspace*, or None when the name is free.
 
     A record holds the name from the moment it is written, so two worktrees
-    that derive the same label cannot both provision it. Once the box exists,
-    only the record that matches Coder's ID holds it, and a record left behind
-    by a worktree that is gone holds nothing.
+    that derive the same label cannot both provision it. A record without
+    Coder's ID still holds the name after the box appears, because its
+    worktree may still be setting the box up. Once the ID is saved, only the
+    record that matches it holds the box, and a record left behind by a
+    worktree that is gone holds nothing.
     """
     for path, record in boxes.items():
         if path == str(worktree_path) or record.workspace != workspace:
             continue
-        if record.owns(live_workspace) if live_workspace is not None else Path(path).exists():
+        if live_workspace is not None and record.owns(live_workspace):
+            return path
+        if (live_workspace is None or record.workspace_id is None) and Path(path).exists():
             return path
     return None
 
