@@ -8,7 +8,6 @@
     "exclude": [
         "src/**/*.test.ts",
         "src/**/*.test.tsx",
-        "src/**/*.bench.tsx",
         "src/**/*.stories.ts",
         "src/**/*.stories.tsx",
         "src/story-helpers.tsx"
