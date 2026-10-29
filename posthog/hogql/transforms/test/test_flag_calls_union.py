@@ -337,19 +337,22 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 False,
                 mode=ONLY,
             ),
+            # Mode 1 keeps a materialized property on events, so mode 2 shows which columns the union can read.
             param(
-                "property_in_a_string_materialized_column",
+                "property_in_a_string_materialized_column_on_mode_2",
                 f"SELECT properties.probe FROM events WHERE {MIXED}",
                 True,
                 True,
+                mode=ONLY,
                 column_type="Nullable(String)",
             ),
             # Each branch reads the property from JSON, so the typed column never reaches the UNION ALL.
             param(
-                "typed_materialized_column_on_the_native_events_schema",
+                "typed_materialized_column_on_the_native_events_schema_on_mode_2",
                 f"SELECT properties.probe FROM events WHERE {MIXED}",
                 True,
                 True,
+                mode=ONLY,
                 column_type="Nullable(Float64)",
                 new_events_schema=True,
             ),
