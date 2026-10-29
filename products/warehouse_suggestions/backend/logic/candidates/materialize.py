@@ -267,35 +267,13 @@ class MaterializeCandidate(Candidate):
         )
         if estimate is None:
             return "savings stay under the floors at every allowed refresh interval"
-        sources = _classify_sources(context, saved_query.id, frequency)
-        freshness_today = int(frequency.max_data_age.total_seconds()) or None
-        interval_seconds = int(estimate.interval.total_seconds())
-        payload = MaterializePayload(
-            subject_name=saved_query.name,
-            refresh_interval_seconds=interval_seconds,
-            saves_seconds_per_month=estimate.seconds_saved,
-            saves_bytes_per_month=estimate.bytes_saved,
-            waiting_seconds_saved_per_month=estimate.waiting_seconds_saved,
-            background_seconds_saved_per_month=estimate.background_seconds_saved,
-            main_saving=estimate.main_saving,
-            read_seconds=_read_seconds(reads),
-            freshness_today_seconds=freshness_today,
-            freshness_after_seconds=interval_seconds + (freshness_today or 0),
-            live_sources=sources.live,
-            unknown_sources=sources.unknown,
-            refresh_interval_basis=interval_basis(
-                estimate.interval,
-                frequency.bounds.allowed,
-                intervals,
-                limited_by_sources=frequency.bounds.floor is not None,
-            ),
+        basis = interval_basis(
+            estimate.interval,
+            frequency.bounds.allowed,
+            intervals,
+            limited_by_sources=frequency.bounds.floor is not None,
         )
-        return _Proposal(
-            payload=_with_refresh_mode(
-                payload, incremental.config_for(saved_query), context.rules.materialize.incremental_lookback_seconds
-            ),
-            estimate=estimate,
-        )
+        return _proposal(context, saved_query, reads, frequency, estimate, incremental, basis=basis)
 
     def _propose_recomputed(
         self,
@@ -332,30 +310,15 @@ class MaterializeCandidate(Candidate):
         estimate = recomputation_savings(context, reads, recomputations, interval, cost)
         if not estimate.clears_a_floor:
             return "savings stay under the floors at the interval the views that read it need"
-        sources = _classify_sources(context, saved_query.id, frequency)
-        freshness_today = int(frequency.max_data_age.total_seconds()) or None
-        interval_seconds = int(interval.total_seconds())
-        payload = MaterializePayload(
-            subject_name=saved_query.name,
-            refresh_interval_seconds=interval_seconds,
-            saves_seconds_per_month=estimate.seconds_saved,
-            saves_bytes_per_month=estimate.bytes_saved,
-            waiting_seconds_saved_per_month=estimate.waiting_seconds_saved,
-            background_seconds_saved_per_month=estimate.background_seconds_saved,
-            main_saving=estimate.main_saving,
-            read_seconds=_read_seconds(reads),
-            freshness_today_seconds=freshness_today,
-            freshness_after_seconds=interval_seconds + (freshness_today or 0),
-            live_sources=sources.live,
-            unknown_sources=sources.unknown,
-            refresh_interval_basis=WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH,
+        return _proposal(
+            context,
+            saved_query,
+            reads,
+            frequency,
+            estimate,
+            incremental,
+            basis=WarehouseSuggestionRefreshIntervalBasis.CONSUMER_REFRESH,
             recomputed_by_views=recomputations.consumers,
-        )
-        return _Proposal(
-            payload=_with_refresh_mode(
-                payload, incremental.config_for(saved_query), context.rules.materialize.incremental_lookback_seconds
-            ),
-            estimate=estimate,
         )
 
     def _read_floor_rejection(self, context: CandidateContext, reads: SubjectReads) -> str | None:
@@ -396,6 +359,44 @@ def interval_basis(
     if interval == read_allowed[0]:
         return WarehouseSuggestionRefreshIntervalBasis.READ_RATE
     return WarehouseSuggestionRefreshIntervalBasis.SAVINGS
+
+
+def _proposal(
+    context: CandidateContext,
+    saved_query: SavedQueryDefinition,
+    reads: SubjectReads | None,
+    frequency: SavedQueryFrequencyBounds,
+    estimate: SavingsEstimate,
+    incremental: _IncrementalProposer,
+    *,
+    basis: WarehouseSuggestionRefreshIntervalBasis,
+    recomputed_by_views: int = 0,
+) -> _Proposal:
+    sources = _classify_sources(context, saved_query.id, frequency)
+    freshness_today = int(frequency.max_data_age.total_seconds()) or None
+    interval_seconds = int(estimate.interval.total_seconds())
+    payload = MaterializePayload(
+        subject_name=saved_query.name,
+        refresh_interval_seconds=interval_seconds,
+        saves_seconds_per_month=estimate.seconds_saved,
+        saves_bytes_per_month=estimate.bytes_saved,
+        waiting_seconds_saved_per_month=estimate.waiting_seconds_saved,
+        background_seconds_saved_per_month=estimate.background_seconds_saved,
+        main_saving=estimate.main_saving,
+        read_seconds=_read_seconds(reads),
+        freshness_today_seconds=freshness_today,
+        freshness_after_seconds=interval_seconds + (freshness_today or 0),
+        live_sources=sources.live,
+        unknown_sources=sources.unknown,
+        refresh_interval_basis=basis,
+        recomputed_by_views=recomputed_by_views,
+    )
+    return _Proposal(
+        payload=_with_refresh_mode(
+            payload, incremental.config_for(saved_query), context.rules.materialize.incremental_lookback_seconds
+        ),
+        estimate=estimate,
+    )
 
 
 def _with_refresh_mode(
