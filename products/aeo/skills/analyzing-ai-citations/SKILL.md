@@ -47,6 +47,8 @@ papercuts that make the first query fail.
   "This feature is not available." means the flag is off, not a scope problem.
 - **Scopes.** Reads (`list`, `get`, `topics`, `checks`, `stats`, `versions`) need
   `web_analytics:read`; writes (`update`, `archive`, `import`) need `web_analytics:write`.
+  `system.aeo_citation_checks` and `system.aeo_prompts` need `web_analytics:read` too, on top
+  of `query:read`: without it the tables are not in the schema and a query on them fails.
   A missing scope surfaces as `Missing PostHog API scope: 'web_analytics:read'` (the API says
   "API key missing required scope"). Recovery: reauthorize the MCP connection so the new grant
   includes the scope, or add the scope to the personal API key the connection uses. Do not

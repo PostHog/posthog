@@ -19,11 +19,12 @@ from posthog.hogql.database.postgres_table import PostgresTable
 aeo_citation_checks: PostgresTable = PostgresTable(
     name="aeo_citation_checks",
     postgres_table_name="posthog_aeo_citation_check",
-    # No access_scope: AEO has no RBAC resource behind it — no viewset, no per-row
-    # grants — so there is nothing for object-level gating to resolve against, the
-    # way cohorts, exports and teams are also unscoped. Team isolation still applies
-    # through the team_id predicate every system table carries.
-    access_scope=None,
+    # Same gate as AEOPromptViewSet: a caller needs web analytics access (RBAC for a user, the
+    # `web_analytics:read` scope for a project secret API key). Without this, a key with only
+    # `query:read` could read the table. Rows are not web analytics objects, so no per-row grant
+    # keys them and access is resource-level only.
+    access_scope="web_analytics",
+    resource_level_access_only=True,
     description=(
         "AEO citation checks: one row per prompt x answer engine per run, recording whether the "
         "team's target domain was cited. Written only by the citation runner."
@@ -112,9 +113,9 @@ aeo_citation_checks: PostgresTable = PostgresTable(
 aeo_prompts: PostgresTable = PostgresTable(
     name="aeo_prompts",
     postgres_table_name="posthog_aeo_prompt",
-    # No access_scope, for the same reason as aeo_citation_checks: AEO has no RBAC
-    # resource, so team isolation comes only from the team_id predicate.
-    access_scope=None,
+    # Gated like aeo_citation_checks, for the same reason.
+    access_scope="web_analytics",
+    resource_level_access_only=True,
     description=(
         "AEO prompts: the questions the citation runner asks the answer engines, one row per prompt with its "
         "current text and state. system.aeo_citation_checks.prompt_id joins to id here."

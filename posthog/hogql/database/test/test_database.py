@@ -4578,6 +4578,26 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "data_modeling_endpoint_versions" not in denied
         assert "feature_flags" in denied
 
+    @parameterized.expand([("query_only", ["query:read"], True), ("web_analytics_read", ["web_analytics:read"], False)])
+    def test_project_secret_key_needs_the_web_analytics_scope_for_aeo_tables(
+        self, _name: str, scopes: list[str], denied: bool
+    ) -> None:
+        from posthog.auth import ProjectSecretAPIKeyUser
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="aeo-scope", secure_value="sha256$" + "e" * 64, scopes=scopes
+        )
+
+        database = Database.create_for(team=self.team, user=ProjectSecretAPIKeyUser(psak))
+
+        for table_name in ("system.aeo_prompts", "system.aeo_citation_checks"):
+            if denied:
+                with pytest.raises(TableAccessDeniedError):
+                    database.get_table(table_name)
+            else:
+                assert database.get_table(table_name) is not None
+
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}
 
