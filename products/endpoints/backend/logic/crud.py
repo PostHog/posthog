@@ -218,6 +218,9 @@ class EndpointCrudService:
                 # version, not just the current one.
                 for materialized_version in endpoint.versions.filter(saved_query__isnull=False):
                     self.materialization.disable_materialization(endpoint, materialized_version)
+                # target_version was loaded before the teardown and still points at the removed saved
+                # query, which would make the freshness write below skip the direct query cache duration.
+                target_version.refresh_from_db()
             if data.is_active is not None and not version_targeted:
                 # Activation affects throttle classification — force a lazy re-check.
                 clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
@@ -375,7 +378,8 @@ class EndpointCrudService:
             transaction.on_commit(
                 lambda: clear_endpoint_materialization_cache(
                     self.team.pk, endpoint.name, versions=[target_version.version]
-                )
+                ),
+                robust=True,
             )
 
     def _reconcile_materialization(

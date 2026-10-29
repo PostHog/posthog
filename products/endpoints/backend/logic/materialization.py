@@ -176,7 +176,8 @@ class EndpointMaterializationService:
             # The throttle may hold a not-ready snapshot cached before the enable. Drop it so the
             # first completed run is picked up on the next request, not when the entry expires.
             transaction.on_commit(
-                lambda: clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])
+                lambda: clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version]),
+                robust=True,
             )
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
             if version.saved_query:

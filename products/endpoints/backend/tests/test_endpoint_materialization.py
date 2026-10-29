@@ -285,6 +285,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["data_freshness_seconds"], node_target_seconds)
         self.assertEqual(get_declared_target(Node.objects.get(saved_query=version.saved_query)), node_target)
 
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"data_freshness_seconds": node_target_seconds},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["data_freshness_seconds"], node_target_seconds)
+
     def test_materialized_freshness_update_does_not_write_the_cache_ttl(self):
         endpoint = create_endpoint_with_version(
             name="node_freshness_endpoint",
@@ -2628,6 +2636,32 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(v1.is_active)
         self.assertIsNone(v1.saved_query_id, "deactivated version kept its materialization")
         self.assertTrue(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+
+    def test_deactivating_endpoint_with_freshness_keeps_requested_cache_duration(self):
+        endpoint = create_endpoint_with_version(
+            name="endpoint-deactivate-freshness",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 21600},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_active": False, "data_freshness_seconds": 43200},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        version = endpoint.get_version()
+        self.assertIsNone(version.saved_query_id)
+        self.assertEqual(version.cache_ttl_seconds, 43200)
 
     def test_deactivating_endpoint_disables_all_versions_materialization(self):
         """Deactivating the endpoint must tear down every materialized version, not just the current one."""
