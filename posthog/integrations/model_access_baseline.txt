@@ -74,7 +74,6 @@ products/messaging/backend/services/customerio_webhook.py 1
 products/messaging/backend/services/transactional_email.py 2
 products/review_hog/backend/activity_logging.py 2
 products/review_hog/backend/automatic_reviews.py 3
-products/review_hog/backend/label_reviews.py 2
 products/review_hog/backend/ownership.py 2
 products/review_hog/backend/repository_settings.py 2
 products/review_hog/backend/reviewer/status_comment.py 2
