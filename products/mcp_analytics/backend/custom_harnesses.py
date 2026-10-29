@@ -24,10 +24,11 @@ def _canonical_team_id(team: Team) -> int:
     return team.parent_team_id or team.pk
 
 
-def _rule_pairs_from_db(team_id: int) -> RulePairs:
+def _rule_pairs_from_db(team_id: int, *, using: str | None = None) -> RulePairs:
     # The first matching rule wins, so the most specific pattern goes first.
     return tuple(
         MCPCustomHarness.objects.for_team(team_id, canonical=True)
+        .using(using)
         .order_by(Length("match_pattern").desc(), "created_at")
         .values_list("name", "match_pattern")
     )
@@ -59,8 +60,10 @@ def custom_harness_rules(team: Team) -> tuple[CustomHarnessRule, ...]:
 
 def refresh_custom_harness_rules(team: Team) -> None:
     team_id = _canonical_team_id(team)
+    # A read replica can lag behind the write that triggered this refresh, and the cache keeps what we store for days.
+    rule_pairs = _rule_pairs_from_db(team_id, using="default")
     try:
-        cache.set(_cache_key(team_id), _rule_pairs_from_db(team_id), CUSTOM_HARNESS_RULES_CACHE_TTL_SECONDS)
+        cache.set(_cache_key(team_id), rule_pairs, CUSTOM_HARNESS_RULES_CACHE_TTL_SECONDS)
     except Exception as error:
         _log_cache_error("set", team_id, error)
         try:
