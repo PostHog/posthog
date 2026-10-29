@@ -1,5 +1,24 @@
+from datetime import timedelta
+
+from django.db.models import Exists, OuterRef, QuerySet
+from django.utils import timezone
+
 from posthog.models.health_issue import HealthIssue, _filter_existing_team_ids
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.temporal.health_checks.models import HealthCheckResult
+
+
+def filter_recently_active_teams(teams: QuerySet[Team], active_since_days: int) -> QuerySet[Team]:
+    """Teams with a member who logged in within `active_since_days`, the teams a scheduled check visits."""
+    cutoff = timezone.now() - timedelta(days=active_since_days)
+    return teams.filter(
+        Exists(
+            OrganizationMembership.objects.filter(
+                organization_id=OuterRef("organization_id"), user__last_login__gte=cutoff
+            )
+        )
+    )
 
 
 def upsert_issues_with_deltas(

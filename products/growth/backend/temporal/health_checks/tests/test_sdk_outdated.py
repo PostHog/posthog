@@ -221,37 +221,6 @@ class TestSdkOutdatedCheck(BaseTest):
         kept = next(issue for issue in results[self.team.id] if issue.payload["sdk_name"] == "posthog-ruby")
         assert kept.payload == kept_payload
 
-    def test_legacy_detect_matches_the_rollup_for_the_same_usage(self):
-        github = {
-            "web": {"latestVersion": "2.0.0", "releaseDates": {}},
-            "posthog-python": {"latestVersion": "5.0.0", "releaseDates": {"4.0.0": OLD_RELEASE}},
-        }
-        rows = [
-            _make_row(1, "web", "1.0.0"),
-            _make_row(1, "posthog-python", "4.0.0", event_count=900),
-            _make_row(2, "web", "2.0.0"),
-        ]
-        clickhouse_rows = [(r.team_id, r.lib, r.lib_version, r.max_timestamp, r.event_count) for r in rows]
-
-        from_rollup = self._run(github, rows, [1, 2])
-        with (
-            patch(
-                "products.growth.backend.temporal.health_checks.sdk_outdated._load_github_sdk_data",
-                return_value=github,
-            ),
-            patch(
-                "products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query",
-                return_value=clickhouse_rows,
-            ),
-        ):
-            from_legacy = self.check.legacy_detect([1, 2])
-
-        def payloads(results: dict) -> dict:
-            return {team_id: sorted(r.payload["sdk_name"] for r in issues) for team_id, issues in results.items()}
-
-        assert payloads(from_rollup) == payloads(from_legacy) == {1: ["posthog-python", "web"]}
-        assert [r.payload for r in from_rollup[1]] == [r.payload for r in from_legacy[1]]
-
     def test_skips_team_with_no_rollup_data(self):
         github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
         assert self._run(github, [], [1]) == {}

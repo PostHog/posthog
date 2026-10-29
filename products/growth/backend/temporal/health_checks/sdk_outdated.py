@@ -15,18 +15,12 @@ from posthog.temporal.health_checks.framework import (
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckBatchSkipped, HealthCheckResult
-from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
 from products.growth.backend.constants import SDK_TYPES, SdkVersionEntry, github_sdk_versions_key
 from products.growth.backend.models import SdkVersionsDaily
-from products.growth.backend.sdk_health import (
-    SdkAssessment,
-    _is_safe_for_interpolation,
-    compute_sdk_health,
-    sort_sdk_version_entries,
-)
+from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
 from products.growth.backend.sdk_version_rollup import SDK_VERSIONS_WINDOW_DAYS, sdk_versions_from_rollup
 
 # Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
@@ -37,30 +31,6 @@ _SEVERITY_BY_ASSESSMENT: dict[str, HealthIssue.Severity] = {
 }
 
 logger = structlog.get_logger(__name__)
-
-SDK_VERSIONS_SQL = """
-SELECT
-    team_id,
-    `mat_$lib` AS lib,
-    `mat_$lib_version` AS lib_version,
-    max(timestamp) AS max_timestamp,
-    count(*) AS event_count
-FROM events
-WHERE
-    team_id IN %(team_ids)s
-    AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-    AND `mat_$lib` IS NOT NULL
-    AND `mat_$lib` != ''
-    AND (
-        `mat_$lib` = 'posthog-java'
-        OR (`mat_$lib_version` IS NOT NULL AND `mat_$lib_version` != '')
-    )
-GROUP BY team_id, lib, lib_version
-ORDER BY
-    team_id,
-    lib,
-    event_count DESC
-"""
 
 
 def _decode_redis_json(raw: bytes | str) -> dict:
@@ -91,7 +61,6 @@ class SdkOutdatedCheck(RollupHealthCheck):
     active_since_days = 30
     rollup_model = SdkVersionsDaily
     window_days = SDK_VERSIONS_WINDOW_DAYS
-    dry_run = True
     remediation = Remediation(
         human="""
             Open the SDK Health page (the Health section of the app). It lists every SDK you're sending
@@ -170,34 +139,6 @@ class SdkOutdatedCheck(RollupHealthCheck):
             issues.setdefault(team_id, []).extend(kept)
         return issues
 
-    def legacy_detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        github_data = _load_github_sdk_data()
-        if not github_data:
-            return {}
-
-        rows = execute_clickhouse_health_team_query(
-            SDK_VERSIONS_SQL,
-            team_ids=team_ids,
-            lookback_days=SDK_VERSIONS_WINDOW_DAYS,
-        )
-        team_sdk_data: defaultdict[int, defaultdict[str, list[SdkVersionEntry]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
-        for team_id, lib, lib_version, max_timestamp, event_count in rows:
-            if lib in SDK_TYPES:
-                team_sdk_data[team_id][lib].append(
-                    {
-                        "lib_version": lib_version,
-                        "max_timestamp": str(max_timestamp),
-                        "count": event_count,
-                    }
-                )
-        sorted_sdk_data = {
-            team_id: {lib: sort_sdk_version_entries(entries) for lib, entries in sdk_data.items()}
-            for team_id, sdk_data in team_sdk_data.items()
-        }
-        return _issues_from_sdk_usage(sorted_sdk_data, github_data)
-
 
 def _issues_from_sdk_usage(
     team_sdk_data: dict[int, dict[str, list[SdkVersionEntry]]], github_data: dict[str, dict]
@@ -223,13 +164,15 @@ def _issues_without_github_data(
     The re-emitted result has the same payload and hash, so it updates the issue in place and
     sends no new alert.
     """
-    active = HealthIssue.objects.filter(
-        team_id__in=team_ids, kind=SdkOutdatedCheck.kind, status=HealthIssue.Status.ACTIVE
-    ).only("team_id", "severity", "payload")
+    active = (
+        HealthIssue.objects.filter(team_id__in=team_ids, kind=SdkOutdatedCheck.kind, status=HealthIssue.Status.ACTIVE)
+        .exclude(payload__sdk_name__in=list(github_data))
+        .only("team_id", "severity", "payload")
+    )
     kept: defaultdict[int, list[HealthCheckResult]] = defaultdict(list)
     for issue in active:
         sdk_name = issue.payload.get("sdk_name")
-        if sdk_name and sdk_name not in github_data:
+        if sdk_name:
             kept[issue.team_id].append(
                 HealthCheckResult(
                     severity=HealthIssue.Severity(issue.severity), payload=issue.payload, hash_keys=["sdk_name"]
