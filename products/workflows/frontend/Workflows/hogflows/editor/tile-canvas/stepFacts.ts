@@ -15,7 +15,9 @@ import {
     plainVariables,
     templateIdOf,
 } from './stepValues'
-import { outgoingEdges, pathActions, PathGroup } from './tileCanvasModel'
+import { type FlowGraph, outgoingEdges, pathActions, PathGroup } from './tileCanvasModel'
+
+export type StepGraph = FlowGraph & Pick<HogFlow, 'exit_condition'>
 
 type Field = [label: string, value: string]
 
@@ -428,11 +430,7 @@ const sameInputs = (a: unknown[], b: unknown[]): boolean =>
  * What a tile shows for a step: read once per step object and kept until the step or the few workflow facts it
  * reads change, however many tiles, cards and previews show it.
  */
-export function stepView(
-    workflow: Pick<HogFlow, 'edges' | 'exit_condition' | 'actions'>,
-    action: HogFlowAction,
-    templateName?: string
-): StepView {
+export function stepView(workflow: StepGraph, action: HogFlowAction, templateName?: string): StepView {
     const pathCount = outgoingEdges(workflow, action.id).length
     const inputs = [pathCount, action.type === 'exit' ? workflow.exit_condition : undefined, templateName]
     const cached = stepViews.get(action)
@@ -454,10 +452,7 @@ export function stepFacts(workflow: HogFlow, action: HogFlowAction, templateName
     return stepView(workflow, action, templateName).facts
 }
 
-export function stepBadge(
-    workflow: Pick<HogFlow, 'edges' | 'exit_condition' | 'actions'>,
-    action: HogFlowAction
-): string | undefined {
+export function stepBadge(workflow: StepGraph, action: HogFlowAction): string | undefined {
     return stepView(workflow, action).badge
 }
 

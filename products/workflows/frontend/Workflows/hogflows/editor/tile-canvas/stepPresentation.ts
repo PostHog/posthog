@@ -1,4 +1,4 @@
-import { parseDelayExpression, parseDelayOffset } from '../../steps/stepDelayLogic'
+import { parseDelayExpression, parseDelayOffset } from '../../steps/delayConfig'
 import type { HogFlowAction, HogFlowEdge } from '../../types'
 import {
     ActionOf,

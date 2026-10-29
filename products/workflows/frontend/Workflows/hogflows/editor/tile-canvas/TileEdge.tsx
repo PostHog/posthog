@@ -4,16 +4,10 @@ import { useState } from 'react'
 
 import { getEdgeId } from '../../edgeId'
 import { QuickAddButton } from './QuickAddButton'
-import {
-    arrowHead,
-    EDGE_LABEL_HEIGHT,
-    edgeLabelWidth,
-    quickAddPoint,
-    roundedPath,
-    shortLabel,
-} from './tileCanvasLayout'
+import { arrowHead, quickAddPoint, roundedPath } from './tileCanvasLayout'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { edgeLabelText, type TileEdgeType } from './tileCanvasNodes'
+import { TileEdgeLabel } from './TileEdgeLabel'
 
 export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null {
     const routed = data?.routed
@@ -53,20 +47,7 @@ export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null 
                 onMouseLeave={() => setHovered(false)}
             />
             <EdgeLabelRenderer>
-                {label && routed.label && (
-                    <div
-                        className="nodrag nopan absolute flex items-center justify-center whitespace-nowrap rounded-full border bg-surface-primary px-2 text-xs font-semibold"
-                        style={{
-                            transform: `translate(-50%, -50%) translate(${routed.label.x}px, ${routed.label.y}px)`,
-                            height: EDGE_LABEL_HEIGHT,
-                            minWidth: edgeLabelWidth(label),
-                            pointerEvents: 'all',
-                        }}
-                        title={label === shortLabel(label) ? undefined : label}
-                    >
-                        {shortLabel(label)}
-                    </div>
-                )}
+                {label && routed.label && <TileEdgeLabel label={label} at={routed.label} />}
                 {edge.insertEdge && (
                     <QuickAddButton
                         edge={edge.insertEdge}

@@ -7,7 +7,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
-import { getDurationText } from '../hogflows/steps/stepDelayLogic'
+import { getDurationText } from '../hogflows/steps/delayConfig'
 import { workflowLogic } from '../workflowLogic'
 import {
     EXIT_CONDITION_LABELS,

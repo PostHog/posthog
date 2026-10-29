@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useLayoutEffect, useRef } from 'react'
 
 import type { HogFunctionTemplateType } from '~/types'
 
@@ -10,6 +10,7 @@ import { TemplateNameOf, tileCanvasLogic } from './tileCanvasLogic'
 import { outgoingEdges, pathActions, VisibleNode } from './tileCanvasModel'
 import { TileStackNode } from './TileStackNode'
 import { TileStepNode } from './TileStepNode'
+import { useFontsLoaded } from './useFontsLoaded'
 
 const STACK_COVER_STEPS = 4
 
@@ -74,19 +75,6 @@ function sizeInputs(
 
 const sameInputs = (a: unknown[] | undefined, b: unknown[]): boolean =>
     !!a && a.length === b.length && a.every((value, index) => value === b[index])
-
-/** Captions wrap differently once the web font loads, so every node is measured again then. */
-function useFontsLoaded(): boolean {
-    const [loaded, setLoaded] = useState(() => document.fonts?.status === 'loaded')
-    useEffect(() => {
-        let cancelled = false
-        void document.fonts?.ready.then(() => !cancelled && setLoaded(true))
-        return () => {
-            cancelled = true
-        }
-    }, [])
-    return loaded
-}
 
 const noCount = (): undefined => undefined
 
