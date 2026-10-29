@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 import time_machine
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, call, patch
 
 import modal
 from grpclib import GRPCError, Status
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.modal import ModalSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal import (
+    MAX_REPORT_RETRY_ATTEMPTS,
     ModalAuthenticationError,
     ModalPermissionError,
     ModalResumeConfig,
@@ -193,6 +194,46 @@ def test_retry_resumes_after_saved_window(
         assert list(source_items(modal_source(config, inputs, manager))) == []
     assert report.call_args_list[0].kwargs["start"] == datetime(2026, 3, 12, tzinfo=UTC)
     assert report.call_args_list[-1].kwargs["end"] == NOW
+
+
+def test_rides_out_rate_limit_on_report(
+    config: ModalSourceConfig,
+    inputs: SourceInputs,
+    manager: MagicMock,
+    report: MagicMock,
+) -> None:
+    inputs.schema_name = "billing_report_hourly"
+    inputs.db_incremental_field_last_value = "2026-03-15T10:00:00Z"
+    rows = [billing_item(datetime(2026, 3, 15, 10, tzinfo=UTC))]
+    report.side_effect = [ResourceExhaustedError("rate limit"), ResourceExhaustedError("rate limit"), rows]
+
+    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal.time.sleep") as sleep:
+        result = list(source_items(modal_source(config, inputs, manager)))
+
+    # Two rate-limit rejections were retried in-process, then the same window was served — no data lost.
+    assert report.call_count == 3
+    assert [item["object_id"] for item in result[0]] == ["ap-test"]
+    # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st rejection, 4s after the 2nd.
+    assert sleep.call_args_list == [call(2), call(4)]
+
+
+def test_persistent_rate_limit_is_reraised_for_temporal_to_retry(
+    config: ModalSourceConfig,
+    inputs: SourceInputs,
+    manager: MagicMock,
+    report: MagicMock,
+) -> None:
+    inputs.schema_name = "billing_report_hourly"
+    inputs.db_incremental_field_last_value = "2026-03-15T10:00:00Z"
+    report.side_effect = ResourceExhaustedError("rate limit")
+
+    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal.time.sleep") as sleep:
+        with pytest.raises(ResourceExhaustedError, match="rate limit"):
+            list(source_items(modal_source(config, inputs, manager)))
+
+    assert report.call_count == MAX_REPORT_RETRY_ATTEMPTS
+    assert sleep.call_args_list == [call(2), call(4), call(6)]
+    manager.save_state.assert_not_called()
 
 
 @pytest.mark.parametrize("during_creation", [False, True])
