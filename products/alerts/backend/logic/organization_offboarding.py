@@ -1,3 +1,6 @@
+from functools import partial
+
+from django.db import transaction
 from django.db.models import QuerySet
 
 from posthog.organization_offboarding_types import OffboardingResource
@@ -45,6 +48,12 @@ class AlertOffboarding:
 
                     write_moved_alert_edit(team_id=alert.team_id, alert_id=alert.id, snooze_changed=False)
                 else:
-                    disable_configurations(
-                        SourceKind.INSIGHT, team_id=alert.team_id, legacy_configuration_ids=[alert.id]
+                    transaction.on_commit(
+                        partial(
+                            disable_configurations,
+                            SourceKind.INSIGHT,
+                            team_id=alert.team_id,
+                            legacy_configuration_ids=[alert.id],
+                        ),
+                        robust=True,
                     )

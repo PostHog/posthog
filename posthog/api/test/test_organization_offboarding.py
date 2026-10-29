@@ -394,3 +394,16 @@ class TestOrganizationOffboarding(APIBaseTest):
         assert [item["team_id"] for item in response.json()] == [self.team.pk]
         assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
         assert not SharingConfiguration.objects.filter(dashboard__in=[visible, hidden], enabled=True).exists()
+
+    @patch("products.alerts.backend.logic.organization_offboarding.disable_configurations")
+    def test_parallel_alert_copy_cleanup_waits_for_commit(self, disable_configurations: MagicMock) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.departing)
+        alert = AlertConfiguration.objects.create(team=self.team, insight=insight, created_by=self.departing)
+        with self.captureOnCommitCallbacks(execute=True):
+            assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+            alert.refresh_from_db()
+            assert not alert.enabled
+            disable_configurations.assert_not_called()
+        disable_configurations.assert_called_once_with(
+            "insight", team_id=self.team.pk, legacy_configuration_ids=[alert.pk]
+        )
