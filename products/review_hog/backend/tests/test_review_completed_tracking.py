@@ -53,7 +53,7 @@ from products.review_hog.backend.temporal.activities import (
     _track_review_started,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 
 _PR_URL = "https://github.com/o/r/pull/7"
 

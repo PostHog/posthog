@@ -20,8 +20,8 @@ from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, RE
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR, record_run_outcome
 from products.review_hog.backend.temporal.client import WorkflowProbe
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import NoteArtefact
+from products.signals.backend.facade.report_artefacts import NoteArtefact
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 PR_URL = "https://github.com/PostHog/posthog/pull/5"
 REQUESTED_AT = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)

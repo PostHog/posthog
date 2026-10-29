@@ -71,9 +71,8 @@ from products.review_hog.backend.reviewer.models.issues_review import DroppedIss
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Commit
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.report_artefacts import Commit
+from products.signals.backend.facade.taxonomy import ArtefactAttribution, ReportPriority
 
 logger = logging.getLogger(__name__)
 

@@ -3,8 +3,7 @@ is the ``SignalInput`` variant in ``products/signals/backend/contracts.py``."""
 
 from dataclasses import dataclass, field
 
-from products.signals.backend.contracts import SignalRemediation
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.facade.taxonomy import SignalRemediation, SignalSourceProduct, SignalSourceType
 
 # Taken straight from the signals taxonomy so the pair can't drift from emit-time validation.
 SOURCE_PRODUCT = SignalSourceProduct.ENGINEERING_ANALYTICS.value

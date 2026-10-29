@@ -12,8 +12,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from django.utils import timezone
-
 import structlog
 import posthoganalytics
 from temporalio import activity, workflow
@@ -37,7 +35,7 @@ from products.signals.backend.facade.api import (
     is_signal_source_enabled,
     team_ids_with_source_product_enabled,
 )
-from products.signals.backend.models import SignalEmissionRecord
+from products.signals.backend.facade.emission_ledger import EmissionKey, emitted_keys, record_emission
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -105,14 +103,16 @@ def _unemitted(team: Team, findings: list[CISignalFinding]) -> list[CISignalFind
     this is what stops it re-emitting them."""
     if not findings:
         return []
-    emitted_keys = set(
-        SignalEmissionRecord.objects.filter(
-            team=team,
-            source_product=SOURCE_PRODUCT,
-            source_id__in=[finding.source_id for finding in findings],
-        ).values_list("source_type", "source_id")
+    already_emitted = emitted_keys(
+        team_id=team.id,
+        source_product=SOURCE_PRODUCT,
+        source_ids=[finding.source_id for finding in findings],
     )
-    return [finding for finding in findings if (finding.source_type, finding.source_id) not in emitted_keys]
+    return [
+        finding
+        for finding in findings
+        if EmissionKey(source_type=finding.source_type, source_id=finding.source_id) not in already_emitted
+    ]
 
 
 def _record_emitted(team: Team, finding: CISignalFinding) -> None:
@@ -120,17 +120,11 @@ def _record_emitted(team: Team, finding: CISignalFinding) -> None:
     so a finding whose emit raised is retried next sweep instead of being suppressed for the rest of
     its dedupe window. The org AI-approval gate, which emit_signal enforces by silently returning,
     is checked up front in the activity so an unapproved sweep never reaches here."""
-    SignalEmissionRecord.objects.bulk_create(
-        [
-            SignalEmissionRecord(
-                team=team,
-                source_product=SOURCE_PRODUCT,
-                source_type=finding.source_type,
-                source_id=finding.source_id,
-                emitted_at=timezone.now(),
-            )
-        ],
-        ignore_conflicts=True,
+    record_emission(
+        team_id=team.id,
+        source_product=SOURCE_PRODUCT,
+        source_type=finding.source_type,
+        source_id=finding.source_id,
     )
 
 

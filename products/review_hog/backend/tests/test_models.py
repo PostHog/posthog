@@ -14,8 +14,8 @@ from products.review_hog.backend.reviewer.artefact_content import (
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import ArtefactContentValidationError, TaskRunArtefact
+from products.signals.backend.facade.report_artefacts import ArtefactContentValidationError, TaskRunArtefact
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 
 def _finding(issue_key: str = "r1:f.py:10:logic") -> ReviewIssueFinding:

@@ -52,7 +52,7 @@ from products.review_hog.backend.reviewer.outcomes.classify import (
 )
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
 from products.review_hog.backend.reviewer.outcomes.judge import OutcomeJudgeVerdict
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 _CLASSIFY = "products.review_hog.backend.reviewer.outcomes.classify"
 # Touches the finding's line 10 → a line-proximity candidate the judge then rules on.

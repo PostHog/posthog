@@ -68,9 +68,7 @@ def plan_automatic_review(
 ) -> AutomaticDispatch:
     """Whether a push gets an automatic Flash review, in which project, and as which user."""
     # These clients pull in the signals product; planning a webhook must not load it at import.
-    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
-        resolve_org_github_login_to_users,
-    )
+    from products.signals.backend.facade.report_reviewers import org_user_ids_by_github_login  # noqa: PLC0415
 
     if owner is None:
         return AutomaticDispatch(outcome="repository_not_added")
@@ -86,10 +84,14 @@ def plan_automatic_review(
             repository.full_name,
         )
         return AutomaticDispatch(outcome="installation_mismatch", team_id=team_id)
-    author = resolve_org_github_login_to_users(team_id, [author_login]).get(author_login.strip().lower())
+    author_id = org_user_ids_by_github_login(team_id=team_id, github_logins=[author_login]).get(
+        author_login.strip().lower()
+    )
     # An inactive user cannot act: every user-scoped sandbox credential of the run would fail. So an
     # inactive author counts as unmapped, and unmapped authors follow the project's bot rule.
-    author_user_id = author.id if author is not None and is_active_member(team_id=team_id, user_id=author.id) else None
+    author_user_id = (
+        author_id if author_id is not None and is_active_member(team_id=team_id, user_id=author_id) else None
+    )
     decision = decide_automatic_review(
         team_id, repository, owner.row, author_user_id=author_user_id, author_login=author_login
     )

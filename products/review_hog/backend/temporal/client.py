@@ -53,7 +53,7 @@ from products.review_hog.backend.temporal.types import (
     review_branch_workflow_id,
     review_pr_workflow_id,
 )
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 
 logger = logging.getLogger(__name__)
 

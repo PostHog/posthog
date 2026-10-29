@@ -31,7 +31,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     artefact_type_for,
 )
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 
 class ReviewReport(UUIDModel, TeamScopedRootMixin):

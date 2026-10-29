@@ -67,9 +67,8 @@ from products.review_hog.backend.reviewer.persistence import (
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.activities import SandboxStageInput, _prepare_single_agent_prompt
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, TRIGGER_UI
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Commit
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.report_artefacts import Commit
+from products.signals.backend.facade.taxonomy import ArtefactAttribution, ReportPriority
 from products.tasks.backend.facade.run_config import ReasoningEffort
 
 _ContentT = TypeVar("_ContentT")

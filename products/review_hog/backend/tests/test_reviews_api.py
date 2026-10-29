@@ -58,8 +58,8 @@ from products.review_hog.backend.reviewer.progress import (
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import NoteArtefact
+from products.signals.backend.facade.report_artefacts import NoteArtefact
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 
 def _pr_metadata(head_sha: str, title: str) -> PRMetadata:

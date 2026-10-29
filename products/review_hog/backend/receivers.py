@@ -35,7 +35,6 @@ the agent server later overwrites it with the work branch, so its meaning depend
 
 """
 
-import json
 import logging
 from typing import Any
 
@@ -43,9 +42,8 @@ from django.db import transaction
 
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.signals.backend.enums import ReportPriority
-from products.signals.backend.models import SignalReportArtefact
-from products.signals.backend.report_generation.priority import persisted_report_priority
+from products.signals.backend.facade.report_artefacts import persisted_report_priority
+from products.signals.backend.facade.taxonomy import ReportPriority
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
 from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidence,
@@ -137,7 +135,7 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         resolved = resolve_assigned_reviewers(instance.team_id, task.signal_report_id)
         if not resolved:
             return
-        settings_by_user = ReviewUserSettings.load_preferences_many(instance.team_id, [user.id for user in resolved])
+        settings_by_user = ReviewUserSettings.load_preferences_many(instance.team_id, resolved)
         acting_user_id = pick_reviewer(resolved, task.created_by_id)
         stamphog_user_id = _pick_stamphog_reviewer(resolved, settings_by_user, task.created_by_id)
         # robust=True on both: the two dispatches are independent but share one commit-hook queue, so
@@ -191,12 +189,12 @@ def resolve_stamphog_acting_reviewer(team_id: int, signal_report_id: str, prefer
     resolved = resolve_assigned_reviewers(team_id, signal_report_id)
     if not resolved:
         return None
-    settings_by_user = ReviewUserSettings.load_preferences_many(team_id, [user.id for user in resolved])
+    settings_by_user = ReviewUserSettings.load_preferences_many(team_id, resolved)
     return _pick_stamphog_reviewer(resolved, settings_by_user, preferred_user_id)
 
 
 def _pick_stamphog_reviewer(
-    resolved: list[Any], settings_by_user: dict[int, ReviewPreferences], preferred_user_id: int | None
+    resolved: list[int], settings_by_user: dict[int, ReviewPreferences], preferred_user_id: int | None
 ) -> int | None:
     """The user id to attribute a stamphog inbox review to, or None when nobody is opted in.
 
@@ -207,11 +205,11 @@ def _pick_stamphog_reviewer(
     on the first review and on later re-reviews. Either way there is one review per head: this
     returns a single id however many are opted in, and stamphog dedupes on (pull request, head sha).
     """
-    opted_in = [user for user in resolved if settings_by_user[user.id].stamphog_review_inbox_prs]
+    opted_in = [user_id for user_id in resolved if settings_by_user[user_id].stamphog_review_inbox_prs]
     return pick_reviewer(opted_in, preferred_user_id) if opted_in else None
 
 
-def pick_reviewer(resolved: list[Any], task_created_by_id: int | None) -> int:
+def pick_reviewer(resolved: list[int], task_created_by_id: int | None) -> int:
     """The canonical reviewer out of a non-empty resolved list: the task's own user, else the first.
 
     The task's user (`created_by`: the auto-start assignee, or whoever clicked "Create PR") wins when
@@ -220,11 +218,13 @@ def pick_reviewer(resolved: list[Any], task_created_by_id: int | None) -> int:
     decisions, 2026-07-02/03): a background task whose creator carries no assignment meaning, or a
     non-assigned clicker, follows the primary assignee's rules.
     """
-    return next((user.id for user in resolved if user.id == task_created_by_id), resolved[0].id)
+    if task_created_by_id is not None and task_created_by_id in resolved:
+        return task_created_by_id
+    return resolved[0]
 
 
-def resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[Any]:
-    """The report's assigned reviewers, in assignment order (no opt-in toggles checked here).
+def resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[int]:
+    """The user ids of the report's assigned reviewers, in assignment order (no opt-in toggles checked here).
 
     Assignment means the report's latest `suggested_reviewers` artefact, the same set the Inbox "For
     you" filter matches and Slack notifications fan out to, with logins resolved to org members the
@@ -233,37 +233,18 @@ def resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[Any]
     urgency threshold drive the review), stamphog under any who opted in (`_pick_stamphog_reviewer`).
     Empty when the report has no reviewers or none resolve to an org member.
     """
-    artefact = (
-        SignalReportArtefact.objects.filter(
-            team_id=team_id,
-            report_id=signal_report_id,
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    if artefact is None:
-        return []
-    try:
-        reviewers = json.loads(artefact.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return []
-    if not isinstance(reviewers, list):
-        return []
-    logins = [
-        str(r["github_login"]).strip().lower() for r in reviewers if isinstance(r, dict) and r.get("github_login")
-    ]
-    if not logins:
-        return []
-
     # Function-local: pulls the signals contracts module (pydantic dataclasses), which the
     # startup-import-budget test forbids at django.setup() — see the module-top comment.
-    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
-        resolve_org_github_login_to_users,
+    from products.signals.backend.facade.report_reviewers import (  # noqa: PLC0415
+        org_user_ids_by_github_login,
+        suggested_reviewer_logins,
     )
 
-    login_to_user = resolve_org_github_login_to_users(team_id, logins)
-    return [login_to_user[login] for login in logins if login in login_to_user]
+    logins = suggested_reviewer_logins(team_id=team_id, report_id=str(signal_report_id))
+    if not logins:
+        return []
+    user_id_by_login = org_user_ids_by_github_login(team_id=team_id, github_logins=logins)
+    return [user_id_by_login[login] for login in logins if login in user_id_by_login]
 
 
 def _start_stamphog_review(

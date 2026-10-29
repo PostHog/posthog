@@ -242,11 +242,14 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
 )
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
-from products.signals.backend.enums import ReportPriority
-from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.facade.report_artefacts import (
+    CodeReview,
+    CodeReviewCounts,
+    append_code_review,
+    report_exists,
+)
+from products.signals.backend.facade.report_reviewers import org_user_ids_by_github_login
+from products.signals.backend.facade.taxonomy import ArtefactAttribution, ReportPriority
 from products.stamphog.backend.facade.tasks import request_rereview_after_external_review
 from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.contracts import SessionFile
@@ -1009,9 +1012,7 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
 def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     if not login:
         return None
-    matches = resolve_org_github_login_to_users(team_id, [login])
-    user = matches.get(login.strip().lower())
-    return user.id if user is not None else None
+    return org_user_ids_by_github_login(team_id=team_id, github_logins=[login]).get(login.strip().lower())
 
 
 def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
@@ -2959,7 +2960,7 @@ def _append_code_review_artefact(input: AppendCodeReviewArtefactInput) -> None:
         return
     # The signals report may be gone by now (deleted/reingested) — the review must not fail over its
     # own receipt, and the plain-UUID provenance on the ReviewReport row keeps the durable link.
-    if not SignalReport.objects.filter(team_id=input.team_id, id=input.signal_report_id).exists():
+    if not report_exists(team_id=input.team_id, report_id=input.signal_report_id):
         logger.warning("Signal report %s missing; skipping the code_review artefact", input.signal_report_id)
         return
     counts = CodeReviewCounts()
@@ -2981,7 +2982,7 @@ def _append_code_review_artefact(input: AppendCodeReviewArtefactInput) -> None:
         outcome=input.outcome,
         counts=counts,
     )
-    SignalReportArtefact.add_log(
+    append_code_review(
         team_id=input.team_id,
         report_id=input.signal_report_id,
         content=content,

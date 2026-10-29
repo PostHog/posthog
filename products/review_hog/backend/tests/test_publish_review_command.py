@@ -20,7 +20,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
 from products.review_hog.backend.reviewer.tools.publish_review import PublishOutcome
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 _PUBLISH = "products.review_hog.backend.management.commands.publish_review.publish_persisted_review"
 _INTEGRATION = (

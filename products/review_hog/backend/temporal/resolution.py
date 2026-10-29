@@ -112,8 +112,8 @@ from products.review_hog.backend.temporal.activities import (
     validate_github_integration_activity,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_MANUAL, ResolvePRWorkflowInputs
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Commit, NoteArtefact, TaskRunArtefact
+from products.signals.backend.facade.report_artefacts import Commit, NoteArtefact, TaskRunArtefact
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 

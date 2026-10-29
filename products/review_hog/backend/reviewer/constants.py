@@ -16,7 +16,7 @@ from products.review_hog.backend.reviewer.review_design import (
     REVIEW_DESIGN_REASON_KILL_SWITCH,
     REVIEW_DESIGN_SINGLE_AGENT,
 )
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
     RuntimeAdapter,

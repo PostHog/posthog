@@ -27,7 +27,7 @@ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chu
 from products.review_hog.backend.reviewer.persistence import persist_chunk_set, persist_perspective_results
 from products.review_hog.backend.reviewer.progress import record_run_outcome
 from products.review_hog.backend.temporal.client import QueuedReviewHeads
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.stamphog.backend.facade.review_evidence import ReviewEvidenceState, get_review_evidence_providers
 
 REPOSITORY = "PostHog/posthog"

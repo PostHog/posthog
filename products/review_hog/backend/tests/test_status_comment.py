@@ -54,7 +54,7 @@ from products.review_hog.backend.reviewer.status_comment import (
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
 from products.review_hog.backend.temporal.activities import _fail_run
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 _MODULE = "products.review_hog.backend.reviewer.status_comment"
 _REQUEST = f"{_MODULE}.github_api_request"
