@@ -13,7 +13,7 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from functools import cache, partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
@@ -29,6 +29,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import top_level_
 from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
 from posthog.hogql.property_metadata import load_property_metadata
+from posthog.hogql.resolver import JoinSources
 from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -49,6 +50,11 @@ FLAG_EVALUATIONS_COMPLETE_DAYS = 89
 _FLAG_KEY_PROPERTY = "$feature_flag"
 
 _Predicate = Callable[[ast.Expr], bool]
+
+
+class _Resolve(Protocol):
+    def __call__(self, node: _T_AST, *, join_sources: JoinSources | None = None) -> _T_AST: ...
+
 
 _MAX_UTC_OFFSET = timedelta(hours=14)
 # How far before UTC midnight a date can start in some zone. A zone behind UTC can still be on the previous date, and
@@ -135,9 +141,7 @@ def can_read_flag_evaluations(
     )
 
 
-def resolve_flag_calls_from_flag_evaluations(
-    node: _T_AST, context: HogQLContext, resolve: Callable[[_T_AST], _T_AST]
-) -> _T_AST:
+def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext, resolve: _Resolve) -> _T_AST:
     """`node` resolved with `resolve`, with each `events` scan that `can_read_flag_evaluations` accepts reading
     `posthog.flag_evaluations` instead.
 
@@ -160,7 +164,8 @@ def resolve_flag_calls_from_flag_evaluations(
     too when the resolved original shows that its filters pin `event` to flag calls in its WHERE or PREWHERE. The
     query raises when such a scan cannot swap.
 
-    The resolver inlines a saved view's body, so the swap never sees a scan inside one. Once `events` gets no flag
+    A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading `events`.
+    Once `events` gets no flag
     calls, a query that reads a view whose body reads only flag calls from `events` raises.
     """
     database = context.database
@@ -194,6 +199,7 @@ def _resolve_with_swaps(
         return resolve(node)
     with context.timings.measure("flag_calls_from_flag_evaluations"):
         rewritten = clone_expr(node)
+        clones = _join_clones(node, rewritten) if only_in_flag_evaluations else {}
         swapper = _EventsScanSwapper(
             now=datetime.now(UTC),
             timezone=ZoneInfo(database.get_timezone()),
@@ -206,10 +212,11 @@ def _resolve_with_swaps(
         if only_in_flag_evaluations:
             raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0])
         logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=swapper.refusals[0])
-    original = resolve(node)
-    if only_in_flag_evaluations:
+    sources = JoinSources() if only_in_flag_evaluations else None
+    original = resolve(node, join_sources=sources)
+    if sources is not None:
         with context.timings.measure("flag_calls_from_flag_evaluations_by_type"):
-            refusal = swapper.swap_scans_found_by_type(rewritten, original)
+            refusal = swapper.swap_scans_found_by_type(original, sources, clones)
         if refusal is not None:
             raise _flag_calls_only_in_flag_evaluations_error(refusal)
     if not swapper.swapped:
@@ -813,57 +820,53 @@ class _EventsScanSwapper(ScanVisitor):
         point_scan_at(node, scan, ["posthog", "flag_evaluations"], flag_key)
         self.swapped = True
 
-    def swap_scans_found_by_type(self, rewritten: ast.AST, resolved: ast.AST) -> str | None:
-        """Swap each scan in `rewritten` that `resolved`, the resolved original, shows reads only flag calls, such as
-        a scan joined after another table. Returns why one of them cannot swap, or None.
+    def swap_scans_found_by_type(self, resolved: ast.AST, sources: JoinSources, clones: "_JoinClones") -> str | None:
+        """Swap each scan of the clone that `resolved`, the resolved original, shows reads only flag calls, such as
+        a scan joined after another table. `sources` holds the original join of each resolved join, and `clones`
+        holds the clone of each original join. Returns why one of them cannot swap, or None.
 
-        A resolved scan maps to its unresolved `JoinExpr` by source position. A scan without a position, or with one
-        that another join shares, cannot swap. A query built from several parsed fragments can repeat a position.
+        A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading events.
+        Any other scan without a clone cannot swap.
         """
-        resolved_joins = _joins(resolved)
-        scans = [
-            join
-            for select, join in resolved_joins
-            if _is_events_scan(join.type)
-            and _pins_flag_calls(filter_conjuncts(select), partial(_reads_event_of, join.type), None)
-        ]
-        if not scans:
-            return None
-        resolved_spans = Counter(_span(join) for _, join in resolved_joins)
-        unresolved_by_span: dict[_Span | None, list[tuple[ast.SelectQuery, ast.JoinExpr]]] = {}
-        for select, join in _joins(rewritten):
-            unresolved_by_span.setdefault(_span(join), []).append((select, join))
-        for scan in scans:
-            span = _span(scan)
-            matches = unresolved_by_span.get(span, []) if span is not None else []
-            if matches and all(_table_chain(join) == ["posthog", "flag_evaluations"] for _, join in matches):
-                # The syntactic rules already swapped every join at this position.
+        for select, join in _joins(resolved):
+            if not _is_events_scan(join.type) or sources.is_added(join):
                 continue
-            if len(matches) != 1 or resolved_spans[span] != 1:
-                return _UNMOVABLE_SCAN
-            [(select, join)] = matches
-            if _table_chain(join) != ["events"]:
-                return _UNMOVABLE_SCAN
+            if not _pins_flag_calls(filter_conjuncts(select), partial(_reads_event_of, join.type), None):
+                continue
+            source = sources.source_of(join)
+            clone = clones.get(id(source)) if source is not None else None
+            if clone is None:
+                return "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
+            _, clone_select, clone_join = clone
+            chain = _table_chain(clone_join)
+            if chain == ["posthog", "flag_evaluations"]:
+                # The syntactic rules, or an earlier resolved join from the same source, already swapped it.
+                continue
+            if chain != ["events"]:
+                return "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
             events_scan = EventsScan(
-                join=join,
-                alias=join.alias or "events",
+                join=clone_join,
+                alias=clone_join.alias or "events",
                 has_other_sources=True,
                 flag_key_compares_as_string=self.flag_key_compares_as_string,
             )
-            refusal = events_scan.shape_refusal(select)
+            refusal = events_scan.shape_refusal(clone_select)
             if refusal is not None:
                 return refusal
-            self._swap(select, events_scan, filter_conjuncts(select))
+            self._swap(clone_select, events_scan, filter_conjuncts(clone_select))
         return None
 
 
-_UNMOVABLE_SCAN = "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
+# Keyed by the id of each original join. Each entry keeps its original join alive, so no other node can take its id.
+_JoinClones = dict[int, tuple[ast.JoinExpr, ast.SelectQuery, ast.JoinExpr]]
 
-_Span = tuple[int, int]
 
-
-def _span(node: ast.Expr) -> _Span | None:
-    return (node.start, node.end) if node.start is not None and node.end is not None else None
+def _join_clones(original: ast.AST, clone: ast.AST) -> _JoinClones:
+    """Each join of `original`, with the `SelectQuery` and `JoinExpr` in its place in `clone`, a copy of it."""
+    return {
+        id(join): (join, clone_select, clone_join)
+        for (_, join), (clone_select, clone_join) in zip(_joins(original), _joins(clone), strict=True)
+    }
 
 
 def _table_chain(join: ast.JoinExpr) -> list[str | int] | None:
@@ -884,20 +887,11 @@ class _JoinCollector(SyntaxVisitor):
         self.joins: list[tuple[ast.SelectQuery, ast.JoinExpr]] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        # The resolver inlines a saved view's body, parsed from the view's own text. Its offsets do not point into
-        # the query. The swap cannot reach it.
-        if node.view_name is not None:
-            return
         join = node.select_from
         while join is not None:
             self.joins.append((node, join))
             join = join.next_join
         super().visit_select_query(node)
-
-    def visit_alias(self, node: ast.Alias) -> None:
-        # The resolver inlines a saved expression's body in a hidden alias. The swap cannot reach it.
-        if not node.hidden:
-            super().visit_alias(node)
 
 
 def _is_events_scan(table_type: ast.Type | None) -> bool:

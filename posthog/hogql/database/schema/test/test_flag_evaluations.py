@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import (
@@ -26,6 +27,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     HogQLQueryModifiers,
     HogQLQueryResponse,
+    InlineCohortCalculation,
     PersonPropertyFilter,
     PersonsOnEventsMode,
     PropertyGroupsMode,
@@ -48,7 +50,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
-from posthog.models import PropertyDefinition
+from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import create_group
 from posthog.models.property import TableColumn
 from posthog.models.utils import uuid7
@@ -59,6 +61,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import insert_static_cohort
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -78,6 +81,43 @@ PROBE_DISTINCT_IDS = "(SELECT 'probe-distinct-id' AS id) AS d"
 UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN = (
     f"SELECT count() FROM events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id WHERE {FLAG_CALL_CONJUNCTS}"
 )
+
+
+def _create_flag_calls_view(team: Team) -> str:
+    DataWarehouseSavedQuery.objects.create(
+        team=team,
+        name="flag_calls_view",
+        query={"kind": "HogQLQuery", "query": UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN},
+        columns={"count()": "UInt64"},
+    )
+    return "SELECT * FROM flag_calls_view WHERE '$feature_flag_called' != ''"
+
+
+def _create_flag_calls_expression(team: Team) -> str:
+    DataWarehouseExpression.objects.for_team(team.pk).create(
+        team=team, table_name="events", field_name="flag_calls", expression=f"({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})"
+    )
+    return "SELECT flag_calls FROM events WHERE event != '$feature_flag_called' AND timestamp >= now() - INTERVAL 7 DAY"
+
+
+def _create_flag_calls_cohort(team: Team) -> str:
+    performed_flag_call = {
+        "key": "$feature_flag_called",
+        "type": "behavioral",
+        "value": "performed_event",
+        "negation": False,
+        "event_type": "events",
+        "time_value": 30,
+        "time_interval": "day",
+    }
+    cohort = Cohort.objects.create(
+        team=team, filters={"properties": {"type": "OR", "values": [{"type": "AND", "values": [performed_flag_call]}]}}
+    )
+    return (
+        "SELECT count() FROM events WHERE event IN ('$feature_flag_called', '$pageview') "
+        f"AND person_id IN COHORT {cohort.pk} AND timestamp >= now() - INTERVAL 7 DAY"
+    )
+
 
 # Compares greater than 9 as a number and less than it as a string, so the assertion tells the two
 # apart rather than passing under either.
@@ -220,7 +260,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     def _query_events(
         self,
-        query: str | ast.SelectQuery | ast.SelectSetQuery,
+        query: str | ast.SelectQuery,
         *,
         rewrite: bool = True,
         filters: HogQLFilters | None = None,
@@ -735,11 +775,9 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [("calls", 1), ("pageviews", 1)],
             ),
             (
-                "union_of_one_parsed_template_twice",
-                ast.SelectSetQuery.create_from_queries(
-                    [parse_select(FLAG_CALLS_ON_EVENTS), parse_select(FLAG_CALLS_ON_EVENTS)], "UNION ALL"
-                ),
-                [(1,), (1,)],
+                "type_cast",
+                f"SELECT CAST(({FLAG_CALLS_ON_EVENTS}) AS String)",
+                [("1",)],
             ),
             (
                 "filters_placeholder",
@@ -751,11 +789,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_each_select_on_events_reads_flag_evaluations_on_its_own(
-        self,
-        _name: str,
-        query: str | ast.SelectSetQuery,
-        expected: list[tuple],
-        filters: HogQLFilters | None = None,
+        self, _name: str, query: str, expected: list[tuple], filters: HogQLFilters | None = None
     ):
         _create_event(team=self.team, event="$pageview", distinct_id="probe-distinct-id", timestamp=self.occurred_at)
         flush_persons_and_events()
@@ -765,6 +799,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("unqualified_filters_next_to_a_join", UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN, [(1,)]),
+            (
+                "query_built_without_source_positions",
+                clear_locations(parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN)),
+                [(1,)],
+            ),
             (
                 "events_after_another_table",
                 f"SELECT count() FROM {PROBE_DISTINCT_IDS} JOIN events AS e ON e.distinct_id = d.id "
@@ -786,6 +825,21 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [(1,)],
             ),
             (
+                "scan_in_a_subquery",
+                f"SELECT * FROM ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})",
+                [(1,)],
+            ),
+            (
+                "scan_in_a_type_cast",
+                f"SELECT ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})::String",
+                [("1",)],
+            ),
+            (
+                "scan_in_a_cte_body",
+                f"WITH calls AS ({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN}) SELECT * FROM calls",
+                [(1,)],
+            ),
+            (
                 "filter_on_an_alias_of_event",
                 "SELECT event AS name, count() FROM events "
                 "WHERE name = '$feature_flag_called' AND timestamp >= now() - INTERVAL 7 DAY GROUP BY name",
@@ -794,7 +848,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_scan_that_only_resolution_shows_reads_flag_calls_swaps_once_events_gets_no_flag_calls(
-        self, _name: str, query: str | ast.SelectQuery | ast.SelectSetQuery, expected: list[tuple]
+        self, _name: str, query: str | ast.SelectQuery, expected: list[tuple]
     ):
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         assert (
@@ -864,8 +918,9 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "selects \\* or COLUMNS",
             ),
             (
-                "scan_without_a_source_position",
-                clear_locations(parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN)),
+                "posthog_events_next_to_a_join",
+                f"SELECT count() FROM posthog.events AS e JOIN {PROBE_DISTINCT_IDS} ON e.distinct_id = d.id "
+                f"WHERE {FLAG_CALL_CONJUNCTS}",
                 "it reads events in a shape that can't be moved",
             ),
         ]
@@ -935,6 +990,24 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         self, _name: str, query: str
     ):
         assert self._query_events(query).clickhouse == self._query_events(query, rewrite=False).clickhouse
+
+    @parameterized.expand(
+        [
+            ("saved_view_body", _create_flag_calls_view),
+            ("saved_expression", _create_flag_calls_expression),
+            ("inline_cohort", _create_flag_calls_cohort),
+        ]
+    )
+    def test_scan_that_the_resolver_adds_reads_events_once_events_gets_no_flag_calls(
+        self, _name: str, create_query: Callable[[Team], str]
+    ):
+        query = create_query(self.team)
+        modifiers = HogQLQueryModifiers(inlineCohortCalculation=InlineCohortCalculation.ALWAYS)
+
+        assert (
+            self._query_events(query, modifiers=modifiers).clickhouse
+            == self._query_events(query, rewrite=False, modifiers=modifiers).clickhouse
+        )
 
     @parameterized.expand(
         [
