@@ -1508,6 +1508,12 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
 }
 
 
+class CDCEngine(StrEnum):
+    """Change data capture engine of a source type, which picks its CDC setup form and status panel."""
+
+    POSTGRES = "postgres"
+
+
 class ManagedWarehouseSQLMode(StrEnum):
     EXTERNAL = "external"
     BUILT_IN = "built_in"
