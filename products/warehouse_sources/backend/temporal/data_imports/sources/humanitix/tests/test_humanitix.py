@@ -123,6 +123,65 @@ class TestEventFanout:
         )
 
 
+def _count(checked_in: int) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"checkedIn": checked_in, "ticketTypes": [{"ticketTypeId": "tt1", "checkedIn": checked_in}]}
+    )
+
+
+class TestCheckInCounts:
+    def test_fetches_one_count_per_live_event_date(self) -> None:
+        events: list[dict[str, Any]] = [
+            {"_id": "e1", "dates": [{"_id": "d1"}, {"_id": "d2", "deleted": True}]},
+            {"_id": "e2"},
+            {"_id": "e3", "dates": [{"_id": "d3"}, {"_id": "d4"}]},
+        ]
+        result = _driver().run(
+            "check_in_counts",
+            [
+                _page(events, total=3),
+                _count(5),
+                ScriptedResponse(status=404, json={"code": "event_not_found"}),
+                _count(0),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/events",
+            "/v1/events/e1/check-in-count",
+            "/v1/events/e3/check-in-count",
+            "/v1/events/e3/check-in-count",
+        ]
+        assert result.params("eventDateId")[1:] == ["d1", "d3", "d4"]
+        assert [(row["eventId"], row["eventDateId"], row["checkedIn"]) for row in result.rows] == [
+            ("e1", "d1", 5),
+            ("e3", "d4", 0),
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["eventId", "eventDateId"]
+        assert result.saved_states[-1] == HumanitixResumeConfig(next_page=1, current="e3:d4")
+
+    @parameterized.expand(
+        [
+            ("continues_after_marker", "e1:d1", ["d2"]),
+            ("rereads_page_when_marker_is_gone", "e9:d9", ["d1", "d2"]),
+        ]
+    )
+    def test_resume(self, _name: str, marker: str, expected_dates: list[str]) -> None:
+        events = [{"_id": "e1", "dates": [{"_id": "d1"}, {"_id": "d2"}]}]
+        result = _driver().run(
+            "check_in_counts",
+            [_page(events, total=PAGE_SIZE + 1)] + [_count(1) for _ in expected_dates],
+            resume_state=HumanitixResumeConfig(next_page=2, current=marker),
+        )
+
+        assert result.raised is None
+        assert result.params("page")[0] == "2"
+        assert result.params("eventDateId")[1:] == expected_dates
+        assert [row["eventDateId"] for row in result.rows] == expected_dates
+
+
 class TestRetryAndErrors:
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_auth_errors_raise_without_retry(self, _name: str, status: int) -> None:
