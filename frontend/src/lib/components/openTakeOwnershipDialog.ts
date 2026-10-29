@@ -43,8 +43,8 @@ export function openTakeOwnershipDialog({
             description:
                 reason ??
                 `This ${resourceLabel} runs with its owner's access, and the owner can no longer run it. Take ownership to run it with your access.`,
-            // Two sentences of copy; the default dialog width spans the screen.
-            maxWidth: '30rem',
+            // Two sentences of copy; the default dialog width spans the screen. 28rem is the modal's minimum.
+            width: '28rem',
             shouldAwaitSubmit: true,
             primaryButton: {
                 children: 'Take ownership and enable',
