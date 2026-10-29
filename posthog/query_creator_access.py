@@ -51,9 +51,8 @@ def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | N
             continue
         resource = model_to_resource(obj)
         # A model with no scope has no access rules, so there is nothing to deny.
-        if resource is None or user_access_control.check_access_level_for_object(obj, "viewer"):
-            continue
-        raise UserAccessControlError(resource, "viewer", str(obj.pk))
+        if resource is not None and not user_access_control.check_access_level_for_object(obj, "viewer"):
+            raise UserAccessControlError(resource, "viewer", str(obj.pk))
 
 
 def report_creator_access_revoked(
