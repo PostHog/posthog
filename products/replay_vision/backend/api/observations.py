@@ -780,6 +780,15 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
     )
+    watch_category = MultiChoiceFilter(
+        field_name="watch_rank__category",
+        valid_choices=frozenset(ISSUE_CATEGORIES),
+        error_key="watch_category",
+        help_text=(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: "
+            "failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
+    )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
         help_text=(

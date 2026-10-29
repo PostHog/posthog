@@ -135,7 +135,7 @@ def _generate(run: _Run, *, final_attempt: bool) -> TraceSummaryRun:
         return run.failed("trace_not_found")
     trace = Trace(job.trace_id, loaded.rows, loaded.person)
     root = load_trace_root(team, requester, job.trace_id, trace.created_at)
-    step_ids = [event.id for event in trace.events if not event.is_trace_event and not event.is_annotation]
+    step_ids = [event.id for event in trace.events if not event.is_trace_event]
     steps = load_trace_nodes(team, requester, job.trace_id, step_ids, trace.created_at)
     # Each read applies the restrictions in force when it runs. A change during the reads could put content under
     # an entry whose viewers may not read it.
