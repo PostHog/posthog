@@ -241,7 +241,7 @@ def test_manual_resume_of_pipeline_task_uses_phai_oauth(
     assert "include_interactive_run_scope" not in mock_create.call_args.kwargs
     first.refresh_from_db()
     assert first.state["sandbox_oauth_token_ids"] == [str(token.id)]
-    second = task.create_run(extra_state={"resume_from_run_id": str(first.id), "mode": "interactive"})
+    second = task.create_run(mode="interactive", extra_state={"resume_from_run_id": str(first.id)})
     assert "sandbox_oauth_token_ids" not in second.state
     token.token = "second-token"
     token.pk = None

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from uuid import UUID
 
 import structlog
 from temporalio import activity
@@ -51,6 +52,13 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
     Quota lookup failures fail open; the next check retries. Failed cancellation must
     preserve implementation records until the run is confirmed stopped.
     """
+    from products.signals.backend.facade.trial import (
+        check_trial_run_quota,  # noqa: PLC0415 -- trial cancellation imports this workflow package
+    )
+
+    trial_outcome = check_trial_run_quota(team=Team.objects.get(id=input.team_id), run_id=UUID(input.run_id))
+    if trial_outcome is not None:
+        return trial_outcome
     try:
         run = TaskRun.objects.select_related("task").filter(id=input.run_id, team_id=input.team_id).first()
         if run is None or run.is_terminal:

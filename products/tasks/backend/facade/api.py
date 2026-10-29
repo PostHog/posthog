@@ -1178,8 +1178,15 @@ def iter_trial_task_runs(*, team_id: int, grant_id: str) -> Iterator[contracts.T
         state__self_driving_funding__funding="trial",
         state__self_driving_funding__grant_id=grant_id,
     ).select_related("task", "task__created_by")
-    for run in runs.iterator(chunk_size=500):
-        yield _task_run_to_dto(run)
+    cursor: UUID | None = None
+    while True:
+        batch = list((runs.filter(id__gt=cursor) if cursor else runs).order_by("id")[:500])
+        if not batch:
+            return
+        # Cancellation can close database connections, so do not yield with a live cursor.
+        for run in batch:
+            yield _task_run_to_dto(run)
+        cursor = batch[-1].id
 
 
 def find_signal_implementation_run(
@@ -10050,10 +10057,20 @@ def run_task(
             "create_pr": True,
             "posthog_mcp_scopes": mcp_scopes_for_run_source(run_source),
         }
+    from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
+
+    trial_admission = prepare_task_trial(
+        team=task.team, origin=task.origin_product, report_id=task.signal_report_id, mode=mode
+    )
     try:
         with transaction.atomic():
             task_run = task.create_run(
-                mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id, scheduled_at=scheduled_at
+                mode=mode,
+                branch=branch,
+                extra_state=extra_state,
+                acting_user_id=user_id,
+                scheduled_at=scheduled_at,
+                _trial_admission=trial_admission,
             )
             if report_id_for_slot_check is not None:
                 enforce_report_implementation_rerun_cap(
@@ -12447,10 +12464,24 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
     ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
     """
+    from products.signals.backend.facade.trial import (
+        prepare_task_trial,  # noqa: PLC0415 -- Signals depends on the Tasks facade
+    )
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
+
+    admission_task = Task.objects.select_related("team").filter(id=task_id, team_id=team_id).first()
+    if admission_task is None:
+        return "not_found"
+    if acting_user_id is None or admission_task.created_by_id != acting_user_id:
+        return "forbidden"
+    trial_admission = prepare_task_trial(
+        team=admission_task.team,
+        origin=admission_task.origin_product,
+        report_id=admission_task.signal_report_id,
+    )
 
     with transaction.atomic():
         # of=("self",): FOR UPDATE cannot span the nullable created_by join.
@@ -12482,7 +12513,9 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
-        task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
+        task_run = task.create_run(
+            mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
+        )
         from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
             WorkflowDispatchOptions,
             enqueue_or_start_workflow,

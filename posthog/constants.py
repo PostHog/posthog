@@ -63,6 +63,8 @@ class AvailableFeature(StrEnum):
     POSTHOG_CODE_USAGE = "posthog_code_usage"
     TOOLBAR_HEATMAPS = "toolbar_heatmaps"
     PERSONAL_API_KEYS = "personal_api_keys"
+    SELF_DRIVING_TRIAL_ALLOWANCE_MICROUSD = "self_driving_trial_allowance_microusd"
+    SELF_DRIVING_TRIAL_REPORTS = "self_driving_trial_reports"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

@@ -255,6 +255,9 @@ def record_task_spend(
     if scout_run_id:
         kind = SignalSpend.Kind.SCOUT_RUN
         signal_id, report_id = None, None
+    elif stage == "custom_agent":
+        kind = SignalSpend.Kind.CUSTOM_AGENT
+        signal_id, report_id = None, None
     elif stage == "implementation":
         kind = SignalSpend.Kind(implementation_kind or SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION)
         if kind not in {
@@ -325,16 +328,16 @@ def register_report_task_spend(
     *,
     team_id: int,
     run_id: str,
-    report_id: str,
+    report_id: str | None,
     stage: str | None,
     signal_id: str | None = None,
     implementation_kind: str | None = None,
 ) -> None:
-    if stage not in {"research", "implementation", "repo_selection"}:
+    if stage not in {"research", "implementation", "repo_selection", "custom_agent"}:
         return
     if SignalSpend.objects.for_team(team_id).filter(task_run_id=run_id).exists():
         return
-    if stage != "implementation" and signal_id is None:
+    if stage not in {"implementation", "custom_agent"} and signal_id is None and report_id is not None:
         signal_id = report_triggering_signal(team_id=team_id, report_id=report_id)
     record_task_spend(
         team_id=team_id,

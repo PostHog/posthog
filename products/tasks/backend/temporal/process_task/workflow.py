@@ -652,6 +652,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.CI_FOLLOW_UP
 
     def _self_driving_quota_recheck_scheduled(self) -> bool:
+        if not self._self_driving_quota_checks_active or self._context is None:
+            return False
+        if (self.context.state or {}).get("self_driving_funding", {}).get("funding") == "trial" and workflow.patched(
+            "self-driving-trial-quota-rechecks"
+        ):
+            return True
         return (
             self._self_driving_quota_checks_active
             and self._context is not None
@@ -1412,8 +1418,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             if not self._task_completed:
                                 self._completion_status = "cancelled"
                                 self._completion_error = (
-                                    "Stopped automatically: the organization reached its "
-                                    "self-driving pull request limit."
+                                    "Stopped: the project's one-time Self-driving trial allowance is exhausted."
+                                    if (self.context.state or {}).get("self_driving_funding", {}).get("funding")
+                                    == "trial"
+                                    and workflow.patched("self-driving-trial-quota-rechecks")
+                                    else "Stopped automatically: the organization reached its self-driving pull request limit."
                                 )
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
