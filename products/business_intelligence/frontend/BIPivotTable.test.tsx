@@ -243,7 +243,7 @@ describe('BIPivotTable', () => {
         }
         fireEvent.scroll(scroll, { target: { scrollTop: 300 * 36 } })
         for (const action of ['Collapse', 'Expand']) {
-            fireEvent.click(screen.getByRole('button', { name: `${action} 2026` }))
+            fireEvent.click(screen.getByLabelText(`${action} 2026`))
             expect(scroll.scrollTop).toBe(300 * 36)
         }
     })
