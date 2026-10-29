@@ -322,6 +322,7 @@ class TestSharing(APIBaseTest):
         data = response.json()
         assert response.status_code == status.HTTP_200_OK
         assert data["enabled"]
+        assert SharingConfiguration.objects.get(dashboard=self.dashboard).shared_by_id == self.user.id
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
 
@@ -340,6 +341,21 @@ class TestSharing(APIBaseTest):
             ("sharing enabled", self.user.id),
             ("sharing disabled", self.user.id),
         ]
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_resharing_replaces_publisher_but_other_edits_preserve_it(self, _export: Mock) -> None:
+        other = User.objects.create_and_join(self.organization, "publisher@example.com", None)
+        configuration = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, shared_by=other
+        )
+        url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing"
+        for payload in ({"settings": {}}, {"enabled": False}):
+            assert self.client.patch(url, payload, format="json").status_code == 200
+            configuration.refresh_from_db()
+            assert configuration.shared_by_id == other.id
+        assert self.client.patch(url, {"enabled": True}, format="json").status_code == 200
+        configuration.refresh_from_db()
+        assert configuration.shared_by_id == self.user.id
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
@@ -788,6 +804,7 @@ class TestSharing(APIBaseTest):
         new_config = SharingConfiguration.objects.get(dashboard=self.dashboard, expires_at__isnull=True)
         assert new_config.access_token == new_token
         assert new_config.pk != original_config.pk
+        assert new_config.shared_by_id == original_config.shared_by_id == self.user.id
 
         # Old config should be expired
         original_config.refresh_from_db()

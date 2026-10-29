@@ -569,7 +569,7 @@ class SharingConfigurationViewSet(
 
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        serializer.save(**({"shared_by": request.user} if serializer.validated_data.get("enabled") else {}))
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name
