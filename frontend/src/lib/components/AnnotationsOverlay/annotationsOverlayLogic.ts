@@ -477,24 +477,33 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 }
                 // Interpolate between the actual data points instead of assuming one point per interval:
                 // SQL charts can skip dates or bucket coarser than the insight interval.
-                const pointTimes = dates.map((date) => parseDateInTimezone(date, timezone).valueOf())
+                // SQL charts can have tens of thousands of points, so binary search and parse only the dates it visits.
+                const pointTime = (index: number): number => parseDateInTimezone(dates[index], timezone).valueOf()
                 const lastIndex = dates.length - 1
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {
                         const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
                         const time = date.valueOf()
-                        const nextIndex = pointTimes.findIndex((pointTime) => pointTime > time)
+                        let nextIndex = 0
+                        let end = dates.length
+                        while (nextIndex < end) {
+                            const middle = (nextIndex + end) >> 1
+                            if (pointTime(middle) > time) {
+                                end = middle
+                            } else {
+                                nextIndex = middle + 1
+                            }
+                        }
                         // Before the first point → negative, filtered out below. Past the final point → snap
                         // onto it rather than extrapolating off the canvas.
-                        const dataIndex =
-                            nextIndex === -1
-                                ? lastIndex
-                                : nextIndex === 0
-                                  ? -1
-                                  : nextIndex -
-                                    1 +
-                                    (time - pointTimes[nextIndex - 1]) /
-                                        (pointTimes[nextIndex] - pointTimes[nextIndex - 1])
+                        if (nextIndex === dates.length) {
+                            return { dateKey, date, dataIndex: lastIndex }
+                        }
+                        if (nextIndex === 0) {
+                            return { dateKey, date, dataIndex: -1 }
+                        }
+                        const previousTime = pointTime(nextIndex - 1)
+                        const dataIndex = nextIndex - 1 + (time - previousTime) / (pointTime(nextIndex) - previousTime)
                         return { dateKey, date, dataIndex }
                     })
                     .filter(({ dataIndex }) => dataIndex >= 0)
