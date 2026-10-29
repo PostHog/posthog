@@ -423,7 +423,7 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.WebAnalyticsRecap]: AccessControlResourceType.WebAnalytics,
 
     // Marketing Analytics
-    [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+    [Scene.MarketingAnalytics]: AccessControlResourceType.MarketingAnalytics,
 
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,
