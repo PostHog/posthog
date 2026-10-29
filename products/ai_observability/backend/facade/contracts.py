@@ -169,6 +169,26 @@ class TraceEvaluationResults(Contract):
     summary: TraceEvaluationSummary
 
 
+class TraceCluster(Contract):
+    run_id: str = Field(
+        description="The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id."
+    )
+    run_at: datetime = Field(description="When the run finished.")
+    job_id: str | None = Field(description="The clustering job the run belongs to, null for a run without a job.")
+    job_name: str | None
+    cluster_id: int = Field(description="The cluster's id within its run. -1 is the run's outliers.")
+    title: str | None
+    description: str | None
+    is_outlier: bool = Field(description="The trace fit no cluster in this run.")
+
+
+class TraceClusters(Contract):
+    clusters: list[TraceCluster] = Field(
+        description="The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. "
+        "Manual runs are left out. Clusters come before outliers, then newest first."
+    )
+
+
 class TraceFeedbackScore(Contract):
     id: str
     name: str | None
@@ -270,6 +290,20 @@ class TraceFeedback(Contract):
         description="ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes."
     )
     summary: TraceFeedbackSummary
+
+
+class TraceSearchMatch(Contract):
+    node_id: str = Field(description="A step whose stored data contains the query. The root's id is the trace id.")
+    count: int = Field(
+        description="How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too."
+    )
+
+
+class TraceSearchResults(Contract):
+    total: int = Field(description="Occurrences of the query across every matching step.")
+    matches: list[TraceSearchMatch] = Field(
+        description="Matching steps in tree order, the root first. Steps without a match are left out."
+    )
 
 
 TraceSummaryStatus = Literal["pending", "ready", "failed"]

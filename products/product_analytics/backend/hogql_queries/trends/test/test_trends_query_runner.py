@@ -8061,6 +8061,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(11, len(result["data"]), "Should have 11 days of data")
             self.assertEqual(result["count"], sum(result["data"]), "Count should equal sum of data points")
 
+        # A series saved without a name displays the action's name from here, also inside a group.
+        self.assertEqual(
+            {str(page_action.id): "Page Action", str(pageview_action.id): "Pageview Action"}, response.action_names
+        )
+
     @parameterized.expand(
         [
             (

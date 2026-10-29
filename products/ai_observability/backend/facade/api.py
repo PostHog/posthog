@@ -25,6 +25,8 @@ from ..logic.evaluations.period import (
 )
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
+from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
+from ..logic.traces.clusters import ClusterMemberships, TraceCluster
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
@@ -47,7 +49,14 @@ from ..logic.traces.summary_store import fail_abandoned_summary, request_summary
 from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
-from ..logic.traces.trace_queries import load_trace, load_trace_feedback_rows, load_trace_node, load_trace_root
+from ..logic.traces.trace_queries import (
+    load_trace,
+    load_trace_feedback_rows,
+    load_trace_node,
+    load_trace_root,
+    load_trace_search,
+)
+from ..logic.traces.trace_search import TraceSearchResult
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
@@ -204,6 +213,20 @@ def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail
     )
 
 
+def search_trace(
+    team: Team, user: User | None, trace_id: str, query: str, timestamp_hint: datetime | None
+) -> contracts.TraceSearchResults:
+    """Raises `TraceNotFoundError`, and `ClickHouseQueryTimeOut` when the search outlasts its time limit."""
+    loaded = load_trace_search(team, user, trace_id, query, timestamp_hint)
+    if not loaded.rows:
+        raise TraceNotFoundError(trace_id)
+    result = TraceSearchResult.of(Trace(trace_id, loaded.rows, None), loaded.counts, query)
+    return contracts.TraceSearchResults(
+        total=result.total,
+        matches=[contracts.TraceSearchMatch(node_id=match.node_id, count=match.count) for match in result.matches],
+    )
+
+
 def resolve_evaluation_pass_markers[P](properties: list[P], team_id: int) -> list[P]:
     """Replace each evaluation pass marker with the team's current condition."""
     markers = {contracts.EVALUATION_GRADED_MARKER, contracts.EVALUATION_PASSED_MARKER}
@@ -251,6 +274,36 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
         reasoning=result.reasoning,
         timestamp=result.timestamp,
         is_backfill=result.is_backfill,
+    )
+
+
+def is_usable_trace_start(created_at: datetime) -> bool:
+    try:
+        ClusterRunWindow.for_trace(created_at)
+    except OverflowError:
+        return False
+    return True
+
+
+def get_trace_clusters(team: Team, user: User | None, trace_id: str, created_at: datetime) -> contracts.TraceClusters:
+    if not can_read_clusters(team, user):
+        return contracts.TraceClusters(clusters=[])
+    runs = load_cluster_runs(team, user, trace_id, ClusterRunWindow.for_trace(created_at))
+    return contracts.TraceClusters(
+        clusters=[_to_trace_cluster(cluster) for cluster in ClusterMemberships.of(trace_id, runs).clusters]
+    )
+
+
+def _to_trace_cluster(cluster: TraceCluster) -> contracts.TraceCluster:
+    return contracts.TraceCluster(
+        run_id=cluster.run_id,
+        run_at=cluster.run_at,
+        job_id=cluster.job_id,
+        job_name=cluster.job_name,
+        cluster_id=cluster.cluster_id,
+        title=cluster.title,
+        description=cluster.description,
+        is_outlier=cluster.is_outlier,
     )
 
 

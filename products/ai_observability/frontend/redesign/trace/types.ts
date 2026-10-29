@@ -128,6 +128,12 @@ export interface LabeledLink {
     href: string
 }
 
+export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+export type TraceSearchFailure = 'too_slow' | 'failed'
+
+export type MatchDirection = 'next' | 'previous'
+
 export type SummaryItemKind = 'bullet' | 'note'
 
 /** Why a summary request failed. `throttled` means the user reached their summary limit. */

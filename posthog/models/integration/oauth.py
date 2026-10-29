@@ -23,6 +23,7 @@ from posthog.credentials_service.instance_settings import get_many_or_instance_s
 from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope
@@ -555,8 +556,8 @@ class OauthIntegration:
     def __str__(self) -> str:
         return f"OauthIntegration(integration={self.integration.id}, kind={self.integration.kind}, team={self.integration.team_id})"
 
-    def __init__(self, integration: model.Integration) -> None:
-        self.integration = integration
+    def __init__(self, integration: IntegrationRecord) -> None:
+        self.integration = model.integration_model(integration)
 
     @classmethod
     @cache_for(timedelta(minutes=5))
