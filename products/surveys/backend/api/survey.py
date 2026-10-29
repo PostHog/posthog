@@ -72,6 +72,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic
 from products.feature_flags.backend.api.feature_flag import (
@@ -1922,10 +1923,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 feature_flag_id=validated_data["targeting_flag_id"],
             )
-        # The survey row and its flags are one unit. The gate can reject a flag write after the
-        # row is saved, which would leave a survey with no targeting or internal flag and no way
-        # to retry, so keep the whole create in one block.
-        with gated_atomic():
+        # The survey row and its flags are one unit. A flag write can fail after the row is saved,
+        # which would leave a survey with no targeting or internal flag and no way to retry, so keep
+        # the whole create in one block. A create only mints flags, and a minted flag never leaves a
+        # change request behind, so there is nothing for `gated_atomic` to restore.
+        with transaction.atomic():
             if validated_data.get("targeting_flag_filters"):
                 assert_feature_flag_write_scope(
                     self.context["request"],
@@ -2295,19 +2297,30 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 request.method = "POST"
                 random_id = generate("1234567890abcdef", 10)
                 feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}{flag_name_suffix or ''}")
-                return create_flag(
-                    {
-                        "key": feature_flag_key,
-                        "name": f"Targeting flag for survey {name}",
-                        "filters": filters,
-                        "active": active,
-                        "creation_context": "surveys",
-                    },
-                    team=team,
-                    user=request.user,
-                    request=request,
-                    serializer_context=self.context,
-                )
+                # An approved change request replays only the flag write. The survey that links the
+                # flag is not part of it, so approval would create an orphan flag and no survey.
+                # Refuse the write instead, and let the savepoint take the change request with it.
+                try:
+                    with transaction.atomic():
+                        return create_flag(
+                            {
+                                "key": feature_flag_key,
+                                "name": f"Targeting flag for survey {name}",
+                                "filters": filters,
+                                "active": active,
+                                "creation_context": "surveys",
+                            },
+                            team=team,
+                            user=request.user,
+                            request=request,
+                            serializer_context=self.context,
+                            owner=FLAG_OWNER_SURVEY,
+                        )
+                except ApprovalRequired:
+                    raise serializers.ValidationError(
+                        "A feature flag approval policy covers the flag this survey needs, so the survey "
+                        "can't be saved. Ask someone who can bypass the policy to save it."
+                    )
 
 
 class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):

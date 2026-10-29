@@ -7923,23 +7923,48 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
 
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
-    def test_create_writes_its_internal_flag_through_the_rollout_gate(self) -> None:
+    @parameterized.expand(
+        [
+            ("scoped_by_owner", True, status.HTTP_201_CREATED),
+            ("flag_policies_cover_every_flag", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_create_mints_its_flags_without_a_change_request(
+        self, _name: str, scoped_by_owner: bool, expected_status: int
+    ) -> None:
         self._create_policy("feature_flag.update")
-
         surveys_before = Survey.objects.filter(team=self.team).count()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={"name": "Gated survey", "type": "popover", "questions": [{"type": "open", "question": "Q?"}]},
-            format="json",
-        )
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=scoped_by_owner):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/surveys/",
+                data={
+                    "name": "Gated survey",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "Q?"}],
+                    "targeting_flag_filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ]
+                    },
+                },
+                format="json",
+            )
 
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        # The internal flag is written after the survey row, so a rejected gate must take the row with it.
-        assert Survey.objects.filter(team=self.team).count() == surveys_before
-        assert response.json()["status"] == "approval_required"
-        change_request = ChangeRequest.objects.get(team=self.team, action_key="feature_flag.update")
-        assert response.json()["change_request_id"] == str(change_request.id)
+        assert response.status_code == expected_status, response.json()
+        if not scoped_by_owner:
+            assert "approval policy" in response.json()["detail"]
+        assert Survey.objects.filter(team=self.team).count() == surveys_before + (1 if scoped_by_owner else 0)
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
+        if scoped_by_owner:
+            survey = Survey.objects.get(id=response.json()["id"])
+            assert survey.targeting_flag is not None
+            assert survey.internal_targeting_flag is not None
 
     def test_targeting_filter_change_goes_through_the_rollout_gate(self) -> None:
         self._create_policy("feature_flag.update")
@@ -7973,11 +7998,11 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert FeatureFlag.objects.filter(pk=existing_flag_id).exists()
         self.survey.refresh_from_db()
         assert self.survey.targeting_flag_id == existing_flag_id
-        assert ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.update").exists()
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
 
 
 class TestSurveyListTypeFilter(APIBaseTest):
