@@ -1,16 +1,22 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React, { useEffect, useMemo, useRef } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { todayAiChatLogic } from '~/layout/today/todayAiChatLogic'
 import { SidePanelTab } from '~/types'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { attachedContextItemKey, attachedContextLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { MAX_SIDE_PANEL_ID } from './components/PhaiSidePanelChat'
 import { ToolDefinition, ToolRegistration, getToolDefinition } from './max-constants'
@@ -38,6 +44,24 @@ export interface UseMaxToolReturn {
     openMax: (() => void) | null
 }
 
+const MAX_TOOL_CONTEXT_LENGTH = 4096
+
+function toolPageContextItems(
+    identifier: string,
+    context: Record<string, unknown> | undefined,
+    dismissGroup: string
+): AttachedContextItem[] {
+    const path = removeProjectIdIfPresent(router.values.location.pathname)
+    const sceneId = sceneLogic.findMounted()?.values.activeSceneId
+    const sceneName = sceneId ? sceneConfigurations[sceneId]?.name : undefined
+    const items: AttachedContextItem[] = [{ type: 'page', key: path, label: sceneName || path, dismissGroup }]
+    const value = context && Object.keys(context).length > 0 ? JSON.stringify(context) : null
+    if (value && value.length <= MAX_TOOL_CONTEXT_LENGTH) {
+        items.push({ type: 'tool_context', label: identifier, value, hidden: true, dismissGroup })
+    }
+    return items
+}
+
 /** Hook for registering a MaxTool and handling Max interactions programmatically, without the full MaxTool wrapper. */
 export function useMaxTool({
     identifier,
@@ -52,6 +76,7 @@ export function useMaxTool({
     onMaxOpen,
 }: UseMaxToolOptions): UseMaxToolReturn {
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
+    const { registerContext, deregisterContext, undismissContext } = useActions(attachedContextLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -59,6 +84,7 @@ export function useMaxTool({
     const definition = getToolDefinition(identifier)
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
     const activeIdentifierRef = useRef<string | null>(null)
+    const contextProviderIdRef = useRef<string>(`max-tool-${uuid()}`)
     const contextKey = useMemo(() => JSON.stringify(context), [context])
 
     useEffect(() => {
@@ -102,13 +128,15 @@ export function useMaxTool({
     ])
 
     useEffect(() => {
+        const contextProviderId = contextProviderIdRef.current
         return (): void => {
             if (activeIdentifierRef.current) {
                 deregisterTool(activeIdentifierRef.current)
                 activeIdentifierRef.current = null
             }
+            deregisterContext(contextProviderId)
         }
-    }, [deregisterTool])
+    }, [deregisterTool, deregisterContext])
 
     return {
         definition: active ? definition : null,
@@ -131,6 +159,12 @@ export function useMaxTool({
                       unmount()
                   } else {
                       startNewConversation()
+                  }
+                  if (maxGlobalLogic.values.effectivePhaiView === 'new') {
+                      const providerId = contextProviderIdRef.current
+                      const items = toolPageContextItems(identifier, context, providerId)
+                      undismissContext(attachedContextItemKey(items[0]), providerId)
+                      registerContext(providerId, items)
                   }
                   // Show the suggestions from this specific tool
                   if (definition && suggestions && suggestions.length > 0) {

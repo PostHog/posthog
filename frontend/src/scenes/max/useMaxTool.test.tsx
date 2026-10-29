@@ -10,7 +10,7 @@ import { todayPanelChatSessionLogic } from '~/layout/today/todayPanelChatSession
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { attachedContextLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { MAX_SIDE_PANEL_ID } from './components/PhaiSidePanelChat'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -109,6 +109,10 @@ describe('useMaxTool', () => {
 
         expect(runner.values.activeCreation).toBeNull()
         expect(panelChat.values.previousChatsHintQueued).toBe(hintQueued)
+        expect(attachedContextLogic.values.contextItems).toEqual([
+            expect.objectContaining({ type: 'page', key: expect.any(String) }),
+            expect.objectContaining({ type: 'tool_context', value: JSON.stringify({ query: 'select 1' }) }),
+        ])
         expect(sidePanelStateLogic.values.selectedTab).toEqual(SidePanelTab.Max)
         panelChat.unmount()
     })
