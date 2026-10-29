@@ -58,10 +58,10 @@ class TestBackfillSharingPublishers(BaseTest):
         )
         call_command("backfill_sharing_publishers", dry_run=True, batch_size=1, stdout=StringIO())
         share.refresh_from_db()
-        assert share.shared_by_id is None
+        self.assertIsNone(share.shared_by_id)
         call_command("backfill_sharing_publishers", team_id=other_team.pk, stdout=StringIO())
         share.refresh_from_db()
-        assert share.shared_by_id is None
+        self.assertIsNone(share.shared_by_id)
         for _ in range(2):
             call_command("backfill_sharing_publishers", batch_size=1, stdout=StringIO())
         share.refresh_from_db()
@@ -91,7 +91,7 @@ class TestBackfillSharingPublishers(BaseTest):
                 )
             call_command("backfill_sharing_publishers", stdout=StringIO())
             share.refresh_from_db()
-            assert share.shared_by_id is None
+            self.assertIsNone(share.shared_by_id)
 
     @parameterized.expand([("insight", "Insight"), ("notebook", "Notebook")])
     def test_ambiguous_settings_history_does_not_attribute_the_editor(self, kind: str, scope: str) -> None:
@@ -107,4 +107,4 @@ class TestBackfillSharingPublishers(BaseTest):
         )
         call_command("backfill_sharing_publishers", stdout=StringIO())
         share.refresh_from_db()
-        assert share.shared_by_id is None
+        self.assertIsNone(share.shared_by_id)

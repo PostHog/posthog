@@ -367,7 +367,9 @@ class TestSharing(APIBaseTest):
         assert self.client.patch(url, {"enabled": True}, format="json").status_code == 200
         logs = ActivityLog.objects.filter(scope=scope, item_id=str(identifier), activity="sharing enabled")
         assert logs.count() == 1
-        assert logs.get().detail["changes"][0]["before"] is False
+        detail = logs.get().detail
+        assert detail is not None
+        assert detail["changes"][0]["before"] is False
         assert self.client.patch(url, {"settings": {}}, format="json").status_code == 200
         assert logs.count() == 1
 
