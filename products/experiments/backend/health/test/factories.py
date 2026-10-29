@@ -37,6 +37,8 @@ RUNNING_CONTEXT = HealthContext(
         custom_event=None, required_flag_key="flag", variant_property="$feature_flag_response", flag_key_filters=()
     ),
     events_received={},
+    exposure_properties_received={},
+    exposure_cohorts=(),
     exposures=None,
     flag_history=None,
     condition_set_traffic=None,

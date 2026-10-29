@@ -69,6 +69,9 @@ Qualitative findings can omit metrics.
 Research presentation drops invalid observation metrics individually and keeps the report prose and valid metrics.
 A snapshot series without a paired value and measurement time is cleared while its live query remains available.
 
+Each structured research follow-up gets one JSON correction turn in the same session if its reply cannot be parsed or fails schema validation.
+The correction uses the same schema and validation context. A second invalid reply propagates to the caller's existing failure handling; execution failures and cancellation propagate without a JSON retry.
+
 Observation metrics support HogQL filters that compare direct event fields or event properties with literal values.
 Boolean operations, arithmetic, and literal lists are supported; other function calls and subqueries remain unreadable.
 Report reads, research selection, and snapshot refresh use the same filter check.

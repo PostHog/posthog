@@ -954,6 +954,15 @@ class BuiltSuggestion:
 
 
 @frozen
+class EventWorkflowsBuild:
+    """Draft workflows built in the background for events a team picked, one per event at most."""
+
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready. Each id is a saved draft that never runs until enabled.
+    workflow_ids: tuple[str, ...] = ()
+
+
+@frozen
 class PreparedIdeas:
     """What `prepare_workflow_ideas` did for one project."""
 
