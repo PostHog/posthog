@@ -252,6 +252,44 @@ export const YAxisRange: Story = {
     ),
 }
 
+const LATENCY_SERIES: Series[] = [
+    { key: 'api', label: 'api', data: [120, 140, 130, 160, 150, 170, 155] },
+    { key: 'web', label: 'web', data: [220, 260, 240, 300, 280, 320, 290] },
+    { key: 'worker', label: 'worker', data: [400, 460, 430, NaN, 480, 560, 510] },
+    { key: 'cron', label: 'cron', data: [60, 65, 58, 72, 70, 66, 61] },
+]
+
+/** `legend.values` turns the legend into a table of per-series summaries, formatted like the axis.
+ *  Click a header to sort by it; rows still isolate and toggle their series. */
+export const LegendValues: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+                {(['bottom', 'right'] as const).map((position) => (
+                    <Stage key={position} width={560} height={320}>
+                        <TimeSeriesLineChart
+                            series={LATENCY_SERIES}
+                            labels={DAYS}
+                            theme={theme}
+                            config={{
+                                yAxis: { showGrid: true, suffix: ' ms' },
+                                legend: {
+                                    show: true,
+                                    position,
+                                    values: ['mean', 'max', 'last'],
+                                    sortBy: 'mean',
+                                },
+                            }}
+                        />
+                    </Stage>
+                ))}
+            </div>
+        )
+    },
+}
+
 const DERIVED_SERIES: Series[] = [
     { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
     { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },

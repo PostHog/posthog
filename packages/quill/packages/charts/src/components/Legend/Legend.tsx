@@ -1,12 +1,20 @@
 /* eslint-disable react/forbid-dom-props -- swatch color and the per-count row cap are dynamic values */
 import React from 'react'
 
+import { LegendTable } from './LegendTable'
+
+/** A per-series summary a legend can show as a column, computed over the series' finite values.
+ *  `first` and `last` skip missing points. */
+export type LegendValue = 'mean' | 'min' | 'max' | 'first' | 'last' | 'sum'
+
 export interface LegendItem {
     key: string
     label: string
     color: string
     /** Optional trailing text shown muted after the label — e.g. a slope chart's per-series change. */
     secondaryLabel?: string
+    /** Per-series summaries for a value-column legend, `null` when the series has no finite value. */
+    values?: Partial<Record<LegendValue, number | null>>
 }
 
 /** Which gesture a legend row click was: a plain click means "isolate this series", a modified one
@@ -28,6 +36,14 @@ export interface LegendProps {
     /** Wrap each row — receives the default row node and its item, returns the node to render.
      *  Use to augment rows (e.g. a right-click context menu) while keeping the default rendering. */
     renderItem?: (defaultNode: React.ReactNode, item: LegendItem) => React.ReactNode
+    /** Show these {@link LegendItem.values} as columns, which renders the legend as a sortable table. */
+    values?: LegendValue[]
+    /** Formats a value column cell. Defaults to a locale number with significant decimals. */
+    formatValue?: (value: number, item: LegendItem) => string
+    /** Initial table sort column. Clicking a column header changes it. Defaults to input order. */
+    sortBy?: 'label' | LegendValue
+    /** Sort the initial `sortBy` column highest first. Defaults to true. */
+    sortDescending?: boolean
 }
 
 // Align a horizontal legend with `justify-content` so wrapped rows stay centered (or start/end) within the
@@ -48,9 +64,29 @@ export function Legend({
     className,
     dataAttr,
     renderItem,
+    values,
+    formatValue,
+    sortBy,
+    sortDescending,
 }: LegendProps): React.ReactElement | null {
     if (items.length === 0) {
         return null
+    }
+    if (values?.length) {
+        return (
+            <LegendTable
+                items={items}
+                values={values}
+                formatValue={formatValue}
+                sortBy={sortBy}
+                sortDescending={sortDescending}
+                onItemClick={onItemClick}
+                hiddenKeys={hiddenKeys}
+                className={className}
+                dataAttr={dataAttr}
+                renderItem={renderItem}
+            />
+        )
     }
     const hidden = hiddenKeys?.length ? new Set(hiddenKeys) : null
     const isVertical = orientation === 'vertical'
