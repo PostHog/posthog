@@ -23,6 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
+from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -398,17 +399,29 @@ def _dedupe_before_write(pa_table: pa.Table, primary_keys: list[str]) -> pa.Tabl
     return deduped
 
 
-def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: ExternalDataSchema) -> bool:
-    """Whether this batch feeds partial data loading (first-ever sync, Stripe only).
+def _partial_data_loading_applies(
+    export_signal: ExportSignalMessage, schema: ExternalDataSchema, job: ExternalDataJob
+) -> bool:
+    """Whether this batch feeds partial data loading (first-ever sync of a new table, Stripe only).
+
+    A reset or full refresh also loads the table from empty, but readers already query that
+    table. It keeps its served copy until the final batch publishes the complete new one, so a
+    reader never sees part of the rows. Only a table that this job created publishes each batch.
 
     Read before the write as well as after: `previous_file_uris` only exists to serve this
     feature, and collecting it means listing every file in the table.
     """
-    return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
+    if not export_signal.is_first_ever_sync or not supports_partial_data_loading(schema):
+        return False
+    served_table = schema.table
+    return served_table is None or served_table.created_at >= job.created_at
 
 
 def _rebuild_compaction_due(
-    export_signal: ExportSignalMessage, schema: ExternalDataSchema, members: list[tuple[str, int]]
+    export_signal: ExportSignalMessage,
+    schema: ExternalDataSchema,
+    job: ExternalDataJob,
+    members: list[tuple[str, int]],
 ) -> bool:
     """Whether this write of a rebuild run checks the table for compaction (see `compact_during_rebuild`).
 
@@ -421,7 +434,7 @@ def _rebuild_compaction_due(
     return (
         (export_signal.is_first_ever_sync or export_signal.sync_type == "full_refresh")
         and export_signal.cdc_write_mode is None
-        and not _partial_data_loading_applies(export_signal, schema)
+        and not _partial_data_loading_applies(export_signal, schema, job)
         and all(run_uuid == export_signal.run_uuid for run_uuid, _ in members)
         and any(index > 0 and index % REBUILD_COMPACT_CHECK_EVERY == 0 for _, index in members)
         and is_schema_flag_enabled(schema, REBUILD_COMPACTION_FLAG)
@@ -437,7 +450,7 @@ async def _handle_partial_data_loading(
     internal_schema: HogQLSchema,
 ) -> None:
     """Make data available for querying during first-ever sync for Stripe sources."""
-    if not _partial_data_loading_applies(export_signal, schema):
+    if not _partial_data_loading_applies(export_signal, schema, job):
         return
 
     current_file_uris = delta_table.file_uris()
@@ -720,6 +733,9 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     _release_pipeline_lock_for_job(export_signal)
 
+    if job_completed:
+        _resume_schedule_after_ad_hoc_run(export_signal)
+
 
 # tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
 # surfaces it as status CANCELLED with the message "Timeout expired" — the client-side analog of
@@ -747,6 +763,37 @@ def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
     # reach the Temporal frontend (DNS blip, connection refused/reset) surfaces as the Rust
     # bridge's untyped RuntimeError rather than an RPCError — treat it the same way.
     return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_temporal_rpc_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=5),
+    reraise=True,
+)
+def _resume_schedule_with_retry(export_signal: ExportSignalMessage) -> bool:
+    return resume_schedule_after_ad_hoc_run(export_signal.schema_id, export_signal.team_id, export_signal.job_id)
+
+
+def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> None:
+    try:
+        if _resume_schedule_with_retry(export_signal):
+            logger.info(
+                "schedule_resumed_after_ad_hoc_run",
+                team_id=export_signal.team_id,
+                external_data_schema_id=export_signal.schema_id,
+                external_data_job_id=export_signal.job_id,
+            )
+    except Exception as e:
+        # The job is already Completed, so a failed unpause must not fail and retry the batch.
+        logger.error(
+            "failed_to_resume_schedule_after_ad_hoc_run",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
 
 
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:
@@ -1537,7 +1584,7 @@ def _process_message_reported(
         # table can hold millions of files and every batch would pay to build a list nothing reads.
         previous_file_uris = (
             existing_delta_table.file_uris()
-            if existing_delta_table is not None and _partial_data_loading_applies(export_signal, schema)
+            if existing_delta_table is not None and _partial_data_loading_applies(export_signal, schema, job)
             else []
         )
 
@@ -1688,7 +1735,7 @@ def _process_message_reported(
         # sampled count needs that read only when the commit's own numbers cannot give it: batch 0
         # is a sample, so the read would otherwise cost each run a log listing.
         with timer.step("post_write"):
-            if (sample_file_count and file_count is None) or _partial_data_loading_applies(export_signal, schema):
+            if (sample_file_count and file_count is None) or _partial_data_loading_applies(export_signal, schema, job):
                 current_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
                 if current_delta_table is not None:
                     delta_table = current_delta_table
@@ -1732,7 +1779,7 @@ def _process_message_reported(
             finals = final_run_signals(constituents)
         else:
             finals = [export_signal] if export_signal.is_final_batch else []
-        if not finals and _rebuild_compaction_due(export_signal, schema, members):
+        if not finals and _rebuild_compaction_due(export_signal, schema, job, members):
             _compact_during_rebuild(delta_table_ref, verify_ownership, timer)
         _promote_loaded_prefixes(constituents if constituents is not None else [export_signal], finals, schema)
         for run_signal in finals:

@@ -1317,7 +1317,9 @@ def set_scout_report_repository(
         # The whole selection is compared rather than the repository alone: a selection inferred from
         # the report's own text names the same repository with `autostart_eligible=False`, and a scout
         # naming it is the decision that lifts it, so that correction must still land.
-        if persisted_repo_selection(report_id) == selection:
+        previous = persisted_repo_selection(report_id)
+        selection.research_context = previous.research_context if previous is not None else None
+        if previous == selection:
             logger.info(
                 "signals_scout.edit_report: repository unchanged",
                 extra={"team_id": team_id, "report_id": report_id, "repository": repository},
@@ -1432,6 +1434,7 @@ def set_scout_report_inferred_repository(
     with transaction.atomic():
         if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        previous = persisted_repo_selection(report_id)
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
@@ -1439,6 +1442,7 @@ def set_scout_report_inferred_repository(
                 repository=repository,
                 reason=INFERRED_REPOSITORY_REASON,
                 autostart_eligible=False,
+                research_context=previous.research_context if previous is not None else None,
             ),
             attribution=attribution,
             reevaluate_autostart=False,

@@ -7,6 +7,7 @@ describe('reportActions', () => {
         [SignalReportStatus.PENDING_INPUT, true],
         [SignalReportStatus.FAILED, true],
         [SignalReportStatus.MONITORING, true],
+        [SignalReportStatus.CLOSED, true],
         [SignalReportStatus.POTENTIAL, false],
         [SignalReportStatus.CANDIDATE, false],
         [SignalReportStatus.IN_PROGRESS, false],
@@ -22,6 +23,7 @@ describe('reportActions', () => {
         [SignalReportStatus.PENDING_INPUT, true, true],
         [SignalReportStatus.FAILED, true, true],
         [SignalReportStatus.MONITORING, true, false],
+        [SignalReportStatus.CLOSED, true, false],
         [SignalReportStatus.RESOLVED, true, false],
         [SignalReportStatus.SUPPRESSED, true, false],
     ] as const)('gates manual Monitoring for %s with server capability %s: %s', (status, enabled, expected) => {
@@ -51,5 +53,19 @@ describe('reportActions', () => {
         } as unknown as SignalReport
 
         expect(canCreateImplementationPr(report)).toBe(expected)
+    })
+
+    it.each([
+        ['without a repository', null, false],
+        ['with a repository', 'posthog/posthog', true],
+    ] as const)('offers implementation on a scout self-improvement report %s: %s', (_, repoSlug, expected) => {
+        expect(
+            canCreateImplementationPr({
+                id: 'report',
+                status: SignalReportStatus.PENDING_INPUT,
+                is_self_improvement_report: true,
+                repo_slug: repoSlug,
+            } as SignalReport)
+        ).toBe(expected)
     })
 })

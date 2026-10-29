@@ -39,6 +39,9 @@ tools/                 # Developer/CI tooling
   hogli/               # Developer CLI framework (PyPI-publishable; uv workspace member)
   hogli-commands/      # PostHog-specific hogli commands (consumed via hogli.yaml)
 
+cli/                   # posthog-cli v0: the Rust CLI for symbol uploads and agent API tools, being replaced by hog/
+hog/                   # hog v1: the TypeScript PostHog CLI, successor to cli/
+
 devenv/                # Developer environment config (intent map, process model)
 ```
 
@@ -83,7 +86,7 @@ Most products are a Django app plus React scenes — and most already carry more
 - `products/<product>/packages/<lib>/` — a library or CLI the product owns
 - dev/CI/backfill scripts, benchmarks, audits, fixtures and dummy-data generators, a standalone console — same idea
 
-Top-level `services/`, `packages/`, `tools/`, and `cli/` are for things no single product owns. Keep package names (`@posthog/<name>`) independent of location — pnpm resolves by name, so relocating later is a path move with no import churn.
+Top-level `services/`, `packages/`, `tools/`, `cli/`, and `hog/` are for things no single product owns. Keep package names (`@posthog/<name>`) independent of location — pnpm resolves by name, so relocating later is a path move with no import churn.
 
 Nest because tooling boundaries become path-scoped (`products/<product>/**` for CODEOWNERS, CI filters, lint) instead of hand-synced `<product>-*` prefixes. A prefix doing a folder's job is the signal to nest.
 

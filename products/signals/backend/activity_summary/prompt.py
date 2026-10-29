@@ -122,6 +122,12 @@ class MalformedSummaryError(ValueError):
     """The model's answer cannot be turned into a summary. The message never quotes the answer."""
 
 
+class EmptyProfileError(ValueError):
+    """A first summary has a headline but no profile: the input was too thin to describe.
+
+    The same input gives the same answer, so the caller does not retry it."""
+
+
 def _profile(value: Any, max_chars: int) -> str | None:
     """The markdown profile with its line breaks, cut at a word boundary when it is longer than `max_chars`."""
     if not isinstance(value, str):
@@ -282,7 +288,8 @@ def normalize_summary(
 ) -> dict[str, Any]:
     """The model's JSON answer under the output rules, or `MalformedSummaryError`.
 
-    Only a missing or empty `profile` or `headline` makes an answer malformed. Every other field
+    Only a missing or empty `profile` or `headline` makes an answer malformed. An empty `profile` with a
+    `headline` and no previous summary raises `EmptyProfileError` instead. Every other field
     degrades to an empty or null value, so one bad theme does not cost the row. A theme ref must be
     in `computed`, and a theme's `last_seen` is the last day of its refs."""
     if not content:
@@ -293,12 +300,15 @@ def normalize_summary(
         raise MalformedSummaryError("response is not JSON") from error
     if not isinstance(parsed, dict):
         raise MalformedSummaryError("response is not a JSON object")
-    profile = _profile(parsed.get("profile"), profile_max_chars)
-    if profile is None:
-        raise MalformedSummaryError("response has no profile")
     headline = _clean(parsed.get("headline"))
     if headline is None:
         raise MalformedSummaryError("response has no headline")
+    profile = _profile(parsed.get("profile"), profile_max_chars)
+    if profile is None:
+        # On an incremental update an empty profile is a regression of the output, not thin input.
+        if had_previous_summary:
+            raise MalformedSummaryError("response has no profile")
+        raise EmptyProfileError("response has no profile")
     recent_shift = _clean(parsed.get("recent_shift"), MAX_RECENT_SHIFT_CHARS) if had_previous_summary else None
     return {
         "profile": profile,

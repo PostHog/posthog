@@ -1,7 +1,7 @@
 import json
 import base64
 from typing import Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
@@ -9,6 +9,7 @@ from django.urls.base import reverse
 
 import structlog
 import posthoganalytics
+import redis.exceptions as redis_exceptions
 from onelogin.saml2.xml_utils import OneLogin_Saml2_XML
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import PermissionDenied
@@ -34,6 +35,7 @@ from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.redis import get_client
 
 saml_logger = structlog.get_logger("posthog.auth.saml")
 
@@ -74,6 +76,41 @@ def saml_metadata_view(request, *args, **kwargs):
 
     if not errors:
         return HttpResponse(content=metadata, content_type="text/xml")
+
+
+# OASIS SAML bindings cap RelayState at 80 bytes; the cache TTL only needs to outlast the IdP round trip.
+SAML_RELAY_STATE_CACHE_TTL_SECONDS = 60 * 10
+
+
+def _saml_relay_state_cache_key(key: str) -> str:
+    return f"saml_relay_state:{key}"
+
+
+def _relay_state_from_json(raw: str | bytes) -> dict[str, Any] | None:
+    try:
+        state = json.loads(raw)
+    except ValueError:
+        return None
+    return state if isinstance(state, dict) else None
+
+
+def _store_saml_relay_state(state: dict[str, Any]) -> str:
+    key = str(uuid4())
+    try:
+        get_client().setex(_saml_relay_state_cache_key(key), SAML_RELAY_STATE_CACHE_TTL_SECONDS, json.dumps(state))
+    except redis_exceptions.RedisError:
+        # Sessions are DB-backed, so a Redis outage must not block login. Send the pre-cache JSON
+        # instead: the IdP may refuse it above the RelayState cap, but failing the flow is worse.
+        return json.dumps(state)
+    return key
+
+
+def _load_saml_relay_state(key: str) -> dict[str, Any] | None:
+    try:
+        raw = get_client().get(_saml_relay_state_cache_key(key))
+    except redis_exceptions.RedisError:
+        return None
+    return _relay_state_from_json(raw) if raw else None
 
 
 class MultitenantSAMLAuth(SAMLAuth):
@@ -147,6 +184,12 @@ class MultitenantSAMLAuth(SAMLAuth):
         mutable_post["RelayState"] = relay_state
         # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
         strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+    def parse_relay_state(self, relay_state_str: str) -> dict:
+        # A miss still routes the pre-cache JSON payload, an IdP-supplied value, or an expired key
+        # through the base parser, which sends the last two to the IdP-initiated recovery.
+        stored = _load_saml_relay_state(relay_state_str)
+        return stored if stored is not None else super().parse_relay_state(relay_state_str)
 
     def _relay_state_points_to_config(self, relay_state_str: str | None) -> bool:
         if not relay_state_str:
@@ -258,7 +301,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
         # redirect, and `next` alone is enough to recover the redirect without it.
         relay_state = {"idp": identity_provider.name, "next": self.data.get("next")}
-        return auth.login(return_to=json.dumps(relay_state))
+        return auth.login(return_to=_store_saml_relay_state(relay_state))
 
     def _get_attr(
         self,

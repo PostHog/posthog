@@ -1,8 +1,4 @@
-"""Coordinate interim measurements and final metric verification during enabled Monitoring.
-
-Authored agent checks use a separate execution contract. The legacy verdict
-utilities below do not run from the coordinator.
-"""
+"""Coordinate Monitoring metrics and flag-off legacy scout checks."""
 
 from __future__ import annotations
 
@@ -48,6 +44,7 @@ from products.signals.backend.report_check_evaluation import (
     errored_check_explanation,
     evaluate_check_value,
 )
+from products.signals.backend.report_check_final_agents import run_due_final_agents
 from products.signals.backend.report_check_final_metrics import run_due_final_metrics
 from products.signals.backend.report_check_monitoring import (
     MonitoringWindowClosed,
@@ -73,9 +70,15 @@ from products.signals.backend.report_checks import (
     soak_minutes_from_gap,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
-from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations, report_status_filter
+from products.signals.backend.report_lifecycle import (
+    check_monitoring_disabled_organizations,
+    legacy_agent_checks_enabled,
+    report_status_filter,
+)
 from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
+from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_monitoring_outcomes import aggregate_due_monitoring_attempts
 
 logger = structlog.get_logger(__name__)
 
@@ -273,6 +276,8 @@ def record_check_verdict(
         report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
         if report is None or report.effective_status != SignalReport.Status.RESOLVED:
             return
+        if check.kind == SignalReportCheck.Kind.AGENT and not legacy_agent_checks_enabled(report):
+            return
         current = (
             SignalReportCheck.objects.for_team(check.team_id)
             .select_for_update()
@@ -286,6 +291,14 @@ def record_check_verdict(
         ):
             return
         transition = _next_state(current, verdict, now)
+        if current.kind == SignalReportCheck.Kind.AGENT:
+            attempt = current_monitoring_attempt(report) if report.status == SignalReport.Status.MONITORING else None
+            current.legacy_monitoring_attempt_id = (
+                attempt.id
+                if attempt is not None
+                and attempt.check_versions.get(str(current.id)) == check_definition_version(current)
+                else None
+            )
         current.status = transition.status
         current.runs_remaining = transition.runs_remaining
         current.last_run_at = now
@@ -315,6 +328,7 @@ def record_check_verdict(
                 "consecutive_inconclusive",
                 "next_run_at",
                 "dispatched_at",
+                "legacy_monitoring_attempt_id",
                 "updated_at",
             ]
         )
@@ -830,13 +844,21 @@ def collect_due_checks(
         status=SignalReportCheck.Status.ACTIVE, next_run_at__lte=now, expires_at__gt=now
     )
     if disabled_monitoring_organization_ids is None:
-        disabled_monitoring_organization_ids = check_monitoring_disabled_organizations(eligible_checks)
+        disabled_monitoring_organization_ids = check_monitoring_disabled_organizations(
+            eligible_checks, include_resolved=True
+        )
     candidates = (
         eligible_checks.annotate(_monitoring_ends_at=_monitoring_window_end_expression())
         .filter(
-            _monitoring_metric_filter(disabled_monitoring_organization_ids),
-            report__monitoring_started_at__gt=now - MAX_CHECK_HORIZON,
-            _monitoring_ends_at__gt=now,
+            (
+                _monitoring_metric_filter(disabled_monitoring_organization_ids)
+                & Q(report__monitoring_started_at__gt=now - MAX_CHECK_HORIZON, _monitoring_ends_at__gt=now)
+            )
+            | Q(
+                kind=SignalReportCheck.Kind.AGENT,
+                report__status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING],
+                report__team__organization_id__in=disabled_monitoring_organization_ids,
+            ),
         )
         .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
@@ -876,36 +898,47 @@ def _arm_monitoring_checks(now: datetime, *, disabled_monitoring_organization_id
     reports = (
         SignalReport.objects.filter(
             Exists(pending_checks),
-            status=SignalReport.Status.MONITORING,
-            monitoring_started_at__isnull=False,
         )
-        .exclude(team__organization_id__in=disabled_monitoring_organization_ids)
+        .filter(
+            (
+                Q(status=SignalReport.Status.MONITORING, monitoring_started_at__isnull=False)
+                & ~Q(team__organization_id__in=disabled_monitoring_organization_ids)
+            )
+            | Q(
+                Exists(pending_checks.filter(kind=SignalReportCheck.Kind.AGENT)),
+                status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING],
+                team__organization_id__in=disabled_monitoring_organization_ids,
+            ),
+        )
         .select_related("team")
         .only("id", "status", "team_id", "monitoring_started_at", "team__organization_id")
         .order_by("id")[:MAX_CHECK_PARKS_PER_TICK]
     )
     for report in reports:
+        monitoring_enabled = report.team.organization_id not in disabled_monitoring_organization_ids
         arm_pending_checks(
             team_id=report.team_id,
             report_id=report.id,
             resolved_at=now,
-            expected_monitoring_started_at=report.monitoring_started_at,
+            monitoring_enabled=monitoring_enabled,
+            expected_monitoring_started_at=report.monitoring_started_at if monitoring_enabled else None,
         )
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
-    """Record due final metric results and interim measurements during enabled Monitoring."""
+    """Record Monitoring metrics and dispatch legacy scout checks while Monitoring is disabled."""
 
     now = now or timezone.now()
     candidate_checks = SignalReportCheck.all_teams.filter(
         Q(status=SignalReportCheck.Status.ACTIVE) | Q(status=SignalReportCheck.Status.PENDING, expires_at__gt=now)
     )
-    disabled_organizations = check_monitoring_disabled_organizations(candidate_checks)
+    disabled_organizations = check_monitoring_disabled_organizations(candidate_checks, include_resolved=True)
     _prepare_monitoring_metrics(now, disabled_organizations)
     expired = expire_overdue_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     _arm_monitoring_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     park_checks_on_unresolved_reports(now, disabled_monitoring_organization_ids=disabled_organizations)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
+    aggregate_due_monitoring_attempts(deadline=deadline, limit=limit)
     counts: dict[str, int] = {
         "observed": 0,
         "passed": 0,
@@ -925,9 +958,29 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         deferred=final.deferred,
     )
     remaining = max(0, limit - sum(counts.values()))
+    # Reserve both slots and time for interim measurements, including when agents only defer.
+    agent_limit = max(1, remaining // 2) if remaining else 0
+    agent_started = time.monotonic()
+    agent_deadline = agent_started + max(0, deadline - agent_started) / 2
+    agents = run_due_final_agents(now=now, deadline=agent_deadline, limit=agent_limit)
+    counts["dispatched"] += agents.dispatched
+    counts["deferred"] += agents.deferred
+    remaining = max(0, limit - sum(counts.values()))
     for check in collect_due_checks(now, limit=remaining, disabled_monitoring_organization_ids=disabled_organizations):
         if time.monotonic() >= deadline:
             break
+        if check.kind == SignalReportCheck.Kind.AGENT:
+            from products.signals.backend.report_check_agent import (
+                run_agent_check,  # noqa: PLC0415 - keeps the Temporal graph off route loading
+            )
+
+            try:
+                counts[run_agent_check(check, now=now)] += 1
+            except Exception:
+                logger.exception(
+                    "signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id
+                )
+            continue
         try:
             observation = measure_monitoring_check(check, now=now, deadline=deadline)
             counts["observed"] += int(record_monitoring_observation(check, observation))

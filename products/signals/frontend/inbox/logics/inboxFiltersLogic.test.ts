@@ -107,6 +107,7 @@ describe('inboxFiltersLogic', () => {
                 { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
+            ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
@@ -125,7 +126,7 @@ describe('inboxFiltersLogic', () => {
                     scope: 'teammate:not-a-uuid',
                     source: 'error_tracking,bogus_source',
                     priority: 'P9,P1',
-                    state: 'monitoring,bogus-state',
+                    state: 'monitoring,closed,bogus-state',
                     // priority:desc has a valid field and direction but is not one of the offered sort options.
                     sort: 'priority:desc',
                 })

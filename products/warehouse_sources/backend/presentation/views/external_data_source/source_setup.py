@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 import temporalio
+from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from openai import APIConnectionError
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -47,6 +49,7 @@ from products.warehouse_sources.backend.facade.models import (
     get_or_create_warehouse_destination,
     sync_old_schemas_with_new_schemas,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
     CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
@@ -104,7 +107,20 @@ def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
     return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
 
 
+class ExternalDataSourceListSerializer(serializers.ListSerializer):
+    def to_representation(
+        self, data: models.manager.BaseManager[ExternalDataSource] | Iterable[ExternalDataSource]
+    ) -> list[dict[str, Any]]:
+        sources = list(data.all() if isinstance(data, models.manager.BaseManager) else data)
+        child = self.child
+        assert isinstance(child, ExternalDataSourceSerializers)
+        child.preloaded_source_inputs = SourceInputsStore.load_many(sources)
+        return super().to_representation(sources)
+
+
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    preloaded_source_inputs: dict[UUID, dict[str, Any]] = {}
+
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -203,6 +219,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     class Meta:
         model = ExternalDataSource
+        list_serializer_class = ExternalDataSourceListSerializer
         fields = [
             "id",
             "created_at",
@@ -251,11 +268,20 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "connection_warning",
         ]
 
+    def _source_inputs(self, instance: ExternalDataSource) -> dict[str, Any]:
+        if instance.id in self.preloaded_source_inputs:
+            return self.preloaded_source_inputs[instance.id]
+        return SourceInputsStore.load(instance)
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        job_inputs = representation.get("job_inputs", {})
-        if not isinstance(job_inputs, dict):
+        if "job_inputs" not in representation:
+            return representation
+        try:
+            job_inputs = self._source_inputs(instance)
+        except UnreadableSourceInputsError:
+            representation["job_inputs"] = {}
             return representation
 
         # Derive allowed keys dynamically from source config field definitions
@@ -398,7 +424,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         else:
             validated_data["prefix"] = instance.prefix
 
-        existing_job_inputs = instance.job_inputs or {}
+        existing_job_inputs = SourceInputsStore.load(instance)
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
@@ -487,9 +513,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
-        # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
-        existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
-
         # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
         # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
         # above would otherwise wipe redacted credentials nested inside these containers. Same container
@@ -539,39 +562,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 new_job_inputs.pop(key, None)
             new_job_inputs[incoming_key] = merged_group
 
+        # SSH tunnel is a nested config, so deep-merge it to keep the stored fields a partial update omits.
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
-        if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
-            ssh_tunnel_host_changed = "host" in incoming_ssh_tunnel and incoming_ssh_tunnel[
-                "host"
-            ] != existing_ssh_tunnel.get("host")
-
-            # Deep-merge: start with existing, overlay incoming top-level keys
-            merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
-
-            # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
-            existing_auth = (
-                (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
+        if incoming_ssh_tunnel is not None:
+            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(
+                existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
             )
-            incoming_auth = (
-                (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
-            )
-
-            if ssh_tunnel_host_changed and not incoming_auth:
-                raise ValidationError("Changing the SSH tunnel host requires re-entering your SSH credentials.")
-
-            if not incoming_auth:
-                # No auth in incoming request - preserve entire existing auth
-                merged_ssh_tunnel["auth"] = {**existing_auth}
-            else:
-                # Merge auth, preserving sensitive fields not explicitly provided
-                merged_auth = {**incoming_auth}
-                if not ssh_tunnel_host_changed:
-                    for key in ("password", "passphrase", "private_key"):
-                        if existing_auth.get(key) and not incoming_auth.get(key):
-                            merged_auth[key] = existing_auth[key]
-                merged_ssh_tunnel["auth"] = merged_auth
-
-            new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
@@ -680,6 +676,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
+        if "job_inputs" in validated_data:
+            SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
         updated_source: ExternalDataSource = super().update(instance, validated_data)
         cast(Any, updated_source)._connection_warning = connection_warning
 
@@ -1223,7 +1221,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 return error_response or Response(status=status.HTTP_400_BAD_REQUEST)
             source_config = validated_config
 
-        new_source_model = ExternalDataSource.objects.create(
+        new_source_model = SourceInputsStore.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
@@ -1233,7 +1231,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             status="Running",
             source_type=source_type_model,
             api_version=source.default_version,
-            job_inputs=source.serialize_config(source_config),
+            inputs=source.serialize_config(source_config),
             prefix=prefix,
             description=description,
             access_method=access_method,
@@ -1341,6 +1339,25 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={
                     "message": f"Unknown sync type: {', '.join(invalid_sync_types)}. "
                     f"Use one of: {', '.join(valid_sync_types)}."
+                },
+            )
+
+        # A webhook-mode table that no webhook event feeds never receives a row.
+        webhook_unsupported = sorted(
+            {
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
+                and not source_schemas_by_name[schema["name"]].supports_webhooks
+            }
+        )
+        if webhook_unsupported:
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Webhook sync isn't available for: {', '.join(webhook_unsupported)}. "
+                    "Pick another sync method."
                 },
             )
 
@@ -1954,16 +1971,18 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Best-effort webhook cleanup — soft-deletes are already committed
         source_type = ExternalDataSourceType(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
-        if isinstance(source, WebhookSource) and instance.job_inputs:
+        if isinstance(source, WebhookSource):
             try:
-                config = source.parse_config(instance.job_inputs)
-                delete_webhook_and_hog_function(
-                    team=self.team,
-                    source=source,
-                    config=config,
-                    source_id=str(instance.pk),
-                    api_version=source.resolve_api_version(instance.api_version),
-                )
+                source_inputs = SourceInputsStore.load(instance)
+                if source_inputs:
+                    config = source.parse_config(source_inputs)
+                    delete_webhook_and_hog_function(
+                        team=self.team,
+                        source=source,
+                        config=config,
+                        source_id=str(instance.pk),
+                        api_version=source.resolve_api_version(instance.api_version),
+                    )
             except Exception as e:
                 base.capture_exception(e)
 

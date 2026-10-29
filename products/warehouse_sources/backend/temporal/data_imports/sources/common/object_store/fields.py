@@ -60,17 +60,18 @@ def source_caption(store: str) -> str:
     )
 
 
-def url_field(placeholder: str) -> FieldType:
+def url_field(placeholder: str, hint: str | None = None) -> FieldType:
+    caption = (
+        "Use * to match any part of a file or folder name, and ** to match across folders. A URL "
+        "without a wildcard imports the folder or file it points to."
+    )
     return SourceFieldInputConfig(
         name="url_pattern",
         label="Files URL",
         type=SourceFieldInputConfigType.TEXT,
         required=True,
         placeholder=placeholder,
-        caption=(
-            "Use * to match any part of a file or folder name, and ** to match across folders. A URL "
-            "without a wildcard imports the folder or file it points to."
-        ),
+        caption=f"{hint} {caption}" if hint else caption,
         secret=False,
     )
 
@@ -95,6 +96,7 @@ def file_option_fields() -> list[FieldType]:
         [
             SourceFieldSelectConfig(
                 name="file_format",
+                sync_setting=True,
                 label="File format",
                 required=True,
                 defaultValue="infer",
@@ -115,6 +117,7 @@ def file_option_fields() -> list[FieldType]:
             ),
             SourceFieldSwitchGroupConfig(
                 name="combine_files",
+                sync_setting=True,
                 label="Combine every file into one table?",
                 caption=(
                     "Turn this on when the folder holds files that share the same columns, such as a "
