@@ -3,19 +3,24 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
 import { isHighlightFeedBlock } from '../highlightFeedEmptyState'
-import { FEED_DATE_OPTIONS, feedWindowOption, feedWindowPhrase, highlightFeedLogic } from '../highlightFeedLogic'
+import { feedWindowPhrase, highlightFeedLogic } from '../highlightFeedLogic'
 import { HighlightFeedBlockedBanner } from './HighlightFeedBlockedBanner'
 import { FILLER_REASON_KINDS, HighlightFeedRow } from './HighlightFeedCard'
 import { HighlightFeedEmptyState } from './HighlightFeedEmptyState'
+import { HighlightFeedHeader } from './HighlightFeedHeader'
+
+/** Columns follow the scene's width, so cards stay a similar size and a wide window fills with them rather than empty margin. */
+const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[72rem]:grid-cols-2 @[120rem]:grid-cols-3 @[176rem]:grid-cols-4'
+/** A single column stays card-sized rather than stretching one poster across the whole scene. */
+const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[72rem]:max-w-none'
 
 function FeedSkeleton(): JSX.Element {
     return (
-        <div className="mx-auto flex w-full max-w-xl flex-col gap-4" aria-busy>
-            {[0, 1, 2].map((i) => (
+        <div className={clsx(FEED_WIDTH, FEED_GRID)} aria-busy>
+            {[0, 1, 2, 3].map((i) => (
                 <LemonSkeleton key={i} className="h-80 rounded-lg" />
             ))}
         </div>
@@ -37,7 +42,7 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
 
     if (feedMoreFailed) {
         return (
-            <div className="flex items-center gap-2 text-sm text-secondary border rounded p-4">
+            <div className="col-span-full flex items-center gap-2 text-sm text-secondary border rounded p-4">
                 <span>Couldn't load more sessions.</span>
                 <LemonButton size="small" type="secondary" onClick={() => loadMoreFeed({})}>
                     Try again
@@ -53,81 +58,32 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
         )
     }
     return itemCount > 3 ? (
-        <p className="text-sm text-secondary text-center m-0 py-4" data-attr="vision-highlight-feed-end">
+        <p className="col-span-full text-sm text-secondary text-center m-0 py-4" data-attr="vision-highlight-feed-end">
             You're caught up. New sessions show up here as your scanners find them.
         </p>
     ) : null
 }
 
 export function HighlightFeedTab(): JSX.Element {
-    const {
-        feedItems,
-        feedItemsLoading,
-        feedReloading,
-        feedLoad,
-        feedFailed,
-        dateFrom,
-        scopedToMine,
-        hasOwnScanners,
-        emptyReason,
-    } = useValues(highlightFeedLogic)
-    const { setDateFrom, setOnlyMyScanners, loadFeed } = useActions(highlightFeedLogic)
+    const { feedItems, feedItemsLoading, feedReloading, feedLoad, feedFailed, dateFrom, emptyReason } =
+        useValues(highlightFeedLogic)
+    const { loadFeed } = useActions(highlightFeedLogic)
 
     const items = feedItems ?? []
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
 
-    const rangeMenu = (
-        <LemonMenu
-            items={FEED_DATE_OPTIONS.map((option) => ({
-                label: option.label,
-                active: option.value === dateFrom,
-                onClick: () => setDateFrom(option.value),
-            }))}
-        >
-            <LemonButton
-                size="small"
-                type="tertiary"
-                sideIcon={<IconChevronDown />}
-                data-attr="vision-highlight-feed-range"
-            >
-                {feedWindowOption(dateFrom)?.label ?? dateFrom}
-            </LemonButton>
-        </LemonMenu>
-    )
-
     return (
         <div className="@container flex flex-col gap-4">
-            {/* The intro explains the feed on its own, and a project without scanners has no window to pick. */}
-            {!(emptyReason === 'no-scanners' && items.length === 0) && (
-                <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-2 -mb-2">
-                    <p className="text-sm text-secondary m-0">Sessions that stand out in your scanner results.</p>
-                    {!hasOwnScanners && rangeMenu}
-                </div>
-            )}
-            {hasOwnScanners && (
-                <LemonTabs
-                    size="small"
-                    // The small size packs tabs two units apart below md, too tight for two labels this long.
-                    className="mx-auto w-full max-w-xl -mb-2 [&_ul>div]:gap-x-6"
-                    activeKey={scopedToMine ? 'mine' : 'all'}
-                    onChange={(key) => setOnlyMyScanners(key === 'mine')}
-                    data-attr="vision-highlight-feed-scope"
-                    tabs={[
-                        { key: 'all', label: 'All scanners', 'data-attr': 'vision-highlight-feed-scope-all' },
-                        { key: 'mine', label: 'My scanners', 'data-attr': 'vision-highlight-feed-scope-mine' },
-                    ]}
-                    rightSlotClassName="bg-transparent pr-0"
-                    rightSlot={rangeMenu}
-                />
-            )}
+            {/* The empty state explains the feed on its own, and a project without scanners has nothing to filter. */}
+            {!(emptyReason === 'no-scanners' && items.length === 0) && <HighlightFeedHeader className={FEED_WIDTH} />}
             {/* The first render comes before the mount starts the load, and a filter change keeps the last
                 result until the new one lands, so an empty screen is only drawn from a finished load. */}
             {(feedItems === null && !feedFailed) || (feedItemsLoading && items.length === 0) ? (
                 <FeedSkeleton />
             ) : (
-                <div className="relative mx-auto flex w-full max-w-xl flex-col gap-4">
+                <div className={clsx(FEED_WIDTH, 'relative flex flex-col gap-4')}>
                     {/* The last result stays while a filter change loads, dimmed so it doesn't read as the new one. */}
                     {feedReloading && (
                         <div
@@ -158,7 +114,7 @@ export function HighlightFeedTab(): JSX.Element {
                     )}
                     {items.length > 0 ? (
                         <div
-                            className={clsx('flex flex-col gap-4 transition-opacity', feedReloading && 'opacity-40')}
+                            className={clsx(FEED_GRID, 'transition-opacity', feedReloading && 'opacity-40')}
                             aria-busy={feedReloading}
                             // `inert` keeps the stale cards out of keyboard reach; React 18 types lack the attribute.
                             {...(feedReloading ? { inert: '' } : {})}
@@ -166,7 +122,7 @@ export function HighlightFeedTab(): JSX.Element {
                             {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
                             rather than leaving the reader to infer it from three identical reason lines. */}
                             {onlyFiller && (
-                                <p className="text-sm text-secondary m-0">
+                                <p className="col-span-full text-sm text-secondary m-0">
                                     No sessions stood out {feedWindowPhrase(dateFrom)}. These are the newest ones.
                                 </p>
                             )}
@@ -180,12 +136,14 @@ export function HighlightFeedTab(): JSX.Element {
                             <FeedEnd itemCount={items.length} />
                         </div>
                     ) : feedFailed ? null : emptyReason ? (
-                        <HighlightFeedEmptyState reason={emptyReason} />
+                        <div className="mx-auto w-full max-w-xl">
+                            <HighlightFeedEmptyState reason={emptyReason} />
+                        </div>
                     ) : (
                         // Still resolving why the feed is empty. The scanner list defaults to empty while
                         // it loads, so naming a reason now would show the no-scanners screen to a reader
                         // who has scanners.
-                        <LemonSkeleton className="h-32 rounded" />
+                        <LemonSkeleton className="mx-auto h-32 w-full max-w-xl rounded" />
                     )}
                 </div>
             )}

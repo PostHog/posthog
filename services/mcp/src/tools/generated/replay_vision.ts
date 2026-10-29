@@ -391,6 +391,7 @@ const visionObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
                 watch_group: params.watch_group,
             },
         })
@@ -1140,6 +1141,7 @@ const visionScannersHighlightFeed = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/highlight_feed/`,
             query: {
                 as_of: params.as_of,
+                categories: params.categories,
                 created_by: params.created_by,
                 date_from: params.date_from,
                 date_to: params.date_to,
@@ -1310,6 +1312,7 @@ const visionScannersObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
                 watch_group: params.watch_group,
             },
         })
@@ -1357,6 +1360,7 @@ const visionScannersObservationsList = (): ToolBase<
                     triggered_by: params.triggered_by,
                     variant: params.variant,
                     verdict: params.verdict,
+                    watch_category: params.watch_category,
                     watch_group: params.watch_group,
                 },
             })
@@ -1416,6 +1420,7 @@ const visionScannersObservationsStats = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
                 watch_group: params.watch_group,
             },
         })

@@ -10,6 +10,7 @@ import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeMessagesTab } from './NodeMessagesTab'
 import { NodePropertyList } from './NodePropertyList'
 import { NodeRawTab } from './NodeRawTab'
+import { StepFeedbackChipsProps } from './StepFeedbackChips'
 
 export interface NodeDetailProps {
     node: TraceNodeApi
@@ -23,12 +24,13 @@ export interface NodeDetailProps {
     onViewInThread: (() => void) | null
     onSelectNode: (nodeId: string) => void
     actions?: ReactNode
+    stepFeedback?: StepFeedbackChipsProps | null
 }
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
     return (
         <div className="flex min-w-0 flex-col gap-2">
-            <NodeDetailHeader node={props.node} actions={props.actions} />
+            <NodeDetailHeader node={props.node} actions={props.actions} stepFeedback={props.stepFeedback} />
             <LemonTabs<NodeDetailTab>
                 size="small"
                 activeKey={props.tab}
