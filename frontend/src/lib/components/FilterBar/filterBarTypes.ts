@@ -13,7 +13,6 @@ export type FilterBarCategoryId =
 
 export interface FilterBarCategory {
     id: FilterBarCategoryId
-    /** Shown as the row label and as the group heading over search results. */
     label: string
     /** Used in the search placeholder of the category's own list, for example "event properties". */
     plural: string
@@ -33,7 +32,6 @@ export interface FilterBarField {
     description?: string | null
 }
 
-/** How the value picker renders for a filter, derived from its field and operator. */
 export type FilterBarValueKind = 'list' | 'number' | 'date' | 'boolean' | 'cohort' | 'sql' | 'none'
 
 export interface FilterBarOperatorOption {

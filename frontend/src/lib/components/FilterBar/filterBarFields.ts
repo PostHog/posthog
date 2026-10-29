@@ -115,7 +115,6 @@ export function groupTypeIndexForCategory(categoryId: FilterBarCategoryId): numb
     return categoryId.startsWith('group_properties_') ? Number(categoryId.slice('group_properties_'.length)) : undefined
 }
 
-/** The human label of a property key: "Browser" for `$browser`, and the key itself when the taxonomy has no entry. */
 export function fieldLabelForKey(categoryId: FilterBarCategoryId, key: string): string {
     if (categoryId === 'feature_flags') {
         return key.replace(/^\$feature\//, '')
@@ -346,7 +345,6 @@ export function cohortNameForFilter(
     return filter.cohort_name || cohortsById[filter.value]?.name || `Cohort ${filter.value}`
 }
 
-/** The text of a chip's value segment, and whether that text stands in for a missing value. */
 export function valueLabelForFilter(
     filter: AnyPropertyFilter,
     cohortsById: Partial<Record<CohortType['id'], CohortType>> = {},

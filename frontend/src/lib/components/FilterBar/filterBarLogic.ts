@@ -48,6 +48,8 @@ import {
     ELEMENT_FIELDS,
     fieldFromFilter,
     fieldLabelForKey,
+    filterOperator,
+    filterValues,
     filterWithOperator,
     filterWithToggledValue,
     filterWithValue,
@@ -759,36 +761,19 @@ export const filterBarLogic = kea<filterBarLogicType>([
             }
             actions.notifyChange()
             const field = fieldFromFilter(item.filter)
-            const categoryId = field?.categoryId
-            if (!field || !categoryId) {
+            if (!field) {
                 return
             }
-            const groupType =
-                categoryId === 'cohorts'
-                    ? TaxonomicFilterGroupType.Cohorts
-                    : categoryId === 'sql'
-                      ? TaxonomicFilterGroupType.HogQLExpression
-                      : taxonomicGroupTypeForCategory(categoryId)
             recentTaxonomicFiltersLogic.actions.recordRecentFilter({
-                groupType,
-                groupName: values.categoriesById[categoryId]?.label ?? categoryId,
-                value: item.filter.type === PropertyFilterType.Cohort ? item.filter.value : field.key,
-                item: {
-                    name:
-                        item.filter.type === PropertyFilterType.Cohort ? cohortNameForFilter(item.filter) : field.label,
-                },
+                ...recentFilterPayload(item.filter, field),
+                groupName: values.categoriesById[field.categoryId]?.label ?? field.categoryId,
                 teamId: values.currentTeamId ?? undefined,
-                propertyFilter: item.filter,
             })
             posthog.capture('filter bar filter applied', {
                 page_key: props.pageKey,
-                category: categoryId,
-                operator: 'operator' in item.filter ? item.filter.operator : undefined,
-                value_count: Array.isArray(item.filter.value)
-                    ? item.filter.value.length
-                    : item.filter.value == null
-                      ? 0
-                      : 1,
+                category: field.categoryId,
+                operator: filterOperator(item.filter),
+                value_count: filterValues(item.filter).length,
             })
         },
         // Closing the menu ends the edit of the item it was adding, so that is when the item counts as applied.
@@ -882,5 +867,34 @@ async function fetchCategoryFields(
             })
             return response.results.map((definition) => fieldFromDefinition(category.id, definition))
         }
+    }
+}
+
+/** The recents store keys an entry by taxonomic group and value, so a cohort is keyed by its id and named after itself. */
+function recentFilterPayload(
+    filter: AnyPropertyFilter,
+    field: FilterBarField
+): {
+    groupType: TaxonomicFilterGroupType
+    value: TaxonomicFilterValue
+    item: { name: string }
+    propertyFilter: AnyPropertyFilter
+} {
+    if (filter.type === PropertyFilterType.Cohort) {
+        return {
+            groupType: TaxonomicFilterGroupType.Cohorts,
+            value: filter.value,
+            item: { name: cohortNameForFilter(filter) },
+            propertyFilter: filter,
+        }
+    }
+    return {
+        groupType:
+            field.categoryId === 'sql'
+                ? TaxonomicFilterGroupType.HogQLExpression
+                : taxonomicGroupTypeForCategory(field.categoryId),
+        value: field.key,
+        item: { name: field.label },
+        propertyFilter: filter,
     }
 }

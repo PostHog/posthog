@@ -12,9 +12,20 @@ import {
 
 import { FilterBarFieldRows } from './FilterBarFieldRows'
 import { fieldFromFilter } from './filterBarFields'
-import { filterBarLogic } from './filterBarLogic'
+import { FilterBarStage, filterBarLogic } from './filterBarLogic'
 import { FilterBarSaveRows } from './FilterBarSaveRows'
 import { FilterBarValueRows } from './FilterBarValueRows'
+
+function inputCopyForStage(stage: FilterBarStage, fieldLabel?: string): { label: string; placeholder: string } {
+    switch (stage) {
+        case 'values':
+            return { label: 'Search or type a value', placeholder: `${fieldLabel ?? 'Value'}…` }
+        case 'save':
+            return { label: 'Name for these filters', placeholder: 'Name for these filters…' }
+        default:
+            return { label: 'Search fields', placeholder: 'Filter by…' }
+    }
+}
 
 /**
  * The picker behind the add button. One menu, one search field, three screens: the fields to filter on, then
@@ -25,15 +36,7 @@ export function FilterBarAddMenu(): JSX.Element {
     const { setMenuOpen, setQuery } = useActions(filterBarLogic)
     const hasFilters = items.length > 0
 
-    const editingField = editingItem ? fieldFromFilter(editingItem.filter) : null
-    const placeholder =
-        stage === 'values'
-            ? `${editingField?.label ?? 'Value'}…`
-            : stage === 'save'
-              ? 'Name for these filters…'
-              : 'Filter by…'
-    const inputLabel =
-        stage === 'values' ? 'Search or type a value' : stage === 'save' ? 'Name for these filters' : 'Search fields'
+    const input = inputCopyForStage(stage, editingItem ? fieldFromFilter(editingItem.filter)?.label : undefined)
 
     return (
         <DropdownMenuFilterProvider filter={null} value={query} onValueChange={setQuery} autoHighlight>
@@ -53,7 +56,7 @@ export function FilterBarAddMenu(): JSX.Element {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                     className="w-72"
-                    header={<DropdownMenuInput aria-label={inputLabel} placeholder={placeholder} />}
+                    header={<DropdownMenuInput aria-label={input.label} placeholder={input.placeholder} />}
                 >
                     {stage === 'values' && editingItem ? (
                         <FilterBarValueRows item={editingItem} query={query} />
