@@ -2210,7 +2210,7 @@ describe('CDP API', () => {
         })
 
         it('queues one run on the email fast lane with the recipient and the data', async () => {
-            const queueAppMetric = jest.spyOn(api['hogFunctionMonitoringService'], 'queueAppMetric')
+            const queueAppMetric = jest.spyOn(api['invocationResultsService'].monitoringService, 'queueAppMetric')
             const queuedBefore = await outcomeCount('queued')
             const stagesBefore = await stageCounts()
 
@@ -2240,16 +2240,43 @@ describe('CDP API', () => {
                 state: {
                     event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } },
                     variables: { reset_link: 'https://example.com/reset' },
+                    triggerMetricPending: true,
                 },
             })
-            // The run counts as started in the workflow's metrics, like an event-triggered run.
-            expect(queueAppMetric).toHaveBeenCalledWith(
-                expect.objectContaining({ app_source_id: hogFlow.id, metric_name: 'triggered', count: 1 }),
-                'hog_flow'
+            // The email worker counts the run as triggered, so a count here would count it twice.
+            expect(queueAppMetric).not.toHaveBeenCalledWith(
+                expect.objectContaining({ metric_name: 'triggered' }),
+                expect.anything()
             )
             expect(emailStatusRows()).toEqual([
                 expect.objectContaining({ team_id: team.id, message_id: res.body.invocation_id, status: 'queued' }),
             ])
+        })
+
+        it('replies before Kafka acks the result and status rows', async () => {
+            let ackProduce: () => void = () => {}
+            const acked = new Promise<void>((resolve) => (ackProduce = resolve))
+            produceOutput.mockImplementation(() => acked)
+            const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
+            const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockImplementation(() => acked)
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+            try {
+                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+                expect(res.status).toEqual(202)
+                expect(produceResultRow).toHaveBeenCalledWith(
+                    'hog_invocation_results',
+                    expect.objectContaining({ key: Buffer.from(res.body.invocation_id) })
+                )
+                expect(emailStatusRows()).toEqual([
+                    expect.objectContaining({ message_id: res.body.invocation_id, status: 'queued' }),
+                ])
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                ackProduce()
+            }
         })
 
         describe('with an idempotency key', () => {

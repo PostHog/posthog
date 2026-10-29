@@ -16,6 +16,8 @@ export interface _SummaryApi {
     product: string
     /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
     total_cost_usd: number
+    /** Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount. */
+    billable_cost_usd: number
     /** Total $ai_generation + $ai_embedding events captured across every product. */
     event_count: number
     /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
@@ -34,6 +36,8 @@ export interface _ProductBreakdownRowApi {
     event_count: number
     /** Total cost in USD for this product over the lookback window. */
     cost_usd: number
+    /** Whether this product is eligible for PostHog AI or Desktop credit billing, independent of event-level billing rules. */
+    billable: boolean
 }
 
 export interface _ProductBreakdownApi {
@@ -2995,7 +2999,7 @@ export interface PassRateOverviewEntryApi {
 }
 
 export interface PassRateOverviewApi {
-    /** Enabled pass rate evaluations, lowest rate first. */
+    /** Pass rate evaluations with results in the period, paused ones included, lowest rate first. */
     entries: PassRateOverviewEntryApi[]
     /** Median of the per-evaluation pass rates without low evidence. */
     median: number | null
@@ -3018,7 +3022,7 @@ export interface EvaluationsOverviewApi {
     /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
     buckets: string[]
     evaluations: EvaluationResultApi[]
-    /** Totals over the enabled evaluations. */
+    /** Totals over every evaluation's results in the period, paused ones included. */
     totals: OverviewTotalsApi
     passRateOverview: PassRateOverviewApi
 }

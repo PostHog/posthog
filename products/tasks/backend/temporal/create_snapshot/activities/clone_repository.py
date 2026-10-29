@@ -29,7 +29,7 @@ def clone_repository(input: CloneRepositoryInput) -> str:
         **ctx.to_log_context(),
     ):
         try:
-            github_token = get_github_token(ctx.github_integration_id)
+            github_token = get_github_token(ctx.team_id, ctx.github_integration_id)
         except Exception as e:
             raise GitHubAuthenticationError(
                 f"Failed to get GitHub token for integration {ctx.github_integration_id}",

@@ -25,7 +25,8 @@ django.setup()
 from django.db import transaction
 
 from posthog.accessible_teams import AccessibleTeams
-from posthog.models import Integration, PersonalAPIKey, Team, User
+from posthog.integrations import IntegrationManager
+from posthog.models import PersonalAPIKey, Team, User
 from posthog.personal_api_key_minting import mint_personal_api_key
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -60,9 +61,11 @@ def create_test_task(repository=None):
             feature_flag.active = True
             feature_flag.save()
 
-        github_integration, _ = Integration.objects.get_or_create(
-            team=team, kind="github", defaults={"config": {"organization": org, "repositories": [repo]}}
-        )
+        github_integration = IntegrationManager.github.oauth.find(team.id)
+        if github_integration is None:
+            github_integration = IntegrationManager.github.oauth.create(
+                team.id, external_id=None, config={"organization": org, "repositories": [repo]}
+            )
 
         github_token = (
             github_integration.sensitive_config.get("access_token") if github_integration.sensitive_config else None
@@ -75,7 +78,7 @@ def create_test_task(repository=None):
             title="Add a joke to the README.md file",
             description="Add a joke to the README.md file",
             origin_product=Task.OriginProduct.USER_CREATED,
-            github_integration=github_integration,
+            github_integration_id=github_integration.id,
             repository=repository,
         )
 
