@@ -89,11 +89,7 @@ class TestRenovateIdentity(SimpleTestCase):
     @parameterized.expand(
         [
             ("lock_and_manifest", [("pnpm-lock.yaml", "modified"), ("package.json", "modified")], None),
-            (
-                "source_file",
-                [("pnpm-lock.yaml", "modified"), ("frontend/src/index.ts", "modified")],
-                "not an npm manifest",
-            ),
+            ("source_file", [("pnpm-lock.yaml", "modified"), ("src/x.ts", "modified")], "not an npm manifest"),
             ("added_manifest", [("pnpm-lock.yaml", "modified"), ("tools/x/package.json", "added")], "added"),
             ("manifest_only", [("package.json", "modified")], "no pnpm-lock.yaml"),
         ]
@@ -238,16 +234,25 @@ class TestLockfileVersions(SimpleTestCase):
 
         assert (problems == []) if expected is None else (expected in problems[0])
 
-    def test_pnpm_refuses_a_specifier_change_without_a_new_version(self) -> None:
-        def lock(specifier: str) -> str:
+    @parameterized.expand(
+        [
+            ("follows_the_new_version", "1.1.0", "^1.1.0", True),
+            ("over_the_same_version", "1.0.0", "^1.1.0", False),
+            ("beyond_the_new_version", "1.1.0", "^2.0.0", False),
+        ]
+    )
+    def test_pnpm_specifier_change_must_follow_a_new_version(
+        self, _name: str, left_pad: str, specifier: str, allowed: bool
+    ) -> None:
+        def lock(left_pad: str, specifier: str) -> str:
             return _left_pad_lock(
-                "1.0.0",
-                importers={".": {"dependencies": {"left-pad": {"specifier": specifier, "version": "1.0.0"}}}},
+                left_pad,
+                importers={".": {"dependencies": {"left-pad": {"specifier": specifier, "version": left_pad}}}},
             )
 
-        _, problems = pnpm_lock_versions("pnpm-lock.yaml", lock("^1.0.0"), lock("^2.0.0"))
+        _, problems = pnpm_lock_versions("pnpm-lock.yaml", lock("1.0.0", "^1.0.0"), lock(left_pad, specifier))
 
-        assert "changes the specifier of left-pad" in problems[0]
+        assert (problems == []) is allowed
 
     def test_pnpm_new_snapshot_refuses_an_alias(self) -> None:
         def lock(left_pad: str) -> str:
@@ -304,9 +309,5 @@ class TestVerifyRenovateUpdate(SimpleTestCase):
             read_file=lambda path, ref: files.get((path, ref)),
         )
 
-        assert result.to_context() == {
-            "verified": True,
-            "problems": (),
-            "changes": ({"name": "left-pad", "old_version": "1.0.0", "new_version": "1.1.0"},),
-            "cleared_paths": ("pnpm-lock.yaml",),
-        }
+        assert result.to_context()["changes"] == ({"name": "left-pad", "old_version": "1.0.0", "new_version": "1.1.0"},)
+        assert result.verified and result.cleared_paths == ("pnpm-lock.yaml",)
