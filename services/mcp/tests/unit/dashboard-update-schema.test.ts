@@ -37,10 +37,22 @@ describe('dashboard-update schema', () => {
             use_template: '',
             use_dashboard: null,
             delete_insights: false,
-            tiles: [{ id: 1, widget: { config: { limit: 10 } } }],
+            tiles: [{ id: 1, layouts: { sm: { x: 0, y: 0, w: 6, h: 4 } } }],
         })
 
         expect(result.success).toBe(true)
+    })
+
+    // Widget settings go through dashboard-widgets-batch-update. Every widget type's config schema
+    // would otherwise be copied into this tool, which loads without the dashboard-widgets flag.
+    it('leaves widget settings out of tiles', () => {
+        const tiles = z.toJSONSchema(tool.schema, { io: 'input' }).properties?.tiles as {
+            items?: { properties?: Record<string, unknown> }
+        }
+        const tileProperties = tiles.items?.properties
+
+        expect(tileProperties).toHaveProperty('layouts')
+        expect(tileProperties).not.toHaveProperty('widget')
     })
 
     // The schema used to accept any JSON for this field, and its description read as a color

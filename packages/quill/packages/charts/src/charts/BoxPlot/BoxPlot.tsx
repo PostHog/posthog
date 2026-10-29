@@ -174,11 +174,18 @@ function BoxPlotInner<Meta = unknown>({
                 if (!datum) {
                     continue
                 }
-                if (Number.isFinite(datum.min)) {
-                    mins.push(datum.min)
+                const whiskerMin = datum.whiskerMin ?? datum.min
+                const whiskerMax = datum.whiskerMax ?? datum.max
+                if (Number.isFinite(whiskerMin)) {
+                    mins.push(whiskerMin)
                 }
-                if (Number.isFinite(datum.max)) {
-                    maxs.push(datum.max)
+                if (Number.isFinite(whiskerMax)) {
+                    maxs.push(whiskerMax)
+                }
+                // A skewed bucket can put the mean outside its whiskers.
+                if (Number.isFinite(datum.mean)) {
+                    mins.push(datum.mean)
+                    maxs.push(datum.mean)
                 }
             }
             if (mins.length > 0) {
@@ -367,9 +374,14 @@ function BoxPlotInner<Meta = unknown>({
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>) => (
-            <BoxPlotTooltip<Meta> ctx={ctx} userTooltip={tooltip} grouped={grouped} />
+            <BoxPlotTooltip<Meta>
+                ctx={ctx}
+                userTooltip={tooltip}
+                grouped={grouped}
+                valueFormatter={config?.tooltip?.valueFormatter}
+            />
         ),
-        [tooltip, grouped]
+        [tooltip, grouped, config?.tooltip?.valueFormatter]
     )
 
     const onPointClick = useCallback(

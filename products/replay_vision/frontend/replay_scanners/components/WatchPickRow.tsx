@@ -12,7 +12,7 @@ import { citedTextToPlainText } from '../../utils/citations'
 import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
 import { watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
-import { watchFeedRowWhy } from './WatchFeedCard'
+import { watchReasonCopy } from './WatchFeedCard'
 import { WatchPickPreview } from './WatchPickPreview'
 import { WatchPickRankBadge } from './WatchPickRankBadge'
 
@@ -43,7 +43,7 @@ export function WatchPickRow({ item, position, isActive, rank }: WatchPickRowPro
         >
             <span className={cn('flex w-full min-w-0 items-center gap-3 py-1', observation.viewed && 'opacity-60')}>
                 <span className="relative w-28 shrink-0">
-                    <ObservationThumbnail observation={observation} className="w-full" />
+                    <ObservationThumbnail observation={observation} className="w-full" size="small" />
                     {rank !== undefined && <WatchPickRankBadge rank={rank} size="small" />}
                     {!observation.viewed && (
                         <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />
@@ -65,7 +65,7 @@ export function WatchPickRow({ item, position, isActive, rank }: WatchPickRowPro
                         />
                     </span>
                     <span className="truncate text-xs font-normal text-secondary">
-                        {citedTextToPlainText(watchFeedRowWhy(reason), undefined)}
+                        {citedTextToPlainText(watchReasonCopy(reason), undefined)}
                     </span>
                 </span>
             </span>

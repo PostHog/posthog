@@ -47,7 +47,7 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
+SLACK_APP_BYOS_FLAG = "slack-app-byos"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -126,16 +126,24 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
-    """Gate for answering top-level channel messages nobody tagged the app in.
+def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None, *, adapter: str = "codex") -> bool:
+    """Gate for Slack runs that bill to the user's own plan.
 
-    Keyed on the workspace, not the author, because the webhook checks it before it resolves
-    who wrote the message. Roll it out with an organization condition.
+    Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
+    marked for a plan whose rollout is off fails when it starts, so Slack must never mark one.
+    ``distinct_id`` is the PostHog user whose plan the run would use.
     """
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
+
+    if not tasks_facade.own_subscription_cloud_enabled(
+        adapter, distinct_id=distinct_id, organization_id=str(integration.team.organization_id)
+    ):
+        return False
     return _workspace_flag_enabled(
-        SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
+        SLACK_APP_BYOS_FLAG,
         integration,
-        failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
+        failure_log_key="slack_app_byos_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 

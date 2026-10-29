@@ -280,6 +280,7 @@ export function GatewayServerScene({
 function ToolPoliciesSection(): JSX.Element {
     const {
         availableScopes,
+        canEditScope,
         displayedToolPolicies,
         filteredToolPolicies,
         isAdmin,
@@ -296,8 +297,6 @@ function ToolPoliciesSection(): JSX.Element {
     } = useValues(gatewayServerLogic)
     const { setScope, setAllTools, setToolSearch, toggleToolsExpanded } = useActions(gatewayServerLogic)
     const { refreshServerTools } = useActions(mcpGatewayLogic)
-    const canEditScope =
-        isAdmin || scope.scopeType === 'member' || (scope.scopeType === 'agent' && canManageAgentAccess)
     const agentScope = scope.scopeType === 'agent'
     const bulkOptions = agentScope
         ? POLICY_OPTIONS.filter((option) => option.value !== 'needs_approval')
@@ -435,15 +434,13 @@ function ToolPoliciesSection(): JSX.Element {
 }
 
 function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Element {
-    const { server, scope, isAdmin, canManageAgentAccess, toolPoliciesLoading } = useValues(gatewayServerLogic)
+    const { server, scope, canEditScope, toolPoliciesLoading } = useValues(gatewayServerLogic)
     const { setToolPolicy } = useActions(gatewayServerLogic)
 
     const fqName = `${server?.name ?? ''}.${policy.tool_name}`
     const ruleLocked = policy.decided_by === 'rule'
     const setByTeamAdmin =
         scope.scopeType !== 'team' && (policy.decided_by === 'team' || policy.decided_by === 'preset')
-    const canEditScope =
-        isAdmin || scope.scopeType === 'member' || (scope.scopeType === 'agent' && canManageAgentAccess)
     const agentScope = scope.scopeType === 'agent'
     const displayedState: MCPToolApprovalStateEnumApi =
         agentScope && policy.policy_state === 'needs_approval' ? 'do_not_use' : policy.policy_state

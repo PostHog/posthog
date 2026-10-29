@@ -472,7 +472,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         // Load the full proposals and joins only when the Relationships tab is actually viewed.
-        [urls.dataCatalog()]: (_, searchParams) => {
+        [urls.dataCatalog()]: (_, searchParams, __, currentLocation, previousLocation) => {
             if (searchParams.tab === 'relationships') {
                 if (typeof searchParams.table === 'string') {
                     actions.setFilters({ search: searchParams.table })
@@ -480,8 +480,15 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                 if (typeof searchParams.propose_table === 'string' && !values.proposalOpen) {
                     actions.openProposal(searchParams.propose_table)
                 }
-                actions.loadProposals()
-                actions.loadJoins()
+                // The table writes its sort order to the URL, so reload only on tab entry or a new table scope.
+                const enteredTab =
+                    currentLocation.initial ||
+                    currentLocation.pathname !== previousLocation?.pathname ||
+                    previousLocation?.searchParams.tab !== 'relationships'
+                if (enteredTab || previousLocation?.searchParams.table !== searchParams.table) {
+                    actions.loadProposals()
+                    actions.loadJoins()
+                }
             }
         },
     })),

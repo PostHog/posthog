@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from urllib3.util.retry import Retry
 
@@ -10,20 +10,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
+    SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.settings import (
     NOCRM_ENDPOINTS,
+    PAGE_SIZE,
     NoCRMEndpointConfig,
 )
-
-# noCRM caps `/leads` at a default of 100 per page; request the max to minimise round-trips against
-# the low (~2000 req/day) account quota.
-PAGE_SIZE = 100
 
 # noCRM reports the grand total (used to stop before an extra empty request) in this response header.
 TOTAL_COUNT_HEADER = "X-TOTAL-COUNT"
@@ -124,11 +127,13 @@ def _build_base_params(
     return params
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class NoCRMResumeConfig:
     # Offset (row count already consumed) to resume limit/offset pagination from. The incremental
     # window is recomputed from the job's stable last-value, so only the offset needs persisting.
     offset: int = 0
+    # `build_dependent_resource` checkpoint for the per-lead / per-user fan-out walks.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class NoCRMOffsetPaginator(OffsetPaginator):
@@ -155,6 +160,78 @@ class NoCRMOffsetPaginator(OffsetPaginator):
         super().update_state(response, data)
 
 
+def _client_config(api_key: str, subdomain: str) -> ClientConfig:
+    return {
+        "base_url": _base_url(subdomain),
+        # Non-secret header only; the API key rides on the framework auth so it's redacted from
+        # logs, samples, and raised error messages.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
+        # Pin every request (including seeded resume pages) to the account's own *.nocrm.io host,
+        # and refuse to follow redirects, so the key can't be steered to another origin.
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
+
+
+def _paginator(config: NoCRMEndpointConfig) -> OffsetPaginator | SinglePagePaginator:
+    # List endpoints return a bare JSON array; no data_selector needed. noCRM reports the grand
+    # total in a header, so stop on the header total / short / empty page.
+    if not config.paginated:
+        return SinglePagePaginator()
+    return NoCRMOffsetPaginator(limit=PAGE_SIZE, total_path=None, total_header=TOTAL_COUNT_HEADER)
+
+
+def _fanout_source(
+    api_key: str,
+    subdomain: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[NoCRMResumeConfig],
+) -> SourceResponse:
+    config = NOCRM_ENDPOINTS[endpoint]
+    assert config.fanout is not None
+    parent_config = NOCRM_ENDPOINTS[config.fanout.parent_name]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(NoCRMResumeConfig(fanout_state=state))
+
+    child = cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=NOCRM_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(api_key, subdomain),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"paginator": _paginator(parent_config)},
+            child_endpoint_extra={"paginator": _paginator(config)},
+            # The offset paginator sends `limit` itself, and the unpaginated children take none.
+            page_size_param=None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: child,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
 def nocrm_source(
     api_key: str,
     subdomain: str,
@@ -166,31 +243,20 @@ def nocrm_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = NOCRM_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _fanout_source(api_key, subdomain, endpoint, team_id, job_id, resumable_source_manager)
+
     base_params = _build_base_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(subdomain),
-            # Non-secret header only; the API key rides on the framework auth so it's redacted from
-            # logs, samples, and raised error messages.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
-            # Pin every request (including seeded resume pages) to the account's own *.nocrm.io host,
-            # and refuse to follow redirects, so the key can't be steered to another origin.
-            "allowed_hosts": [],
-            "allow_redirects": False,
-        },
+        "client": _client_config(api_key, subdomain),
         "resources": [
             {
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
                     "params": base_params,
-                    # List endpoints return a bare JSON array; no data_selector needed. noCRM reports
-                    # the grand total in a header, so stop on the header total / short / empty page.
-                    "paginator": NoCRMOffsetPaginator(
-                        limit=PAGE_SIZE, total_path=None, total_header=TOTAL_COUNT_HEADER
-                    ),
+                    "paginator": _paginator(config),
                 },
             }
         ],

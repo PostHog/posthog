@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
@@ -39,6 +40,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     source_type_supports_cdc,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 
 from . import base
 
@@ -142,8 +144,8 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             resource_keys=sorted(resource_fields.keys()),
         )
 
-        job_inputs = dict(source_model.job_inputs or {})
-        job_inputs.update(
+        SourceInputsStore.update_runtime(
+            source_model,
             {
                 "cdc_enabled": True,
                 "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
@@ -153,11 +155,9 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 "cdc_lag_critical_threshold_mb": payload.get(
                     "cdc_lag_critical_threshold_mb", DEFAULT_LAG_CRITICAL_THRESHOLD_MB
                 ),
-            }
+                **resource_fields,
+            },
         )
-        job_inputs.update(resource_fields)
-        source_model.job_inputs = job_inputs
-        source_model.save(update_fields=["job_inputs", "updated_at"])
         return None
 
     @extend_schema(
@@ -297,7 +297,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "cdc_management_mode must be 'posthog' or 'self_managed'."},
             )
 
-        schema_hint = (instance.job_inputs or {}).get("schema") or "public"
+        schema_hint = SourceInputsStore.load_settings(instance).get("schema") or "public"
         try:
             prereq_errors = adapter.validate_prerequisites(
                 instance,
@@ -373,7 +373,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             )
 
         # Validate prerequisites server-side — never trust a client-only check.
-        schema_hint = (instance.job_inputs or {}).get("schema") or "public"
+        schema_hint = SourceInputsStore.load_settings(instance).get("schema") or "public"
         try:
             prereq_errors = adapter.validate_prerequisites(
                 instance,
@@ -461,12 +461,13 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 sync_type=ExternalDataSchema.SyncType.CDC,
             )
             .exclude(deleted=True)
-            .select_related("table")
+            .select_related("table", "source", "team")
         )
         # Disabling cancels jobs, drops the slot, purges buffered change data, and resets
         # every CDC schema — editor on the source isn't enough when a table is locked below it.
         self._assert_can_write_schemas(cdc_schemas)
         cdc_schema_ids = [schema.id for schema in cdc_schemas]
+        history_schemas = [schema for schema in cdc_schemas if schema.keeps_history]
         # The bulk update below bypasses update_should_sync, which is what pauses a table's schedule, so
         # without this every former CDC table keeps syncing, and billing, on its old schedule. It runs
         # first: a failed pause then fails the request while CDC still reads as enabled, so a retry
@@ -557,12 +558,15 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             # Clear ALL cdc_* keys from job_inputs — leaving stale engine identifiers
             # behind (e.g. `cdc_consistent_point`) would corrupt resume tracking if
             # CDC is later re-enabled.
-            job_inputs = dict(instance.job_inputs or {})
-            for key in list(job_inputs.keys()):
-                if key.startswith("cdc_"):
-                    job_inputs.pop(key, None)
-            instance.job_inputs = job_inputs
-            instance.save(update_fields=["job_inputs", "updated_at"])
+            SourceInputsStore.update_runtime(
+                instance,
+                remove=[key for key in SourceInputsStore.load_settings(instance) if key.startswith("cdc_")],
+            )
+
+        for schema in history_schemas:
+            report_history_toggled(
+                request.user, schema, enabled=False, table_mode=schema.cdc_table_mode, request=request
+            )
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
@@ -770,7 +774,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "CDC is not enabled on this source."},
             )
 
-        job_inputs = dict(instance.job_inputs or {})
+        job_inputs = SourceInputsStore.load_settings(instance)
         updates: dict[str, Any] = {}
 
         if "cdc_auto_drop_slot" in request.data:
@@ -803,9 +807,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         if not updates:
             return Response(status=status.HTTP_200_OK, data={"success": True, "unchanged": True})
 
-        job_inputs.update(updates)
-        instance.job_inputs = job_inputs
-        instance.save(update_fields=["job_inputs", "updated_at"])
+        SourceInputsStore.update_runtime(instance, updates)
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 

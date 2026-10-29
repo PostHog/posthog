@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class TremendousEndpointConfig:
     path: str
     # Top-level key the list of records is nested under in the response body (e.g. {"orders": [...]}).
@@ -12,6 +12,8 @@ class TremendousEndpointConfig:
     # Endpoints without offset/limit params return the whole collection in one response.
     paginated: bool = False
     page_size: int = 500
+    # Paginated by `offset` alone: the endpoint takes no `limit` and picks its own page size.
+    offset_only: bool = False
     # Stable creation timestamp used for datetime partitioning. Never an updated_at-style field.
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -84,6 +86,18 @@ TREMENDOUS_ENDPOINTS: dict[str, TremendousEndpointConfig] = {
         # the API docs but unconfirmed against live accounts, so the table starts opt-in.
         should_sync_default=False,
     ),
+    # Funding requests that add money to the balance. Full refresh: there is no timestamp filter.
+    "topups": TremendousEndpointConfig(
+        path="/topups",
+        data_key="topups",
+        paginated=True,
+        offset_only=True,
+        partition_key="created_at",
+    ),
+    "roles": TremendousEndpointConfig(path="/roles", data_key="roles"),
+    "fields": TremendousEndpointConfig(path="/fields", data_key="fields"),
+    # Lists only the organization the API key belongs to.
+    "organizations": TremendousEndpointConfig(path="/organizations", data_key="organizations"),
 }
 
 ENDPOINTS = tuple(TREMENDOUS_ENDPOINTS.keys())

@@ -871,7 +871,7 @@ export const FeedDismissalReasonEnumApi = {
 } as const
 
 /**
- * Why the calling user marked an observation not useful in What to watch.
+ * Why the calling user marked an observation not useful in the Highlights feed.
  */
 export interface ObservationFeedDismissalApi {
     /** Optional reason the observation was not useful. Omit or send null when the user gave none.
@@ -935,7 +935,7 @@ export interface ObservationSearchResponseApi {
 }
 
 export interface SearchSuggestionsResponseApi {
-    /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
+    /** Up to 4 example searches naming the largest active themes in recent issue observations. Empty until a scanner has a named theme. */
     queries: string[]
 }
 
@@ -1345,9 +1345,9 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits: number | null
-    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
     readonly credits_this_month: number
-    /** Succeeded observations this scanner produced in the current billing period. */
+    /** Billed observations this scanner created in the current billing period, including deleted ones. */
     readonly observations_this_month: number
     /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit: number
@@ -1489,9 +1489,9 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits?: number | null
-    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
     readonly credits_this_month?: number
-    /** Succeeded observations this scanner produced in the current billing period. */
+    /** Billed observations this scanner created in the current billing period, including deleted ones. */
     readonly observations_this_month?: number
     /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit?: number
@@ -2134,8 +2134,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 12
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 14
      */
     write_scopes?: string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -2428,8 +2428,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
-     * @maxItems 12
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 14
      */
     readonly write_scopes: readonly string[]
     /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
@@ -2912,222 +2912,57 @@ export interface ScannerStatsResponseApi {
 }
 
 /**
- * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
- */
-export interface SuggestTagsRequestApi {
-    /**
-     * The classifier's instruction prompt — the single dimension to categorize sessions by.
-     * @maxLength 10000
-     */
-    prompt: string
-    /**
-     * The categories already configured, so suggestions never duplicate one the user has.
-     * @maxItems 200
-     * @items.maxLength 200
-     */
-    tags?: string[]
-    /** Whether the classifier assigns multiple tags per session. */
-    multi_label?: boolean
-    /** Whether the classifier may emit tags outside the fixed vocabulary. */
-    allow_freeform_tags?: boolean
-    /**
-     * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
-     * @nullable
-     */
-    scanner_id?: string | null
-}
-
-/**
- * * `observed` - observed
- * * `product` - product
- * * `prompt` - prompt
- */
-export type TagSuggestionSourceEnumApi = (typeof TagSuggestionSourceEnumApi)[keyof typeof TagSuggestionSourceEnumApi]
-
-export const TagSuggestionSourceEnumApi = {
-    Observed: 'observed',
-    Product: 'product',
-    Prompt: 'prompt',
-} as const
-
-/**
- * One grounded tag suggestion.
- */
-export interface TagSuggestionApi {
-    /** Suggested tag to add to the vocabulary, normalized to lowercase. */
-    tag: string
-    /** One sentence explaining the specific evidence this tag is grounded in. */
-    rationale: string
-    /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
-     *
-     * * `observed` - observed
-     * * `product` - product
-     * * `prompt` - prompt */
-    source: TagSuggestionSourceEnumApi
-}
-
-/**
- * Grounded tag suggestions for the classifier config editor.
- */
-export interface SuggestTagsResponseApi {
-    /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
-    suggestions: TagSuggestionApi[]
-}
-
-/**
- * * `signal_emitted` - Signal Emitted
- * * `unusual_verdict` - Unusual Verdict
- * * `notable` - Notable
- * * `verdict_yes` - Verdict Yes
- * * `outlier_score` - Outlier Score
- * * `rare_tag` - Rare Tag
- * * `novel_summary` - Novel Summary
- * * `friction` - Friction
- * * `jev_watchable` - Jev Watchable
+ * * `embedding_pick` - Embedding Pick
  * * `unviewed_recent` - Unviewed Recent
  * * `recent` - Recent
  */
 export type WatchFeedReasonEnumApi = (typeof WatchFeedReasonEnumApi)[keyof typeof WatchFeedReasonEnumApi]
 
 export const WatchFeedReasonEnumApi = {
-    SignalEmitted: 'signal_emitted',
-    UnusualVerdict: 'unusual_verdict',
-    Notable: 'notable',
-    VerdictYes: 'verdict_yes',
-    OutlierScore: 'outlier_score',
-    RareTag: 'rare_tag',
-    NovelSummary: 'novel_summary',
-    Friction: 'friction',
-    JevWatchable: 'jev_watchable',
+    EmbeddingPick: 'embedding_pick',
     UnviewedRecent: 'unviewed_recent',
     Recent: 'recent',
 } as const
 
 /**
- * One signal an observation raised, named rather than counted.
+ * * `failure` - Failure
+ * * `struggle` - Struggle
+ * * `revenue` - Revenue
  */
-export interface WatchFeedSignalApi {
-    /** Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`. */
-    problem_type: string
-    /** The finding in a few words, written by the scan. The full description lives on the signal itself. */
-    headline: string
-}
+export type WatchFeedCategoryEnumApi = (typeof WatchFeedCategoryEnumApi)[keyof typeof WatchFeedCategoryEnumApi]
 
-/**
- * * `visible_error` - Error on screen
- * * `silent_failure` - Action silently failed
- * * `unresponsive` - Clicks went nowhere
- * * `slow_or_stuck` - Slow or stuck
- * * `blocked` - Blocked
- * * `cant_find` - Couldn't find it
- * * `confused` - Confused
- * * `workaround` - Took a workaround
- * * `abandoned` - Gave up
- * * `churn_signal` - Churn signal
- * * `success` - Worked well
- */
-export type JevWatchReasonEnumApi = (typeof JevWatchReasonEnumApi)[keyof typeof JevWatchReasonEnumApi]
-
-export const JevWatchReasonEnumApi = {
-    VisibleError: 'visible_error',
-    SilentFailure: 'silent_failure',
-    Unresponsive: 'unresponsive',
-    SlowOrStuck: 'slow_or_stuck',
-    Blocked: 'blocked',
-    CantFind: 'cant_find',
-    Confused: 'confused',
-    Workaround: 'workaround',
-    Abandoned: 'abandoned',
-    ChurnSignal: 'churn_signal',
-    Success: 'success',
+export const WatchFeedCategoryEnumApi = {
+    Failure: 'failure',
+    Struggle: 'struggle',
+    Revenue: 'revenue',
 } as const
 
 /**
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
-    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+    /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
      *
-     * * `signal_emitted` - Signal Emitted
-     * * `unusual_verdict` - Unusual Verdict
-     * * `notable` - Notable
-     * * `verdict_yes` - Verdict Yes
-     * * `outlier_score` - Outlier Score
-     * * `rare_tag` - Rare Tag
-     * * `novel_summary` - Novel Summary
-     * * `friction` - Friction
-     * * `jev_watchable` - Jev Watchable
+     * * `embedding_pick` - Embedding Pick
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent */
     kind: WatchFeedReasonEnumApi
-    /**
-     * Signals this observation emitted, for `signal_emitted`.
-     * @nullable
-     */
-    signals_count?: number | null
-    /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
-    problem_types?: string[]
-    /** Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name the findings instead of counting them. Absent on sessions scanned before this shipped, which carry `problem_types` alone. */
-    signals?: WatchFeedSignalApi[]
-    /**
-     * The monitor's answer, for `unusual_verdict`.
-     * @nullable
-     */
-    verdict?: string | null
-    /**
-     * Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.
-     * @nullable
-     */
-    verdict_share?: number | null
-    /**
-     * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
-     * @nullable
-     */
-    notability?: number | null
-    /**
-     * The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.
-     * @nullable
-     */
-    jev_probability?: number | null
-    /**
-     * The scan's own sentence naming why the session is worth watching. Present on the `notable` and `jev_watchable` reason kinds when the scan itself found the session notable, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
-     * @nullable
-     */
-    notability_reason?: string | null
-    /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
+    /** What the session reads like, for `embedding_pick`.
      *
-     * * `visible_error` - Error on screen
-     * * `silent_failure` - Action silently failed
-     * * `unresponsive` - Clicks went nowhere
-     * * `slow_or_stuck` - Slow or stuck
-     * * `blocked` - Blocked
-     * * `cant_find` - Couldn't find it
-     * * `confused` - Confused
-     * * `workaround` - Took a workaround
-     * * `abandoned` - Gave up
-     * * `churn_signal` - Churn signal
-     * * `success` - Worked well */
-    watch_reason?: JevWatchReasonEnumApi
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue */
+    watch_category?: WatchFeedCategoryEnumApi
     /**
-     * The observation's score, for `outlier_score`.
+     * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
      * @nullable
      */
-    score?: number | null
+    similar_count?: number | null
     /**
-     * The scanner's mean score in the window, for `outlier_score`.
+     * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
      * @nullable
      */
-    window_mean?: number | null
-    /**
-     * The rare tag that ranked the observation, for `rare_tag`.
-     * @nullable
-     */
-    tag?: string | null
-    /**
-     * Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.
-     * @nullable
-     */
-    tag_share?: number | null
+    affected_people?: number | null
 }
 
 /**
@@ -3141,32 +2976,29 @@ export interface WatchFeedItemApi {
 }
 
 /**
- * * `weighted-score` - weighted-score
- * * `jev` - jev
- */
-export type RankerEnumApi = (typeof RankerEnumApi)[keyof typeof RankerEnumApi]
-
-export const RankerEnumApi = {
-    WeightedScore: 'weighted-score',
-    Jev: 'jev',
-} as const
-
-/**
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
     /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
     results: WatchFeedItemApi[]
-    /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
-     *
-     * * `weighted-score` - weighted-score
-     * * `jev` - jev */
-    ranker: RankerEnumApi
+    /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+    has_more: boolean
+    /** The time this feed ranks as of. Send it back with later pages. */
+    as_of: string
+}
+
+/**
+ * Body of POST /vision/scanners/watch_feed_impressions/.
+ */
+export interface WatchFeedImpressionsApi {
+    /** The client's id for the feed load that showed these cards. One load counts each card once. */
+    feed_load_id: string
     /**
-     * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
-     * @nullable
+     * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
+     * @minItems 1
+     * @maxItems 100
      */
-    ranker_variant: string | null
+    observation_ids: string[]
 }
 
 export type VisionAlertsListParams = {
@@ -3287,6 +3119,10 @@ export type VisionObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionObservationsThumbnailRetrieveParams = {
@@ -3295,7 +3131,23 @@ export type VisionObservationsThumbnailRetrieveParams = {
      * @minimum 0
      */
     chapter?: number
+    /**
+     * `large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. A frame rendered before small copies existed serves the large image for both.
+     *
+     * * `large` - Large
+     * * `small` - Small
+     * @minLength 1
+     */
+    size?: VisionObservationsThumbnailRetrieveSize
 }
+
+export type VisionObservationsThumbnailRetrieveSize =
+    (typeof VisionObservationsThumbnailRetrieveSize)[keyof typeof VisionObservationsThumbnailRetrieveSize]
+
+export const VisionObservationsThumbnailRetrieveSize = {
+    Large: 'large',
+    Small: 'small',
+} as const
 
 export type VisionObservationsSearchRetrieveParams = {
     /**
@@ -3514,6 +3366,10 @@ export type VisionScannersObservationsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsRetrieveParams = {
@@ -3573,6 +3429,10 @@ export type VisionScannersObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsSignalReportsListParams = {
@@ -3632,6 +3492,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsThumbnailRetrieveParams = {
@@ -3640,7 +3504,23 @@ export type VisionScannersObservationsThumbnailRetrieveParams = {
      * @minimum 0
      */
     chapter?: number
+    /**
+     * `large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. A frame rendered before small copies existed serves the large image for both.
+     *
+     * * `large` - Large
+     * * `small` - Small
+     * @minLength 1
+     */
+    size?: VisionScannersObservationsThumbnailRetrieveSize
 }
+
+export type VisionScannersObservationsThumbnailRetrieveSize =
+    (typeof VisionScannersObservationsThumbnailRetrieveSize)[keyof typeof VisionScannersObservationsThumbnailRetrieveSize]
+
+export const VisionScannersObservationsThumbnailRetrieveSize = {
+    Large: 'large',
+    Small: 'small',
+} as const
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
@@ -3699,9 +3579,17 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
+     */
+    as_of?: string
     /**
      * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
      * @minLength 1
@@ -3718,11 +3606,17 @@ export type VisionScannersWatchFeedRetrieveParams = {
      */
     date_to?: string
     /**
-     * Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.
+     * Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.
      * @minimum 1
      * @maximum 50
      */
     limit?: number
+    /**
+     * How many ranked items to skip. Send `as_of` with every page after the first.
+     * @minimum 0
+     * @maximum 1000
+     */
+    offset?: number
     /**
      * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
      * @minLength 1
@@ -3739,11 +3633,6 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType
-    /**
-     * Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.
-     * @minLength 1
-     */
-    search?: string
     /**
      * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
      * @minLength 1

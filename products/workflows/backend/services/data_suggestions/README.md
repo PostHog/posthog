@@ -30,6 +30,7 @@ Building a draft (`_plan_and_build` in `service.py`):
 
 1. Claude Opus plans a graph of up to 20 steps from the card, the step catalog, saved email templates and connected channels.
 2. The builder turns the plan into a workflow and rejects plans that do not hold up.
+   A trigger with more than 50,000 events a week starts on a random sample that brings it down to about that level.
 3. The draft is checked the way the caller's own create request checks it.
 
 ## Premade ideas
@@ -79,7 +80,9 @@ Outside this folder:
   A failed run is cached as unavailable for 5 minutes, so an outage does not rerun the queries on every visit.
 - Only calls that can start model spend count against the user's PostHog AI rate limit.
 - No AI data processing consent, privacy mode, or no Jev configured means no cards.
-- SMS and push are only offered when a provider is connected.
+- SMS is only offered when Twilio is connected.
+  Push is offered when APNs or Firebase is connected, or when most of the project's app events in the last day come from its mobile SDKs.
+  A mobile-first project gets push as its main channel, and a push step without a provider keeps a note to connect one.
   Settings the model cannot know, like API keys and URLs, stay blank in the draft.
 
 ## Tests

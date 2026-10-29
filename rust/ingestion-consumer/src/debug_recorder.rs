@@ -201,6 +201,18 @@ pub struct BatcherLoad {
     pub waiting_keys: usize,
     /// Keys with a request in flight.
     pub claimed_keys: usize,
+    pub governor: GovernorLoad,
+}
+
+#[derive(Serialize)]
+pub struct GovernorLoad {
+    pub adaptation: &'static str,
+    pub permits: usize,
+    pub ceiling: usize,
+    pub free_permits: usize,
+    pub starved_messages: usize,
+    /// The round-trip average; `None` before the first sample.
+    pub rtt_seconds: Option<f64>,
 }
 
 /// The consumer's routing configuration and, under aperture, its current

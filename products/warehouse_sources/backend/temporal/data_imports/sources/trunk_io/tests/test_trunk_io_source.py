@@ -31,7 +31,7 @@ class TestTrunkIoSource:
             "products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.source.validate_trunk_io_credentials"
         ) as mock_validate:
             mock_validate.return_value = (True, None)
-            result = self.source.validate_credentials(self.config, self.team_id)
+            result = self.source.validate_credentials(self.config, self.team_id, api_version="v1")
 
         assert result == (True, None)
         (api_token, org_url_slug, repo), _ = mock_validate.call_args.args, mock_validate.call_args.kwargs
@@ -86,9 +86,9 @@ class TestTrunkIoSource:
             ("QuarantinedTests", "/v1/flaky-tests/list-quarantined-tests", "v1"),
             ("FailingTests", "/v1/flaky-tests/list-failing-tests", "v1"),
             ("MergeQueuePullRequests", "/v1/listPullRequests", "v1"),
-            ("UnhealthyTests", "/v1/flaky-tests/list-unhealthy-tests", "v2"),
-            ("QuarantinedTests", "/v1/flaky-tests/list-quarantined-tests", "v2"),
-            ("FailingTests", "/v1/flaky-tests/list-failing-tests", "v2"),
+            ("UnhealthyTests", "/v2/tests", "v2"),
+            ("QuarantinedTests", "/v2/tests", "v2"),
+            ("FailingTests", "/v2/tests", "v2"),
             ("MergeQueuePullRequests", "/v1/listPullRequests", "v2"),
             ("TestCollections", "/v2/test-collections", "v2"),
             ("Tests", "/v2/tests", "v2"),
@@ -120,16 +120,12 @@ class TestTrunkIoSource:
 
     @parameterized.expand(
         [
-            ("UnhealthyTests", ["id"]),
-            ("QuarantinedTests", ["name", "parent", "file", "classname", "variant"]),
-            ("FailingTests", ["id"]),
-            ("MergeQueuePullRequests", ["id"]),
-            ("TestCollections", ["id"]),
-            ("Tests", ["id"]),
+            ("v1", ["name", "parent", "file", "classname", "variant"]),
+            ("v2", ["id"]),
         ]
     )
-    def test_source_for_pipeline_primary_keys(self, schema_name: str, expected_keys: list[str]):
-        result = SourceDriver(self.source, self.config).run(schema_name, [])
+    def test_quarantined_tests_primary_key_follows_the_pin(self, api_version: str, expected_keys: list[str]):
+        result = SourceDriver(self.source, self.config).run("QuarantinedTests", [], api_version=api_version)
 
         assert result.response is not None
         assert result.response.primary_keys == expected_keys

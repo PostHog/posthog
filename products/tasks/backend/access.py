@@ -12,7 +12,11 @@ from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 
 from products.tasks.backend.facade.contracts import DesktopAccessReason
-from products.tasks.backend.metrics import DesktopAccessOutcome, observe_desktop_access_decision
+from products.tasks.backend.metrics import (
+    DesktopAccessOutcome,
+    observe_desktop_access_decision,
+    observe_desktop_access_flag_unresolved,
+)
 
 from ee.billing.billing_manager import (
     BillingManager,
@@ -89,7 +93,7 @@ def _signed_up_after_cutoff(user: User) -> bool:
     return cutoff is not None and user.date_joined >= cutoff
 
 
-def _flag_enabled(flag_key: str, user: User, organization: "Organization") -> bool:
+def _resolve_flag(flag_key: str, user: User, organization: "Organization") -> bool | None:
     organization_id = str(organization.id)
     enabled = get_feature_flag_or_none(
         flag_key,
@@ -99,8 +103,26 @@ def _flag_enabled(flag_key: str, user: User, organization: "Organization") -> bo
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     )
-    if not isinstance(enabled, bool):
+    return enabled if isinstance(enabled, bool) else None
+
+
+def _flag_enabled(flag_key: str, user: User, organization: "Organization") -> bool:
+    enabled = _resolve_flag(flag_key, user, organization)
+    if enabled is None:
         raise DesktopAccessResolutionError(f"Could not evaluate the {flag_key} flag")
+    return enabled
+
+
+def _override_enabled(user: User, organization: "Organization") -> bool:
+    enabled = _resolve_flag(DESKTOP_ACCESS_OVERRIDE_FLAG, user, organization)
+    if enabled is None:
+        logger.warning(
+            "desktop_access_override_unresolved",
+            flag_key=DESKTOP_ACCESS_OVERRIDE_FLAG,
+            organization_id=str(organization.id),
+        )
+        observe_desktop_access_flag_unresolved(flag=DESKTOP_ACCESS_OVERRIDE_FLAG)
+        return False
     return enabled
 
 
@@ -144,7 +166,7 @@ def get_desktop_access_decision(
         return DesktopAccessDecision.ALLOWED
 
     try:
-        if _flag_enabled(DESKTOP_ACCESS_OVERRIDE_FLAG, user, organization):
+        if _override_enabled(user, organization):
             observe_desktop_access_decision(outcome="override")
             return DesktopAccessDecision.ALLOWED
         # The gate flag is evaluated only for users past the cutoff, so existing users pay no extra flag call.

@@ -60,6 +60,8 @@ class TraceEventRow:
     is_error: bool
     error_is_truthy: bool
     ingestion_source: str | None
+    git_branch: str | None
+    git_repo: str | None
 
 
 @frozen
@@ -130,6 +132,8 @@ _SELECTED: dict[str, ast.Expr] = {
     # The native error column extracts $ai_error as a string, which loses the JSON type that decides truthiness.
     "error_raw": _raw_property("$ai_error"),
     "ingestion_source": ast.Field(chain=["properties", "$ai_ingestion_source"]),
+    "git_branch": ast.Field(chain=["properties", "$ai_git_branch"]),
+    "git_repo": ast.Field(chain=["properties", "$ai_git_repo"]),
 }
 
 
@@ -322,6 +326,8 @@ def _trace_event_row(values: Sequence[Any]) -> TraceEventRow:
         is_error=read_flag(raw["is_error"]),
         error_is_truthy=is_truthy_json(raw["error_raw"]),
         ingestion_source=read_text(raw["ingestion_source"]),
+        git_branch=read_text(raw["git_branch"]),
+        git_repo=read_text(raw["git_repo"]),
     )
 
 
@@ -373,7 +379,7 @@ def load_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: dat
     return LoadedTrace(rows=rows, person=person)
 
 
-def _canonical_uuid(value: str) -> str | None:
+def canonical_uuid(value: str) -> str | None:
     try:
         return str(UUID(value))
     except ValueError:
@@ -394,7 +400,7 @@ def _trace_node_row(values: Sequence[Any]) -> TraceNodeRow:
 def load_trace_node(
     team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime | None
 ) -> TraceNodeRow | None:
-    event_uuid = _canonical_uuid(node_id)
+    event_uuid = canonical_uuid(node_id)
     if event_uuid is None:
         return None
     results = _read_trace(

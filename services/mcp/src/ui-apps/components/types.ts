@@ -41,6 +41,7 @@ export interface TrendsFilter {
 
 export interface TrendsQuery {
     kind: 'TrendsQuery'
+    interval?: string
     trendsFilter?: TrendsFilter
     series?: Array<{
         event?: string
@@ -103,6 +104,7 @@ export interface TrendsResultItem {
     count?: number
     aggregated_value?: number
     compare_label?: string
+    breakdown_value?: string | number | (string | number)[]
     /** Slope graph only: the last bucket is the current, still-accumulating period (set by the
      * backend SlopeGraphTrendsQueryRunner) so the slope dashes the provisional end like the insight. */
     incomplete_end?: boolean
@@ -228,6 +230,9 @@ export interface TrendsVisualizerProps {
     showControls?: boolean
     chartClassName?: string
     showTitle?: boolean | 'axis'
+    showLegend?: boolean
+    /** Indexes of the series a line or bar chart draws in full colour, fading the rest. */
+    highlightedSeries?: number[]
 }
 
 export interface FunnelVisualizerProps {

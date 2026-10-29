@@ -6,6 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -45,11 +46,26 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+function normalizeDashboardTileIds(value: unknown): unknown {
+    if (typeof value === 'string' && /^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(value)) {
+        return value.split(',').map(Number)
+    }
+    return value
+}
+
+export const DashboardInsightTileIdsSchema = z
+    .preprocess(normalizeDashboardTileIds, z.array(z.number().int().positive()).min(1))
+    .optional()
+    .describe(
+        'IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.'
+    )
+    .transform((ids): string | undefined => ids?.join(','))
+
 const DashboardTileLayoutSchema = z.object({
-    x: z.number().int().min(0).optional(),
-    y: z.number().int().min(0).optional(),
-    w: z.number().int().min(1).optional(),
-    h: z.number().int().min(1).optional(),
+    x: z.number().int().min(0).optional().describe('Column position in the dashboard grid (0-indexed).'),
+    y: z.number().int().min(0).optional().describe('Row position in the dashboard grid (0-indexed).'),
+    w: z.number().int().min(1).optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+    h: z.number().int().min(1).optional().describe('Height in grid rows.'),
 })
 
 export const DashboardTileCreateSchema = z.object({
@@ -74,8 +90,12 @@ export const DashboardTileCreateSchema = z.object({
         ),
     layouts: z
         .object({
-            sm: DashboardTileLayoutSchema.optional(),
-            xs: DashboardTileLayoutSchema.optional(),
+            sm: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+            ),
+            xs: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the small (mobile) breakpoint. The grid is 1 column wide.'
+            ),
         })
         .optional()
         .describe('Optional dashboard-grid layout for desktop (sm) and mobile (xs).'),
@@ -548,9 +568,138 @@ export const InsightQueryInputSchema = z.preprocess(
             .union([z.string(), z.record(z.string(), z.unknown())])
             .optional()
             .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricFilters`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
+)
+
+const ExplainChartEvidenceSchema = z.object({
+    text: z
+        .string()
+        .min(1)
+        .max(400)
+        .describe(
+            'One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**.'
+        ),
+    query: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+            'The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the explanation.'
+        ),
+    chart: z
+        .object({
+            type: z.enum(['line', 'bar']).describe('`line` for values over time, `bar` for a value per label.'),
+            labels: z
+                .array(z.string())
+                .min(1)
+                .max(200)
+                .describe(
+                    'The x-axis labels in order, such as hours or referrers, written as the person should read them.'
+                ),
+            series: z
+                .array(
+                    z.object({
+                        name: z.string().min(1).max(80),
+                        values: z.array(z.number()).describe('One value per label, in the same order.'),
+                    })
+                )
+                .min(1)
+                .max(6),
+        })
+        .refine((chart) => chart.series.every((item) => item.values.length === chart.labels.length), {
+            message: 'Each series needs one value per label.',
+        })
+        .optional()
+        .describe(
+            'Numbers to draw beside this finding when its query is not a TrendsQuery, such as SQL. Copy them from the result you got.'
+        ),
+    url: z
+        .string()
+        .url()
+        .startsWith('https://')
+        .optional()
+        .describe('A link to the source when it is not a query, for example a commit, a pull request or a deploy.'),
+})
+
+const ExplainChartChapterSchema = z.object({
+    title: z
+        .string()
+        .min(1)
+        .max(80)
+        .describe('A short title, for example "A spike on October 2" or "Lower since September 28".'),
+    start: z
+        .string()
+        .min(1)
+        .describe(
+            "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+        ),
+    end: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('The last point the chapter covers, inclusive. Omit it when the chapter is about one point.'),
+    summary: z
+        .string()
+        .max(400)
+        .optional()
+        .describe(
+            "What happened, in one or two sentences. Do not repeat the chart's own numbers: the app works them out from the chart and shows them above this."
+        ),
+    cause: z
+        .string()
+        .max(600)
+        .optional()
+        .describe(
+            'The most likely cause, in one or two sentences. Say whether it is a real change in behavior or an artifact of the data. Wrap the name behind it, such as a referrer or a country, in **double asterisks**. Omit it when you found no cause.'
+        ),
+    confidence: z
+        .enum(['high', 'medium', 'low'])
+        .optional()
+        .describe(
+            'How sure you are of the cause. high: independent signals agree. medium: one signal, or a strong pattern without a cross-check. low: a guess.'
+        ),
+    confidence_reason: z.string().max(200).optional().describe('Why you gave that confidence, in one sentence.'),
+    evidence: z.array(ExplainChartEvidenceSchema).max(6).optional().describe('What you checked, at most 6 findings.'),
+})
+
+export const ExplainChartInputSchema = z.preprocess(
+    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    z
+        .object({
+            insightId: z
+                .union([z.string(), z.number()])
+                .optional()
+                .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
+            query: z
+                .record(z.string(), z.unknown())
+                .optional()
+                .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
+            series: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .default(0)
+                .describe(
+                    "Index of the series in the chart's results that the story follows. Defaults to the first one."
+                ),
+            headline: z
+                .string()
+                .min(1)
+                .max(300)
+                .describe(
+                    'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
+                ),
+            chapters: z
+                .array(ExplainChartChapterSchema)
+                .min(1)
+                .max(8)
+                .describe('The moments that stand out, in the order to read them. At most 8.'),
+        })
+        .refine((params) => (params.insightId === undefined) !== (params.query === undefined), {
+            message: 'Pass exactly one of `insightId` or `query`.',
+        })
 )
 
 export const AIObservabilityGetCostsSchema = z.object({
@@ -615,6 +764,15 @@ const EventDefinitionTagSchema = z
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
+    owner: z
+        .number()
+        .int()
+        .positive()
+        .nullable()
+        .optional()
+        .describe(
+            'Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.'
+        ),
     tags: z
         .array(EventDefinitionTagSchema)
         .optional()
@@ -634,6 +792,10 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const EventDefinitionGetSchema = z.object({
+    eventName: z.string().min(1).describe('The exact name of the event (e.g. "$pageview", "user_signed_up")'),
 })
 
 export const EventDefinitionCreateSchema = z.object({
@@ -767,9 +929,12 @@ export const PathCleaningRulesUpdateSchema = z.object({
         ),
 })
 
-export const ProjectSetActiveSchema = z.object({
-    projectId: z.number().int().positive(),
-})
+export const ProjectSetActiveSchema = z.preprocess(
+    normalizeParamAliases({ projectId: ['project_id', 'new_project_id'] }),
+    z.object({
+        projectId: z.number().int().positive(),
+    })
+)
 
 const taskAgentRunOptions = {
     // Use a pattern because JSON Schema's date-time format requires a timezone offset.
@@ -1303,3 +1468,59 @@ export const WorkflowActionEmailPatchSchema = z
             })
         }
     })
+
+const FeatureFlagUpdateFilters = FeatureFlagsPartialUpdateBody().shape.filters.unwrap()
+const FeatureFlagUpdateConditionGroup = FeatureFlagUpdateFilters.shape.groups.unwrap().element
+
+export const UpdateFeatureFlagFiltersSchema = FeatureFlagUpdateFilters.extend({
+    groups: z
+        .array(
+            FeatureFlagUpdateConditionGroup.extend({
+                condition_id: z
+                    .string()
+                    .optional()
+                    .describe(
+                        'The condition_id this condition had when you read the flag. Send it unchanged when you ' +
+                            'keep, edit, or move the condition. Leave it off a new condition or one copied from a ' +
+                            'different flag. The update is refused when no condition on the flag has this ID.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(FeatureFlagUpdateFilters.shape.groups.description!),
+}).describe(
+    'Full release-condition object. It replaces the stored filters, so read the flag first and send every ' +
+        'condition you want to keep. The tool description covers condition_id and group targeting.'
+)
+
+// Rules stay opaque: the server's v2 validator is the only schema, and its field errors name the path to fix.
+// A loose object keeps every key the agent sends, so nothing it echoed from the read is dropped here.
+export const FlagRulesV2UpdateInputSchema = z.preprocess(
+    normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+    z.object({
+        id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams().shape.id),
+        version: z
+            .number()
+            .int()
+            .min(0)
+            .describe(
+                "The flag's top-level `version` from your latest read. The write is refused with 409 when the flag " +
+                    'changed after it.'
+            ),
+        filters: z
+            .looseObject({
+                version: z.literal(2).describe('Config format. Always 2 here; unrelated to the top-level `version`.'),
+                return_type: z.string().describe('Copy it from the flag you read. It cannot change.'),
+                default_value: z
+                    .union([z.boolean(), z.string(), z.number(), z.record(z.string(), z.unknown()), z.null()])
+                    .describe('Value served when no rule returns one. Must match `return_type`, or null.'),
+                rules: z
+                    .array(z.record(z.string(), z.unknown()))
+                    .describe(
+                        'The complete ordered rule list, in the shape the flag read returns. Keep `id` and `seed` on ' +
+                            'every rule you keep; omit both on a new rule.'
+                    ),
+            })
+            .describe('The complete new configuration. It replaces the stored `filters`.'),
+    })
+)

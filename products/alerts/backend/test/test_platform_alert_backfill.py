@@ -1,7 +1,12 @@
+from io import StringIO
 from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
+
+from django.core.management import call_command
+
+from parameterized import parameterized
 
 from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 
@@ -12,6 +17,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_alert_backfill import (
     backfill_platform_insight_alert_configurations,
     disable_platform_insight_alert_configurations,
+    follow_insight_alert,
 )
 from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import SourceKind
@@ -61,9 +67,18 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         unparseable = self._alert(schedule_start_time="25:99")
 
         counts = backfill_platform_insight_alert_configurations(team_id=self.team.id)
-        again = backfill_platform_insight_alert_configurations(team_id=self.team.id)
+        assert (counts.created, counts.skipped, counts.failed) == (5, 1, 1)
+        assert ai_detector.id not in self._copies()
 
-        assert (counts.created, counts.skipped, counts.failed, again.created, again.updated) == (6, 0, 1, 0, 6)
+        call_command(
+            "backfill_platform_insight_alert_configurations",
+            team_id=self.team.id,
+            include_ai_detector=True,
+            stdout=StringIO(),
+        )
+        again = backfill_platform_insight_alert_configurations(team_id=self.team.id, include_ai_detector=True)
+
+        assert (again.created, again.updated) == (0, 6)
         copies = self._copies()
         assert unparseable.id not in copies
         assert {key: (v.check_interval_minutes, v.recurrence_unit, v.anchor_time) for key, v in copies.items()} == {
@@ -109,3 +124,34 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
 
         backfill_platform_insight_alert_configurations(team_id=self.team.id)
         assert {view.enabled for view in self._copies().values()} == {True}
+
+    @parameterized.expand(
+        [
+            ("a_team_on_the_platform", True, False, None, "renamed"),
+            ("a_team_off_the_platform", False, False, None, None),
+            ("an_ai_alert", True, False, {"type": "llm"}, None),
+            ("an_alert_switched_to_ai_after_its_copy", True, True, {"type": "llm"}, "alert"),
+        ]
+    )
+    def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(
+        self,
+        _name: str,
+        running: bool,
+        copied_before: bool,
+        detector: dict[str, str] | None,
+        copy_name: str | None,
+    ) -> None:
+        if running:
+            self._alert()
+            backfill_platform_insight_alert_configurations(team_id=self.team.id)
+        created = self._alert()
+        if copied_before:
+            backfill_platform_insight_alert_configurations(alert_ids=[created.id])
+        created.name = "renamed"
+        created.detector_config = detector
+        created.save()
+
+        follow_insight_alert(created)
+
+        copy = self._copies().get(created.id)
+        assert (copy.name if copy else None) == copy_name

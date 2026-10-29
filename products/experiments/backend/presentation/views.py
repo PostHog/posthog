@@ -11,6 +11,7 @@ This will be refactored incrementally in subsequent PRs to match the product arc
 import json
 import asyncio
 import logging
+from collections.abc import Mapping
 from typing import Any, Literal, cast
 
 from django.conf import settings
@@ -46,6 +47,7 @@ from posthog.models.user import User
 from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
+    is_scout_sandbox_request,
     is_service_auth,
     posthog_feature_flag_enabled,
 )
@@ -78,12 +80,17 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
-from products.experiments.backend.facade.legacy_migration import (
-    LegacyMigrationError,
-    migrate_experiment as migrate_legacy_experiment,
+from products.experiments.backend.facade.api import (
+    get_experiment_health,
+    get_experiment_health_inputs,
+    get_running_time_target,
 )
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthReaderAccess,
+    LegacyMigrationError,
+    RunningTimeMode,
+)
+from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -96,6 +103,16 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
+)
+from products.experiments.backend.presentation.scout_writes import (
+    is_true,
+    refuse_scout_cleanup_pr,
+    refuse_scout_experiment_copy_to_project,
+    refuse_scout_experiment_delete,
+    refuse_scout_experiment_migrate,
+    refuse_scout_live_flag_config_change,
+    refuse_scout_ship_variant_without_flag_write,
+    update_carries_flag_config,
 )
 from products.experiments.backend.presentation.serializers import (
     ArchiveExperimentSerializer,
@@ -127,6 +144,8 @@ from products.experiments.backend.presentation.serializers import (
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
+    RunningTimeTargetQuerySerializer,
+    RunningTimeTargetSerializer,
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
@@ -508,12 +527,29 @@ class EnterpriseExperimentsViewSet(
         return ExperimentSerializer
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
+            self._check_scout_update(request)
         # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
         # and retry precisely; the default exception handler would flatten it to a plain string.
         try:
             return super().update(request, *args, **kwargs)
         except ExperimentVersionConflict as err:
             return Response(err.response_data(), status=err.status_code)
+
+    def _check_scout_update(self, request: Request) -> None:
+        # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.
+        if is_true(request.data.get("deleted", False)):
+            refuse_scout_experiment_delete(True)
+        if update_carries_flag_config(
+            request.data, legacy_flag_config_keys=ExperimentService.FEATURE_FLAG_CONFIG_KEYS
+        ) and not self._token_can_write_feature_flag(request):
+            experiment: Experiment = self.get_object()
+            refuse_scout_live_flag_config_change(
+                True,
+                can_write_feature_flag=False,
+                flag_is_live=not experiment.is_draft
+                or (experiment.feature_flag is not None and experiment.feature_flag.active),
+            )
 
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -532,7 +568,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "health_inputs"):
+        if self.action in ("health", "health_inputs", "in_session_exposure"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -774,6 +810,9 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        refuse_scout_cleanup_pr(
+            is_scout_sandbox_request(request), open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"]
+        )
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
@@ -818,9 +857,15 @@ class EnterpriseExperimentsViewSet(
         Returns 400 if the experiment is in draft state, the variant_key is not found
         on the flag, or the experiment has no linked feature flag.
         """
+        refuse_scout_ship_variant_without_flag_write(
+            is_scout_sandbox_request(request), can_write_feature_flag=self._token_can_write_feature_flag(request)
+        )
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        refuse_scout_cleanup_pr(
+            is_scout_sandbox_request(request), open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"]
+        )
         if request_serializer.validated_data["set_repository_as_team_default"]:
             self._check_team_default_repository_access(request)
         service = ExperimentService(team=self.team, user=request.user)
@@ -915,8 +960,9 @@ class EnterpriseExperimentsViewSet(
         each check, so a check that found no problem can be told from one that did not apply or could
         not read an input.
 
-        The checks here read the experiment, its flag, its linked metrics, and the changes of the
-        flag's variant split since launch. The checks that read exposure counts come with the
+        The checks here read the experiment, its flag, its linked metrics, the project's event and
+        property definitions, the cohorts of the exposure criteria, and the changes of the flag's
+        variant split since launch. The checks that read exposure counts come with the
         exposure query. The split-change check compares the split changes with the exposures only
         for exposure criteria that name an event without property filters. When the split changed
         after launch and the criteria have filters or an action, or an API key lacks `query:read`,
@@ -929,14 +975,56 @@ class EnterpriseExperimentsViewSet(
         definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
         not received. A name whose definition was deleted since launch, or in the last day for a
         draft, is not checked, because ingestion writes the definition again only when the event
-        arrives. `metric_event_not_ingested` names each metric that
+        arrives. No missing definition is checked when ingestion saw none of the experiment's events
+        in the last day, because ingestion can be set to skip a team. `metric_event_not_ingested`
+        names each metric that
         reads an event the project never received, in the `evidence` keys `metric_N`,
         `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
-        exposure event the project never received (`exposure_event_not_ingested`), and a
+        exposure event the project never received (`exposure_event_not_ingested`), a
         `$feature_flag` filter on the flag call events that requires another flag
-        (`filter_on_another_flag`). An event not received is info before launch, in the first 24
-        hours after launch, and when only secondary metrics read it, and a warning otherwise.
-        `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
+        (`filter_on_another_flag`), and a filter on an event or person property that the project has
+        no definition of, with an operator that a missing property fails
+        (`filter_on_property_not_ingested`, the keys in `evidence.properties`). A property whose
+        definition was ever deleted is not checked, and neither is an event property filter on an
+        action or on `$groupidentify`, whose properties ingestion keeps no definitions of. An event
+        or property not received is info before launch, in the first 24 hours after launch, and when
+        only secondary metrics read it, and a warning otherwise. `filter_on_another_flag` is a
+        warning in every state, `filter_on_property_not_ingested` also reports after the end, and
+        the other findings stop at the end.
+
+        `exposure_filters` reads the cohort and event property filters of the exposure criteria and
+        of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
+        warning in every state: the results use the members of a dynamic cohort at the calculation,
+        not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
+        that matches the cohort's members gives one variant, `cohort_in_release_conditions` when the
+        release conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts.
+        Both subcodes need the exposure criteria to keep the members too, not to leave them out.
+        `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
+        events, not users (`evidence.properties`).
+
+        `metric_cannot_compile` builds and compiles the query of each metric without running it, as
+        the caller, so a metric that every calculation fails on shows before launch. A metric that
+        reads a warehouse table or view the caller may not query is not checked for them. The finding
+        names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
+        (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
+        compiler's message). It is a warning when a primary metric fails, also after the end, because
+        the calculation after the fix reads the events up to the end. It is info otherwise. A failure
+        inside ClickHouse, such as a type that the data holds, isn't found. A failing metric compiles
+        again on every request. A metric that compiles is cached per caller for a day, so a cohort or
+        table that is deleted after a compile can take up to a day to show.
+
+        `metric_calculation_failed` reports each metric whose latest calculation failed, from the
+        latest finished calculation that the results page shows. It leaves out a metric that
+        `metric_cannot_compile` reports. The subcode is the kind of the first failure: `busy`,
+        `query_limit` (the query reached the read, memory, time or length limit), `settings` (a setting of
+        the metric or the experiment), `not_enough_data`, `experiment_too_old` (the experiment
+        started too long ago to calculate again) or `unexpected_error`. Each metric is in the
+        `evidence` keys `metric_N`, `metric_N_role`, `metric_N_failure` (the kind), `metric_N_error`
+        (the limit, or the family of a setting) and `metric_N_message` (only a message that PostHog
+        wrote for users), and `calculated_at` is when the calculation finished. It is a
+        warning when a primary metric fails for a kind that a change fixes (`query_limit`,
+        `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
+        reads the events up to the end. It is info otherwise.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
@@ -968,12 +1056,24 @@ class EnterpriseExperimentsViewSet(
         `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
         history gets the warning, because the pause is not read. A draft whose flag is already
         active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+        An ended experiment whose flag is still active with multiple variants gets
+        `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
+        when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
+        an extra hour, because `last_called_at` trails a call.
+
+        A running experiment whose first primary metric is a funnel gets the info
+        `early_significance` (subcode `below_detectable_effect`) when a significant variant's
+        difference is smaller than the smallest difference its sample can detect, while that
+        sample is below the one the running time estimate plans for the minimum detectable
+        effect. It reads the metric's current stored result, the one the results page shows
+        after its last calculation, and the running time calculator's formula.
         """
         experiment: Experiment = self.get_object()
         health = get_experiment_health(
             team_id=self.team_id,
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
+            user=request.user if isinstance(request.user, User) else None,
         )
         return Response(ExperimentHealthSerializer(health).data)
 
@@ -1232,6 +1332,7 @@ class EnterpriseExperimentsViewSet(
 
         Returns 400 if the experiment already uses the new engine.
         """
+        refuse_scout_experiment_migrate(is_scout_sandbox_request(request))
         experiment: Experiment = self.get_object()
 
         if not experiment_has_legacy_metrics(experiment):
@@ -1365,6 +1466,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Copy an experiment into another project in the same organization as a new draft."""
+        refuse_scout_experiment_copy_to_project(is_scout_sandbox_request(request))
         source_experiment: Experiment = self.get_object()
 
         if experiment_has_legacy_metrics(source_experiment):
@@ -1630,6 +1732,27 @@ class EnterpriseExperimentsViewSet(
         return Response(service.get_velocity_stats())
 
     @validated_request(
+        query_serializer=RunningTimeTargetQuerySerializer,
+        responses={200: OpenApiResponse(response=RunningTimeTargetSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="running_time_target", required_scopes=["experiment:read"])
+    def running_time_target(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """The target sample of the experiment's running time estimate, which the experiment page's header compares
+        with the exposures so far, and what the experiment can detect over time.
+
+        In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
+        current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
+        traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
+        """
+        experiment: Experiment = self.get_object()
+        target = get_running_time_target(
+            team_id=self.team.id,
+            experiment_id=experiment.id,
+            mode=RunningTimeMode(mode) if (mode := request.validated_query_data.get("mode")) else None,
+        )
+        return Response(RunningTimeTargetSerializer(target).data)
+
+    @validated_request(
         request_serializer=RunningTimeCalculationInputSerializer,
         responses={200: OpenApiResponse(response=RunningTimeCalculationResultSerializer)},
     )
@@ -1872,7 +1995,9 @@ class EnterpriseExperimentsViewSet(
         Postgres reads only, so it can serve the tab's mount path.
         """
         experiment: Experiment = self.get_object()
-        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+        semantics = resolve_in_session_exposure_semantics(team_id=self.team_id, experiment_id=experiment.id)
+        if semantics is None:
+            raise NotFound()
         return Response(ExperimentInSessionExposureSerializer(semantics).data)
 
     @validated_request(

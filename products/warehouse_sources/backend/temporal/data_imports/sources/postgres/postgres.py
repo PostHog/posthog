@@ -4,6 +4,7 @@ import re
 import math
 import time
 import errno
+import weakref
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -26,6 +27,7 @@ import psycopg
 import pyarrow as pa
 import structlog
 from psycopg import sql
+from psycopg.abc import AdaptContext
 from psycopg.adapt import Loader
 from psycopg.types.datetime import TimeLoader, TimestampLoader, TimestamptzLoader, TimetzLoader
 from structlog.types import FilteringBoundLogger
@@ -94,6 +96,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
     and_join,
     render_psycopg_row_filter_conditions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
+    TLSOptions,
+    libpq_tls_kwargs,
+    tls_options,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
@@ -359,8 +367,8 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the full
     # "failed to retrieve database credentials" wording, NOT the bare "(ECIRCUITBREAKER)" code —
     # Supavisor reuses the same code for a different condition ("too many authentication failures",
-    # tripped by repeated bad credentials rather than pooler bookkeeping), which must stay
-    # non-retryable and is matched separately in source.py's `get_non_retryable_errors`.
+    # tripped by repeated failed sign-ins). That block is not retried in-process, because retrying
+    # during the block only adds attempts. source.py keeps it retryable across activity attempts.
     "(ecircuitbreaker) failed to retrieve database credentials",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
@@ -588,31 +596,50 @@ def _is_server_starting_up_error(error: BaseException) -> bool:
     return any(substring in message for substring in _SERVER_STARTING_UP_ERROR_SUBSTRINGS)
 
 
+# A connect-time refusal some proxy/pooler layers in front of Postgres raise during their own brief
+# internal hiccup: a bare "FATAL:  service temporarily unavailable" with no SQLSTATE-mapped
+# subclass and none of the lifecycle wording above (it names no startup/shutdown/recovery state, and
+# no capacity limit like `_CONNECTION_LIMIT_ERROR_SUBSTRINGS`). Deterministic for the moment it's
+# raised but self-recovering on a fresh attempt once the outage clears, so it stays retryable rather
+# than disabling the sync.
+_SERVICE_UNAVAILABLE_ERROR_SUBSTRING = "service temporarily unavailable"
+
+
+def _is_service_unavailable_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return _SERVICE_UNAVAILABLE_ERROR_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
+
+
 def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
     A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, a connect-time
     connection-limit refusal (`_is_connection_limit_error`), a connect-time "server not ready"
-    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`), or
-    this worker process running out of file descriptors while opening the socket
+    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`), a
+    proxy/pooler reporting a brief service outage (`_is_service_unavailable_error`), or this worker
+    process running out of file descriptors while opening the socket
     (`_is_too_many_open_files_error`). psycopg raises `ConnectionTimeout` ("connection timeout
     expired") only while *establishing* a connection, never mid-query, so on the import/read path
     it's transient: the source was reachable moments earlier in the same sync, and the reconnect
-    just needs retrying. Connection-limit refusals ("sorry, too many clients already", etc.) and
-    server-still-starting-up refusals ("the database system is not yet accepting connections", etc.)
-    are likewise transient — a slot frees the moment another connection closes, and the server
-    begins accepting connections once startup/recovery finishes. A file-descriptor exhaustion is the
-    same shape on our side of the wire: a descriptor frees the moment another connection/cursor in
-    this worker closes. Used by the read/sync connect retry (`_connect_with_dropped_retry`) and the
-    `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit refusals,
-    server-startup refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but
-    deliberately keeps failing fast on connect-time *timeouts*, where a timeout usually means an
-    unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    just needs retrying. Connection-limit refusals ("sorry, too many clients already", etc.),
+    server-still-starting-up refusals ("the database system is not yet accepting connections", etc.),
+    and bare service-unavailable refusals are likewise transient — a slot frees the moment another
+    connection closes, the server begins accepting connections once startup/recovery finishes, and a
+    proxy/pooler outage clears on its own. A file-descriptor exhaustion is the same shape on our side
+    of the wire: a descriptor frees the moment another connection/cursor in this worker closes. Used
+    by the read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking`
+    reconnect. The schema-discovery path retries drops, connection-limit refusals, server-startup
+    refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but deliberately
+    keeps failing fast on connect-time *timeouts*, where a timeout usually means an unreachable host
+    / unconfigured firewall (see `PostgresErrors`). A fast failure there is still retried by the
+    activity, because `get_retryable_errors` lists the timeout.
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
         or _is_server_starting_up_error(error)
+        or _is_service_unavailable_error(error)
         or _is_too_many_open_files_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
@@ -623,22 +650,24 @@ def _is_dropped_or_connection_limit(error: BaseException) -> bool:
 
     A mid-stream drop (`_is_connection_dropped_error`), a connection-limit refusal
     (`_is_connection_limit_error`), a "server not ready" refusal while the source is still starting
-    up / recovering (`_is_server_starting_up_error`), or a hot-standby recovery conflict
+    up / recovering (`_is_server_starting_up_error`), a proxy/pooler reporting a brief service outage
+    (`_is_service_unavailable_error`), or a hot-standby recovery conflict
     (`_is_recovery_conflict_error`). All are transient — a slot frees as connections close, a
     pooler-cached login failure clears once the upstream has capacity, the server begins accepting
-    connections once startup/recovery finishes, and a recovery conflict clears once the replica's WAL
-    replay moves past the conflicting row versions — so discovery retries them on a fresh connection
-    instead of failing the activity and surfacing captured error-tracking noise. The import read path
-    already retries the same recovery-conflict condition mid-stream (see `handle_recovery_conflict`);
-    discovery just needed the same treatment. Unlike the read/sync connect path
-    (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is deliberately excluded: during
-    discovery a timeout usually means a now-unreachable host, which should fail fast rather than burn
-    the retry budget.
+    connections once startup/recovery finishes, a proxy/pooler outage clears on its own, and a
+    recovery conflict clears once the replica's WAL replay moves past the conflicting row versions —
+    so discovery retries them on a fresh connection instead of failing the activity and surfacing
+    captured error-tracking noise. The import read path already retries the same recovery-conflict
+    condition mid-stream (see `handle_recovery_conflict`); discovery just needed the same treatment.
+    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
+    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
+    should fail fast rather than burn the retry budget.
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
         or _is_server_starting_up_error(error)
+        or _is_service_unavailable_error(error)
         or _is_recovery_conflict_error(error)
     )
 
@@ -938,6 +967,11 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
 # reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
 # or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
 # raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+# The source type the managed-warehouse host exemption is keyed on. Kept next to the one
+# connect this module opens so a managed warehouse host is treated the same at connect time
+# as it is at validation time.
+_HOST_CHECK_SOURCE_TYPE = "postgres"
+
 _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
 
 
@@ -945,7 +979,16 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
-def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
+# libpq mentions SSL when it refuses the server certificate or the server refuses ours. The server
+# does speak TLS there, so the "enable SSL" advice of `SSLRequiredError` would mislead.
+def _is_certificate_rejection(error: BaseException) -> bool:
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(marker in message for marker in CERTIFICATE_ERRORS)
+
+
+def _open_connection(
+    *, team_id: int | None = None, tls: TLSOptions | None = None, **connect_kwargs: Any
+) -> psycopg.Connection:
     """The one `psycopg.connect` in this module. Every connection to a source database opens
     here so that `pinned_host_kwargs` decides what gets dialed.
 
@@ -953,12 +996,25 @@ def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> ps
     `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
     `options` and why dropping it is safe.
     """
+    if tls is not None:
+        tls_files = ExitStack()
+        tls_kwargs = tls_files.enter_context(libpq_tls_kwargs(tls))
+        try:
+            connection = _open_connection(team_id=team_id, **{**connect_kwargs, **tls_kwargs})
+        except BaseException:
+            tls_files.close()
+            raise
+        # libpq 17 reads the certificate files again for every `cancel_safe` request, so they must
+        # last as long as the connection.
+        weakref.finalize(connection, tls_files.close)
+        return connection
     connect_kwargs.update(
         pinned_host_kwargs(
             connect_kwargs["host"],
             port=connect_kwargs.get("port", 5432),
             connect_timeout=connect_kwargs.get("connect_timeout", 15),
             team_id=team_id,
+            source_type=_HOST_CHECK_SOURCE_TYPE,
         )
     )
     try:
@@ -982,6 +1038,7 @@ def _connect_to_postgres(
     require_ssl: bool = False,
     connect_timeout: int = 15,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
@@ -995,6 +1052,7 @@ def _connect_to_postgres(
     try:
         return _open_connection(
             team_id=team_id,
+            tls=tls,
             host=host,
             port=port,
             dbname=database,
@@ -1014,6 +1072,7 @@ def _connect_to_postgres(
             require_ssl
             and "SSL" in str(e)
             and not _is_invalid_ssl_negotiation_response(e)
+            and not _is_certificate_rejection(e)
             and not _is_connection_dropped_error(e)
         ):
             raise SSLRequiredError(
@@ -1033,6 +1092,7 @@ def pg_connection(
     password: str,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> Iterator[psycopg.Connection]:
     """Context manager that opens a postgres connection and ensures it is closed on exit."""
     conn = _connect_to_postgres(
@@ -1043,6 +1103,7 @@ def pg_connection(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     )
     try:
         yield conn
@@ -1611,6 +1672,7 @@ def get_postgres_row_count(
     schema: str | None,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, int]:
     if _normalize_selected_schema(schema) is None and not names:
@@ -1624,6 +1686,7 @@ def get_postgres_row_count(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         ) as connection:
             return _row_counts_from_conn(connection, schema, names)
     except:
@@ -1742,6 +1805,7 @@ def get_schemas(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
@@ -1772,6 +1836,7 @@ def get_schemas(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         )
         try:
             return _schemas_from_conn(connection, schema, names)
@@ -1796,6 +1861,7 @@ def get_primary_keys_for_schemas(
     table_names: list[str],
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys for all tables in a single query."""
     result: dict[str, list[str] | None] = dict.fromkeys(table_names)
@@ -1809,6 +1875,7 @@ def get_primary_keys_for_schemas(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         ) as connection:
             pks = get_primary_key_columns(connection, schema, table_names)
             for table_name, pk_cols in pks.items():
@@ -1896,6 +1963,7 @@ def get_foreign_keys(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
@@ -1907,6 +1975,7 @@ def get_foreign_keys(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     ) as connection:
         return _foreign_keys_from_conn(connection, schema, names)
 
@@ -1931,6 +2000,7 @@ def get_connection_metadata(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> dict[str, Any]:
     with pg_connection(
         host=host,
@@ -1940,6 +2010,7 @@ def get_connection_metadata(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_database(), version()")
@@ -2029,6 +2100,31 @@ class NetworkAsStringLoader(Loader):
         if data is None:
             return None
         return bytes(data).decode("utf-8")
+
+
+class LenientTextLoader(Loader):
+    """Load PostgreSQL text values, replacing bytes that are not valid UTF-8.
+
+    Postgres does not re-validate stored text on output, so a `SQL_ASCII` database or an
+    extension that writes raw bytes into a `text` column (e.g. Supabase's `pg_net` storing
+    binary HTTP response bodies) can send invalid UTF-8. psycopg's default loader decodes
+    strictly, so one such value fails the whole sync with `UnicodeDecodeError`.
+
+    Decodes with the negotiated client encoding, because a pooler that rejects the startup
+    `options` leaves the connection on the server's own encoding (e.g. LATIN1). `SQL_ASCII`
+    decodes as UTF-8, because psycopg would return `bytes` for it, which Arrow cannot store
+    in a string column.
+    """
+
+    def __init__(self, oid: int, context: AdaptContext | None = None):
+        super().__init__(oid, context)
+        encoding = self.connection.info.encoding if self.connection else "utf-8"
+        self._encoding = "utf-8" if encoding == "ascii" else encoding
+
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode(self._encoding, "replace")
 
 
 class SafeDateLoader(Loader):
@@ -3685,6 +3781,7 @@ def postgres_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     require_ssl: bool = False,
+    tls: TLSOptions | None = None,
     is_initial_sync: bool = False,
     enabled_columns: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
@@ -3716,6 +3813,7 @@ def postgres_source(
             try:
                 conn = _open_connection(
                     team_id=team_id,
+                    tls=tls,
                     host=host,
                     port=port,
                     dbname=database,
@@ -3734,6 +3832,7 @@ def postgres_source(
                     require_ssl
                     and "SSL" in str(e)
                     and not _is_invalid_ssl_negotiation_response(e)
+                    and not _is_certificate_rejection(e)
                     and not _is_connection_dropped_error(e)
                 ):
                     raise SSLRequiredError(
@@ -4112,6 +4211,7 @@ def postgres_source(
                 try:
                     connection = _open_connection(
                         team_id=team_id,
+                        tls=tls,
                         host=host,
                         port=port,
                         dbname=database,
@@ -4131,6 +4231,7 @@ def postgres_source(
                         require_ssl
                         and "SSL" in str(e)
                         and not _is_invalid_ssl_negotiation_response(e)
+                        and not _is_certificate_rejection(e)
                         and not _is_connection_dropped_error(e)
                     ):
                         raise SSLRequiredError(
@@ -4153,6 +4254,10 @@ def postgres_source(
                 connection.adapters.register_loader("timetz", SafeTimetzLoader)
                 connection.adapters.register_loader("inet", NetworkAsStringLoader)
                 connection.adapters.register_loader("cidr", NetworkAsStringLoader)
+                connection.adapters.register_loader("text", LenientTextLoader)
+                connection.adapters.register_loader("varchar", LenientTextLoader)
+                connection.adapters.register_loader("bpchar", LenientTextLoader)
+                connection.adapters.register_loader("name", LenientTextLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
@@ -4851,6 +4956,7 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
                 password=config.password,
                 require_ssl=require_ssl,
                 team_id=team_id,
+                tls=tls_options(config),
             ) as conn:
                 yield conn
 

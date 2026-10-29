@@ -72,8 +72,8 @@ pub const WAL_FSYNC_ERRORS_TOTAL: &str = "wal_fsync_errors_total";
 /// On-disk partition slices kept (reopen-live) across a durable restart, because still assigned to
 /// this pod (counter).
 pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partitions_kept_total";
-/// On-disk partition slices wiped because no longer assigned to this pod — stale state to cold-rebuild
-/// from the committed offset (counter).
+/// On-disk partition slices wiped at boot because another pod owns them, counting only slices that
+/// held a key (counter). A boot that follows a reshard wipes some, and other boots wipe none.
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
 /// Partitions adopted as complete by opening a store without coverage records (counter).
@@ -93,13 +93,13 @@ pub const DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL: &str =
 /// Wall-clock duration of one whole-DB `Checkpoint::create_checkpoint` (histogram, seconds).
 /// Whole-DB checkpoint, so these are per-pod, not per-partition.
 pub const CHECKPOINT_DURATION_SECONDS: &str = "checkpoint_duration_seconds";
-/// On-disk size of a freshly-taken checkpoint directory (histogram, bytes).
+/// On-disk size of the newest local checkpoint directory (gauge, bytes).
 pub const CHECKPOINT_SIZE_BYTES: &str = "checkpoint_size_bytes";
-/// File count in a freshly-taken checkpoint directory (histogram).
+/// File count in the newest local checkpoint directory (gauge).
 pub const CHECKPOINT_FILE_COUNT: &str = "checkpoint_file_count";
 /// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`) and
-/// `trigger` (`periodic`|`final`), plus checkpoint ticks skipped by a failed WAL fsync
-/// (`result=flush_failed`) (counter). A cancelled final upload ran out of its budget.
+/// `trigger` (`periodic`|`requested`), plus checkpoint ticks skipped by a failed WAL fsync
+/// (`result=flush_failed`) (counter). A shutdown cancels an upload in flight.
 pub const CHECKPOINT_UPLOADS_TOTAL: &str = "checkpoint_uploads_total";
 /// Bytes a successful upload sent, labelled by `kind` (`full`|`incremental`) (counter). Sizes the
 /// bucket's growth for its expiry setting.
@@ -108,8 +108,9 @@ pub const CHECKPOINT_UPLOADED_BYTES_TOTAL: &str = "checkpoint_uploaded_bytes_tot
 /// staleness alert fires only after its threshold passes.
 pub const CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_capture_timestamp_seconds";
-/// Unix time of the last successful upload (gauge, seconds). Starts at the sweeper's start.
-/// **Alert on staleness**: no restorable checkpoint is getting newer.
+/// Capture time of the newest successful upload, in Unix seconds (gauge). Starts at the upload
+/// `uploaded.json` records, else at the sweeper's start. **Alert on staleness**: no restorable
+/// checkpoint is getting newer.
 pub const CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS: &str =
     "checkpoint_last_upload_timestamp_seconds";
 /// `full_upload_at` of the newest upload: when its chain of incrementals began (gauge, seconds).
@@ -222,6 +223,10 @@ pub const STORE_SST_BYTES: &str = "store_sst_bytes";
 pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
 /// Estimated key count, labelled by `cf` (gauge).
 pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
+/// Bytes in the store directory and the local checkpoints, labelled by file `kind`
+/// (`sst`|`wal`|`info_log`|`manifest`|`other`|`checkpoint`) (gauge). `checkpoint` counts only the
+/// local checkpoint files that the live store does not share.
+pub const STORE_FILE_BYTES: &str = "store_file_bytes";
 
 /// Size of the filesystem holding the store (gauge, bytes).
 pub const STORE_DISK_TOTAL_BYTES: &str = "store_disk_total_bytes";
@@ -623,6 +628,12 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// produce-failure counters before concluding produces are failing.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 
+/// Composed-cohort membership changes a person seed apply emitted for a cohort it recomposed only
+/// because the cohort had no row for the person, labelled by `kind` (`entered`|`left`) (counter).
+/// Counted when the writes commit, like [`SEED_REGISTER_REPAIRS_TOTAL`]. Expect these in bulk on the
+/// first run of a composed cohort whose leaves earlier runs already seeded, and rarely after.
+pub const SEED_COMPOSED_ROW_REPAIRS_TOTAL: &str = "cohort_seed_composed_row_repairs_total";
+
 /// Persons whose Stage 2 inputs a seed apply read through shared store sections (counter).
 /// Attempt-based: a held run counts its persons, and so does the redelivery that replays it.
 /// **Do not divide [`STAGE2_COHORTS_EVALUATED`] by this**, because that counter is settled-based and
@@ -939,6 +950,7 @@ mod tests {
         assert_eq!(STORE_SST_BYTES, "store_sst_bytes");
         assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
         assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
+        assert_eq!(STORE_FILE_BYTES, "store_file_bytes");
         assert_eq!(STORE_DISK_TOTAL_BYTES, "store_disk_total_bytes");
         assert_eq!(STORE_DISK_AVAILABLE_BYTES, "store_disk_available_bytes");
         assert_eq!(STORE_DISK_UTILIZATION_PCT, "store_disk_utilization_pct");
@@ -1094,6 +1106,10 @@ mod tests {
         assert_eq!(
             SEED_REGISTER_REPAIRS_TOTAL,
             "cohort_seed_register_repairs_total"
+        );
+        assert_eq!(
+            SEED_COMPOSED_ROW_REPAIRS_TOTAL,
+            "cohort_seed_composed_row_repairs_total"
         );
         assert_eq!(
             SEED_RECOMPUTE_PERSONS_TOTAL,

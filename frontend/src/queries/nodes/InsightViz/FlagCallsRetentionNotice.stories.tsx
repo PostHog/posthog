@@ -13,4 +13,4 @@ export default meta
 
 type Story = StoryObj<typeof FlagCallsRetentionNotice>
 
-export const Default: Story = {}
+export const Default: Story = { args: { retentionStartDate: '2026-07-09' } }

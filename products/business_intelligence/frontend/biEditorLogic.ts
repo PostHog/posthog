@@ -29,6 +29,7 @@ import {
     DatabaseSchemaTable,
     DateRange,
     HogQLMetadata,
+    HogQLQuery,
     HogQLMetadataResponse,
     HogLanguage,
     NodeKind,
@@ -672,6 +673,15 @@ export interface biEditorLogicActions {
     setLocalFieldDraft: (field: BIField | null) => {
         field: BIField | null
     }
+    setMeasureExpression: (
+        index: number,
+        expression: string,
+        aggregation: BIAggregation
+    ) => {
+        aggregation: BIAggregation
+        expression: string
+        index: number
+    }
     setMeasureShelf: (
         index: number,
         shelf: 'columns' | 'rows'
@@ -684,6 +694,13 @@ export interface biEditorLogicActions {
     }
     setPanes: (panes: BIConfig['panes']) => {
         panes: BIPaneSettings | undefined
+    }
+    setSnapshotParameters: (
+        source: HogQLQuery,
+        parameters: Record<string, boolean | number | string>
+    ) => {
+        parameters: Record<string, boolean | number | string>
+        source: HogQLQuery
     }
     setSort: (sort: BISort | null) => {
         sort: BISort | null
@@ -886,6 +903,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
             target,
         }),
         setChartType: (chartType: ChartDisplayType) => ({ chartType }),
+        setSnapshotParameters: (source: HogQLQuery, parameters: Record<string, string | number | boolean>) => ({
+            source,
+            parameters,
+        }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setMissingDates: (missingDates: BIConfig['missingDates']) => ({ missingDates }),
@@ -923,6 +944,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
             dateBucket,
         }),
         setValueCustomExpression: (index: number, customExpression: string) => ({ index, customExpression }),
+        setMeasureExpression: (index: number, expression: string, aggregation: BIAggregation) => ({
+            index,
+            expression,
+            aggregation,
+        }),
         setFilterCustomExpression: (index: number, customExpression: string) => ({ index, customExpression }),
         resetConfig: true,
     }),
@@ -1038,6 +1064,20 @@ export const biEditorLogic = kea<biEditorLogicType>([
         config: [
             freshBIConfig(),
             {
+                setSnapshotParameters: (config, { source, parameters }) => {
+                    if (
+                        config.querySnapshot !== source ||
+                        Object.entries(parameters).some(
+                            ([name, value]) =>
+                                !Object.prototype.hasOwnProperty.call(source.values ?? {}, name) ||
+                                typeof value !== typeof source.values?.[name] ||
+                                (typeof value === 'number' && !Number.isFinite(value))
+                        )
+                    ) {
+                        return config
+                    }
+                    return { ...config, querySnapshot: { ...source, values: { ...source.values, ...parameters } } }
+                },
                 renameField: (config, { shelf, index, name }) => {
                     if (!name.trim()) {
                         return config
@@ -1342,6 +1382,21 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     values: config.values.map((value, valueIndex) =>
                         valueIndex === index ? { ...value, customExpression } : value
                     ),
+                }),
+                setMeasureExpression: (config, { index, expression, aggregation }) => ({
+                    ...config,
+                    values: config.values.map((value, valueIndex) =>
+                        valueIndex === index
+                            ? {
+                                  ...value,
+                                  aggregation,
+                                  ...(aggregation === 'custom'
+                                      ? { customExpression: expression }
+                                      : { field: { ...value.field, expression, name: expression.trim() } }),
+                              }
+                            : value
+                    ),
+                    topN: config.topN?.measureIndex === index ? undefined : config.topN,
                 }),
                 setFilterCustomExpression: (config, { index, customExpression }) => ({
                     ...config,
@@ -1683,6 +1738,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         removeFieldFromShelf: () => actions.runAfterChange(),
         setChartType: () => actions.runAfterChange(),
         setColorBy: () => actions.runAfterChange(),
+        setSnapshotParameters: () => actions.runAfterChange(),
         setDateRange: () => actions.runAfterChange(),
         setCompareFilter: () => actions.runAfterChange(),
         setMissingDates: () => actions.runAfterChange(),
@@ -1714,6 +1770,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setFieldDatePart: () => actions.runAfterChange(),
         duplicateField: () => actions.runAfterChange(),
         setValueCustomExpression: () => actions.runAfterChange(),
+        setMeasureExpression: () => {
+            captureBIWorksheetAction('measure_expression_updated', values.config)
+            actions.runAfterChange()
+        },
         setFilterCustomExpression: () => actions.runAfterChange(),
     })),
     subscriptions(({ actions, values }) => ({

@@ -23,13 +23,19 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import {
+    COHORT_MEMBERSHIP_CHANGED_EVENT,
+    COHORT_MEMBERSHIP_VERSION_PROPERTY,
+    CohortMembershipRepository,
+    StoredCohortMembership,
+} from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
+import { EmailStatusService } from '../messaging/email-status.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
-import { ConditionalBranchHandler } from './actions/conditional_branch'
+import { ConditionalBranchHandler, counterHogflowCohortLookupFailure } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
@@ -63,6 +69,11 @@ const counterRedirectTargetMissing = new Counter({
     name: 'cdp_hogflow_redirect_target_missing',
     help: 'A redirect map entry pointed at an action missing from the live graph',
 })
+
+const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
+    'exit_on_trigger_not_matched',
+    'exit_on_trigger_not_matched_or_conversion',
+])
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -115,6 +126,7 @@ export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly duplicateObserver: HogFlowDuplicateObserverService | null
     private readonly hogFlowFunctionsService: HogFlowFunctionsService
+    private readonly cohortMembershipRepository: CohortMembershipRepository
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
@@ -122,17 +134,22 @@ export class HogFlowExecutorService {
         emailValidationService: EmailValidationService,
         cohortMembershipRepository: CohortMembershipRepository,
         integrationManager: SlackAppLookup,
+        // Required, so that a caller which builds the executor without it fails to compile. Pass null
+        // only where no email status is recorded.
+        emailStatusService: EmailStatusService | null,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
         options: { awaitedStepsEnabled?: boolean } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
+        this.cohortMembershipRepository = cohortMembershipRepository
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
             'fetch',
+            null,
             usageReporter,
             options
         )
@@ -141,6 +158,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'email',
+            emailStatusService,
             usageReporter
         )
         const hogFunctionSmsHandler = new HogFunctionHandler(
@@ -148,6 +166,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'sms',
+            null,
             usageReporter,
             options
         )
@@ -156,6 +175,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'push',
+            null,
             usageReporter
         )
 
@@ -480,6 +500,64 @@ export class HogFlowExecutorService {
     }
 
     /**
+     * Whether the person still matches a cohort trigger: in the cohort for an "entered" trigger, out of it
+     * for a "left" one. Undefined when there is no trustworthy answer, which leaves the run alone.
+     *
+     * The membership writer and the trigger consumer read each change independently, so the table can still
+     * hold the state from before the change that started this run. A read counts only once the table has
+     * caught up with that change.
+     */
+    private async matchesCohortTrigger(
+        invocation: CyclotronJobInvocationHogFlow,
+        trigger: { cohort_id: number; transition: 'entered' | 'left' }
+    ): Promise<boolean | undefined> {
+        const personUuid = invocation.person?.id ?? invocation.state.personId
+        if (!personUuid) {
+            return undefined
+        }
+        const enrolledBy = invocation.state.event?.properties
+        // Only the change that enrolled the run can still be pending in the table. A run enrolled by another
+        // cohort or transition, because the trigger changed while it was parked, has nothing to wait for.
+        const enrolledByThisTrigger =
+            invocation.state.event?.event === COHORT_MEMBERSHIP_CHANGED_EVENT &&
+            enrolledBy?.cohort_id === trigger.cohort_id &&
+            enrolledBy?.status === trigger.transition
+        const triggerVersion = enrolledByThisTrigger ? enrolledBy?.[COHORT_MEMBERSHIP_VERSION_PROPERTY] : undefined
+        let membership: StoredCohortMembership | null
+        try {
+            membership = await this.cohortMembershipRepository.getCohortMembership(
+                invocation.hogFlow.team_id,
+                personUuid,
+                trigger.cohort_id,
+                typeof triggerVersion === 'string' ? triggerVersion : undefined
+            )
+        } catch (error) {
+            // No answer is not "no longer in the cohort", so the run carries on and the next wake checks again.
+            counterHogflowCohortLookupFailure.labels({ outcome: 'exit_check_skipped' }).inc()
+            logger.warn('HogFlowExecutorService: cohort membership lookup failed during the exit check', {
+                hogFlowId: invocation.hogFlow.id,
+                error: String(error),
+            })
+            return undefined
+        }
+
+        const inCohort = membership?.inCohort ?? null
+        const rowMatches = trigger.transition === 'entered' ? inCohort === true : inCohort === false
+        // The row's version stamp shows whether the writer has applied the change that started this run.
+        // Without a stamp, only a read that matches the trigger shows it, because the change flips the state.
+        const caughtUp =
+            !enrolledByThisTrigger ||
+            invocation.state.cohortTriggerConfirmed === true ||
+            (membership?.caughtUp ?? rowMatches)
+        if (!caughtUp) {
+            return undefined
+        }
+        invocation.state.cohortTriggerConfirmed = true
+        // Once the table has caught up, a missing row means out of the cohort.
+        return trigger.transition === 'entered' ? inCohort === true : inCohort !== true
+    }
+
+    /**
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
     private async shouldExitEarly(
@@ -502,6 +580,9 @@ export class HogFlowExecutorService {
                 caller: 'hogflow_exit_condition',
             })
             triggerMatch = filterResult.match
+        }
+        if (hogFlow.trigger.type === 'cohort' && TRIGGER_MISMATCH_EXITS.has(hogFlow.exit_condition)) {
+            triggerMatch = await this.matchesCohortTrigger(invocation, hogFlow.trigger)
         }
         if (hogFlow.conversion?.filters?.length && person) {
             if (hogFlow.conversion.bytecode?.length) {
@@ -558,6 +639,11 @@ export class HogFlowExecutorService {
                             : `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] matches conversion filters`
                 }
                 break
+        }
+
+        if (shouldExit && hogFlow.trigger.type === 'cohort' && triggerMatch === false) {
+            const movement = hogFlow.trigger.transition === 'entered' ? 'left' : 'rejoined'
+            exitReason = `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] ${movement} cohort ${hogFlow.trigger.cohort_id}`
         }
 
         if (shouldExit) {

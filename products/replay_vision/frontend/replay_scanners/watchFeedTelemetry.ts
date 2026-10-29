@@ -9,17 +9,25 @@ export const CARD_SEEN_DWELL_MS = 1000
 /** One feed fetch. Every card event carries its id, so a click, dismissal, or impression joins back to the ranked list it came from. */
 export interface WatchFeedLoad {
     feedLoadId: string
-    ranker: string
     // Each card's place as served, so a dismissal that shortens the list does not shift later cards' positions.
     positions: Record<string, number>
 }
 
-export function newWatchFeedLoad(ranker: string | null | undefined, items: WatchFeedItemApi[]): WatchFeedLoad {
+export function newWatchFeedLoad(items: WatchFeedItemApi[]): WatchFeedLoad {
     return {
         feedLoadId: uuid(),
-        ranker: ranker ?? 'weighted-score',
         positions: Object.fromEntries(items.map((item, index) => [item.observation.id, index])),
     }
+}
+
+/** The same load with a later page of unseen cards appended, each placed after every card served so far. */
+export function withNextPage(load: WatchFeedLoad, items: WatchFeedItemApi[]): WatchFeedLoad {
+    const served = Object.keys(load.positions).length
+    const positions = { ...load.positions }
+    items.forEach((item, index) => {
+        positions[item.observation.id] = served + index
+    })
+    return { ...load, positions }
 }
 
 function servedPosition(load: WatchFeedLoad | null, item: WatchFeedItemApi, position: number): number {
@@ -29,7 +37,6 @@ function servedPosition(load: WatchFeedLoad | null, item: WatchFeedItemApi, posi
 export function servedListProperties(load: WatchFeedLoad | null, items: WatchFeedItemApi[]): Record<string, unknown> {
     return {
         feed_load_id: load?.feedLoadId ?? null,
-        ranker: load?.ranker ?? null,
         observation_ids: items.map((item) => item.observation.id),
         reason_kinds: items.map((item) => item.reason.kind),
     }
@@ -45,7 +52,6 @@ export function cardProperties(
     const createdAt = Date.parse(observation.created_at)
     return {
         feed_load_id: load?.feedLoadId ?? null,
-        ranker: load?.ranker ?? null,
         surface,
         observation_id: observation.id,
         scanner_id: observation.scanner_id,
@@ -64,11 +70,20 @@ export class WatchFeedImpressions {
     private reported = new Set<string>()
     private load: WatchFeedLoad | null = null
 
-    constructor(private readonly surface: string) {}
+    /** `onFlush` receives each batch of newly seen cards, for anything besides analytics that counts them. */
+    constructor(
+        private readonly surface: string,
+        private readonly onFlush?: (load: WatchFeedLoad, observationIds: string[]) => void
+    ) {}
 
     start(load: WatchFeedLoad | null): void {
         this.flush()
         this.reported.clear()
+        this.load = load
+    }
+
+    /** Takes a later page of the same load without reporting its cards again. */
+    extend(load: WatchFeedLoad): void {
         this.load = load
     }
 
@@ -87,11 +102,13 @@ export class WatchFeedImpressions {
         }
         posthog.capture('replay_vision_watch_feed_impressions', {
             feed_load_id: this.load?.feedLoadId ?? null,
-            ranker: this.load?.ranker ?? null,
             surface: this.surface,
             count: this.seen.size,
             impressions: Array.from(this.seen, ([observation_id, card]) => ({ observation_id, ...card })),
         })
+        if (this.load) {
+            this.onFlush?.(this.load, Array.from(this.seen.keys()))
+        }
         for (const observationId of this.seen.keys()) {
             this.reported.add(observationId)
         }

@@ -85,14 +85,25 @@ class TestTransactionalEmail(SimpleTestCase):
             send_transactional_email("../different-endpoint", to="recipient@example.com")
         post.assert_not_called()
 
-    @parameterized.expand([(301,), (400,), (401,), (403,), (404,)])
-    def test_confirmed_rejection(self, status_code: int) -> None:
+    @parameterized.expand(
+        [
+            (301, None, None),
+            (400, None, None),
+            (401, None, None),
+            (403, None, None),
+            (404, None, None),
+            (422, {"type": "invalid_request", "code": "recipient_suppressed"}, "recipient_suppressed"),
+        ]
+    )
+    def test_confirmed_rejection(self, status_code: int, body: dict | None, expected_code: str | None) -> None:
+        response = Mock(status_code=status_code, json=Mock(return_value=body))
         with (
-            patch("posthog.transactional_email.requests.post", return_value=Mock(status_code=status_code)),
+            patch("posthog.transactional_email.requests.post", return_value=response),
             self.assertRaises(TransactionalEmailRejected) as raised,
         ):
             send_transactional_email(TEMPLATE_ID, to="recipient@example.com")
         assert str(raised.exception) == f"http_{status_code}"
+        assert raised.exception.code == expected_code
 
     @parameterized.expand([(200,), (408,), (500,), (503,)])
     def test_unconfirmed_response_is_uncertain(self, status_code: int) -> None:

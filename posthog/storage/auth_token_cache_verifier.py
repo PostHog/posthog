@@ -326,6 +326,7 @@ def _verify_personal_entries(
                 "scopes",
                 "scoped_teams",
                 "scoped_organizations",
+                "expires_at",
                 "user__id",
                 "user__is_active",
             )
@@ -366,6 +367,11 @@ def _verify_personal_entries(
             continue
 
         if not pak.user.is_active:
+            stale_keys.append(key)
+            _record_stale("personal", result)
+            continue
+
+        if pak.is_expired:
             stale_keys.append(key)
             _record_stale("personal", result)
             continue

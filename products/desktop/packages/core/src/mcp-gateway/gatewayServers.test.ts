@@ -5,6 +5,7 @@ import type {
 } from "@posthog/api-client/posthog-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  canEditGatewayPolicyScope,
   countGatewayServersByCategory,
   countPoliciesByState,
   defaultAgentGrantPolicy,
@@ -409,6 +410,58 @@ describe("getGatewayServerRemovalAction", () => {
     expect(getGatewayServerRemovalAction(srv, isAdmin, currentUserId)).toBe(
       expected,
     );
+  });
+});
+
+describe("canEditGatewayPolicyScope", () => {
+  const share = (userId: number) => ({
+    service_account_id: "sa-1",
+    user: {
+      id: userId,
+      uuid: `user-${userId}`,
+      email: `user-${userId}@example.com`,
+      hedgehog_config: null,
+    },
+    scope: "personal" as const,
+    name: "Deploy bot",
+    handle: "deploy-bot",
+    status: "active" as const,
+    last_active_at: null,
+    granted_by: null,
+  });
+  const agentScope = {
+    scopeType: "agent" as const,
+    scopeServiceAccountId: "sa-1",
+  };
+
+  it.each([
+    ["an admin without a share", server({}), true, true],
+    [
+      "a member with their own share",
+      server({ agents: [share(1)], your_connection: connection() }),
+      false,
+      true,
+    ],
+    [
+      "a member whose connection behind their share is deleted",
+      server({ agents: [share(1)] }),
+      false,
+      false,
+    ],
+    [
+      "a member with only a teammate's share",
+      server({ agents: [share(2)] }),
+      false,
+      false,
+    ],
+  ] as const)("agent scope for %s", (_label, srv, isAdmin, expected) => {
+    expect(
+      canEditGatewayPolicyScope(srv, agentScope, {
+        isAdmin,
+        canManageAgentAccess: true,
+        currentUserId: 1,
+      }),
+    ).toBe(expected);
   });
 });
 

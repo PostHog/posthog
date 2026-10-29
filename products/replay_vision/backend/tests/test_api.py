@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import numpy as np
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -20,6 +21,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.llm.system_one import NoulAnswer, SystemOneResult
 from posthog.models import Organization, PersonalAPIKey, Team, User
@@ -31,9 +33,10 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
-    WATCH_FEED_CANDIDATE_CAP,
+    WATCH_FEED_PICKS_BUCKET_S,
     ReplayScannerSerializer,
     WatchFeedQuerySerializer,
 )
@@ -42,12 +45,12 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
-from products.replay_vision.backend.jev_watch_feed import store_watch_ranks
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_feed_impression import ReplayObservationFeedImpression
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import (
@@ -58,12 +61,14 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
+from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -76,6 +81,7 @@ from products.replay_vision.backend.tests.helpers import (
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
 )
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.signals.backend.facade.api import (
     SignalSourceSliceOutcomes,
     SignalSourceSlicePullRequest,
@@ -1324,14 +1330,14 @@ class TestReplayScannerTags(_VisionAPITestCase):
             self.assertEqual(report.call_args.args[2]["edited_fields"], ["tags"])
 
     def test_create_rolls_back_scanner_when_tag_write_fails(self) -> None:
-        with patch("posthog.api.tagged_item.set_tags_on_object", side_effect=RuntimeError("boom")):
+        with patch("posthog.api.tagged_item.replace_tags_on_object", side_effect=RuntimeError("boom")):
             resp = self.client.post(self.scanners_url, data=self._scanner_payload("atomic", tags=["a"]), format="json")
         self.assertEqual(resp.status_code, 500)
         self.assertFalse(ReplayScanner.objects.filter(team=self.team, name="atomic").exists())
 
     def test_update_rolls_back_columns_when_tag_write_fails(self) -> None:
         scanner = self._create_scanner(description="before")
-        with patch("posthog.api.tagged_item.set_tags_on_object", side_effect=RuntimeError("boom")):
+        with patch("posthog.api.tagged_item.replace_tags_on_object", side_effect=RuntimeError("boom")):
             resp = self.client.patch(
                 f"{self.scanners_url}{scanner.id}/", data={"description": "after", "tags": ["a"]}, format="json"
             )
@@ -1348,6 +1354,23 @@ class TestReplayScannerTags(_VisionAPITestCase):
         for i in range(1, 5):
             scanner = self._create_scanner(name=f"scanner-{i}")
             set_tags_on_object(["alpha", f"tag-{i}"], scanner)
+        with CaptureQueriesContext(connection) as five_rows:
+            self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
+        self.assertEqual(len(one_row.captured_queries), len(five_rows.captured_queries))
+
+    def test_list_experiment_access_is_constant_queries(self) -> None:
+        first = create_experiment(self.team, "flag-0")
+        self._create_scanner(name="scanner-0", experiment_targeting={"experiment_id": first.id})
+        self.client.get(self.scanners_url)  # Warm request-scoped caches so both captures compare cleanly.
+        with CaptureQueriesContext(connection) as one_row:
+            self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
+        for i in range(1, 5):
+            experiment = create_experiment(self.team, f"flag-{i}")
+            self._create_scanner(
+                name=f"scanner-{i}",
+                scanner_type=ScannerType.EXPERIMENT,
+                scanner_config={"prompt": "p", "experiment_id": experiment.id},
+            )
         with CaptureQueriesContext(connection) as five_rows:
             self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
         self.assertEqual(len(one_row.captured_queries), len(five_rows.captured_queries))
@@ -2218,6 +2241,56 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self._create_observation(session_id="c")
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?session_id={filter_value}")
         self.assertEqual(resp.status_code, 200)
+        self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
+
+    @parameterized.expand(
+        [
+            ("asked_by_the_root", "root"),
+            ("asked_by_a_copy", "copy"),
+            ("unknown_id", None),
+            ("another_teams_row", "other_team"),
+        ]
+    )
+    def test_filter_by_watch_group(self, _name: str, asked: str | None) -> None:
+        rows = {
+            name: self._create_observation(
+                session_id=name, status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()
+            )
+            for name in ("root", "copy", "routine", "stale", "other")
+        }
+        root_id = str(rows["root"].id)
+
+        def rank(group: str | None, category: str = "failure", anchor_version: int = ANCHOR_VERSION) -> dict[str, Any]:
+            return {
+                "category": category,
+                "contrast": 0.3,
+                "group": group,
+                "anchor_version": anchor_version,
+            }
+
+        for name, watch_rank in {
+            "root": rank(None),
+            "copy": rank(root_id),
+            "routine": rank(root_id, category="routine"),
+            "stale": rank(root_id, anchor_version=ANCHOR_VERSION - 1),
+            "other": rank(None),
+        }.items():
+            ReplayObservation.objects.filter(id=rows[name].id).update(watch_rank=watch_rank)
+
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_row = ReplayObservation.objects.create(
+            team=other_team,
+            scanner=self._create_scanner(team=other_team),
+            session_id="other-team",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            watch_rank=rank(root_id),
+        )
+        member = {"other_team": str(other_row.id), None: str(uuid.uuid4())}.get(asked) or str(rows[str(asked)].id)
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?watch_group={member}")
+
+        self.assertEqual(resp.status_code, 200)
+        expected = {"root", "copy"} if asked in ("root", "copy") else set()
         self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
 
     def test_order_by_created_at_descending(self) -> None:
@@ -3998,6 +4071,103 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertEqual(self.client.get(f"{self.search_url}?q=anything").status_code, 429)
 
 
+class TestSearchSuggestionsAction(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.checkout = self._create_scanner(name="checkout")
+        self.signup = self._create_scanner(name="signup")
+        now = timezone.now()
+        stories = np.eye(SEMANTIC_DIMENSIONS, dtype=np.float32)
+        near_coupon = stories[0] + 0.1 * stories[5]
+        for scanner, label, members, last_member_at, direction in [
+            (self.checkout, "coupon rejected", 10, now, stories[0]),
+            (self.checkout, "card declined", 8, now, stories[1]),
+            (self.checkout, "address form loops", 6, now, stories[2]),
+            (self.checkout, "", 20, now, stories[3]),
+            (self.checkout, "old checkout crash", 50, now - timedelta(days=31), stories[4]),
+            (self.signup, "discount code refused", 9, now, near_coupon),
+            (self.signup, "email never arrives", 7, now, stories[6]),
+        ]:
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                team=self.team,
+                scanner=scanner,
+                vector_sum=pack(direction * members),
+                member_count=members,
+                name=label,
+                last_member_at=last_member_at,
+            )
+
+    @property
+    def url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/observations/search_suggestions/"
+
+    @parameterized.expand(
+        [
+            (
+                "cross_scanner_caps_each_scanner_and_drops_the_same_story",
+                None,
+                ["coupon rejected", "card declined", "email never arrives"],
+            ),
+            ("one_scanner", "checkout", ["coupon rejected", "card declined", "address form loops"]),
+        ]
+    )
+    def test_suggestions_are_the_largest_active_named_themes(
+        self, _name: str, scanner: str | None, expected: list[str]
+    ) -> None:
+        query = f"?scanner_id={self.checkout.id}" if scanner else ""
+        resp = self.client.get(f"{self.url}{query}")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"queries": expected})
+
+    @parameterized.expand(
+        [
+            (
+                "cross_scanner_drops_the_unreadable_scanner",
+                "",
+                200,
+                ["coupon rejected", "card declined", "address form loops"],
+            ),
+            ("unreadable_scanner_is_not_found", "signup", 404, None),
+        ]
+    )
+    def test_suggestions_never_name_a_scanner_the_viewer_cannot_read(
+        self, _name: str, scanner: str, status: int, expected: list[str] | None
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(self.signup.id), access_level="none"
+        )
+
+        resp = self.client.get(f"{self.url}?scanner_id={self.signup.id}" if scanner else self.url)
+
+        self.assertEqual(resp.status_code, status)
+        if expected is not None:
+            self.assertEqual(resp.json(), {"queries": expected})
+
+    @parameterized.expand([("ai_processing_on", True), ("ai_processing_off", False)])
+    @patch("products.replay_vision.backend.api.observations.warm_query_vectors")
+    def test_a_view_warms_the_suggestions_only_with_ai_processing_on(
+        self, _name: str, approved: bool, mock_warm: MagicMock
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/vision/observations/search_viewed/",
+            {"scanner_id": str(self.signup.id)},
+        )
+
+        self.assertEqual(resp.status_code, 204)
+        if approved:
+            mock_warm.assert_called_once_with(ANY, ["discount code refused", "email never arrives"])
+        else:
+            mock_warm.assert_not_called()
+
+
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
     @property
     def estimate_url(self) -> str:
@@ -4167,7 +4337,9 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
 
 
 class TestScannerSpend(_VisionAPITestCase):
-    def _succeeded_observation(self, scanner: ReplayScanner, session_id: str, created_at=None) -> ReplayObservation:
+    def _succeeded_observation(
+        self, scanner: ReplayScanner, session_id: str, created_at=None, credits: int | None = None
+    ) -> ReplayObservation:
         observation = ReplayObservation.objects.create(
             scanner=scanner,
             session_id=session_id,
@@ -4178,16 +4350,30 @@ class TestScannerSpend(_VisionAPITestCase):
         )
         if created_at is not None:
             ReplayObservation.objects.filter(pk=observation.pk).update(created_at=created_at)
+            observation.refresh_from_db()
+        ReplayObservationUsage.objects.create(
+            observation_id=observation.id,
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            scanner_id=scanner.id,
+            observation_created_at=observation.created_at,
+            model=scanner.model,
+            credits=observation_credits_for_model(scanner.model) if credits is None else credits,
+        )
         return observation
 
-    def _credits_by_name(self, response_json: dict) -> dict[str, int]:
-        return {row["name"]: row["credits_this_month"] for row in response_json["results"]}
+    def _spend_by_name(self, response_json: dict) -> dict[str, tuple[int, int]]:
+        return {
+            row["name"]: (row["credits_this_month"], row["observations_this_month"]) for row in response_json["results"]
+        }
 
-    def test_credits_this_month_sums_current_period_succeeded_observations(self) -> None:
+    def test_spend_sums_current_period_receipts(self) -> None:
         spender = self._create_scanner(name="spender")
         self._create_scanner(name="idle")
-        self._succeeded_observation(spender, "in-window-1")
-        self._succeeded_observation(spender, "in-window-2")
+        cost = observation_credits_for_model(spender.model)
+        self._succeeded_observation(spender, "in-window")
+        self._succeeded_observation(spender, "repriced", credits=cost + 7)
+        self._succeeded_observation(spender, "deleted").delete()
         ReplayObservation.objects.create(
             scanner=spender,
             session_id="failed-in-window",
@@ -4200,9 +4386,9 @@ class TestScannerSpend(_VisionAPITestCase):
 
         resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 200, resp.json())
-        credits = self._credits_by_name(resp.json())
-        self.assertEqual(credits["spender"], 2 * observation_credits_for_model(spender.model))
-        self.assertEqual(credits["idle"], 0)
+        spend = self._spend_by_name(resp.json())
+        self.assertEqual(spend["spender"], (3 * cost + 7, 3))
+        self.assertEqual(spend["idle"], (0, 0))
 
     def test_order_by_credits_matches_displayed_values(self) -> None:
         low = self._create_scanner(name="low")
@@ -4218,39 +4404,6 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertEqual(displayed, sorted(displayed, reverse=True))
         self.assertEqual([row["name"] for row in rows[:2]], ["high", "low"])
 
-    def test_receipts_without_a_scanner_do_not_zero_the_displayed_credits(self) -> None:
-        # Receipts are never backfilled with a scanner_id, so the displayed column and its sort read
-        # observation rows. Pointing either at the ledger silently zeroes both for a whole period.
-        spender = self._create_scanner(name="spender")
-        observation = self._succeeded_observation(spender, "unattributed")
-        ReplayObservationUsage.objects.create(
-            observation_id=observation.id,
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            scanner_id=None,
-            observation_created_at=observation.created_at,
-            model=spender.model,
-            credits=observation_credits_for_model(spender.model),
-        )
-
-        resp = self.client.get(f"{self.scanners_url}?order_by=-credits_this_month")
-        self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(self._credits_by_name(resp.json())["spender"], observation_credits_for_model(spender.model))
-
-    def _spend_against_limit(self, scanner: ReplayScanner, session_id: str) -> None:
-        """Ledger spend, which is what the limit is enforced on. `_succeeded_observation` deliberately
-        writes no receipt, because it seeds the displayed column, which reads observation rows."""
-        observation = self._succeeded_observation(scanner, session_id)
-        ReplayObservationUsage.objects.create(
-            observation_id=observation.id,
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            scanner_id=scanner.id,
-            observation_created_at=observation.created_at,
-            model=scanner.model,
-            credits=observation_credits_for_model(scanner.model),
-        )
-
     def test_limit_reached_is_reported_per_scanner(self) -> None:
         scanner = self._create_scanner()
         cost = observation_credits_for_model(scanner.model)
@@ -4260,7 +4413,7 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertIs(resp.json()["limit_reached"], False)
 
-        self._spend_against_limit(scanner, "over-limit")
+        self._succeeded_observation(scanner, "over-limit")
 
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.status_code, 200, resp.json())
@@ -4289,7 +4442,7 @@ class TestScannerSpend(_VisionAPITestCase):
         cost = observation_credits_for_model(capped.model)
         ReplayScanner.objects.filter(pk=capped.pk).update(credit_limit=cost)
         ReplayScanner.objects.filter(pk=free.pk).update(free_only=True)
-        self._spend_against_limit(capped, "capped-spend")
+        self._succeeded_observation(capped, "capped-spend")
 
         resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 200, resp.json())
@@ -4322,14 +4475,14 @@ class TestScannerSpend(_VisionAPITestCase):
         # that preserves the property, and from passing on an N+1 that happens to be shaped differently.
         one = self._create_scanner(name="scanner-0")
         ReplayScanner.objects.filter(pk=one.pk).update(credit_limit=10_000)
-        self._spend_against_limit(one, "seed-0")
+        self._succeeded_observation(one, "seed-0")
         with CaptureQueriesContext(connection) as single_page:
             self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
 
         for i in range(1, 5):
             extra = self._create_scanner(name=f"scanner-{i}")
             ReplayScanner.objects.filter(pk=extra.pk).update(credit_limit=10_000)
-            self._spend_against_limit(extra, f"seed-{i}")
+            self._succeeded_observation(extra, f"seed-{i}")
         with CaptureQueriesContext(connection) as five_page:
             self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
 
@@ -4663,774 +4816,234 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         ReplayObservation.objects.filter(pk=obs.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
         return obs
 
-    def _monitor_result(self, verdict: str, signals: int = 0) -> dict[str, Any]:
+    def _monitor_result(self, verdict: str) -> dict[str, Any]:
         return {
             "model_output": {"scanner_type": "monitor", "verdict": verdict, "reasoning": "r", "confidence": 0.9},
-            "signals_count": signals,
-        }
-
-    def test_ranks_signal_then_hit_then_friction_and_drops_the_rest(self) -> None:
-        scanner = self._create_scanner(name="m")
-        summarizer = self._create_scanner(
-            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
-        )
-        plain_new = self._succeeded_observation(scanner, "plain-new", 1, self._monitor_result("no"))
-        hit = self._succeeded_observation(scanner, "hit", 10, self._monitor_result("yes"))
-        signal = self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
-        plain_old = self._succeeded_observation(scanner, "plain-old", 30, self._monitor_result("no"))
-        # Friction prose outranks a fresher happy-path row, despite being older.
-        self._succeeded_observation(
-            scanner,
-            "friction-sess",
-            25,
-            {
-                "model_output": {
-                    "scanner_type": "summarizer",
-                    "title": "Checkout gone wrong",
-                    "summary": "The user hit an error at checkout and retried payment twice.",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
-        )
-        assert summarizer
-
-        resp = self.client.get(self.feed_url)
-        self.assertEqual(resp.status_code, 200, resp.json())
-        items = resp.json()["results"]
-        # Three findings reach the floor, so the two rows that carry nothing are left out entirely.
-        self.assertEqual(
-            [item["observation"]["session_id"] for item in items],
-            ["signal", "hit", "friction-sess"],
-        )
-        self.assertEqual(items[0]["reason"], {"kind": "signal_emitted", "signals_count": 2})
-        self.assertEqual(items[1]["reason"], {"kind": "verdict_yes"})
-        self.assertEqual(items[2]["reason"], {"kind": "friction"})
-        assert plain_new and hit and signal and plain_old
-
-    def test_signal_reason_carries_the_persisted_problem_types(self) -> None:
-        # The card counts what kinds of issue a signal row carries, so the reason must surface one entry
-        # per signal in order, repeats kept — not a deduplicated set.
-        scanner = self._create_scanner(name="m")
-        self._succeeded_observation(
-            scanner,
-            "signal",
-            10,
-            {
-                "model_output": {"scanner_type": "monitor", "verdict": "no", "reasoning": "r", "confidence": 0.9},
-                "signals_count": 3,
-                "signal_problem_types": ["bug", "bug", "crash"],
-            },
-        )
-        reason = self.client.get(self.feed_url).json()["results"][0]["reason"]
-        self.assertEqual(reason["kind"], "signal_emitted")
-        self.assertEqual(reason["problem_types"], ["bug", "bug", "crash"])
-
-    def test_signal_reason_names_each_signal(self) -> None:
-        # A count told a reader nothing, so the row carries the scan's own headline per finding. The
-        # confidence rides the row too, but it ranks the row rather than saying anything to a reader.
-        scanner = self._create_scanner(name="m")
-        self._succeeded_observation(
-            scanner,
-            "signal",
-            10,
-            {
-                "model_output": {"scanner_type": "monitor", "verdict": "no", "reasoning": "r", "confidence": 0.9},
-                "signals_count": 2,
-                "signal_problem_types": ["bug", "ux_friction"],
-                "signal_summaries": [
-                    {"problem_type": "bug", "headline": "Checkout button does nothing", "confidence": 0.9},
-                    {"problem_type": "ux_friction", "headline": "Search results load twice", "confidence": 0.6},
-                ],
-            },
-        )
-        reason = self.client.get(self.feed_url).json()["results"][0]["reason"]
-        self.assertEqual(reason["kind"], "signal_emitted")
-        self.assertEqual(
-            reason["signals"],
-            [
-                {"problem_type": "bug", "headline": "Checkout button does nothing"},
-                {"problem_type": "ux_friction", "headline": "Search results load twice"},
-            ],
-        )
-
-    def test_signal_reason_omits_the_signals_on_rows_scanned_before_headlines(self) -> None:
-        # Those rows carry a count and the types alone, and the card falls back to counting them.
-        scanner = self._create_scanner(name="m")
-        self._succeeded_observation(scanner, "signal", 10, self._monitor_result("no", signals=2))
-        reason = self.client.get(self.feed_url).json()["results"][0]["reason"]
-        self.assertEqual(reason["kind"], "signal_emitted")
-        self.assertNotIn("signals", reason)
-
-    def _friction_result(self) -> dict[str, Any]:
-        return {
-            "model_output": {
-                "scanner_type": "summarizer",
-                "title": "Checkout gone wrong",
-                "summary": "The user hit an error at checkout and retried payment twice.",
-                "confidence": 0.9,
-            },
             "signals_count": 0,
         }
 
-    def test_signal_rows_never_hold_more_than_their_share_of_the_findings(self) -> None:
-        # Signals corroborate across sessions, so a scanner raising them on every session used to crowd the
-        # other findings out of the feed. They are held against the other findings rather than against
-        # padding, because padding no longer survives the trim.
-        scanner = self._create_scanner(name="m")
-        summarizer = self._create_scanner(
-            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
+    def _ranked_observation(
+        self,
+        scanner: ReplayScanner,
+        session_id: str,
+        minutes_ago: int,
+        category: str = "routine",
+        contrast: float = -0.1,
+        group: str | None = None,
+    ) -> ReplayObservation:
+        obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
+        ReplayObservation.objects.filter(id=obs.id).update(
+            watch_rank={"category": category, "contrast": contrast, "group": group, "anchor_version": ANCHOR_VERSION}
         )
-        for i in range(6):
-            self._succeeded_observation(scanner, f"signal-{i}", 10 + i, self._monitor_result("no", signals=1))
-            self._succeeded_observation(summarizer, f"friction-{i}", 40 + i, self._friction_result())
+        return obs
+
+    @parameterized.expand(
+        [
+            # A feed that empties whenever nothing is wrong reads as broken, so the newest clips still answer.
+            ("no_findings", 0, ["unviewed_recent"] * 3),
+            ("enough_findings", 4, ["embedding_pick"] * 4),
+        ]
+    )
+    def test_filler_brings_a_thin_feed_up_to_the_floor_and_never_pads_a_full_one(
+        self, _name: str, findings: int, expected_kinds: list[str]
+    ) -> None:
+        scanner = self._create_scanner(name="m")
+        # Of 20 ranked rows the top four clear the percentile cut, so only the failures among them are picks.
+        for i in range(20):
+            self._ranked_observation(
+                scanner, f"row-{i}", 10 + i, "failure" if i < findings else "routine", 0.9 - i / 100
+            )
 
         items = self.client.get(f"{self.feed_url}?limit=50").json()["results"]
-        self.assertEqual(len(items), 12)  # every finding is returned; the cap reorders, it never drops
-        kinds = [item["reason"]["kind"] for item in items]
-        self.assertEqual(kinds[0], "signal_emitted")  # the best row leads whatever it is
-        # Six signal rows cannot all fit under the share, so the last of them trail the feed. The share
-        # governs everything up to there, which is the part a reader with a normal limit ever sees.
-        interleaved = len(kinds) - kinds[::-1].index("friction")
-        self.assertEqual(set(kinds[interleaved:]), {"signal_emitted"})
-        self.assertEqual(kinds[:5].count("signal_emitted"), 2)  # the share, exactly, over the first five
-        # The lead is exempt, so the bound is the share or one card, whichever is larger.
-        for length in range(2, interleaved + 1):
-            prefix = kinds[:length]
-            allowed = max(1, int(length * 0.4))
-            self.assertLessEqual(prefix.count("signal_emitted"), allowed, f"prefix of {length}: {prefix}")
-
-    def test_clips_that_carry_no_finding_are_dropped_once_the_feed_has_three(self) -> None:
-        # The feed used to fill `limit` with whatever was newest, so a window with three findings returned
-        # those three under seventeen clips that said only "new since you last looked".
-        scanner = self._create_scanner(name="m")
-        summarizer = self._create_scanner(
-            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
-        )
-        for i in range(3):
-            self._succeeded_observation(summarizer, f"friction-{i}", 10 + i, self._friction_result())
-        for i in range(9):
-            self._succeeded_observation(scanner, f"plain-{i}", 40 + i, self._monitor_result("no"))
-
-        items = self.client.get(f"{self.feed_url}?limit=50").json()["results"]
+        self.assertEqual([item["reason"]["kind"] for item in items], expected_kinds)
         self.assertEqual(
-            [item["observation"]["session_id"] for item in items], ["friction-0", "friction-1", "friction-2"]
+            [item["observation"]["session_id"] for item in items], [f"row-{i}" for i in range(len(expected_kinds))]
         )
 
-    def test_every_finding_is_returned_however_many_there_are(self) -> None:
-        # The floor pads a thin feed; it never caps a rich one.
-        summarizer = self._create_scanner(
-            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
-        )
-        for i in range(10):
-            self._succeeded_observation(summarizer, f"friction-{i}", 10 + i, self._friction_result())
-
-        items = self.client.get(f"{self.feed_url}?limit=50").json()["results"]
-        self.assertEqual(len(items), 10)
-        self.assertEqual({item["reason"]["kind"] for item in items}, {"friction"})
-
-    def test_a_thin_feed_is_padded_to_the_floor_rather_than_to_the_limit(self) -> None:
-        # One finding alone reads as a broken feed, and twenty reads as noise, so the padding stops at three.
+    def test_pages_do_not_shift_when_the_reader_opens_a_card_mid_scroll(self) -> None:
         scanner = self._create_scanner(name="m")
-        summarizer = self._create_scanner(
-            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
-        )
-        self._succeeded_observation(summarizer, "friction-0", 5, self._friction_result())
-        for i in range(9):
-            self._succeeded_observation(scanner, f"plain-{i}", 40 + i, self._monitor_result("no"))
+        for i in range(30):
+            self._ranked_observation(scanner, f"hit-{i}", 10 + i, "failure" if i < 6 else "routine", 0.9 - i / 100)
 
-        items = self.client.get(f"{self.feed_url}?limit=50").json()["results"]
-        self.assertEqual([item["reason"]["kind"] for item in items], ["friction", "unviewed_recent", "unviewed_recent"])
+        first = self.client.get(f"{self.feed_url}?limit=3").json()
+        assert first["has_more"] is True
+        # Opening the top card would dock it below page two, and a card arriving would push everything down.
+        top_id = first["results"][0]["observation"]["id"]
+        assert self.client.post(f"{self.observations_url(str(scanner.id))}{top_id}/viewed/").status_code == 204
+        self._ranked_observation(scanner, "late-hit", 0, "failure", 1.0)
+        # A scan already running at page one, which completes before page two, would also shift it.
+        self._ranked_observation(scanner, "finished-late", 12, "failure", 1.0)
+        second = self.client.get(self.feed_url, {"limit": 3, "offset": 3, "as_of": first["as_of"]}).json()
 
-    def test_a_window_with_no_findings_returns_the_floor_rather_than_nothing(self) -> None:
-        # A feed that empties whenever nothing is wrong reads as broken, so the newest clips still answer.
+        sessions = [item["observation"]["session_id"] for item in first["results"] + second["results"]]
+        assert sessions == [f"hit-{i}" for i in range(6)]
+        assert second["has_more"] is False
+
+    def test_a_later_loads_cached_picks_do_not_serve_an_earlier_loads_pages(self) -> None:
         scanner = self._create_scanner(name="m")
-        for i in range(9):
-            self._succeeded_observation(scanner, f"plain-{i}", 10 + i, self._monitor_result("no"))
-
-        items = self.client.get(f"{self.feed_url}?limit=50").json()["results"]
-        self.assertEqual([item["observation"]["session_id"] for item in items], ["plain-0", "plain-1", "plain-2"])
-
-    def test_a_window_of_only_signals_still_returns_a_full_feed(self) -> None:
-        # With nothing to interleave, the held rows fill the tail rather than vanishing from the feed.
-        scanner = self._create_scanner(name="m")
-        for i in range(5):
-            self._succeeded_observation(scanner, f"signal-{i}", 10 + i, self._monitor_result("no", signals=1))
-
-        items = self.client.get(f"{self.feed_url}?limit=50").json()["results"]
-        self.assertEqual(
-            [item["observation"]["session_id"] for item in items],
-            ["signal-0", "signal-1", "signal-2", "signal-3", "signal-4"],
+        bucket_start = datetime.fromtimestamp(
+            (int(timezone.now().timestamp()) // WATCH_FEED_PICKS_BUCKET_S - 1) * WATCH_FEED_PICKS_BUCKET_S, tz=UTC
         )
-
-    def test_a_wide_outlier_outranks_and_outlabels_a_weak_signal(self) -> None:
-        # The reason names the strongest evidence now. A row used to read `signal_emitted` whenever it
-        # carried a signal, even where a far wider outlier was the thing worth watching.
-        scorer = self._create_scanner(
-            name="sc", scanner_type=ScannerType.SCORER, scanner_config={"prompt": "p", "scale_max": 10}
-        )
-
-        def _scored(session_id: str, minutes_ago: int, score: float, summaries: list[dict] | None = None) -> None:
-            self._succeeded_observation(
-                scorer,
-                session_id,
-                minutes_ago,
-                {
-                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.9},
-                    "signals_count": len(summaries or []),
-                    "signal_problem_types": [entry["problem_type"] for entry in summaries or []],
-                    "signal_summaries": summaries or [],
+        earlier, later = bucket_start + timedelta(minutes=1), bucket_start + timedelta(minutes=5)
+        for index in range(12):
+            obs = self._succeeded_observation(scanner, f"row-{index}", 120 + index, self._monitor_result("no"))
+            # The top-scoring row completes between the two loads, so only the later load can rank it.
+            completed_at = bucket_start + timedelta(minutes=3) if index == 0 else bucket_start
+            ReplayObservation.objects.filter(id=obs.id).update(
+                completed_at=completed_at,
+                watch_rank={
+                    "category": "failure",
+                    "contrast": 1 - index / 20,
+                    "group": None,
+                    "anchor_version": ANCHOR_VERSION,
                 },
             )
 
-        for i in range(6):
-            _scored(f"usual-{i}", 30 + i, 5.0 + (i % 2) * 0.1)
-        _scored("outlier", 20, 10.0)
-        _scored(
-            "weak-signal",
-            10,
-            5.0,
-            [{"problem_type": "bug", "headline": "Tooltip sits behind the header", "confidence": 0.45}],
-        )
+        def sessions(as_of: datetime) -> list[str]:
+            response = self.client.get(self.feed_url, {"limit": "20", "as_of": as_of.isoformat()}).json()
+            return [item["observation"]["session_id"] for item in response["results"]]
 
-        items = self.client.get(f"{self.feed_url}?limit=50").json()["results"]
-        self.assertEqual(items[0]["observation"]["session_id"], "outlier")
-        self.assertEqual(items[0]["reason"]["kind"], "outlier_score")
+        assert "row-0" in sessions(later)
+        assert "row-0" not in sessions(earlier)
 
-    def test_minority_verdict_is_the_hit_regardless_of_prompt_polarity(self) -> None:
-        # "Was the experience good?" answers yes almost always, so its rare "no" is the notable
-        # one; a majority "yes" must not rank as a hit just for being yes.
-        scanner = self._create_scanner(name="good-experience")
-        for i in range(6):
-            self._succeeded_observation(scanner, f"good-{i}", 10 + i, self._monitor_result("yes"))
-        self._succeeded_observation(scanner, "bad-one", 1, self._monitor_result("no"))
-
-        resp = self.client.get(f"{self.feed_url}?limit=50")
-        items = resp.json()["results"]
-        self.assertEqual(items[0]["observation"]["session_id"], "bad-one")
-        self.assertEqual(items[0]["reason"]["kind"], "unusual_verdict")
-        self.assertEqual(items[0]["reason"]["verdict"], "no")
-        reasons = {item["observation"]["session_id"]: item["reason"]["kind"] for item in items}
-        self.assertEqual(reasons["good-0"], "unviewed_recent")
-
-    def test_high_notability_outranks_a_weak_hit_but_still_beats_friction_and_carries_its_sentence(self) -> None:
-        # The blend lets the scan's own judgment surface: a high notability outranks a bare verdict-yes
-        # hit (weak, no baseline), still beats keyword friction, and its sentence reaches the card.
+    def test_an_embedding_pick_counts_its_hidden_duplicates(self) -> None:
         scanner = self._create_scanner(name="m")
-        self._succeeded_observation(
-            scanner,
-            "notable-sess",
-            20,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                    "notability": 0.8,
-                    "notability_reason": "Tried the same export three times and never saw an error.",
-                },
-                "signals_count": 0,
-            },
-        )
-        self._succeeded_observation(
-            scanner,
-            "friction-sess",
-            10,
-            {
-                "model_output": {
-                    "scanner_type": "summarizer",
-                    "title": "t",
-                    "summary": "The user hit an error and retried.",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
-        )
-        self._succeeded_observation(scanner, "intent-hit", 30, self._monitor_result("yes"))
+        oldest = self._ranked_observation(scanner, "oldest-failure", 500, "failure", 0.9)
+        # A copy of the pick that scores below the cut still makes the group bigger.
+        self._ranked_observation(scanner, "copy", 400, "failure", -0.5, group=str(oldest.id))
+        for index in range(10):
+            self._ranked_observation(scanner, f"routine-{index}", index)
 
-        resp = self.client.get(self.feed_url)
-        items = resp.json()["results"]
-        self.assertEqual(
-            [item["observation"]["session_id"] for item in items],
-            ["notable-sess", "intent-hit", "friction-sess"],
-        )
-        self.assertEqual(items[0]["reason"]["kind"], "notable")
-        self.assertEqual(
-            items[0]["reason"]["notability_reason"], "Tried the same export three times and never saw an error."
-        )
+        items = self.client.get(self.feed_url).json()["results"]
+        picks = [item for item in items if item["reason"]["kind"] == "embedding_pick"]
+        self.assertEqual([item["observation"]["session_id"] for item in picks], ["oldest-failure"])
+        self.assertEqual(picks[0]["reason"]["similar_count"], 1)
+        self.assertEqual(picks[0]["reason"]["affected_people"], 2)
 
-    def test_notability_reason_stays_off_rows_that_did_not_rank_on_notability(self) -> None:
-        # The scan writes a notability_reason on every session, so a routine or signal row carries one
-        # too; it must not override the copy those rows earned from their own reason kind.
+    def test_a_thin_embedding_feed_pads_by_group_and_never_pads_with_a_copy_of_a_pick(self) -> None:
         scanner = self._create_scanner(name="m")
-        self._succeeded_observation(
-            scanner,
-            "routine",
-            10,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                    "notability": 0.1,
-                    "notability_reason": "Nothing stands out in this session.",
-                },
-                "signals_count": 0,
-            },
-        )
-        # Notability above the notable threshold, so a candidate-level gate would wrongly attach the
-        # sentence; the signal still won the row, so its own copy must survive.
-        self._succeeded_observation(
-            scanner,
-            "signal",
-            20,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                    "notability": 0.8,
-                    "notability_reason": "Tried the export three times.",
-                },
-                "signals_count": 2,
-            },
-        )
+        root = self._ranked_observation(scanner, "pick", 500, "failure", 0.9)
+        # Two copies of the one finding: one above the cut, one newest of all and below it.
+        self._ranked_observation(scanner, "copy-above", 400, "failure", 0.8, group=str(root.id))
+        self._ranked_observation(scanner, "copy-newest", 0, "failure", -0.9, group=str(root.id))
+        for index in range(10):
+            self._ranked_observation(scanner, f"routine-{index}", 10 + index)
 
-        reasons = {
-            item["observation"]["session_id"]: item["reason"]
-            for item in self.client.get(self.feed_url).json()["results"]
-        }
-        self.assertEqual(reasons["signal"]["kind"], "signal_emitted")
-        self.assertNotIn("notability_reason", reasons["signal"])
-        self.assertEqual(reasons["routine"]["kind"], "unviewed_recent")
-        self.assertNotIn("notability_reason", reasons["routine"])
+        items = self.client.get(self.feed_url).json()["results"]
+        sessions = [item["observation"]["session_id"] for item in items]
+        self.assertEqual(sessions[0], "pick")
+        self.assertEqual(len(sessions), 3)
+        self.assertNotIn("copy-above", sessions)
+        self.assertNotIn("copy-newest", sessions)
 
-    def test_notability_breaks_ties_between_rows_in_the_same_tier(self) -> None:
-        # Two unviewed plain rows share a tier, so the scan's notability score orders them.
-        scanner = self._create_scanner(name="m")
-        self._succeeded_observation(
-            scanner,
-            "lower",
-            10,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                    "notability": 0.2,
-                },
-                "signals_count": 0,
-            },
-        )
-        self._succeeded_observation(
-            scanner,
-            "higher",
-            20,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                    "notability": 0.5,
-                },
-                "signals_count": 0,
-            },
-        )
-
-        sessions = [item["observation"]["session_id"] for item in self.client.get(self.feed_url).json()["results"]]
-        self.assertEqual(sessions, ["higher", "lower"])
-
-    def test_stored_notability_is_clamped_and_booleans_are_ignored(self) -> None:
-        # ge/le only bind the LLM response; a stored row can carry anything, and bool is an int subclass.
-        scanner = self._create_scanner(name="m")
-        self._succeeded_observation(
-            scanner,
-            "out-of-range",
-            10,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                    "notability": 5.0,
-                },
-                "signals_count": 0,
-            },
-        )
-        self._succeeded_observation(
-            scanner,
-            "boolean",
-            20,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                    "notability": True,
-                },
-                "signals_count": 0,
-            },
-        )
-
-        reasons = {
-            item["observation"]["session_id"]: item["reason"]
-            for item in self.client.get(self.feed_url).json()["results"]
-        }
-        self.assertEqual(reasons["out-of-range"]["kind"], "notable")
-        self.assertEqual(reasons["out-of-range"]["notability"], 1.0)
-        self.assertEqual(reasons["boolean"]["kind"], "unviewed_recent")
-
-    def test_no_verdict_monitor_negation_is_not_friction(self) -> None:
-        # "Did they struggle? No" reasoning restates the question; keyword matching must not
-        # read the negation as a friction hit.
-        scanner = self._create_scanner(name="m")
-        self._succeeded_observation(
-            scanner,
-            "calm",
-            1,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "The user did not struggle and saw no errors.",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
-        )
-        resp = self.client.get(self.feed_url)
-        self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
-
-    def test_the_flag_switches_the_whole_ranker_between_weighted_score_and_jev(self) -> None:
-        # The two rankers are independent: a cached Jev probability must not move the weighted-score
-        # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
-        # probabilities alone, with unjudged and judged-low rows in the recency filler tier.
-        scanner = self._create_scanner(name="m")
-        jev_high = self._succeeded_observation(scanner, "jev-high", 40, self._monitor_result("no"))
-        self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
-        jev_low = self._succeeded_observation(scanner, "jev-low", 10, self._monitor_result("yes"))
-        store_watch_ranks(
-            self.team.id, scanner.id, {str(jev_high.id), str(jev_low.id)}, {str(jev_high.id): 0.95}, {}, "jevk5-fp8-0.2"
-        )
-
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
-        for mode in ("control", "jev-shadow", None):
-            with patch(ranker, return_value=mode):
-                resp = self.client.get(self.feed_url)
-            items = resp.json()["results"]
-            # The shadow arm ranks on the weighted score, so the response names that ranker too, but
-            # it still reports its own variant, which the client records as the experiment exposure.
-            self.assertEqual(resp.json()["ranker"], "weighted-score", mode)
-            self.assertEqual(resp.json()["ranker_variant"], mode)
-            # The signal and the verdict hit lead as today; the cached 0.95 moves nothing.
-            self.assertEqual(
-                [item["observation"]["session_id"] for item in items],
-                ["signal", "jev-low", "jev-high"],
-                mode,
-            )
-            self.assertEqual(items[0]["reason"]["kind"], "signal_emitted", mode)
-            self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"}, mode)
-
-        with patch(ranker, return_value="jev"):
-            resp = self.client.get(self.feed_url)
-        items = resp.json()["results"]
-        self.assertEqual(resp.json()["ranker"], "jev")
-        # jev-high carries evidence; the 0.2 row and the unjudged row fall to the filler tier by
-        # recency, so neither claims the model judged it worth watching.
-        self.assertEqual(
-            [item["observation"]["session_id"] for item in items],
-            ["jev-high", "jev-low", "signal"],
-        )
-        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
-        self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
-        self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
-
-    def test_the_jev_arm_surfaces_a_watchable_row_the_recency_slice_cut_off(self) -> None:
-        # The candidate query keeps only each scanner's newest rows, so on a high-volume scanner a
-        # watchable row from days ago never reaches the weighted feed. The jev arm must fetch it
-        # back from the cache and rank it first.
-        scanner = self._create_scanner(name="m")
-        interesting_result = self._monitor_result("yes")
-        interesting_result["model_output"]["notability"] = 0.9
-        interesting_result["model_output"]["notability_reason"] = "The user paid twice for one order."
-        old_interesting = self._succeeded_observation(scanner, "old-interesting", 60 * 24 * 2, interesting_result)
-        for index in range(100):
-            self._succeeded_observation(scanner, f"routine-{index}", index + 1, self._monitor_result("no"))
-        store_watch_ranks(
-            self.team.id,
-            scanner.id,
-            {str(old_interesting.id)},
-            {str(old_interesting.id): 0.9},
-            {},
-            "jevk5-fp8-0.2",
-            {str(old_interesting.id): "visible_error"},
-        )
-
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
-        with patch(ranker, return_value="control"):
-            resp = self.client.get(self.feed_url)
-        self.assertNotIn("old-interesting", [item["observation"]["session_id"] for item in resp.json()["results"]])
-
-        with patch(ranker, return_value="jev"):
-            resp = self.client.get(self.feed_url)
-        items = resp.json()["results"]
-        self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
-        # The scan found the session notable, so its own sentence reaches the card's reason, next to
-        # the reason Jev picked from its fixed list.
-        self.assertEqual(
-            items[0]["reason"],
-            {
-                "kind": "jev_watchable",
-                "jev_probability": 0.9,
-                "notability_reason": "The user paid twice for one order.",
-                "watch_reason": "visible_error",
-            },
-        )
-        # The 100 routine rows are filler: they pad the one finding only to the feed's floor.
-        self.assertEqual(len(items), 3)
-
-    def test_the_jev_bypass_filters_before_it_caps(self) -> None:
-        # The cache knows nothing about the request's filters: cached watchable ids that match no
-        # candidate row must not use up the bypass and push out a lower-probability row that does.
-        scanner = self._create_scanner(name="m")
-        interesting = self._monitor_result("yes")
-        interesting["model_output"]["reasoning"] = "the checkout flow needle"
-        old_interesting = self._succeeded_observation(scanner, "old-interesting", 60 * 24 * 2, interesting)
-        for index in range(100):
-            routine = self._monitor_result("no")
-            routine["model_output"]["reasoning"] = "the checkout flow needle"
-            self._succeeded_observation(scanner, f"routine-{index}", index + 1, routine)
-        # More cached watchable ids than the old pre-filter slice kept, all rated above the one row
-        # that matches the search and none of them a real observation.
-        watchable = {str(uuid.uuid4()): 0.9 for _ in range(WATCH_FEED_CANDIDATE_CAP)}
-        watchable[str(old_interesting.id)] = 0.6
-        store_watch_ranks(self.team.id, scanner.id, set(watchable), watchable, {}, "jevk5-fp8-0.2")
-
-        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
-        with patch(ranker, return_value="jev"):
-            resp = self.client.get(f"{self.feed_url}?search=needle")
-        items = resp.json()["results"]
-        self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
-        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.6})
-        self.assertEqual(len(items), 3)
-
-    def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
-        # Seen-state is a within-tier order, not a top-level one: a signal the reader saw yesterday
-        # still outranks unviewed routine rows, while among plain rows unviewed comes first.
-        scanner = self._create_scanner(name="m")
-        viewed_signal = self._succeeded_observation(scanner, "viewed-signal", 1, self._monitor_result("no", signals=3))
-        viewed_plain = self._succeeded_observation(scanner, "viewed-plain", 10, self._monitor_result("no"))
-        self._succeeded_observation(scanner, "fresh-plain", 30, self._monitor_result("no"))
-        for viewed in (viewed_signal, viewed_plain):
-            self.assertEqual(
-                self.client.post(f"{self.observations_url(str(scanner.id))}{viewed.id}/viewed/").status_code, 204
-            )
-
-        resp = self.client.get(self.feed_url)
-        items = resp.json()["results"]
-        self.assertEqual(
-            [item["observation"]["session_id"] for item in items],
-            ["viewed-signal", "fresh-plain", "viewed-plain"],
-        )
-        self.assertEqual(items[0]["reason"]["kind"], "signal_emitted")
-        self.assertTrue(items[0]["observation"]["viewed"])
-
-    def test_outlier_score_and_rare_tag_reasons(self) -> None:
-        scorer = self._create_scanner(
-            name="s", scanner_type=ScannerType.SCORER, scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}}
-        )
-        for i in range(5):
-            self._succeeded_observation(
-                scorer,
-                f"score-{i}",
-                10 + i,
-                {
-                    "model_output": {"scanner_type": "scorer", "score": 5.0, "reasoning": "r", "confidence": 0.9},
-                    "signals_count": 0,
-                },
-            )
-        self._succeeded_observation(
-            scorer,
-            "score-outlier",
-            1,
-            {
-                "model_output": {"scanner_type": "scorer", "score": 9.5, "reasoning": "r", "confidence": 0.9},
-                "signals_count": 0,
-            },
-        )
-        classifier = self._create_scanner(
-            name="c",
-            scanner_type=ScannerType.CLASSIFIER,
-            scanner_config={"prompt": "p", "tags": ["common", "rare"], "multi_label": True},
-        )
-        for i in range(9):
-            self._succeeded_observation(
-                classifier,
-                f"tag-{i}",
-                10 + i,
-                {
-                    "model_output": {
-                        "scanner_type": "classifier",
-                        "tags": ["common"],
-                        "reasoning": "r",
-                        "confidence": 0.9,
-                    },
-                    "signals_count": 0,
-                },
-            )
-        self._succeeded_observation(
-            classifier,
-            "tag-rare",
-            1,
-            {
-                "model_output": {
-                    "scanner_type": "classifier",
-                    "tags": ["common", "rare"],
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
-        )
-
-        summarizer = self._create_scanner(
-            name="sum-novel",
-            scanner_type=ScannerType.SUMMARIZER,
-            scanner_config={"prompt": "p", "length": "short"},
-        )
-        for i in range(5):
-            self._succeeded_observation(
-                summarizer,
-                f"sum-{i}",
-                10 + i,
-                {
-                    "model_output": {
-                        "scanner_type": "summarizer",
-                        "title": "Browsed the pricing page",
-                        "summary": "The user browsed the pricing page and compared the available plans.",
-                        "confidence": 0.9,
-                    },
-                    "signals_count": 0,
-                },
-            )
-        self._succeeded_observation(
-            summarizer,
-            "sum-novel-sess",
-            1,
-            {
-                "model_output": {
-                    "scanner_type": "summarizer",
-                    "title": "Deleted every project",
-                    "summary": "Removed all workspaces then immediately churned out.",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
-        )
-
-        resp = self.client.get(f"{self.feed_url}?limit=50")
-        reasons = {item["observation"]["session_id"]: item["reason"] for item in resp.json()["results"]}
-        self.assertEqual(reasons["score-outlier"]["kind"], "outlier_score")
-        self.assertEqual(reasons["score-outlier"]["score"], 9.5)
-        self.assertEqual(reasons["tag-rare"]["kind"], "rare_tag")
-        self.assertEqual(reasons["tag-rare"]["tag"], "rare")
-        self.assertEqual(reasons["sum-novel-sess"]["kind"], "novel_summary")
-        # Near-identical summaries are the baseline, not novel, and a row at the scanner's own average is
-        # not an outlier. Neither earns a finding, so with three findings already in the feed both are gone.
-        self.assertNotIn("sum-0", reasons)
-        self.assertNotIn("score-0", reasons)
-
-    def test_singleton_tag_is_rare_even_in_a_thin_window(self) -> None:
-        # A pure share cutoff makes rarity impossible below 10 rows and then fire on every singleton
-        # at exactly 10 — the feed would change character as a scanner accumulates data.
-        classifier = self._create_scanner(
-            name="c-thin",
-            scanner_type=ScannerType.CLASSIFIER,
-            scanner_config={"prompt": "p", "tags": ["common", "rare"], "multi_label": True},
-        )
-        for i in range(4):
-            self._succeeded_observation(
-                classifier,
-                f"thin-{i}",
-                10 + i,
-                {
-                    "model_output": {
-                        "scanner_type": "classifier",
-                        "tags": ["common"],
-                        "reasoning": "r",
-                        "confidence": 0.9,
-                    },
-                    "signals_count": 0,
-                },
-            )
-        self._succeeded_observation(
-            classifier,
-            "thin-rare",
-            1,
-            {
-                "model_output": {
-                    "scanner_type": "classifier",
-                    "tags": ["common", "rare"],
-                    "reasoning": "r",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
-        )
-        resp = self.client.get(f"{self.feed_url}?limit=50")
-        reasons = {item["observation"]["session_id"]: item["reason"] for item in resp.json()["results"]}
-        self.assertEqual(reasons["thin-rare"]["kind"], "rare_tag")
-        self.assertEqual(reasons["thin-rare"]["tag"], "rare")
-
-    def test_rare_tag_suppressed_when_the_vocabulary_never_repeats(self) -> None:
-        # Freeform tagging that never repeats makes every tag a singleton; rarity means nothing
-        # there, and without the guard every row would rank as a top-tier hit.
-        classifier = self._create_scanner(
-            name="c-chaos",
-            scanner_type=ScannerType.CLASSIFIER,
-            scanner_config={"prompt": "p", "tags": [], "multi_label": True, "allow_freeform_tags": True},
-        )
-        for i in range(5):
-            self._succeeded_observation(
-                classifier,
-                f"chaos-{i}",
-                10 + i,
-                {
-                    "model_output": {
-                        "scanner_type": "classifier",
-                        "tags": [],
-                        "tags_freeform": [f"unique_{i}"],
-                        "reasoning": "r",
-                        "confidence": 0.9,
-                    },
-                    "signals_count": 0,
-                },
-            )
-        resp = self.client.get(f"{self.feed_url}?limit=50")
-        kinds = {item["reason"]["kind"] for item in resp.json()["results"]}
-        self.assertEqual(kinds, {"unviewed_recent"})
-
-    def test_per_scanner_cap_keeps_quiet_scanners_in_the_candidate_slice(self) -> None:
-        # Without the per-scanner cap a busy scanner fills the global slice and quiet scanners lose
-        # both feed slots and their own baselines.
+    def test_the_pick_cap_keeps_every_scanners_best_before_a_busy_scanners_next(self) -> None:
         busy = self._create_scanner(name="busy")
         quiet = self._create_scanner(name="quiet")
-        for i in range(4):
-            self._succeeded_observation(busy, f"busy-{i}", i, self._monitor_result("no"))
-        self._succeeded_observation(quiet, "quiet-sess", 30, self._monitor_result("no"))
+        for scanner, prefix, top in ((busy, "busy", 0.9), (quiet, "quiet", 0.3)):
+            for index in range(12):
+                obs = self._succeeded_observation(scanner, f"{prefix}-{index}", index, self._monitor_result("yes"))
+                ReplayObservation.objects.filter(id=obs.id).update(
+                    watch_rank={
+                        "category": "failure",
+                        "contrast": top - index / 100,
+                        "group": None,
+                        "anchor_version": ANCHOR_VERSION,
+                    }
+                )
 
-        with patch("products.replay_vision.backend.api.scanners.WATCH_FEED_PER_SCANNER_CAP", 2):
-            resp = self.client.get(f"{self.feed_url}?limit=50")
-        sessions = [item["observation"]["session_id"] for item in resp.json()["results"]]
-        self.assertIn("quiet-sess", sessions)
-        self.assertEqual(len([s for s in sessions if s.startswith("busy-")]), 2)
+        with patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2):
+            items = self.client.get(self.feed_url).json()["results"]
+        picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
+        self.assertEqual(picked, {"busy-0", "quiet-0"})
+
+    @parameterized.expand(
+        [
+            ("group_limit", 3, 4),
+            # The bounded fetch holds only copies, so the other finding needs the unbounded retry.
+            ("bounded_fetch_full_of_copies", 1, 2),
+        ]
+    )
+    def test_a_duplicate_group_cannot_fill_the_pick_cap(self, _name: str, group_candidates: int, cap: int) -> None:
+        scanner = self._create_scanner(name="m")
+        root_id: str | None = None
+        # Of 30 rows only the top six clear the percentile cut: five copies of one finding, then one other finding.
+        for index in range(30):
+            obs = self._succeeded_observation(scanner, f"row-{index}", index, self._monitor_result("yes"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": "failure",
+                    "contrast": 1 - index / 100,
+                    "group": root_id if 0 < index < 5 else None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            root_id = root_id or str(obs.id)
+
+        with (
+            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", cap),
+            patch("products.replay_vision.backend.watch_rank.WATCH_PICK_GROUP_CANDIDATES", group_candidates),
+        ):
+            items = self.client.get(self.feed_url).json()["results"]
+        picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
+        self.assertIn("row-5", picked)
+
+    def test_impressions_lower_an_embedding_pick_only_after_the_load_that_showed_it(self) -> None:
+        scanner = self._create_scanner(name="m")
+        rows = {}
+        for index in range(10):
+            obs = self._succeeded_observation(scanner, f"s-{index}", 10 + index, self._monitor_result("no"))
+            # The top two contrasts clear the top-fifth cut; the rest are the scanner's baseline.
+            category = "failure" if index < 2 else "routine"
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": category,
+                    "contrast": 0.5 - index * 0.01,
+                    "group": None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            rows[f"s-{index}"] = obs
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = ReplayObservation.objects.create(
+            team=other_team,
+            scanner=ReplayScanner.objects.create(
+                team=other_team,
+                name="theirs",
+                scanner_type=ScannerType.MONITOR,
+                scanner_config={"prompt": "p"},
+                model=ScannerModel.GEMINI_3_8_FLASH,
+            ),
+            session_id="foreign",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        load = uuid.uuid4()
+
+        def load_picks(**params: str) -> tuple[list[str], str]:
+            body = self.client.get(self.feed_url, params).json()
+            picks = [
+                item["observation"]["session_id"]
+                for item in body["results"]
+                if item["reason"]["kind"] == "embedding_pick"
+            ]
+            return picks, body["as_of"]
+
+        picks, as_of = load_picks()
+        assert picks == ["s-0", "s-1"]
+        for _ in range(2):
+            # The same load reporting twice, as a tab hidden and shown again does, counts once.
+            resp = self.client.post(
+                f"{self.scanners_url}watch_feed_impressions/",
+                {"feed_load_id": str(load), "observation_ids": [str(rows["s-0"].id), str(foreign.id)]},
+                format="json",
+            )
+            assert resp.status_code == 204, resp.content
+        assert ReplayObservationFeedImpression.objects.for_team(self.team.id).get().shown_count == 1
+        assert not ReplayObservationFeedImpression.objects.for_team(other_team.id).exists()
+
+        # A later page of the same load ranks as of its first page, before the impression.
+        assert load_picks(as_of=as_of)[0] == ["s-0", "s-1"]
+        assert load_picks()[0] == ["s-1", "s-0"]
 
     def test_window_type_filter_and_limit(self) -> None:
         monitor = self._create_scanner(name="m")
@@ -5454,10 +5067,9 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         sessions = [item["observation"]["session_id"] for item in resp.json()["results"]]
         self.assertEqual(sessions, ["summary", "in-window"])
 
-        # The wider window admits the old row, whose verdict-yes hit outranks plain recency.
         resp = self.client.get(f"{self.feed_url}?date_from=-30d&scanner_type=monitor")
         sessions = [item["observation"]["session_id"] for item in resp.json()["results"]]
-        self.assertEqual(sessions, ["too-old", "in-window"])
+        self.assertEqual(sessions, ["in-window", "too-old"])
 
         resp = self.client.get(f"{self.feed_url}?limit=1")
         self.assertEqual(len(resp.json()["results"]), 1)
@@ -5465,8 +5077,12 @@ class TestWatchFeedAPI(_VisionAPITestCase):
     def test_scanner_ids_filter_restricts_between_readable_scanners(self) -> None:
         wanted = self._create_scanner(name="wanted")
         other = self._create_scanner(name="other")
-        self._succeeded_observation(wanted, "wanted-sess", 1, self._monitor_result("no"))
-        self._succeeded_observation(other, "other-sess", 2, self._monitor_result("no"))
+        self._succeeded_observation(wanted, "wanted-sess", 30, self._monitor_result("no"))
+        # The other scanner holds a pick, so the filter has to reach the pick query as well as the filler.
+        for index in range(10):
+            self._ranked_observation(
+                other, f"other-{index}", index, "failure" if index == 0 else "routine", 0.9 - index / 100
+            )
 
         resp = self.client.get(f"{self.feed_url}?scanner_ids={wanted.id}")
         self.assertEqual(
@@ -5484,18 +5100,6 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(
             [item["observation"]["session_id"] for item in resp.json()["results"]],
             ["inside"],
-        )
-
-    def test_global_candidate_cap_keeps_the_newest_rows(self) -> None:
-        scanner = self._create_scanner(name="m")
-        for i in range(3):
-            self._succeeded_observation(scanner, f"sess-{i}", i + 1, self._monitor_result("no"))
-
-        with patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2):
-            resp = self.client.get(f"{self.feed_url}?limit=50")
-        self.assertEqual(
-            [item["observation"]["session_id"] for item in resp.json()["results"]],
-            ["sess-0", "sess-1"],
         )
 
     def test_window_wider_than_the_maximum_is_rejected(self) -> None:
@@ -5522,37 +5126,6 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         allowed = self.client.get(self.feed_url, HTTP_AUTHORIZATION=f"Bearer {value}")
         self.assertEqual(allowed.status_code, 200, allowed.json())
         self.assertEqual(allowed.json()["results"][0]["observation"]["session_id"], "scoped-sess")
-
-    def test_search_matches_scan_prose_and_scanner_name_across_the_whole_window(self) -> None:
-        # Search runs before ranking, so a match that the ranking would never have surfaced still
-        # comes back — that is the whole point of the box on a capped feed.
-        checkout = self._create_scanner(name="Checkout watcher")
-        other = self._create_scanner(name="Inbox watcher")
-        self._succeeded_observation(
-            checkout,
-            "coupon-sess",
-            30,
-            {
-                "model_output": {
-                    "scanner_type": "summarizer",
-                    "title": "Coupon rejected",
-                    "summary": "The coupon field rejected a valid code.",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
-        )
-        self._succeeded_observation(other, "inbox-sess", 1, self._monitor_result("no"))
-
-        resp = self.client.get(f"{self.feed_url}?search=coupon")
-        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["coupon-sess"])
-
-        # The scanner's own name matches too, so typing an area name works.
-        resp = self.client.get(f"{self.feed_url}?search=inbox")
-        self.assertEqual([i["observation"]["session_id"] for i in resp.json()["results"]], ["inbox-sess"])
-
-        resp = self.client.get(f"{self.feed_url}?search=nothingmatchesthis")
-        self.assertEqual(resp.json()["results"], [])
 
     def test_tag_filter_follows_current_scanner_tags_not_the_snapshot(self) -> None:
         # Snapshots freeze config at scan time and never carried tags, so a retag has to take effect
@@ -5586,6 +5159,17 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["results"][0]["reason"]["kind"], "unviewed_recent")
 
+    def test_a_scope_with_no_readable_scanner_returns_an_empty_feed(self) -> None:
+        hidden = self._create_scanner(name="hidden")
+        self._succeeded_observation(hidden, "hidden-sess", 1, self._monitor_result("no"))
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.none() if qs.model is ReplayScanner else qs,
+        ):
+            resp = self.client.get(self.feed_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["results"], [])
+
     def test_unreadable_and_cross_team_scanners_are_dropped_silently(self) -> None:
         visible = self._create_scanner(name="visible")
         hidden = self._create_scanner(name="hidden")
@@ -5611,16 +5195,47 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         experiment = create_experiment(self.team, "restricted-flag")
         scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
         self._succeeded_observation(scanner, "restricted-sess", 1, self._monitor_result("yes"))
+        self._succeeded_observation(scanner, "restricted-sess-2", 2, self._monitor_result("yes"))
         scanner.experiment_targeting = None
         scanner.save()
-        self._succeeded_observation(scanner, "open-sess", 2, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "open-sess", 3, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "open-sess-2", 4, self._monitor_result("no"))
 
+        # The restricted rows are the newest, so the access gate has to run before the filler's limit.
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
         ):
             resp = self.client.get(self.feed_url)
-        self.assertEqual([item["observation"]["session_id"] for item in resp.json()["results"]], ["open-sess"])
+        self.assertEqual(
+            sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
+        )
+
+    def test_a_later_page_drops_rows_the_viewer_lost_access_to_after_the_first(self) -> None:
+        experiment = create_experiment(self.team, "revoked-flag")
+        scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
+        for index in range(12):
+            obs = self._succeeded_observation(scanner, f"sess-{index}", index, self._monitor_result("yes"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": "failure",
+                    "contrast": index / 10,
+                    "group": None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+        scanner.experiment_targeting = None
+        scanner.save()
+
+        first = self.client.get(self.feed_url, {"limit": 1}).json()
+        self.assertEqual(len(first["results"]), 1)
+        # The second page reads picks cached by the first, so access has to be checked again on the page itself.
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            second = self.client.get(self.feed_url, {"limit": 5, "offset": 1, "as_of": first["as_of"]}).json()
+        self.assertEqual(second["results"], [])
 
     def test_not_useful_hides_a_row_for_that_user_only_until_undone(self) -> None:
         scanner = self._create_scanner(name="m")
@@ -5653,14 +5268,26 @@ class TestWatchFeedAPI(_VisionAPITestCase):
 
     def test_query_count_stays_flat_as_data_grows(self) -> None:
         scanner = self._create_scanner(name="m")
-        self._succeeded_observation(scanner, "s-0", 1, self._monitor_result("no"))
+        # Enough rows to fill the feed's floor, so both samples skip the extra query a thin feed makes for filler.
+        for i in range(3):
+            self._succeeded_observation(scanner, f"s-0-{i}", i + 1, self._monitor_result("no"))
         self.client.get(self.feed_url)  # warm request-scoped caches
-        with CaptureQueriesContext(connection) as one:
+        # Both measured loads rank afresh, since a load in the same bucket would reuse the picks cached before it.
+        real_get = cache.get
+        uncached_picks = patch.object(
+            cache,
+            "get",
+            side_effect=lambda key, *args, **kwargs: (
+                None if key.startswith("replay_vision:watch_picks:") else real_get(key, *args, **kwargs)
+            ),
+        )
+        with uncached_picks, CaptureQueriesContext(connection) as one:
             self.assertEqual(self.client.get(self.feed_url).status_code, 200)
         for i in range(1, 6):
             other = self._create_scanner(name=f"m{i}")
-            self._succeeded_observation(other, f"s-{i}", i, self._monitor_result("yes", signals=i % 2))
-        with CaptureQueriesContext(connection) as six:
+            self._succeeded_observation(other, f"s-{i}", i, self._monitor_result("yes"))
+        self.client.get(self.feed_url)
+        with uncached_picks, CaptureQueriesContext(connection) as six:
             self.assertEqual(self.client.get(self.feed_url).status_code, 200)
         self.assertEqual(len(one.captured_queries), len(six.captured_queries))
 
@@ -6009,8 +5636,8 @@ class TestScannerActivityLogging(_VisionAPITestCase):
         scanner = self._create_scanner()
         ActivityLog.objects.all().delete()
 
-        scanner.search_suggestions = ["checkout errors"]
-        scanner.save(update_fields=["search_suggestions"])
+        scanner.admission_credits_since_refresh = 7
+        scanner.save(update_fields=["admission_credits_since_refresh"])
 
         self.assertEqual(self._logs(str(scanner.id)), [])
 

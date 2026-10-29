@@ -97,7 +97,7 @@ pub(super) async fn execute_person_chunk(
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
     // PreMark: CAS `scanning`→`produced` — the row is still `scanning` on failure.
-    let enqueued = match store.mark_produced_streamed(streamed).await {
+    let enqueued = match store.mark_produced(streamed).await {
         Ok(enqueued) => enqueued,
         Err(halt) => {
             return resolve_halt(&store, mark_produced_halt(halt), &shutdown, retry_backoff).await

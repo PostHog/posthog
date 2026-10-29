@@ -16,14 +16,47 @@ interface InsightShareMenuProps {
     insight: { short_id?: string | null; name?: string | null; derived_name?: string | null }
 }
 
+export interface InsightShareItem {
+    label: string
+    icon?: JSX.Element
+    onClick: () => void
+    dataAttr: string
+}
+
+/** The share options of a saved insight, or null when it has no short id yet. */
+export function useInsightShareItems(insight: InsightShareMenuProps['insight']): InsightShareItem[] | null {
+    const { push } = useActions(router)
+    const { openShareToSpace } = useActions(analyticsShareLogic)
+    const { itemSpaces } = useValues(analyticsShareLogic)
+    const shortId = insight.short_id
+    if (!shortId) {
+        return null
+    }
+    const insightName = insight.name || insight.derived_name || 'Untitled insight'
+    const insightSpace = itemSpaces[shareTargetKey({ type: 'insight', ref: shortId })]
+    return [
+        {
+            label: insightSpace ? `Move from ${insightSpace}` : 'Add to a collection',
+            icon: <IconShare />,
+            onClick: () => openShareToSpace({ type: 'insight', ref: shortId, name: insightName }),
+            dataAttr: 'insight-share-into-space',
+        },
+        {
+            label: 'Share publicly or embed',
+            onClick: () => push(urls.insightSharing(shortId as InsightShortId)),
+            dataAttr: 'insight-share-publicly',
+        },
+    ]
+}
+
 /**
  * The Share menu of a saved insight under the Today navigation. It lives apart from the header so the
  * spaces logics, and the project tree they load, mount only for people with the flag.
  */
 export function InsightShareMenu({ insight }: InsightShareMenuProps): JSX.Element | null {
-    const { push } = useActions(router)
-    const { openShareToSpace, loadItemSpace } = useActions(analyticsShareLogic)
+    const { loadItemSpace } = useActions(analyticsShareLogic)
     const { itemSpaces } = useValues(analyticsShareLogic)
+    const shareItems = useInsightShareItems(insight)
     const shortId = insight.short_id
     const insightName = insight.name || insight.derived_name || 'Untitled insight'
     const insightSpace = shortId ? itemSpaces[shareTargetKey({ type: 'insight', ref: shortId })] : undefined
@@ -34,25 +67,18 @@ export function InsightShareMenu({ insight }: InsightShareMenuProps): JSX.Elemen
         }
     }, [shortId, insightSpace, insightName, loadItemSpace])
 
-    if (!shortId) {
+    if (!shareItems) {
         return null
     }
     return (
         <>
             <LemonMenu
-                items={[
-                    {
-                        label: insightSpace ? `Move from ${insightSpace}` : 'Add to a collection',
-                        icon: <IconShare />,
-                        onClick: () => openShareToSpace({ type: 'insight', ref: shortId, name: insightName }),
-                        'data-attr': 'insight-share-into-space',
-                    },
-                    {
-                        label: 'Share publicly or embed',
-                        onClick: () => push(urls.insightSharing(shortId as InsightShortId)),
-                        'data-attr': 'insight-share-publicly',
-                    },
-                ]}
+                items={shareItems.map(({ label, icon, onClick, dataAttr }) => ({
+                    label,
+                    icon,
+                    onClick,
+                    'data-attr': dataAttr,
+                }))}
             >
                 <LemonButton type="secondary" size="small" icon={<IconShare />} data-attr="insight-share-menu">
                     Share
