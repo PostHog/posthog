@@ -113,6 +113,8 @@ _PATCH_AI_DETECTOR_QUEUE = "platform-insight-ai-detector-queue-2026-10"
 _PATCH_CHART_AFTER_CHECK = "platform-insight-chart-after-check-2026-10"
 # Runs started before it recorded every outcome once the whole batch ended, and failed checks left none.
 _PATCH_RECORD_AS_FINISHED = "platform-insight-record-as-finished-2026-10"
+# Runs started before it returned when their first round found the pool full, and replay must not poll.
+_PATCH_WAIT_FOR_POOL = "platform-insight-wait-for-pool-2026-10"
 
 
 @frozen
@@ -587,6 +589,11 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             if not unrecorded:
                 # The checks a round added can end while earlier ones record, and free slots for more.
                 if admitting and added:
+                    continue
+                # A batch that has no slot yet found the pool full. Other batches free slots within
+                # seconds, so it polls for one rather than leave its checks to a later tick.
+                if admitting and not started and workflow.patched(_PATCH_WAIT_FOR_POOL):
+                    await workflow.sleep(ADMISSION_POLL_INTERVAL)
                     continue
                 recorded += await self._record_waiting(inputs, waiting, last_chance=True)
                 await asyncio.gather(*stopping, return_exceptions=True)

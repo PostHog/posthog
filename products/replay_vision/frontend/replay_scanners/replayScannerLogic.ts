@@ -35,6 +35,8 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 
+import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
@@ -273,6 +275,7 @@ interface ObservationListParams {
     backfill_id?: string
     variant?: string
     watch_group?: string
+    watch_category?: string
     verdict?: string
     tags?: string
     min_score?: number
@@ -317,6 +320,7 @@ interface ObservationFilterValues {
     observationBackfillFilter: string | null
     observationVariantFilter: string | null
     observationWatchGroupFilter: string | null
+    observationWatchCategoryFilter: string | null
 }
 
 type ObservationFilterParamKeys =
@@ -332,6 +336,7 @@ type ObservationFilterParamKeys =
     | 'backfill_id'
     | 'variant'
     | 'watch_group'
+    | 'watch_category'
 
 /** The filter (non-pagination, non-sort) params shared by the list/stats endpoints and the URL query string. */
 function observationFilterParams(
@@ -373,6 +378,9 @@ function observationFilterParams(
     }
     if (values.observationWatchGroupFilter) {
         params.watch_group = values.observationWatchGroupFilter
+    }
+    if (values.observationWatchCategoryFilter) {
+        params.watch_category = values.observationWatchCategoryFilter
     }
     return params
 }
@@ -528,6 +536,7 @@ export interface replayScannerLogicValues {
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
     goalDraftLoading: boolean
+    goalExperiment: ExperimentBasicApi | null
     goalSpendMode: GoalSpendMode
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
@@ -552,6 +561,7 @@ export interface replayScannerLogicValues {
     observationTriggeredByFilter: ObservationTriggeredByValue[]
     observationVariantFilter: string | null
     observationVerdictFilter: ObservationVerdictValue[]
+    observationWatchCategoryFilter: string | null
     observationWatchGroupFilter: string | null
     observations: ReplayObservationApi[]
     observationsActive: boolean
@@ -697,6 +707,7 @@ export interface replayScannerLogicActions {
         triggeredBy: ObservationTriggeredByValue[]
         variant: string | null
         verdict: ObservationVerdictValue[]
+        watchCategory: string | null
         watchGroup: string | null
     }) => {
         backfillId: string | null
@@ -712,6 +723,7 @@ export interface replayScannerLogicActions {
         triggeredBy: ObservationTriggerEnumApi[]
         variant: string | null
         verdict: ObservationVerdictValue[]
+        watchCategory: string | null
         watchGroup: string | null
     }
     retryObservation: (observationId: string) => {
@@ -784,6 +796,9 @@ export interface replayScannerLogicActions {
     }
     setGoalDraftInput: (goal: string) => {
         goal: string
+    }
+    setGoalExperiment: (experiment: ExperimentBasicApi | null) => {
+        experiment: ExperimentBasicApi | null
     }
     setGoalSpendMode: (mode: GoalSpendMode) => {
         mode: GoalSpendMode
@@ -974,6 +989,7 @@ export interface replayScannerLogicMeta {
             observationBackfillFilter: string | null,
             observationVariantFilter: string | null,
             observationWatchGroupFilter: string | null,
+            observationWatchCategoryFilter: string | null,
             observationsSort: ObservationsSorting | null,
             scanner: ScannerFormValues
         ) => Record<string, number | string>
@@ -1031,6 +1047,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         clearClassifierTags: true,
         draftScannerFromGoal: (request: GoalDraftRequest) => ({ request }),
         setGoalDraftInput: (goal: string) => ({ goal }),
+        setGoalExperiment: (experiment: ExperimentBasicApi | null) => ({ experiment }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
         setGoalSpendMode: (mode: GoalSpendMode) => ({ mode }),
         loadObservations: (background = false) => ({ background }),
@@ -1077,6 +1094,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             backfillId: string | null
             variant: string | null
             watchGroup: string | null
+            watchCategory: string | null
         }) => state,
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         requestScannerEstimate: true,
@@ -1305,6 +1323,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 startFromScratch: () => '',
                 discardScannerDraft: () => '',
                 scannerSaved: () => '',
+            },
+        ],
+        // Picked from the goal flow's experiment starter, and sent with the goal even after the goal is edited.
+        goalExperiment: [
+            null as ExperimentBasicApi | null,
+            {
+                setGoalExperiment: (_, { experiment }) => experiment,
+                startFromScratch: () => null,
+                discardScannerDraft: () => null,
+                scannerSaved: () => null,
             },
         ],
         // The monthly credit budget input on the goal-based creation flow, used when the person sets a budget.
@@ -1648,6 +1676,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 restoreObservationsTableState: (_, { watchGroup }) => watchGroup,
             },
         ],
+        // Narrows a similar-sessions list to the kinds the Highlights feed showed, so it matches the card's count.
+        observationWatchCategoryFilter: [
+            null as string | null,
+            {
+                setObservationWatchGroupFilter: () => null,
+                clearObservationFilters: () => null,
+                restoreObservationsTableState: (_, { watchCategory }) => watchCategory,
+            },
+        ],
         chartDateFrom: ['-14d' as string | null, { setChartDateRange: (_, { dateFrom }) => dateFrom }],
         chartDateTo: [null as string | null, { setChartDateRange: (_, { dateTo }) => dateTo }],
     }),
@@ -1764,6 +1801,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationBackfillFilter,
                 s.observationVariantFilter,
                 s.observationWatchGroupFilter,
+                s.observationWatchCategoryFilter,
                 s.observationsSort,
                 s.scanner,
             ],
@@ -1781,6 +1819,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationBackfillFilter: string | null,
                 observationVariantFilter: string | null,
                 observationWatchGroupFilter: string | null,
+                observationWatchCategoryFilter: string | null,
                 observationsSort: ObservationsSorting | null,
                 scanner: ReplayScanner | null
             ): Record<string, string | number> => {
@@ -1797,6 +1836,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     observationBackfillFilter,
                     observationVariantFilter,
                     observationWatchGroupFilter,
+                    observationWatchCategoryFilter,
                     observationsSort,
                     observationsPage,
                     scanner,
@@ -2256,7 +2296,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             draftScannerFromGoal: ({ request: { goal, templateKey, spend } }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
-                    // Set when a goal starter card wrote the goal, so the funnel can split typed goals from one-click ones.
+                    // Set when a starter wrote the goal and it was sent unedited, or when an experiment was picked,
+                    // so the funnel can split typed goals from starter ones.
                     template_key: templateKey ?? null,
                     spend_mode: 'freeOnly' in spend ? 'free' : 'budget',
                     // The goal is customer text, so only its length is captured.
@@ -2794,6 +2835,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             const variant =
                 typeof variantRaw === 'string' || typeof variantRaw === 'number' ? String(variantRaw) || null : null
             const watchGroup = typeof searchParams.watch_group === 'string' ? searchParams.watch_group : null
+            const watchCategory =
+                watchGroup && typeof searchParams.watch_category === 'string' ? searchParams.watch_category : null
             const sameAsCurrent =
                 page === values.observationsPage &&
                 sort.columnKey === values.observationsSort?.columnKey &&
@@ -2809,7 +2852,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 dateTo === values.observationDateTo &&
                 backfillId === values.observationBackfillFilter &&
                 variant === values.observationVariantFilter &&
-                watchGroup === values.observationWatchGroupFilter
+                watchGroup === values.observationWatchGroupFilter &&
+                watchCategory === values.observationWatchCategoryFilter
             if (!sameAsCurrent) {
                 actions.restoreObservationsTableState({
                     page,
@@ -2826,6 +2870,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     backfillId,
                     variant,
                     watchGroup,
+                    watchCategory,
                 })
             }
         },

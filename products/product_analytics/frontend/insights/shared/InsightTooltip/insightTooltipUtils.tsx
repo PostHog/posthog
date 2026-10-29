@@ -10,7 +10,7 @@ import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
-import { CompareLabelType, FilterType, IntervalType } from '~/types'
+import { CompareLabelType, IntervalType } from '~/types'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -25,7 +25,6 @@ export interface SeriesDatum {
     dotted?: boolean
     color?: string
     count: number
-    filter?: FilterType
     hideTooltip?: boolean
     anomalyScore?: number | null
 }

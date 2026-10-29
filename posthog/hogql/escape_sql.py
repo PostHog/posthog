@@ -284,6 +284,13 @@ def escape_trino_identifier(v: str) -> str:
     return '"' + v.replace('"', '""') + '"'
 
 
+def escape_trino_string(v: str) -> str:
+    # Trino string literals have no backslash escapes; doubling the quote is the only escape.
+    if "\0" in v:
+        raise QueryError("Trino string literals cannot contain the NUL character")
+    return "'" + v.replace("'", "''") + "'"
+
+
 def escape_snowflake_identifier(v: str) -> str:
     # Always double-quote: Snowflake folds unquoted identifiers to uppercase, so quoting
     # preserves the column's stored case. ``%`` is rejected for parity with the other

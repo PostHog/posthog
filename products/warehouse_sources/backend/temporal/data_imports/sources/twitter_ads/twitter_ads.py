@@ -8,7 +8,7 @@ import requests
 from requests_oauthlib import OAuth1
 
 from posthog.dataclasses import frozen
-from posthog.models.integration.model import Integration
+from posthog.integrations import IntegrationRecord
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -85,7 +85,7 @@ def _error_detail(response: requests.Response) -> str:
 
 
 class TwitterAdsClient:
-    def __init__(self, integration: Integration, api_version: str = API_VERSION) -> None:
+    def __init__(self, integration: IntegrationRecord, api_version: str = API_VERSION) -> None:
         if api_version != API_VERSION:
             raise ValueError("Unsupported X Ads API version")
         if integration.kind != "twitter-ads":
