@@ -29,6 +29,13 @@ describe('agent signup goal', () => {
         expect(readAgentSignupGoal(signupLocation(`/oauth/authorize?goal=${goal}`))).toHaveLength(1000)
     })
 
+    it('does not leak an abandoned attempt goal into a different signup attempt', () => {
+        readAgentSignupGoal(signupLocation('/oauth/authorize?client_id=abc&goal=Track%20signups'))
+
+        expect(readAgentSignupGoal(signupLocation('/oauth/authorize?client_id=other'))).toBeNull()
+        expect(readAgentSignupGoal(signupLocation(null))).toBeNull()
+    })
+
     it('keeps the goal for a page without next until it is cleared', () => {
         readAgentSignupGoal(signupLocation('/oauth/authorize?goal=Track%20signups'))
         expect(readAgentSignupGoal(signupLocation(null))).toBe('Track signups')
