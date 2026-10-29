@@ -408,6 +408,21 @@ class TestPostgresSourceForeignServerConnectionError:
         assert not is_non_retryable, f"A foreign-server connection failure must stay retryable: {error_msg}"
         assert "Connection refused" not in error_msg
 
+        # Also classified in get_retryable_errors, so _handle_import_error logs this self-recovering
+        # failure as a warning instead of flooding error tracking with an exception on every retry.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+
+        message = next(
+            (
+                friendly
+                for pattern, friendly in source.get_retry_exhausted_errors().items()
+                if error_message_matches(error_msg, [pattern])
+            ),
+            None,
+        )
+        assert message is not None, "an unreachable foreign server must surface an actionable message once exhausted"
+        assert "still enabled" in message.lower()
+
 
 class TestPostgresSourceNonRetryableErrors:
     @pytest.fixture
@@ -1087,6 +1102,9 @@ class TestPostgresSourceNonRetryableErrors:
             "missing chunk number 0 for toast value 90210 in pg_toast_16384",
             'index "orders_pkey" contains unexpected zero page at block 42',
             'could not read block 7 in file "base/16384/16385": read only 0 of 8192 bytes',
+            # The server couldn't open the relation file at all (IoError, SQLSTATE 58030) rather than
+            # failing to read a block from one already open.
+            'could not open file "base/16384/1259": Input/output error',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             "InternalError_: missing chunk number 0 for toast value 90210 in pg_toast_16384",
         ],
@@ -1101,6 +1119,16 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Damaged source page should surface an actionable message"
         assert "damaged data on disk" in friendly[0]
+
+    def test_file_descriptor_exhaustion_on_open_is_retryable(self, source):
+        # Same "could not open file" prefix as the damaged-page case above, but a different errno
+        # reason: file-descriptor exhaustion clears once load on the source drops, unlike the
+        # physical "Input/output error" case, so it must not be classified as permanent corruption.
+        error_msg = 'could not open file "base/16384/1259": Too many open files'
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Transient file-descriptor exhaustion should be retryable: {error_msg}"
+        )
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -10397,6 +10425,21 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+    def test_recovery_conflict_error_is_not_captured(self):
+        # A hot-standby recovery conflict cancelling this catalog query is the same transient
+        # condition the main read path already retries (`get_rows` via `_is_recovery_conflict_error`).
+        # This best-effort lookup has no retry loop of its own: degrade quietly rather than flooding
+        # error tracking with a condition that isn't a bug.
+        conn = self._conn_raising(
+            psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
 
     def test_pooler_login_cooldown_error_is_not_captured(self):
         # A Postgres-wire-compatible source backed by DuckDB's `postgres_query()` (e.g. DuckLake's
