@@ -837,7 +837,7 @@ export interface broadcastWizardLogicMeta {
             blastRadius: BlastRadiusApi | null,
             channel: BroadcastChannel,
             push: BroadcastPushValue,
-            templatingErrors: Partial<Record<'body' | 'message' | 'subject' | 'title' | 'to', string>>
+            templatingErrors: Partial<Record<'body' | 'message' | 'preheader' | 'subject' | 'title' | 'to', string>>
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
