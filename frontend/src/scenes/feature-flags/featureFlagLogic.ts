@@ -42,7 +42,7 @@ import { stringifyWithBigInts } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
-import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
+import { CHANGE_REQUEST_PENDING_CODE, showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
@@ -4794,6 +4794,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
+        },
+        saveSidebarExperimentFeatureFlagFailure: ({ errorObject }) => {
+            // The global error handler hides approval errors, so without this the save fails silently.
+            if (isApprovalRequiredError(errorObject) && values.featureFlag.id) {
+                // The pending request can be for another change to the flag, so that toast names the flag.
+                showApprovalRequiredToast(
+                    errorObject.data.change_request_id,
+                    errorObject.data.code === CHANGE_REQUEST_PENDING_CODE
+                        ? "change this experiment's flag"
+                        : "change this experiment's release conditions",
+                    errorObject.data.code
+                )
+                dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: values.featureFlag.id })
+                actions.loadFeatureFlag()
+            }
         },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')

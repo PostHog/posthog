@@ -58,6 +58,7 @@ from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 from products.approvals.backend.actions.experiments import LaunchExperimentAction
+from products.approvals.backend.actions.feature_flags import OWNER_REWRITES_RELEASE_CONDITIONS
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
@@ -236,6 +237,10 @@ FREEZE_EXPOSURE_RESOLVE_CONCURRENCY = 4
 # Shared by snapshot creation and cleanup: cleanup only touches cohorts carrying this prefix, so a
 # cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
 FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
+FREEZE_EXPOSURE_NOBODY_EXPOSED_MESSAGE = (
+    "No users have been exposed to this experiment yet, so freezing would stop it for everyone. "
+    "Wait until the experiment has recorded exposures."
+)
 
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
@@ -338,6 +343,15 @@ assert set(_FREEZE_EXPOSURE_BLOCKER_MESSAGES) == _expected_blockers, (
 )
 
 
+def _lifecycle_rewrite_context() -> dict[str, Any]:
+    """Serializer context for a flag write inside freezing, unfreezing or resetting an experiment.
+
+    Each of those operations is reviewed as a whole at its endpoint, so the release conditions it
+    rewrites on its own flag must not be reviewed a second time by `experiment.update`.
+    """
+    return {OWNER_REWRITES_RELEASE_CONDITIONS: True}
+
+
 def _restrict_filters_to_frozen_cohort(filters: dict, cohort_id: int) -> dict:
     """The facade's generic cohort restriction, bound to the experiments freeze marker."""
     return restrict_groups_to_cohort(
@@ -349,14 +363,33 @@ def _restrict_filters_to_frozen_cohort(filters: dict, cohort_id: int) -> dict:
     )
 
 
-def _strip_frozen_exposure(filters: dict) -> tuple[dict, list[int]]:
+def _strip_frozen_exposure(filters: dict, team_id: int) -> tuple[dict, list[int]]:
     """Inverse of _restrict_filters_to_frozen_cohort: strip the freeze marker and its cohort
-    conditions, returning the stripped filters plus the snapshot cohort ids for cleanup."""
+    conditions, returning the stripped filters plus the snapshot cohort ids for cleanup.
+
+    Only a condition on a verifiable freeze snapshot is removed, by the same test as
+    `_delete_orphaned_snapshot_cohorts`, because the stamps are user-editable. Otherwise a stamp
+    naming a targeting cohort would have the unfreeze or reset remove that targeting.
+    """
+    stamped_cohort_ids = [
+        group.get(EXPOSURE_FROZEN_COHORT_KEY)
+        for group in filters.get("groups", [])
+        if isinstance(group, dict) and group.get(EXPOSURE_FROZEN_GROUP_KEY) is True
+    ]
+    snapshot_cohort_ids = set(
+        Cohort.objects.filter(
+            team_id=team_id,
+            pk__in=[cohort_id for cohort_id in stamped_cohort_ids if isinstance(cohort_id, int)],
+            is_static=True,
+            name__startswith=FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX,
+        ).values_list("pk", flat=True)
+    )
     return strip_group_cohort_restriction(
         filters,
         marker_key=EXPOSURE_FROZEN_GROUP_KEY,
         cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
         marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+        removable_cohort_ids=snapshot_cohort_ids,
     )
 
 
@@ -2242,10 +2275,7 @@ class ExperimentService:
         scan_done_at = time.monotonic()
         if not exposed_person_uuids:
             # An empty snapshot cohort ANDed into every release group would un-enroll every user.
-            raise ValidationError(
-                "No users have been exposed to this experiment yet, so freezing would stop it for everyone. "
-                "Wait until the experiment has recorded exposures."
-            )
+            raise ValidationError(FREEZE_EXPOSURE_NOBODY_EXPOSED_MESSAGE)
 
         # 2. Resolve the exposed set to person ids, failing closed if a material share has no
         # person profile: cohort membership is person-keyed, so those users would silently lose
@@ -2293,16 +2323,11 @@ class ExperimentService:
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
-                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate.
-                # The `feature_flag.update` policy gates release condition changes on standalone flags
-                # only. An experiment owns this flag, so only `active` and `rollout_percentage` changes
-                # are gated here (see UpdateFeatureFlagAction in
-                # products/approvals/backend/actions/feature_flags.py).
-                # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
-                # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
-                # matches and no change request is raised. We therefore don't special-case ApprovalRequired
-                # here. If approvals ever gate property/cohort changes on experiment flags, revisit this: the
-                # snapshot cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # Design note (approvals): the freeze is reviewed as a whole at its endpoint, by the
+                # `experiment.freeze_exposure` action, before this snapshot is built. This write only
+                # adds a cohort condition to each group and stamps `description`, so it is marked as
+                # the experiment's own rewrite and `experiment.update` does not review it again. The
+                # rollout is unchanged, so no other flag policy matches and no ApprovalRequired is raised.
                 # Mark the write as freeze-driven so the flag's log entry does not read as
                 # a manual targeting edit.
                 locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
@@ -2312,6 +2337,7 @@ class ExperimentService:
                     team=self.team,
                     user=self.user,
                     request=request,
+                    serializer_context=_lifecycle_rewrite_context(),
                 )
         except Exception:
             exposure_snapshot.delete()
@@ -2364,6 +2390,35 @@ class ExperimentService:
         blocker = experiment.freeze_exposure_blocker
         if blocker is not None:
             raise ValidationError(_FREEZE_EXPOSURE_BLOCKER_MESSAGES[blocker])
+
+    def check_freeze_exposure(self, experiment: Experiment) -> None:
+        """Run every check `freeze_exposure` makes before it builds the snapshot, without building it.
+
+        A freeze that needs approval runs this when it is requested, so a request that could only
+        fail at approval is refused with the error the freeze gives now.
+        """
+        self._assert_flag_access(experiment.feature_flag)
+        self._validate_freeze_exposure_state(experiment)
+        exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
+        if not exposed_person_uuids:
+            raise ValidationError(FREEZE_EXPOSURE_NOBODY_EXPOSED_MESSAGE)
+        self._resolve_exposed_persons(exposed_person_uuids)
+
+    def check_unfreeze_exposure(self, experiment: Experiment) -> None:
+        """Run the access check `unfreeze_exposure` makes, for an unfreeze that needs approval."""
+        self._assert_flag_access(experiment.feature_flag)
+
+    def check_reset_experiment(self, experiment: Experiment) -> None:
+        """Run the access check `reset_experiment` makes, for a reset that needs approval.
+
+        A reset writes the flag only to remove a frozen exposure, so only then does it need flag access.
+        """
+        flag = experiment.feature_flag
+        if flag is None or flag.deleted:
+            return
+        stripped_filters, _ = _strip_frozen_exposure(flag.filters or {}, self.team.pk)
+        if stripped_filters != (flag.filters or {}):
+            self._assert_flag_access(flag)
 
     def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
@@ -2583,10 +2638,17 @@ class ExperimentService:
 
         flag = experiment.feature_flag
         self._assert_flag_access(flag)
-        new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
+        new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {}, self.team.pk)
 
         flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
-        update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
+        update_flag(
+            flag,
+            {"filters": new_filters},
+            team=self.team,
+            user=self.user,
+            request=request,
+            serializer_context=_lifecycle_rewrite_context(),
+        )
 
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
         flag.refresh_from_db()
@@ -3023,7 +3085,7 @@ class ExperimentService:
         )
         if flag is None or flag.deleted:
             return
-        stripped_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
+        stripped_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {}, self.team.pk)
         if stripped_filters == (flag.filters or {}):
             return
 
@@ -3031,7 +3093,14 @@ class ExperimentService:
         flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=False)
         if request is not None:
             self._assert_flag_access(flag)
-            update_flag(flag, {"filters": stripped_filters}, team=self.team, user=self.user, request=request)
+            update_flag(
+                flag,
+                {"filters": stripped_filters},
+                team=self.team,
+                user=self.user,
+                request=request,
+                serializer_context=_lifecycle_rewrite_context(),
+            )
         else:
             # Non-HTTP callers have no acting user: a system write (user=None) skips the
             # approval gate — this runs inside the caller's transaction, where an
@@ -3098,7 +3167,7 @@ class ExperimentService:
         # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
         # write: preserved, it would lock the shipped variant to the stale snapshot forever in the
         # default mode, and linger as dead weight below the catch-all in release_to_everyone mode.
-        base_filters, frozen_cohort_ids = _strip_frozen_exposure(flag.filters)
+        base_filters, frozen_cohort_ids = _strip_frozen_exposure(flag.filters, self.team.pk)
 
         # Update the flag through the gated write to preserve the approval
         # workflow. If change-request approval is required, this raises

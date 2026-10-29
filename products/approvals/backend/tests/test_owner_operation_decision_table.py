@@ -12,8 +12,9 @@ time. DECISION_TABLE is what an organization sees before it is rolled out, and
 DECISION_TABLE_NARROWED is what it sees after. COVERAGE_CHANGE names every cell that differs,
 so the coverage this change removes and the coverage it moves are asserted rather than described.
 
-A release condition change already gates on an unowned flag only, so its column reads the same
-in both tables.
+A release condition change is gated on the flags the governing family owns. Before narrowing that
+is the unowned flags only, so an experiment's flag has no release condition gating; after it, the
+experiment family covers its own.
 """
 
 from typing import Any, Optional
@@ -123,12 +124,13 @@ DECISION_TABLE: dict[str, dict[str, Optional[str]]] = {
 # their own next; tours and early access are excluded by decision, not by omission.
 #
 # A create has no owner yet, so it does not move. A flag a product merely references is unowned,
-# so it does not move either. The release condition column already gates on an unowned flag only,
-# so it reads the same in both tables and contributes nothing to COVERAGE_CHANGE.
+# so it does not move either. A release condition change on an experiment's flag is gated by
+# nothing before narrowing and by `experiment.update` after it, so that cell gains coverage rather
+# than moving or losing it.
 DECISION_TABLE_NARROWED: dict[str, dict[str, Optional[str]]] = {
     #                                   create  update   release   enable   disable   delete
     "standalone":                  _row(ENABLE,  UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
-    "experiment":                  _row(NA,      EXP_UPD, UNGATED,  LAUNCH,  PAUSE,    UNGATED),
+    "experiment":                  _row(NA,      EXP_UPD, EXP_UPD,  LAUNCH,  PAUSE,    UNGATED),
     "survey_owned":                _row(NA,      UNGATED, UNGATED,  UNGATED, UNGATED,  UNGATED),
     "survey_linked":               _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
     "tour_owned":                  _row(NA,      UNGATED, UNGATED,  UNGATED, UNGATED,  UNGATED),
@@ -143,6 +145,7 @@ DECISION_TABLE_NARROWED: dict[str, dict[str, Optional[str]]] = {
 # set means neither kind can be added or dropped without a reviewer seeing it here.
 COVERAGE_CHANGE: set[tuple[str, str, Optional[str], Optional[str]]] = {
     ("experiment", "update_gated_field", UPDATE, EXP_UPD),
+    ("experiment", "update_release_condition", UNGATED, EXP_UPD),
     ("experiment", "enable", ENABLE, LAUNCH),
     ("experiment", "disable", DISABLE, PAUSE),
     ("survey_owned", "update_gated_field", UPDATE, UNGATED),
@@ -283,14 +286,20 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
         }
         assert moved == COVERAGE_CHANGE
 
-    def test_narrowing_only_moves_an_experiment_between_families(self, _mock_enabled) -> None:
-        """Every cell that keeps an approval is an experiment's, and every other one loses it.
+    def test_narrowing_only_adds_coverage_for_an_experiment(self, _mock_enabled) -> None:
+        """Only an experiment's cells keep or gain coverage, and only other products lose it.
 
-        This is the claim the rollout rests on: the organizations being narrowed keep every
-        experiment approval they have today, and what they lose is the coverage of the products
-        that get a family later or none at all.
+        This is the claim the rollout rests on. The organizations being narrowed keep every
+        experiment approval they have today, gain one they do not, and what they lose belongs to
+        the products that get a family later or none at all.
         """
-        kept = {(owner, after) for owner, _, _, after in COVERAGE_CHANGE if after is not UNGATED}
+        gained = {owner for owner, _, before, after in COVERAGE_CHANGE if before is UNGATED and after is not UNGATED}
+        moved = {
+            owner
+            for owner, _, before, after in COVERAGE_CHANGE
+            if before is not UNGATED and after is not UNGATED and before != after
+        }
         lost = {owner for owner, _, _, after in COVERAGE_CHANGE if after is UNGATED}
-        assert {owner for owner, _ in kept} == {"experiment"}
+        assert gained == {"experiment"}
+        assert moved == {"experiment"}
         assert lost == {"survey_owned", "tour_owned", "early_access"}

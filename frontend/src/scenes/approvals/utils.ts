@@ -6,6 +6,9 @@ export const ApprovalActionKey = {
     EXPERIMENT_LAUNCH: 'experiment.launch',
     EXPERIMENT_PAUSE: 'experiment.pause',
     EXPERIMENT_UPDATE: 'experiment.update',
+    EXPERIMENT_FREEZE_EXPOSURE: 'experiment.freeze_exposure',
+    EXPERIMENT_UNFREEZE_EXPOSURE: 'experiment.unfreeze_exposure',
+    EXPERIMENT_RESET: 'experiment.reset',
 } as const
 
 // Actions whose policy can limit approval to some changes. Saving any other action drops its conditions.
@@ -57,16 +60,36 @@ export const APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
     },
     [ApprovalActionKey.EXPERIMENT_UPDATE]: {
         label: 'Update experiment',
-        description: "change this experiment's rollout or variant split, or ship a winning variant",
+        description: "change this experiment's rollout, variant split, or targeting, or ship a winning variant",
     },
 }
 
+// Actions with no policy of their own: they borrow the "Update experiment" policy, so the policy editor does not offer them.
+const BORROWING_APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
+    [ApprovalActionKey.EXPERIMENT_FREEZE_EXPOSURE]: {
+        label: 'Freeze experiment exposure',
+        description: "freeze this experiment's exposure",
+    },
+    [ApprovalActionKey.EXPERIMENT_UNFREEZE_EXPOSURE]: {
+        label: 'Unfreeze experiment exposure',
+        description: "unfreeze this experiment's exposure",
+    },
+    [ApprovalActionKey.EXPERIMENT_RESET]: {
+        label: 'Reset experiment',
+        description: 'reset this experiment to a draft',
+    },
+}
+
+function getApprovalActionConfig(actionKey: string): ApprovalActionConfig | undefined {
+    return APPROVAL_ACTIONS[actionKey] ?? BORROWING_APPROVAL_ACTIONS[actionKey]
+}
+
 export function getApprovalActionLabel(actionKey: string): string {
-    return APPROVAL_ACTIONS[actionKey]?.label || actionKey.replace(/[._]/g, ' ')
+    return getApprovalActionConfig(actionKey)?.label || actionKey.replace(/[._]/g, ' ')
 }
 
 export function getApprovalActionDescription(actionKey: string, context?: ApprovalContext): string {
-    const action = APPROVAL_ACTIONS[actionKey]
+    const action = getApprovalActionConfig(actionKey)
     if (!action) {
         return actionKey.replace(/[._]/g, ' ')
     }
@@ -78,11 +101,13 @@ export function getApprovalActionDescription(actionKey: string, context?: Approv
 
 export const ApprovalResourceType = {
     FEATURE_FLAG: 'feature_flag',
+    EXPERIMENT: 'experiment',
 } as const
 
 // Maps resource types to display names and URL builders
 const APPROVAL_RESOURCE_CONFIG: Record<string, { label: string; urlBuilder: (id: string) => string }> = {
     [ApprovalResourceType.FEATURE_FLAG]: { label: 'Feature flag', urlBuilder: (id) => `/feature-flags/${id}` },
+    [ApprovalResourceType.EXPERIMENT]: { label: 'Experiment', urlBuilder: (id) => `/experiments/${id}` },
 }
 
 export function getApprovalResourceUrl(resourceType: string, resourceId: string | null): string | null {
@@ -119,6 +144,8 @@ export function getApprovalResourceName(resourceType: string, intent: Record<str
     switch (resourceType) {
         case ApprovalResourceType.FEATURE_FLAG:
             return intent?.flag_key || null
+        case ApprovalResourceType.EXPERIMENT:
+            return intent?.experiment_name || null
         default:
             return null
     }

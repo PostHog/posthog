@@ -1307,6 +1307,41 @@ describe('featureFlagLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith(message)
             expect(logic.values).toMatchObject({ isEditingFlag: true, featureFlag: partial({ name: 'Edited name' }) })
         })
+
+        it.each([
+            ['saves', () => Promise.resolve({ ...MOCK_FEATURE_FLAG }), 0],
+            ['needs approval', () => Promise.reject(approvalRequired()), 1],
+            ['fails', () => Promise.reject(new ApiError(undefined, 500, undefined, SERVER_ERROR_BODY)), 0],
+        ])(
+            'shows the approval toast only when an experiment release conditions save %s',
+            async (_, response, approvalToasts) => {
+                jest.spyOn(api, 'update').mockImplementationOnce(response as () => Promise<any>)
+                const approvalToast = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+                await expectLogic(logic, () => {
+                    logic.actions.saveSidebarExperimentFeatureFlag(logic.values.featureFlag)
+                }).toFinishAllListeners()
+
+                expect(approvalToast).toHaveBeenCalledTimes(approvalToasts)
+            }
+        )
+
+        it('drops the held edit after an experiment release conditions save needs approval', async () => {
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'Held for approval' })
+            jest.spyOn(api, 'update').mockRejectedValueOnce(approvalRequired())
+            jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveSidebarExperimentFeatureFlag(logic.values.featureFlag)
+            })
+                .toDispatchActions(['saveSidebarExperimentFeatureFlagFailure', 'loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values).toMatchObject({
+                hasUnsavedChanges: false,
+                featureFlag: partial({ name: MOCK_FEATURE_FLAG.name }),
+            })
+        })
     })
 
     describe('send a broadcast to the people who have the flag', () => {

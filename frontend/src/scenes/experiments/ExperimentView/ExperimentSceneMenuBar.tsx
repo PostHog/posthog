@@ -16,6 +16,7 @@ import {
     IconUnlock,
 } from '@posthog/icons'
 
+import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,6 +24,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { changeRequestsLogic } from 'scenes/approvals/changeRequestsLogic'
+import { ApprovalActionKey, ApprovalResourceType } from 'scenes/approvals/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -46,6 +49,8 @@ import {
     confirmFreezeExposure,
     confirmResetExperiment,
     confirmUnfreezeExposure,
+    pendingApprovalReason,
+    pendingExperimentActionKeys,
 } from 'products/experiments/frontend/experimentActions'
 import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 import { getTotalExposures } from 'products/experiments/frontend/health/exposureHealth'
@@ -96,10 +101,23 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         openQuickSurveyModal,
     } = useActions(modalsLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
+    const { experimentOperationsNeedApproval } = useValues(approvalsGateLogic)
+    const { changeRequests } = useValues(
+        changeRequestsLogic({ resourceType: ApprovalResourceType.EXPERIMENT, resourceId: experiment?.id ?? 'new' })
+    )
 
     if (!experiment) {
         return null
     }
+
+    // A disabled menu bar item never shows its tooltip, so these items also say in their label that they are waiting.
+    const pendingActionKeys = pendingExperimentActionKeys(changeRequests, experiment)
+    const freezePendingReason = pendingApprovalReason(ApprovalActionKey.EXPERIMENT_FREEZE_EXPOSURE, pendingActionKeys)
+    const unfreezePendingReason = pendingApprovalReason(
+        ApprovalActionKey.EXPERIMENT_UNFREEZE_EXPOSURE,
+        pendingActionKeys
+    )
+    const resetPendingReason = pendingApprovalReason(ApprovalActionKey.EXPERIMENT_RESET, pendingActionKeys)
 
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const canEdit = userHasAccess(
@@ -123,7 +141,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
             onDelete: () => router.actions.push(urls.experiments()),
         })
 
-    const handleReset = (): void => confirmResetExperiment(experiment, resetRunningExperiment)
+    const handleReset = (): void =>
+        confirmResetExperiment(experiment, resetRunningExperiment, experimentOperationsNeedApproval)
 
     const showCreateMenu = isExperimentLaunched
     const showStateMenu = showRunningState
@@ -243,10 +262,12 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                     <SceneMenuBarItem
                         opensFloatingUi
                         onClick={handleReset}
+                        disabled={!!resetPendingReason}
+                        tooltip={resetPendingReason}
                         data-attr={`${RESOURCE_TYPE}-menubar-reset`}
                     >
                         <IconRefresh />
-                        Reset analysis
+                        {resetPendingReason ? 'Reset analysis (waiting for approval)' : 'Reset analysis'}
                     </SceneMenuBarItem>
                 )}
                 {showStateMenu &&
@@ -265,26 +286,37 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                 <SceneMenuBarItem
                                     opensFloatingUi
                                     onClick={() =>
-                                        confirmFreezeExposure(() => freezeExposure(), getTotalExposures(exposures))
+                                        confirmFreezeExposure(
+                                            () => freezeExposure(),
+                                            getTotalExposures(exposures),
+                                            experimentOperationsNeedApproval
+                                        )
                                     }
-                                    disabled={freezeExposureLoading}
-                                    tooltip={freezeExposureLoading ? 'Freezing exposure…' : undefined}
+                                    disabled={freezeExposureLoading || !!freezePendingReason}
+                                    tooltip={freezeExposureLoading ? 'Freezing exposure…' : freezePendingReason}
                                     data-attr={`${RESOURCE_TYPE}-menubar-freeze-exposure`}
                                 >
                                     <IconLock />
-                                    Freeze exposure
+                                    {freezePendingReason ? 'Freeze exposure (waiting for approval)' : 'Freeze exposure'}
                                 </SceneMenuBarItem>
                             )}
                             {isExperimentExposureFrozen(experiment) && (
                                 <SceneMenuBarItem
                                     opensFloatingUi
-                                    onClick={() => confirmUnfreezeExposure(() => unfreezeExposure())}
-                                    disabled={unfreezeExposureLoading}
-                                    tooltip={unfreezeExposureLoading ? 'Unfreezing exposure…' : undefined}
+                                    onClick={() =>
+                                        confirmUnfreezeExposure(
+                                            () => unfreezeExposure(),
+                                            experimentOperationsNeedApproval
+                                        )
+                                    }
+                                    disabled={unfreezeExposureLoading || !!unfreezePendingReason}
+                                    tooltip={unfreezeExposureLoading ? 'Unfreezing exposure…' : unfreezePendingReason}
                                     data-attr={`${RESOURCE_TYPE}-menubar-unfreeze-exposure`}
                                 >
                                     <IconUnlock />
-                                    Unfreeze exposure
+                                    {unfreezePendingReason
+                                        ? 'Unfreeze exposure (waiting for approval)'
+                                        : 'Unfreeze exposure'}
                                 </SceneMenuBarItem>
                             )}
                             <SceneMenuBarItem

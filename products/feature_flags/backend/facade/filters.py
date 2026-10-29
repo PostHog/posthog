@@ -142,13 +142,18 @@ def strip_group_cohort_restriction(
     marker_key: str,
     cohort_key: str,
     marker_note: str,
+    removable_cohort_ids: Collection[int] | None = None,
 ) -> tuple[dict, list[int]]:
     """Inverse of restrict_groups_to_cohort: remove the restriction stamps from every
     release group — the AND'd cohort condition (identified via the per-group
     ``cohort_key``, so user-added cohort conditions survive), the two structured keys,
     and the description note. Groups without the marker key pass through untouched.
 
-    Returns the stripped filters plus the cohort ids that were referenced, so callers
+    The stamps round-trip through the flag API, so the cohort a stamp names is a claim. When
+    ``removable_cohort_ids`` is given, only a condition on one of those cohorts is removed; a
+    stamp naming any other cohort loses its stamps and keeps its condition.
+
+    Returns the stripped filters plus the cohort ids whose condition was removed, so callers
     can clean up the then-orphaned cohorts once the stripped filters are persisted — and only
     then: deleting earlier would yank the cohort from under a still-restricted flag if the
     save fails.
@@ -163,7 +168,7 @@ def strip_group_cohort_restriction(
             continue
         new_group.pop(marker_key, None)
         cohort_id = new_group.pop(cohort_key, None)
-        if cohort_id is not None:
+        if cohort_id is not None and (removable_cohort_ids is None or cohort_id in removable_cohort_ids):
             cohort_ids.append(cohort_id)
             new_group["properties"] = [
                 condition
@@ -199,6 +204,17 @@ def groups_carry_restriction_marker(current_filters: dict, *, marker_key: str) -
     require_v1_config(current_filters)
     groups = current_filters.get("groups", [])
     return bool(groups) and all(group.get(marker_key) is True for group in groups)
+
+
+def any_group_carries_restriction_marker(current_filters: dict, *, marker_key: str) -> bool:
+    """Whether any release group still carries the ``marker_key`` restriction stamp.
+
+    A stamped group stays narrowed when an unstamped group is added beside it, which
+    `groups_carry_restriction_marker` reads as the restriction being lifted.
+    """
+    require_v1_config(current_filters)
+    groups = current_filters.get("groups") or []
+    return any(isinstance(group, dict) and group.get(marker_key) is True for group in groups)
 
 
 def replace_variant_distribution(current_filters: dict, variants: list[dict]) -> dict:

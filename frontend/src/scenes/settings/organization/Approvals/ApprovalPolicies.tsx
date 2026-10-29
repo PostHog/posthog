@@ -167,14 +167,16 @@ export function ApprovalPolicies(): JSX.Element {
         <PayGateMini feature={AvailableFeature.APPROVALS} featureDetail="approval-policies">
             <div className="space-y-4">
                 {scopedByFlagOwner && (
-                    <LemonBanner type="info" dismissKey="approval-policies-experiment-split" alignItems="start">
+                    <LemonBanner type="info" dismissKey="approval-policies-experiment-split-v2" alignItems="start">
                         <div className="flex flex-col gap-1">
                             <span className="font-semibold">Experiments now have their own approval policies</span>
                             <p className="m-0">
-                                Launching, pausing, and changing the rollout or variant split of an experiment now
-                                follow the experiment policies. Feature flag policies cover the flags that no product
-                                manages, so flags that a survey, product tour, or early access feature manages no longer
-                                need approval. Surveys will get their own policies soon.{' '}
+                                Launching, pausing, and changing an experiment's rollout, variant split, or targeting
+                                now follow the experiment policies. An "Update experiment" policy with no conditions
+                                also covers freezing exposure, unfreezing it, and resetting the experiment. Feature flag
+                                policies cover the flags that no product manages, so flags that a survey, product tour,
+                                or early access feature manages no longer need approval. Surveys will get their own
+                                policies soon.{' '}
                                 <Link
                                     to="https://posthog.com/docs/settings/approvals#experiment-policies"
                                     target="_blank"
@@ -283,7 +285,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                 field: rule.field,
             }
             if (rule.type !== 'any_change') {
-                conditions.operator = rule.operator
+                conditions.operator = rule.operator || '>'
                 conditions.value = rule.value
             }
         }
@@ -412,9 +414,16 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
 
                         <p className="text-xs text-secondary">
                             {actionKey === ApprovalActionKey.EXPERIMENT_UPDATE
-                                ? "With no conditions, any change to an experiment's rollout, variant split or holdout exclusion needs approval. Changes to its release conditions do not."
+                                ? "With no conditions, any change to an experiment's rollout, variant split, holdout exclusion or release conditions needs approval, and so do freezing its exposure, unfreezing it and resetting it."
                                 : "With no conditions, any change to a flag's rollout needs approval. So does any change to its release conditions, unless an experiment, survey, product tour or early access feature manages the flag."}
                         </p>
+                        {actionKey === ApprovalActionKey.EXPERIMENT_UPDATE && rules.length > 0 && (
+                            <LemonBanner type="warning">
+                                With a condition, only the rollout changes that match it need approval. Release
+                                condition edits, freezing exposure, unfreezing it and resetting an experiment no longer
+                                do.
+                            </LemonBanner>
+                        )}
                     </div>
                 )}
 

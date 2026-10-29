@@ -10,6 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
+import { ExperimentPendingChangeRequestBanners } from 'products/experiments/frontend/components/ExperimentPendingChangeRequestBanners'
 import { ExperimentHealthDebug } from 'products/experiments/frontend/health/debug/ExperimentHealthDebug'
 import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
@@ -195,6 +196,9 @@ export function ExperimentView(): JSX.Element {
                             resourceId={experiment.feature_flag.id}
                             context="experiment"
                         />
+                    )}
+                    {typeof experiment.id === 'number' && (
+                        <ExperimentPendingChangeRequestBanners experiment={experiment} />
                     )}
                     <ExperimentMetaBar />
                     <ExperimentHealthPanel />

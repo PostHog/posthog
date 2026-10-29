@@ -584,6 +584,22 @@ class TestApprovalPolicyViewSet(APIBaseTest):
         assert response.json()["attr"] == "action_key"
         assert response.json()["detail"] == "This approval action isn't available yet."
 
+    @parameterized.expand([("experiment.freeze_exposure",), ("experiment.unfreeze_exposure",), ("experiment.reset",)])
+    def test_create_policy_for_an_action_that_borrows_its_policy_is_rejected(self, action_key: str):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {
+                "action_key": action_key,
+                "conditions": {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50},
+                "approver_config": {"quorum": 1, "users": [self.user.id]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "action_key"
+        assert not ApprovalPolicy.objects.filter(team=self.team, action_key=action_key).exists()
+
     @parameterized.expand(
         [
             ("string_levels", ["8", "15"]),

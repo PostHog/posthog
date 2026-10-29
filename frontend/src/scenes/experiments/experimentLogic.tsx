@@ -13,6 +13,7 @@ import {
     sharedListeners,
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
+import { disposables } from 'kea-disposables'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -29,7 +30,7 @@ import { eventUsageLogic, getEventPropertiesForExperiment } from 'lib/utils/even
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
-import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
+import { ChangeRequestCreatedEventDetail, dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
@@ -1742,7 +1743,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to freeze exposure')
+                if (isApprovalRequiredError(error)) {
+                    showApprovalRequiredToast(
+                        error.data.change_request_id,
+                        "freeze this experiment's exposure",
+                        error.data.code
+                    )
+                    dispatchChangeRequestCreated({ resourceType: 'experiment', resourceId: values.experimentId })
+                } else {
+                    lemonToast.error(error.detail || 'Failed to freeze exposure')
+                }
             } finally {
                 actions.setFreezeExposureLoading(false)
             }
@@ -1761,7 +1771,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 refreshTreeItem('experiment', String(values.experimentId))
                 lemonToast.success('Exposure unfrozen — new users can enroll again')
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to unfreeze exposure')
+                if (isApprovalRequiredError(error)) {
+                    showApprovalRequiredToast(
+                        error.data.change_request_id,
+                        "unfreeze this experiment's exposure",
+                        error.data.code
+                    )
+                    dispatchChangeRequestCreated({ resourceType: 'experiment', resourceId: values.experimentId })
+                } else {
+                    lemonToast.error(error.detail || 'Failed to unfreeze exposure')
+                }
             } finally {
                 actions.setUnfreezeExposureLoading(false)
             }
@@ -1953,7 +1972,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to reset experiment')
+                if (isApprovalRequiredError(error)) {
+                    showApprovalRequiredToast(error.data.change_request_id, 'reset this experiment', error.data.code)
+                    dispatchChangeRequestCreated({ resourceType: 'experiment', resourceId: values.experimentId })
+                } else {
+                    lemonToast.error(error.detail || 'Failed to reset experiment')
+                }
             }
         },
         updateExperimentSuccess: async ({ experimentUpdate, payload }) => {
@@ -2727,6 +2751,21 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             },
         ],
+    })),
+    disposables(({ actions, values }) => ({
+        // A release conditions save that needs approval leaves the page showing the held edit, so the
+        // experiment reloads when its flag gets a change request.
+        flagChangeRequestListener: () => {
+            const onChangeRequestCreated = (event: Event): void => {
+                const { resourceType, resourceId } = (event as CustomEvent<ChangeRequestCreatedEventDetail>).detail
+                const flagId = values.experiment.feature_flag?.id
+                if (resourceType === 'feature_flag' && flagId != null && String(resourceId) === String(flagId)) {
+                    actions.loadExperiment()
+                }
+            }
+            window.addEventListener('change-request-created', onChangeRequestCreated)
+            return () => window.removeEventListener('change-request-created', onChangeRequestCreated)
+        },
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],

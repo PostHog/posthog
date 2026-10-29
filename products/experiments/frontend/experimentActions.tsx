@@ -1,10 +1,12 @@
 import { IconClock } from '@posthog/icons'
 import { LemonBanner, LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { getApprovalActionDescription } from 'scenes/approvals/utils'
 
-import { Experiment } from '~/types'
+import { ChangeRequest, ChangeRequestState, Experiment } from '~/types'
 
 import {
     hasEnded,
@@ -57,8 +59,56 @@ export function canFreezeExposure(
     )
 }
 
+function isSameInstant(left: string | null | undefined, right: string | null | undefined): boolean {
+    return left && right ? dayjs(left).isSame(dayjs(right)) : !left && !right
+}
+
+/** Whether a change request was made for the experiment's current run. A request for freezing, unfreezing or
+ * resetting records the run's dates, and one from an earlier run can no longer apply. */
+export function isChangeRequestForCurrentRun(
+    changeRequest: ChangeRequest,
+    experiment: Pick<Experiment, 'start_date' | 'end_date'>
+): boolean {
+    const { intent } = changeRequest
+    if (!('run_started_at' in intent)) {
+        return true
+    }
+    return (
+        isSameInstant(intent.run_started_at, experiment.start_date) &&
+        isSameInstant(intent.run_ended_at, experiment.end_date)
+    )
+}
+
+export function openChangeRequestsForCurrentRun(
+    changeRequests: ChangeRequest[],
+    experiment: Pick<Experiment, 'start_date' | 'end_date'>
+): ChangeRequest[] {
+    return changeRequests.filter(
+        (cr) =>
+            (cr.state === ChangeRequestState.Pending || cr.state === ChangeRequestState.Approved) &&
+            isChangeRequestForCurrentRun(cr, experiment)
+    )
+}
+
+export function pendingExperimentActionKeys(
+    changeRequests: ChangeRequest[],
+    experiment: Pick<Experiment, 'start_date' | 'end_date'>
+): Set<string> {
+    return new Set(openChangeRequestsForCurrentRun(changeRequests, experiment).map((cr) => cr.action_key))
+}
+
+export function pendingApprovalReason(actionKey: string, pendingActionKeys: Set<string>): string | undefined {
+    return pendingActionKeys.has(actionKey)
+        ? `A request to ${getApprovalActionDescription(actionKey)} is waiting for approval.`
+        : undefined
+}
+
 /** `exposedUsers` is 0 when the exposure count has not loaded, and the dialog then shows no estimate. */
-export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUsers: number): void {
+export function confirmFreezeExposure(
+    onConfirm: () => Promise<void>,
+    exposedUsers: number,
+    needsApproval: boolean
+): void {
     LemonDialog.open({
         title: 'Freeze exposure?',
         content: (
@@ -76,7 +126,12 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUse
                     From a frozen state you can end an experiment or ship a variant at any time. You can unfreeze as
                     well to reopen enrollment.
                 </p>
-                {exposedUsers > 0 ? (
+                {needsApproval ? (
+                    <LemonBanner type="info">
+                        Freezing needs approval in this project. Confirming sends a request to your approvers, and the
+                        freeze runs when it's approved, using the users exposed at that point.
+                    </LemonBanner>
+                ) : exposedUsers > 0 ? (
                     <LemonBanner type="info" icon={<IconClock className="LemonBanner__icon" />}>
                         <div className="font-semibold">
                             Freezing takes {formatFreezeExposureDuration(estimateFreezeExposureSeconds(exposedUsers))}
@@ -93,7 +148,7 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUse
         ),
         shouldAwaitSubmit: true,
         primaryButton: {
-            children: 'Freeze exposure',
+            children: needsApproval ? 'Request approval' : 'Freeze exposure',
             type: 'primary',
             onClick: () => onConfirm(),
             size: 'small',
@@ -106,7 +161,7 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUse
     })
 }
 
-export function confirmUnfreezeExposure(onConfirm: () => Promise<void>): void {
+export function confirmUnfreezeExposure(onConfirm: () => Promise<void>, needsApproval: boolean): void {
     LemonDialog.open({
         title: 'Unfreeze exposure?',
         content: (
@@ -119,12 +174,19 @@ export function confirmUnfreezeExposure(onConfirm: () => Promise<void>): void {
                     Heads up: users enrolled before the freeze and after the unfreeze joined at different times, which
                     can mix populations and cause bias in your results.
                 </p>
-                <p>Unfreezing can take a little while on projects with many users, so keep this dialog open.</p>
+                {needsApproval ? (
+                    <LemonBanner type="info">
+                        Unfreezing needs approval in this project. Confirming sends a request to your approvers, and new
+                        users can enroll again when it's approved.
+                    </LemonBanner>
+                ) : (
+                    <p>Unfreezing can take a little while on projects with many users, so keep this dialog open.</p>
+                )}
             </div>
         ),
         shouldAwaitSubmit: true,
         primaryButton: {
-            children: 'Unfreeze exposure',
+            children: needsApproval ? 'Request approval' : 'Unfreeze exposure',
             type: 'primary',
             onClick: () => onConfirm(),
             size: 'small',
@@ -186,7 +248,8 @@ export function confirmArchiveExperiment(
 
 export function confirmResetExperiment(
     experiment: Pick<Experiment, 'archived' | 'feature_flag'>,
-    onConfirm: () => void
+    onConfirm: () => void,
+    needsApproval: boolean
 ): void {
     LemonDialog.open({
         title: 'Reset analysis?',
@@ -214,10 +277,16 @@ export function confirmResetExperiment(
                 {experiment.archived && (
                     <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
                 )}
+                {needsApproval && (
+                    <LemonBanner type="info" className="mt-2 max-w-md">
+                        Resetting needs approval in this project. Confirming sends a request to your approvers, and the
+                        experiment resets when it's approved.
+                    </LemonBanner>
+                )}
             </>
         ),
         primaryButton: {
-            children: 'Confirm',
+            children: needsApproval ? 'Request approval' : 'Confirm',
             type: 'primary',
             onClick: onConfirm,
             size: 'small',

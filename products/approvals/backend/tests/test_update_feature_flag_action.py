@@ -1055,6 +1055,64 @@ class TestReleaseConditionGating(APIBaseTest):
         landed = flag.filters["groups"][0]["properties"][0]["value"] == ["b@example.com"]
         assert landed is (expected_status == 200)
 
+    def test_enabling_and_retargeting_an_experiment_flag_in_one_save_conflicts(self, _mock_enabled: MagicMock):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="experiment-flag",
+            active=False,
+            filters={"groups": [{"properties": [self.EMAIL_FILTER], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, start_date=timezone.now())
+        self._create_policies([("experiment.launch", {}), ("experiment.update", {})])
+        edited_filter = {**self.EMAIL_FILTER, "value": ["b@example.com"]}
+        body = {"active": True, "filters": {"groups": [{"properties": [edited_filter], "rollout_percentage": 100}]}}
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["code"] == "policy_conflict"
+        assert self._change_request_keys() == []
+        flag.refresh_from_db()
+        assert (flag.active, flag.filters["groups"][0]["properties"][0]["value"]) == (False, ["a@example.com"])
+
+    @parameterized.expand(
+        [
+            ("a_freeze_stamp_on_a_targeting_cohort", {"exposure_frozen": True}, {}),
+            ("enrollment_before_every_condition", {}, {"feature_enrollment": True}),
+        ]
+    )
+    def test_an_experiment_flags_owner_settings_are_reviewed_as_release_conditions(
+        self,
+        _mock_enabled: MagicMock,
+        _name: str,
+        group_fields: dict[str, Any],
+        filters_fields: dict[str, Any],
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="Paying customers", groups=[])
+        cohort_condition = {"key": "id", "type": "cohort", "value": cohort.pk}
+        group = {"properties": [cohort_condition], "rollout_percentage": 100}
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="experiment-flag",
+            filters={"groups": [group]},
+            created_by=self.user,
+        )
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, start_date=timezone.now())
+        self._create_policies([("experiment.update", {})])
+        if group_fields:
+            group_fields = {**group_fields, "exposure_frozen_cohort": cohort.pk}
+        body = {"filters": {"groups": [{**group, **group_fields}], **filters_fields}}
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+
+        assert response.status_code == 409, response.json()
+        assert self._change_request_keys() == ["experiment.update"]
+        flag.refresh_from_db()
+        assert flag.filters == {"groups": [group]}
+
     @parameterized.expand(
         [
             ("unchanged", False, 200, []),
@@ -1224,6 +1282,20 @@ class TestActionRegistrationAndIntegration(APIBaseTest):
 
         assert "feature_flag.update" in ACTION_REGISTRY
         assert ACTION_REGISTRY["feature_flag.update"] == UpdateFeatureFlagAction
+
+    def test_an_action_another_product_registers_first_leaves_the_built_ins_available(self):
+        from products.approvals.backend.actions import registry
+        from products.approvals.backend.actions.base import BaseAction
+
+        external_action = type("ExternalAction", (BaseAction,), {"key": "external.operation"})
+        with (
+            patch.dict(registry.ACTION_REGISTRY, clear=True),
+            patch.object(registry, "_builtin_actions_registered", False),
+        ):
+            registry.register_action(external_action)
+
+            assert registry.get_action("feature_flag.update") is UpdateFeatureFlagAction
+            assert registry.get_action("external.operation") is external_action
 
     def test_action_coexists_with_enable_disable_actions(self):
         from products.approvals.backend.actions.registry import ACTION_REGISTRY, register_actions
