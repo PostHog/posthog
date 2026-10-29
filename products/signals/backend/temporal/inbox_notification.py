@@ -146,7 +146,7 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         logger.info("inbox notification skipped: team gone", report_id=report_id, team_id=team_id)
         return 0
 
-    # Re-fetched at send time so a deferred notification reflects the current signals.
+    # Re-fetched at send time so a deferred write-back reflects the current signals.
     signals = _fetch_signals_for_notification(team, report_id)
 
     # Point any support ticket that raised this report at it. Shares this function's READY guard.
@@ -170,11 +170,7 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         return 0
 
     try:
-        sent = dispatch_inbox_item_notifications(
-            report_id=report_id,
-            team_id=team_id,
-            signals=signals,
-        )
+        sent = dispatch_inbox_item_notifications(report_id=report_id, team_id=team_id)
     except Exception:
         # Release so a retry or a later settle can still send the card.
         _release_inbox_notification_claim(team_id, report_id)
