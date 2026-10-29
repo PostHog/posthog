@@ -70,7 +70,7 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
     next_deletion_on = serializers.DateField(
         read_only=True,
         allow_null=True,
-        help_text="The date the next cleanup deletes this project's events older than the plan's window. Null while the plan's window deletes nothing.",
+        help_text="The date the next cleanup deletes this project's events older than the plan's window. Null while the plan's window deletes nothing that the project's retention setting doesn't already delete each month.",
     )
 
 

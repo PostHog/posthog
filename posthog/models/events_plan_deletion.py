@@ -6,6 +6,7 @@ from django.db import models
 from dateutil.relativedelta import relativedelta
 
 from posthog.dataclasses import frozen
+from posthog.models.events_retention_config import effective_events_retention
 from posthog.models.team import Team
 from posthog.models.team.event_retention import DEFAULT_EVENT_RETENTION_MONTHS, should_enforce_events_retention
 
@@ -66,7 +67,10 @@ def deletion_months(setting_months: int | None, plan_months: int | None, pass_du
 
 
 def next_plan_deletion_on(team: Team) -> date | None:
-    """The date of the team's next pass, or None while its plan's window deletes nothing."""
+    """The date of the team's next pass, or None while the pass deletes nothing the monthly setting cleanup doesn't."""
     if team.event_retention_months >= DEFAULT_EVENT_RETENTION_MONTHS or not should_enforce_events_retention(team.id):
+        return None
+    setting = effective_events_retention(team_ids=[team.id])
+    if setting and setting[0].months <= team.event_retention_months:
         return None
     return TeamEventsPlanDeletion.objects.filter(team_id=team.id).values_list("next_deletion_on", flat=True).first()

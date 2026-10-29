@@ -324,17 +324,24 @@ Staff set the retention in Django admin, on the team and organization pages:
 - `OrganizationEventsRetentionConfig` holds the organization's default, minimum and maximum months.
 - `TeamEventsRetentionConfig` holds a team's own months, which must fall within its organization's range. Saving an organization range that excludes an existing team value fails until that team changes.
 - A team's effective retention is its own value, else its organization's default. A team with neither keeps all its events.
-- This setting is separate from `Team.event_retention_months`, which the billing plan sets and which only hides older events from queries.
+- This setting is separate from `Team.event_retention_months`, which the billing plan sets. The plan's window hides older events from queries, and the job deletes them only for admitted teams, as described below.
 - The Events retention page under Custom tools (`/admin/events-retention/`) lists every team that has a value of its own or belongs to an organization with a config.
   It shows each team's billing months (`Team.event_retention_months`), its effective retention, where that comes from, and the first month the cleanup keeps, 100 teams per page.
 
-`monthly_retention_events_cleanup_job` has two steps:
+`monthly_retention_events_cleanup_job` has four steps:
 
-- `plan_old_events_cleanup` reads every team's effective retention when the run starts and logs each one as organization, team and months. It then finds the months that hold events for each team and keeps the ones entirely past that team's retention. It logs the teams due in each month.
+- `update_plan_deletions` tracks each team's plan window in `TeamEventsPlanDeletion`. It reads the teams where `should_enforce_events_retention` is true and whose plan window is under 84 months or who already have a row.
+  - It admits new teams in organization order, then team order. A team whose first pass, 3 months out, would delete events takes one place in `max_new_plan_deletion_teams` and gets a notice. Any other team is admitted without a notice.
+  - A downgrade moves the team's next pass to at least 3 months out and sends a notice.
+  - The notice goes to the organization's admins and owners. When it doesn't go out, the step doesn't admit its teams, and a downgraded team keeps its old window so that the next run sends the notice again.
+  - It writes all its changes in one transaction at the end, then hands on the teams whose pass is due.
+- `plan_old_events_cleanup` reads every team's effective retention when the run starts. For a team whose pass is due, it uses the shorter of that retention and the plan window. It logs each team's window in months, then finds the months that hold events for each team and keeps the ones entirely past that team's window. It logs the teams due in each month.
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
+- `advance_plan_deletion_passes` moves the next pass of each team that was due 3 months out, after the deletes succeed.
 
-A manual run can narrow the plan with `team_ids` and `partitions`. A listed team with no retention is ignored.
-`monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere), and skips when no retention is set. It is stopped by default.
+A manual run can narrow the plan with `team_ids` and `partitions`. A listed team with no retention is ignored. These limit the retention teams only. The `update_plan_deletions` config has its own `team_ids` for plan-window deletion, and a manual run admits no team unless that config sets `max_new_plan_deletion_teams`.
+`monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere), and skips when no team has a retention or a row and `PLAN_DELETION_TEAMS_PER_RUN` is 0. It is stopped by default.
+Pass dates are dates in that local time zone, so the date in a notice is the day its deletes start.
 The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
 Both jobs and `squash_person_overrides` carry the `deletes_job_concurrency` tag. The Dagster deployment settings put a run-queue limit of 1 on that tag, so a second run of any of the three queues instead of starting.
 `sharded_events_json` keeps events dated before 2020, because it stores them in its 202001 partition and the delete addresses the event's own month.

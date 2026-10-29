@@ -46835,7 +46835,7 @@ export namespace Schemas {
          */
       readonly project_retention_months: number | null;
       /**
-         * The date the next cleanup deletes this project's events older than the plan's window. Null while the plan's window deletes nothing.
+         * The date the next cleanup deletes this project's events older than the plan's window. Null while the plan's window deletes nothing that the project's retention setting doesn't already delete each month.
          * @nullable
          */
       readonly next_deletion_on: string | null;

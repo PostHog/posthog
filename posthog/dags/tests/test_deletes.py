@@ -36,6 +36,7 @@ from posthog.dags.deletes import (
     _count_unswept_rows,
     _delete_predicate_params,
     _watermark_holders,
+    cleanup_date,
     cleanup_old_events_by_partition,
     delete_events,
     delete_team_product_documents_job,
@@ -729,7 +730,7 @@ def test_plan_old_events_cleanup_lists_the_due_teams_per_month(cluster: Clickhou
     )
     context = build_op_context()
 
-    no_passes = PlanDeletionPasses(run_on=datetime.now(UTC).date(), plan_months_by_team={})
+    no_passes = PlanDeletionPasses(run_on=cleanup_date(), plan_months_by_team={})
 
     plan = plan_old_events_cleanup(context, MonthlyCleanupConfig(), cluster, no_passes)
 
@@ -822,7 +823,7 @@ def test_monthly_retention_events_cleanup_schedule_starts_one_run_when_a_retenti
 
 
 def _in_three_months() -> date:
-    return datetime.now(UTC).date() + relativedelta(months=3)
+    return cleanup_date() + relativedelta(months=3)
 
 
 def _plan_state(team: Team) -> tuple[int, date] | None:
@@ -867,7 +868,7 @@ def test_plan_deletion_pass_deletes_everything_past_the_plan(send_notice: Mock, 
     team = Team.objects.create(
         organization=Organization.objects.create(name="Due"), name="Due", event_retention_months=12
     )
-    TeamEventsPlanDeletion.objects.create(team=team, months=12, next_deletion_on=datetime.now(UTC).date())
+    TeamEventsPlanDeletion.objects.create(team=team, months=12, next_deletion_on=cleanup_date())
     _insert_events(cluster, _events(team.id, _mid_month(13), 0, 3) + _events(team.id, _mid_month(11), 100, 4))
 
     monthly_retention_events_cleanup_job.execute_in_process(resources={"cluster": cluster})
@@ -878,20 +879,28 @@ def test_plan_deletion_pass_deletes_everything_past_the_plan(send_notice: Mock, 
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "deployment,now,next_pass",
+    [
+        ("US", "2026-11-04T04:00:00Z", date(2027, 2, 3)),
+        ("EU", "2026-11-03T23:30:00Z", date(2027, 2, 4)),
+    ],
+)
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
 @patch("posthog.dags.deletes.send_events_deletion_notice")
-def test_update_plan_deletions_downgrade_pushes_the_next_pass(send_notice: Mock, cluster: ClickhouseCluster):
+def test_update_plan_deletions_downgrade_pushes_the_next_pass(
+    send_notice: Mock, cluster: ClickhouseCluster, deployment: str, now: str, next_pass: date
+):
     organization = Organization.objects.create(name="Downgraded")
     team = Team.objects.create(organization=organization, name="Downgraded", event_retention_months=12)
-    TeamEventsPlanDeletion.objects.create(
-        team=team, months=24, next_deletion_on=datetime.now(UTC).date() + timedelta(days=7)
-    )
+    TeamEventsPlanDeletion.objects.create(team=team, months=24, next_deletion_on=date(2026, 11, 10))
 
-    passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(), cluster)
+    with override_settings(CLOUD_DEPLOYMENT=deployment), time_machine.travel(now, tick=False):
+        passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(), cluster)
 
     assert passes.plan_months_by_team == {}
-    assert _plan_state(team) == (12, _in_three_months())
-    send_notice.assert_called_once_with(str(organization.id), [team.id], _in_three_months())
+    assert _plan_state(team) == (12, next_pass)
+    send_notice.assert_called_once_with(str(organization.id), [team.id], next_pass)
 
 
 @pytest.mark.django_db
@@ -901,14 +910,14 @@ def test_update_plan_deletions_skips_teams_without_enforcement(send_notice: Mock
     organization = Organization.objects.create(name="Not enforced")
     waiting = Team.objects.create(organization=organization, name="Waiting", event_retention_months=12)
     due = Team.objects.create(organization=organization, name="Due", event_retention_months=12)
-    TeamEventsPlanDeletion.objects.create(team=due, months=12, next_deletion_on=datetime.now(UTC).date())
+    TeamEventsPlanDeletion.objects.create(team=due, months=12, next_deletion_on=cleanup_date())
     _insert_events(cluster, _events(waiting.id, _mid_month(11), 0, 1))
 
     passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(max_new_plan_deletion_teams=5), cluster)
 
     assert passes.plan_months_by_team == {}
     assert _plan_state(waiting) is None
-    assert _plan_state(due) == (12, datetime.now(UTC).date())
+    assert _plan_state(due) == (12, cleanup_date())
     send_notice.assert_not_called()
 
 
@@ -922,7 +931,7 @@ def test_update_plan_deletions_without_a_notice_admits_no_team_that_would_lose_e
     waiting = Team.objects.create(organization=organization, name="Waiting", event_retention_months=12)
     downgraded = Team.objects.create(organization=organization, name="Downgraded", event_retention_months=12)
     TeamEventsPlanDeletion.objects.create(
-        team=downgraded, months=24, next_deletion_on=datetime.now(UTC).date() + timedelta(days=7)
+        team=downgraded, months=24, next_deletion_on=cleanup_date() + timedelta(days=7)
     )
     _insert_events(cluster, _events(waiting.id, _mid_month(11), 0, 1))
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from itertools import chain
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
@@ -1560,6 +1561,15 @@ def delete_team_product_documents_job():
     delete_team_product_documents()
 
 
+def _cleanup_timezone() -> str:
+    return "Europe/Paris" if settings.CLOUD_DEPLOYMENT == "EU" else "America/Los_Angeles"
+
+
+def cleanup_date() -> date:
+    """Today where the cleanup schedule runs, so that a pass date in a notice is the local day its deletes start."""
+    return datetime.now(ZoneInfo(_cleanup_timezone())).date()
+
+
 def teams_losing_events_at_first_pass(
     cluster: ClickhouseCluster, plan_months_by_team: dict[int, int], now: datetime
 ) -> set[int]:
@@ -1640,7 +1650,7 @@ def update_plan_deletions(
 ) -> PlanDeletionPasses:
     """Admit teams to plan-window deletion, follow their plan changes, notify their organizations, and find the passes due."""
     now = datetime.now(UTC).replace(tzinfo=None)
-    today = now.date()
+    today = cleanup_date()
     teams = _enforced_plan_teams(config.team_ids)
     states = {
         row.team_id: row.state
@@ -1876,7 +1886,7 @@ def monthly_retention_events_cleanup_job():
 @dagster.schedule(
     job=monthly_retention_events_cleanup_job,
     cron_schedule="0 21 3 * *",
-    execution_timezone="Europe/Paris" if settings.CLOUD_DEPLOYMENT == "EU" else "America/Los_Angeles",
+    execution_timezone=_cleanup_timezone(),
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )
 def monthly_retention_events_cleanup_schedule(

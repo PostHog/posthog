@@ -16,12 +16,7 @@ const RETENTION: EventsRetentionApi = {
 
 describe('planDeletionDateLabel', () => {
     it.each([
-        ['formats the date while the plan sets the window', RETENTION, 'February 3, 2027'],
-        [
-            'hides the date while a shorter setting sets the window',
-            { ...RETENTION, retention_months: 6, project_retention_months: 6 },
-            null,
-        ],
+        ['formats the date of the next deletion', RETENTION, 'February 3, 2027'],
         ['hides the date while no deletion is scheduled', { ...RETENTION, next_deletion_on: null }, null],
         ['hides the date before the retention loads', null, null],
     ])('%s', (_name, retention, expected) => {

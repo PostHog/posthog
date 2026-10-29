@@ -82,13 +82,19 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("admitted", 12, "2027-02-03"),
-            ("longest_plan", 84, None),
+            ("admitted", 12, None, "2027-02-03"),
+            ("longest_plan", 84, None, None),
+            ("setting_deletes_first", 12, 12, None),
+            ("setting_above_plan_after_downgrade", 12, 24, "2027-02-03"),
         ]
     )
-    def test_reports_the_next_plan_deletion(self, _name: str, plan_months: int, next_deletion_on: str | None) -> None:
+    def test_reports_the_next_plan_deletion(
+        self, _name: str, plan_months: int, setting_months: int | None, next_deletion_on: str | None
+    ) -> None:
         self.team.event_retention_months = plan_months
         self.team.save()
+        if setting_months is not None:
+            TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=setting_months)
         TeamEventsPlanDeletion.objects.create(team=self.team, months=12, next_deletion_on=date(2027, 2, 3))
 
         response = self.client.get(self.url())
