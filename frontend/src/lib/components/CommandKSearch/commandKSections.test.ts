@@ -237,19 +237,33 @@ describe('buildSections', () => {
         expect(sections.map((section) => section.key)).toEqual(expectedKeys)
     })
 
-    it('offers PostHog AI when nothing else matches', () => {
+    test.each([
+        [
+            'while persons load',
+            undefined,
+            [
+                ['ask-ai', ['ask-ai']],
+                ['loading-more', ['loading-more']],
+            ],
+        ],
+        ['when nothing else matches', [], [['ask-ai', ['ask-ai']]]],
+        ['unless persons match', [dashboard('p', '9')], [['persons', ['item']]]],
+    ])('offers PostHog AI %s', (_, persons, expected) => {
         const remote = emptyRemoteSlots()
         remote.results = { cache: { xyzzy: [] } }
         remote.events = { cache: { xyzzy: [] } }
+        if (persons) {
+            remote.persons = { cache: { xyzzy: persons } }
+        }
         const sections = buildSections(
             input('search', {
                 remote,
-                remoteQueries: { results: 'xyzzy', events: 'xyzzy' },
+                remoteQueries: { results: 'xyzzy', events: 'xyzzy', persons: 'xyzzy' },
                 localQuery: 'xyzzy',
                 askAiQuestion: 'xyzzy',
             })
         )
-        expect(sectionKinds(sections)).toEqual([['ask-ai', ['ask-ai']]])
+        expect(sectionKinds(sections)).toEqual(expected)
     })
 
     it('ranks a person who matches every word of an email search above results that match fewer', () => {
