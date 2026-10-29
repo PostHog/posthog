@@ -164,6 +164,35 @@ class WarehouseMigrationItemSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Why the last apply attempt failed, if it did.")
 
 
+class WarehouseMigrationSkipItemsSerializer(serializers.Serializer):
+    item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        min_length=1,
+        help_text="Items to skip. Pass this or `keep_item_ids`, not both.",
+    )
+    keep_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Items to keep. Every other item is skipped, for example to migrate only one connection.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if ("item_ids" in attrs) == ("keep_item_ids" in attrs):
+            raise serializers.ValidationError("Pass either `item_ids` or `keep_item_ids`.")
+        return attrs
+
+
+class WarehouseMigrationSkipItemsResponseSerializer(serializers.Serializer):
+    skipped_item_ids = serializers.ListField(
+        child=serializers.UUIDField(), help_text="Items that are now skipped, including ones skipped before."
+    )
+    not_skipped_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="Items that stay as they are because they are being created or are already PostHog sources.",
+    )
+
+
 class WarehouseMigrationConnectLinkQuerySerializer(serializers.Serializer):
     provider = serializers.ChoiceField(choices=migrations.PROVIDER_CHOICES, help_text="The ETL vendor to import from.")
 
@@ -183,7 +212,7 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     scope_object = "external_data_source"
     # Like destinations, a migration spans many sources rather than belonging to one.
     requires_resource_level_access = True
-    scope_object_write_actions = ["create", "destroy", "refresh", "skip_item"]
+    scope_object_write_actions = ["create", "destroy", "refresh", "skip_item", "skip_items"]
     scope_object_read_actions = ["list", "retrieve", "items", "connect_link"]
     # A non-UUID id gets a 404 instead of a lookup error.
     lookup_value_regex = _UUID_PATTERN
@@ -266,6 +295,21 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if item is None:
             raise exceptions.NotFound()
         return Response(WarehouseMigrationItemSerializer(item).data)
+
+    @validated_request(
+        request_serializer=WarehouseMigrationSkipItemsSerializer,
+        responses={200: WarehouseMigrationSkipItemsResponseSerializer},
+    )
+    @action(methods=["POST"], detail=True, url_path="items/skip")
+    def skip_items(self, request: ValidatedRequest, pk: str, *args: Any, **kwargs: Any) -> Response:
+        """Skip many connections at once, or all but the ones to keep."""
+        data = request.validated_data
+        result = migrations.skip_migration_items(
+            self.team_id, UUID(pk), item_ids=data.get("item_ids"), keep_item_ids=data.get("keep_item_ids")
+        )
+        if result is None:
+            raise exceptions.NotFound()
+        return Response(WarehouseMigrationSkipItemsResponseSerializer(result).data)
 
     @validated_request(
         query_serializer=WarehouseMigrationConnectLinkQuerySerializer,

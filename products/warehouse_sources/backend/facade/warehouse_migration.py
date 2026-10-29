@@ -1,12 +1,16 @@
 """Fivetran migration import, for the warehouse presentation endpoints."""
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from django.db.models import QuerySet
 
+from pydantic import ValidationError
+
 from products.warehouse_sources.backend.facade import contracts
 from products.warehouse_sources.backend.migration import service
 from products.warehouse_sources.backend.migration.flags import is_migration_import_enabled
+from products.warehouse_sources.backend.migration.types import ItemProposal
 from products.warehouse_sources.backend.models.warehouse_migration import (
     WarehouseMigration as _WarehouseMigration,
     WarehouseMigrationItem as _WarehouseMigrationItem,
@@ -31,7 +35,19 @@ def _to_migration(migration: _WarehouseMigration) -> contracts.WarehouseMigratio
     )
 
 
+_STALE_PLAN_CAVEAT = "The stored plan for this connection is out of date. Refresh the migration to plan it again."
+
+
 def _to_item(item: _WarehouseMigrationItem) -> contracts.WarehouseMigrationItem:
+    caveats = list(item.caveats)
+    proposal = item.proposal
+    if proposal is not None:
+        # A plan stored before a field existed gets that field's default, so the API never fails on it.
+        try:
+            proposal = ItemProposal.from_json(proposal).to_json()
+        except ValidationError:
+            proposal = None
+            caveats.append(_STALE_PLAN_CAVEAT)
     return contracts.WarehouseMigrationItem(
         id=item.id,
         migration_id=item.migration_id,
@@ -39,8 +55,8 @@ def _to_item(item: _WarehouseMigrationItem) -> contracts.WarehouseMigrationItem:
         vendor_service=item.vendor_service,
         name=item.name,
         verdict=item.verdict,
-        caveats=list(item.caveats),
-        proposal=item.proposal,
+        caveats=caveats,
+        proposal=proposal,
         status=item.status,
         external_data_source_id=item.external_data_source_id,
         error=item.error,
@@ -93,6 +109,22 @@ def list_migration_items(team_id: int, migration_id: UUID) -> list[contracts.War
     return [_to_item(item) for item in items.order_by("verdict", "name")]
 
 
+def skip_migration_items(
+    team_id: int,
+    migration_id: UUID,
+    *,
+    item_ids: Sequence[UUID] | None = None,
+    keep_item_ids: Sequence[UUID] | None = None,
+) -> contracts.WarehouseMigrationBulkSkip | None:
+    """Skip `item_ids`, or every item except `keep_item_ids`. Returns None when the migration is not found."""
+    if not _migrations(team_id).filter(id=migration_id).exists():
+        return None
+    skipped, not_skipped = service.skip_items(
+        team_id=team_id, migration_id=migration_id, item_ids=item_ids, keep_item_ids=keep_item_ids
+    )
+    return contracts.WarehouseMigrationBulkSkip(skipped_item_ids=skipped, not_skipped_item_ids=not_skipped)
+
+
 def skip_migration_item(team_id: int, migration_id: UUID, item_id: UUID) -> contracts.WarehouseMigrationItem | None:
     """Raises `WarehouseMigrationItemClaimedError` once an apply claimed the item."""
     item = service.skip_item(team_id=team_id, migration_id=migration_id, item_id=item_id)
@@ -112,4 +144,5 @@ __all__ = [
     "list_migrations",
     "refresh_migration",
     "skip_migration_item",
+    "skip_migration_items",
 ]
