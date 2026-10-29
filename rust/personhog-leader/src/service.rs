@@ -7,8 +7,9 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogL
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
     FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest, GetPersonResponse,
-    Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
-    SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    Person, RaisePersonVersionRequest, RaisePersonVersionResponse, ReleaseFenceRequest,
+    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse, SealedSourceSnapshot,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tonic::{Request, Response, Status};
@@ -1293,6 +1294,98 @@ impl PersonHogLeader for PersonHogLeaderService {
             person: Some(committed.proto),
             updated: true,
         }))
+    }
+
+    async fn raise_person_version(
+        &self,
+        request: Request<RaisePersonVersionRequest>,
+    ) -> Result<Response<RaisePersonVersionResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+        if req.min_version <= 0 {
+            return Err(Status::invalid_argument("min_version must be positive"));
+        }
+        self.check_authority(partition)?;
+
+        let Some(inflight_guard) = self.inflight.try_begin(partition) else {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is fenced for handoff; writes are rejected"
+            )));
+        };
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let lock_wait = std::time::Instant::now();
+        let guard = mutex.lock_owned().await;
+        histogram!("personhog_leader_person_lock_wait_ms")
+            .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
+
+        if !self.dirty_index.can_admit(&cache_key) {
+            counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                .increment(1);
+            return Err(Status::resource_exhausted(
+                "dirty index at capacity: the writer is behind and this raise cannot be \
+                 tracked; retry later",
+            ));
+        }
+
+        if let Some(fence) = self.check_fence(&cache_key) {
+            counter!("personhog_leader_writes_fenced_total").increment(1);
+            if let Some(healer) = &self.fence_healer {
+                healer.maybe_heal(cache_key.clone(), fence);
+            }
+            return Err(fenced_status(&fence));
+        }
+
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
+        self.check_authority(partition)?;
+        if person.is_deleted {
+            return Err(Status::not_found("person is destroyed"));
+        }
+
+        if person.version >= req.min_version {
+            counter!("personhog_leader_version_raises_total", "outcome" => "at_or_above")
+                .increment(1);
+            return self.authoritative_ok(
+                partition,
+                RaisePersonVersionResponse {
+                    person: Some(cached_person_into_proto(person)),
+                    raised: false,
+                },
+            );
+        }
+
+        // A spent version may already be in the changelog, so the raise must clear it.
+        let floor = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
+        let version = floor
+            .checked_add(1)
+            .ok_or_else(|| Status::invalid_argument("no version left above the emitted floor"))?
+            .max(req.min_version);
+        let raised = CachedPerson { version, ..person };
+
+        let committed = self
+            .commit_document(partition, &cache_key, raised, guard, inflight_guard)
+            .await?;
+        counter!("personhog_leader_version_raises_total", "outcome" => "raised").increment(1);
+
+        self.authoritative_ok(
+            partition,
+            RaisePersonVersionResponse {
+                person: Some(committed.proto),
+                raised: true,
+            },
+        )
     }
 
     async fn fold_person_document(
