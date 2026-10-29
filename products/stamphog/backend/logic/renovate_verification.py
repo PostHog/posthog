@@ -12,10 +12,7 @@ judge a Renovate PR, this module proves the shape of the update from facts the P
 
 Whether each new version is safe to install is pnpm's check, so the lockfile's `pnpm-workspace.yaml`
 must set `minimumReleaseAge` and `trustPolicy: no-downgrade`. Python updates are out of scope:
-`uv sync --frozen` checks none of that, so they need a human.
-
-Every check fails closed. The result is verified only when no problem was found and at least one
-version changed.
+`uv sync --frozen` checks none of that, so they need a human. Every check fails closed.
 """
 
 from __future__ import annotations
@@ -166,10 +163,7 @@ def _excluded_name_pattern(entry: str) -> str:
 
 
 def pnpm_policy_problems(workspace_path: str, base_text: str | None, changes: Iterable[VersionChange]) -> list[str]:
-    """The workspace settings that make pnpm check each new version, read at the merge base.
-
-    A package on ``minimumReleaseAgeExclude`` or ``trustPolicyExclude`` skips that check, so its update is refused.
-    """
+    """The merge-base settings that make pnpm check each new version. An excluded package's update is refused."""
     settings = yaml.safe_load(base_text) if base_text is not None else None
     if not (
         isinstance(settings, dict)
@@ -201,8 +195,6 @@ def pnpm_workspace_problems(path: str, base_text: str, head_text: str) -> list[s
         return [f"{path} is not a YAML mapping."]
     if _without(base, ("catalog",)) != _without(head, ("catalog",)):
         return [f"{path} changes settings other than catalog versions."]
-    if "catalog" not in base and "catalog" not in head:
-        return []
     return _npm_range_map_problems(path, "catalog", base.get("catalog", {}), head.get("catalog", {}))
 
 
@@ -361,12 +353,15 @@ def _pnpm_specifier_map_problems(
             continue
         base_entry = base[name] if isinstance(base[name], dict) else {}
         base_reference = base_entry.get("version")
+        target = _pnpm_reference_target(name, entry["version"], alias=False)
         # A frozen install only checks that the manifest and the lockfile specifiers agree, so a new
-        # specifier over the same locked version leaves the next relock free to resolve any version.
-        if entry["specifier"] != base_entry.get("specifier") and _pnpm_reference_target(
-            name, entry["version"], alias=False
-        ) == _pnpm_reference_target(name, base_reference, alias=False):
-            problems.append(f"{path} changes the specifier of {name} in {owner} without locking a new version.")
+        # specifier outside the newly locked version's release line lets the next relock leave it.
+        if entry["specifier"] != base_entry.get("specifier") and (
+            target is None
+            or target == _pnpm_reference_target(name, base_reference, alias=False)
+            or _release_line(str(entry["specifier"]).lstrip("^~")) != _release_line(target.version)
+        ):
+            problems.append(f"{path} changes the specifier of {name} in {owner} beyond a newly locked version.")
             continue
         if problem := _pnpm_reference_problem(path, owner, name, base_reference, entry["version"], packages):
             problems.append(problem)
