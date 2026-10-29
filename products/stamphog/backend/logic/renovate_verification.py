@@ -372,7 +372,15 @@ def _pnpm_specifier_map_problems(
         if not isinstance(entry, dict) or set(entry) != {"specifier", "version"}:
             problems.append(f"{path} points {owner} at {name} through something other than a locked version.")
             continue
-        base_reference = base[name].get("version") if isinstance(base[name], dict) else None
+        base_entry = base[name] if isinstance(base[name], dict) else {}
+        base_reference = base_entry.get("version")
+        # A frozen install only checks that the manifest and the lockfile specifiers agree, so a new
+        # specifier over the same locked version leaves the next relock free to resolve any version.
+        if entry["specifier"] != base_entry.get("specifier") and _pnpm_reference_target(
+            name, entry["version"], alias=False
+        ) == _pnpm_reference_target(name, base_reference, alias=False):
+            problems.append(f"{path} changes the specifier of {name} in {owner} without locking a new version.")
+            continue
         if problem := _pnpm_reference_problem(path, owner, name, base_reference, entry["version"], packages):
             problems.append(problem)
     return problems
