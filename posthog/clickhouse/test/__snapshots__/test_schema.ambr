@@ -154,6 +154,28 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_email_status]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_email_status
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_fingerprint_issue_state]
   '''
   
@@ -1543,6 +1565,74 @@
   
   '''
 # ---
+# name: test_create_table_query[email_status]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'email_status_data')
+  
+  '''
+# ---
+# name: test_create_table_query[email_status_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status_data
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.email_status_data', '{replica}-{shard}', version)
+  PARTITION BY toYYYYMMDD(created_at)
+  ORDER BY (team_id, message_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[email_status_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS email_status_mv
+  TO email_status_data
+  AS SELECT
+      team_id,
+      message_id,
+      status,
+      version,
+      created_at,
+      status_at,
+      reason,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_email_status
+  
+  '''
+# ---
 # name: test_create_table_query[error_tracking_fingerprint_issue_state]
   '''
   
@@ -2577,6 +2667,28 @@
       timestamp DateTime64(6, 'UTC')
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'distinct_id_usage_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_email_status]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_email_status
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
   
   '''
 # ---
@@ -3921,6 +4033,7 @@
       `_record_count` UInt64,
       `pattern` String,
       `pattern_version` UInt8,
+      `internal_source` LowCardinality(String) DEFAULT '',
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -4031,6 +4144,7 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
@@ -4043,6 +4157,7 @@
       severity_text,
       pattern_version,
       pattern,
+      internal_source,
       maxSimpleState(retention_days) AS retention_days,
       sumSimpleState(1) AS log_count
   FROM
@@ -4068,11 +4183,12 @@
           lower(severity_text) AS severity_text,
           pattern_version,
           pattern,
+          internal_source,
           toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
       FROM posthog_test.logs34
       WHERE pattern_version != 0
   )
-  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source
   
   '''
 # ---
@@ -4141,6 +4257,7 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
@@ -4151,6 +4268,7 @@
       namespace,
       environment,
       severity_text,
+      internal_source,
       maxSimpleState(retention_days) AS retention_days,
       sumSimpleState(1) AS log_count
   FROM
@@ -4174,10 +4292,11 @@
               )
           ) AS environment,
           lower(severity_text) AS severity_text,
+          internal_source,
           toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
       FROM posthog_test.logs34
   )
-  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source
   
   '''
 # ---
@@ -4261,12 +4380,13 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source)
   PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
@@ -4291,12 +4411,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
@@ -8172,14 +8294,14 @@
   
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}', _timestamp)
-  -- Monthly, matching the events family. Daily partitions would put ~90 of them
-  -- under a 90-day TTL, and enough parts across them to strain merges. The cost
+  -- Monthly, matching the events family. Daily partitions would put one partition
+  -- under the TTL for each retained day, and enough parts across them to strain merges. The cost
   -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
   -- row expires, so rows survive up to a month past the TTL.
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
   
   '''
 # ---
@@ -11795,6 +11917,32 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[email_status_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status_data
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.email_status_data', '{replica}-{shard}', version)
+  PARTITION BY toYYYYMMDD(created_at)
+  ORDER BY (team_id, message_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -12245,6 +12393,7 @@
       `_record_count` UInt64,
       `pattern` String,
       `pattern_version` UInt8,
+      `internal_source` LowCardinality(String) DEFAULT '',
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -12339,12 +12488,13 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source)
   PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
@@ -12362,12 +12512,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
@@ -14033,14 +14185,14 @@
   
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}', _timestamp)
-  -- Monthly, matching the events family. Daily partitions would put ~90 of them
-  -- under a 90-day TTL, and enough parts across them to strain merges. The cost
+  -- Monthly, matching the events family. Daily partitions would put one partition
+  -- under the TTL for each retained day, and enough parts across them to strain merges. The cost
   -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
   -- row expires, so rows survive up to a month past the TTL.
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
   
   '''
 # ---

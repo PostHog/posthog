@@ -20,6 +20,9 @@ if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] || [ ! -f "$DIR/../share/GeoLite2
         --retry 10 \
         --retry-max-time 300 \
         --retry-all-errors \
+        --connect-timeout 10 \
+        --speed-limit 10240 \
+        --speed-time 30 \
         --progress-bar \
         --show-error \
         --output "$TMPFILE"; then

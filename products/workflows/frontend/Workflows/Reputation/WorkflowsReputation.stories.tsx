@@ -114,7 +114,7 @@ const meta: Meta<typeof WorkflowsReputation> = {
     parameters: {
         layout: 'padded',
         testOptions: { waitForLoadersToDisappear: true },
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_ISP_SENDING_HEALTH],
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_SENDING_TIER_REQUESTS],
     },
 }
 export default meta

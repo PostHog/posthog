@@ -15,6 +15,7 @@ import {
     readableErrorMessage,
     ResponseBodyReadError,
 } from 'lib/api-error'
+import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
@@ -38,7 +39,6 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     DataWarehouseManagedViewsetKind,
-    DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -217,6 +217,7 @@ import type {
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
+    EmailDomainConnectCheckApi,
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
@@ -311,6 +312,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    onRequestTiming?: (timing: ApiRequestTiming) => void
 }
 
 export interface ApiUploadProgress {
@@ -398,7 +400,12 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
  * noise and left out of error tracking.
  */
-export async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+export async function getJSONFromSuccessResponse(
+    response: Response,
+    method: string,
+    url: string,
+    timing?: ApiRequestTimingRecorder
+): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
@@ -408,7 +415,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
     }
     let text: string
     try {
-        text = await response.text()
+        text = timing ? await timing.readBody(response) : await response.text()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -432,7 +439,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
         return null
     }
     try {
-        return JSON.parse(text)
+        return timing ? timing.parseJSON(text) : JSON.parse(text)
     } catch {
         throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
@@ -1889,10 +1896,6 @@ export class ApiRequest {
 
     public messagingCategories(): ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
-    }
-
-    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
-        return this.messagingCategories().addPathComponent('import_from_customerio')
     }
 
     public messagingCategoriesOptOutSyncConfig(): ApiRequest {
@@ -6079,14 +6082,7 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
-        async domainConnectCheck(domain: string): Promise<{
-            supported: boolean
-            provider_name: DomainConnectProviderName | null
-            available_providers: {
-                endpoint: string
-                name: DomainConnectProviderName
-            }[]
-        }> {
+        async domainConnectCheck(domain: string): Promise<EmailDomainConnectCheckApi> {
             return await new ApiRequest()
                 .integrationsDomainConnectCheck()
                 .withQueryString(`domain=${encodeURIComponent(domain)}`)
@@ -6154,8 +6150,8 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
-            return await new ApiRequest().queryStatus(queryId, showProgress).get()
+        async get(queryId: string, showProgress: boolean, options?: ApiMethodOptions): Promise<QueryStatusResponse> {
+            return await new ApiRequest().queryStatus(queryId, showProgress).get(options)
         },
     },
 
@@ -6757,11 +6753,13 @@ const api = {
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.getResponse(url, options)
-        return await getJSONFromSuccessResponse(res, 'GET', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.getResponse(url, options, timing)
+            return await getJSONFromSuccessResponse(res, 'GET', url, timing)
+        })
     },
 
-    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions, timing?: ApiRequestTimingRecorder): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
 
@@ -6773,7 +6771,8 @@ const api = {
         }
 
         return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
@@ -6782,6 +6781,8 @@ const api = {
                     ...authHeaders,
                 },
             })
+            timing?.recordHeaders(response)
+            return response
         })
     },
 
@@ -6822,17 +6823,25 @@ const api = {
     },
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.createResponse(url, data, options)
-        return await getJSONFromSuccessResponse(res, 'POST', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.createResponse(url, data, options, timing)
+            return await getJSONFromSuccessResponse(res, 'POST', url, timing)
+        })
     },
 
-    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
+    async createResponse(
+        url: string,
+        data?: any,
+        options?: ApiMethodOptions,
+        timing?: ApiRequestTimingRecorder
+    ): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
+        return await handleFetch(url, 'POST', async () => {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     ...objectClean(options?.headers ?? {}),
@@ -6844,7 +6853,9 @@ const api = {
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
             })
-        )
+            timing?.recordHeaders(response)
+            return response
+        })
     },
 
     /**
@@ -7236,6 +7247,31 @@ async function isStaleSessionResponse(response: Response): Promise<boolean> {
         return data?.code === 'sensitive_action_required_reauth'
     } catch {
         return false
+    }
+}
+
+async function withRequestTiming<T>(
+    options: ApiMethodOptions | undefined,
+    request: (timing?: ApiRequestTimingRecorder) => Promise<T>
+): Promise<T> {
+    const onRequestTiming = options?.onRequestTiming
+    if (!onRequestTiming) {
+        return await request()
+    }
+    const timing = new ApiRequestTimingRecorder()
+    try {
+        return await request(timing)
+    } catch (error) {
+        if (error instanceof ApiError) {
+            timing.recordFailure(error)
+        }
+        throw error
+    } finally {
+        try {
+            onRequestTiming(timing.finish())
+        } catch {
+            // Observability must not change request success, failure, or cancellation.
+        }
     }
 }
 

@@ -46,7 +46,25 @@ const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
         return 'Session recording minimum duration'
     }
 
+    if (attr === 'feature_flag_policy_config') {
+        return 'Feature flag settings'
+    }
+
     return attr ? identifierToHuman(attr) : 'Project'
+}
+
+/** Blocklist entries are third-party IP addresses and domains, so analytics gets only their counts. */
+function featureFlagPolicyConfigForAnalytics(
+    config: TeamType['feature_flag_policy_config']
+): Record<string, boolean | number | undefined> | undefined {
+    if (!config) {
+        return undefined
+    }
+    return {
+        require_tags: config.require_tags,
+        blocked_hosts_count: config.blocked_hosts?.length,
+        blocked_ips_count: config.blocked_ips?.length,
+    }
 }
 
 /** Return whether the provided value is a full TeamType object that's only available when authenticated. */
@@ -384,17 +402,25 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     try {
+                        // @current is the user's server-side current project, which another tab can change.
+                        // Once this tab has a team, reload its project by id so its API calls stay in it.
+                        // The endpoint looks up project ids, and a team id can differ from its project id.
+                        const projectId = values.currentTeam?.project_id ?? '@current'
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        return await api.get('api/projects/@current')
+                        return await api.get(`api/projects/${projectId}`)
                     } catch {
                         return values.currentTeam
                     }
                 },
                 refreshCurrentTeam: async () => {
+                    const projectId = values.currentTeam?.project_id
+                    if (!projectId) {
+                        return values.currentTeam
+                    }
+
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        const team = await api.get('api/projects/@current')
-                        return team?.id === values.currentTeam?.id ? team : values.currentTeam
+                        return await api.get(`api/projects/${projectId}`)
                     } catch {
                         return values.currentTeam
                     }
@@ -463,7 +489,10 @@ export const teamLogic = kea<teamLogicType>([
                     Object.keys(payload).forEach((property) => {
                         posthog.capture(`${property} team setting updated`, {
                             setting: property,
-                            value: payload[property as keyof TeamType],
+                            value:
+                                property === 'feature_flag_policy_config'
+                                    ? featureFlagPolicyConfigForAnalytics(payload.feature_flag_policy_config)
+                                    : payload[property as keyof TeamType],
                         })
                     })
 

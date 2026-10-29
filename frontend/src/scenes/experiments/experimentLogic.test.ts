@@ -131,12 +131,18 @@ describe('experimentLogic', () => {
             total_exposures: { control: 600, test: 350, $multiple: 50 },
             sample_ratio_mismatch: { expected: { control: 475, test: 475 }, p_value: 0.0001 },
             bias_risk: { multiple_variant_percentage: 5 },
-            health_findings: [{ code: 'srm' }, { code: 'bias_risk_multiple_excluded' }],
+            health_findings: [
+                { code: 'srm', subcode: 'split_changed', evidence: { p_value: 0.0001, reason: 'library' } },
+                { code: 'bias_risk_multiple_excluded' },
+            ],
         }
         const noServerVerdicts = {
             srm_server: null,
+            srm_subcode: null,
+            srm_reason: null,
             zero_exposures_server: null,
-            zero_exposures_cause: null,
+            zero_exposures_subcode: null,
+            zero_exposures_reason: null,
             bias_risk_server: null,
         }
 
@@ -176,7 +182,11 @@ describe('experimentLogic', () => {
                     has_srm: true,
                     has_bias_risk: true,
                     srm_server: true,
+                    srm_subcode: 'split_changed',
+                    srm_reason: 'library',
                     zero_exposures_server: false,
+                    zero_exposures_subcode: null,
+                    zero_exposures_reason: null,
                     bias_risk_server: true,
                 },
             },
@@ -203,14 +213,23 @@ describe('experimentLogic', () => {
                 exposures: {
                     timeseries: [{ variant: 'control' }, { variant: 'test' }],
                     total_exposures: { control: 0, test: 0 },
-                    health_findings: [{ code: 'zero_exposures', subcode: 'flag_not_called' }],
+                    health_findings: [
+                        {
+                            code: 'zero_exposures',
+                            subcode: 'calls_not_counted',
+                            evidence: { hours_since_launch: 48, reason: 'test_account_filter' },
+                        },
+                    ],
                 },
                 handling: undefined,
                 expected: {
                     health_ui: 'warnings',
                     exposures_total: 0,
+                    srm_subcode: null,
+                    srm_reason: null,
                     zero_exposures_server: true,
-                    zero_exposures_cause: 'flag_not_called',
+                    zero_exposures_subcode: 'calls_not_counted',
+                    zero_exposures_reason: 'test_account_filter',
                 },
             },
         ])(

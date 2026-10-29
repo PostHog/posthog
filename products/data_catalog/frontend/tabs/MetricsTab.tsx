@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -17,6 +17,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
+import { MetricOwnerSelect } from '../components/MetricOwnerSelect'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
 
@@ -65,7 +66,7 @@ export function MetricsTab(): JSX.Element {
     // State, not a ref, so the table re-renders once the slot mounts and the bar can portal into it.
     // The bar portals below the table instead of above it, so selecting a row never shifts the rows.
     const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
-    const { metrics, allMetrics, allMetricsLoading, filters, actionsInFlight, bulkActionInFlight } =
+    const { metrics, allMetrics, allMetricsLoading, filters, actionsInFlight, bulkActionInFlight, ownerFilterOptions } =
         useValues(metricsLogic)
     const {
         setFilters,
@@ -73,8 +74,10 @@ export function MetricsTab(): JSX.Element {
         approveMetric,
         refreshMetricFromInsight,
         deleteMetric,
+        setMetricOwner,
         bulkApproveMetrics,
         bulkDeleteMetrics,
+        bulkChangeMetricOwner,
     } = useActions(metricsLogic)
 
     const bulkBusyReason = bulkActionInFlight ? 'A bulk action is running' : undefined
@@ -94,6 +97,16 @@ export function MetricsTab(): JSX.Element {
             return OVER_CAP_REASON
         }
         return otherBulkActionReason('approve')
+    }
+
+    const bulkSelectionDisabledReason = (selectedCount: number, self: BulkMetricAction): string | undefined => {
+        if (selectedCount === 0) {
+            return 'The selected metrics are no longer available. Reload the list.'
+        }
+        if (selectedCount > METRIC_BULK_MAX) {
+            return OVER_CAP_REASON
+        }
+        return otherBulkActionReason(self)
     }
 
     const confirmDelete = (metric: DataCatalogMetricApi): void => {
@@ -177,7 +190,14 @@ export function MetricsTab(): JSX.Element {
         {
             title: 'Owner',
             key: 'owner',
-            render: (_, metric) => metric.owner || <span className="text-secondary">Unassigned</span>,
+            render: (_, metric) => (
+                <MetricOwnerSelect
+                    owner={metric.owner}
+                    loading={!!actionsInFlight[metric.name]}
+                    disabledReason={bulkBusyReason}
+                    onChange={(owner) => setMetricOwner(metric.name, owner)}
+                />
+            ),
             sorter: (a, b) => compareText(a.owner, b.owner),
         },
         createdAtColumn<DataCatalogMetricApi>() as LemonTableColumns<DataCatalogMetricApi>[number],
@@ -248,6 +268,19 @@ export function MetricsTab(): JSX.Element {
                             onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                         />
                     </div>
+                    <div className="flex items-center gap-2">
+                        <span>Owner:</span>
+                        <LemonSelect
+                            size="small"
+                            value={filters.owner}
+                            onChange={(owner) => setFilters({ owner })}
+                            options={[
+                                { value: null, label: 'Any user' },
+                                ...ownerFilterOptions.map((owner) => ({ value: owner, label: owner })),
+                            ]}
+                            data-attr="data-catalog-metrics-owner-filter"
+                        />
+                    </div>
                     <LemonSegmentedButton
                         value={filters.status}
                         onChange={(status) => setFilters({ status })}
@@ -306,19 +339,35 @@ export function MetricsTab(): JSX.Element {
                                 >
                                     Approve ({approvableNames.length})
                                 </LemonButton>
+                                <MemberSelect
+                                    value={null}
+                                    defaultLabel="Unassigned"
+                                    onChange={(user) =>
+                                        bulkChangeMetricOwner(selectedNames, user?.email ?? null, ctx.clearSelection)
+                                    }
+                                >
+                                    {() => (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            data-attr="data-catalog-metrics-bulk-change-owner"
+                                            loading={bulkActionInFlight === 'change_owner'}
+                                            disabledReason={bulkSelectionDisabledReason(
+                                                selectedNames.length,
+                                                'change_owner'
+                                            )}
+                                        >
+                                            Change owner
+                                        </LemonButton>
+                                    )}
+                                </MemberSelect>
                                 <LemonButton
                                     type="secondary"
                                     status="danger"
                                     size="small"
                                     data-attr="data-catalog-metrics-bulk-delete"
                                     loading={bulkActionInFlight === 'delete'}
-                                    disabledReason={
-                                        selectedNames.length === 0
-                                            ? 'The selected metrics are no longer available. Reload the list.'
-                                            : selectedNames.length > METRIC_BULK_MAX
-                                              ? OVER_CAP_REASON
-                                              : otherBulkActionReason('delete')
-                                    }
+                                    disabledReason={bulkSelectionDisabledReason(selectedNames.length, 'delete')}
                                     onClick={() => confirmBulkDelete(selectedNames, ctx.clearSelection)}
                                 >
                                     Delete

@@ -74,8 +74,7 @@ describe('scannerHandoffFromFilters', () => {
     })
 
     describe('narrowsSessions', () => {
-        // Guards the one-click path to a scanner pointed at every session: the replay list counts
-        // these as filters, but a scanner keeps none of them.
+        // The replay list counts these as filters, but a scanner keeps none of them, so it watches every session.
         it.each([
             ['an untouched filter set', filters()],
             ['only a date range', filters({ date_from: '-7d' })],

@@ -80,7 +80,7 @@ export interface AccountsOverviewTile {
     id: string
     label: string
     metric: AccountsOverviewTileMetric
-    // Custom subtitle; empty/whitespace/undefined falls back to the auto-derived caption.
+    // Custom subtitle. Undefined shows the auto-derived caption, and a blank string hides the subtitle.
     caption?: string
     // Value display format; undefined renders as a plain unit.
     format?: TileValueFormat
@@ -180,11 +180,11 @@ export function autoCaption(tile: AccountsOverviewTile): string | undefined {
     }
 }
 
-// The subtitle shown on a tile: the user's custom caption when set, else the
-// auto-derived one. A whitespace-only caption is treated as unset.
+// The subtitle shown on a tile: the auto-derived one while the caption is unset, else the
+// user's caption. A blank or whitespace-only caption hides the subtitle.
 export function tileCaption(tile: AccountsOverviewTile): string | undefined {
     const custom = tile.caption?.trim()
-    return custom ? custom : autoCaption(tile)
+    return custom === undefined ? autoCaption(tile) : custom || undefined
 }
 
 export function tileToRowFilter(tile: AccountsOverviewTile): AccountsTableCustomPropertyFilter | null {

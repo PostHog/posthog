@@ -93,7 +93,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -109,12 +109,15 @@ jobs:
         # Run on master push, manual dispatch, and on ready internal-repo PRs.
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
         # aggregator treats skipped as success, and drafts can't merge anyway.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: |
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
              (github.event.pull_request.draft != true ||
               startsWith(github.head_ref, 'trunk-merge/')))
+            )
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -171,6 +174,10 @@ jobs:
                         - 'posthog/!(temporal/**)/**'
                         # The personhog gRPC stubs the backend's person reads go through
                         - 'packages/personhog-proto/**'
+                        # quill workspace packages (charts, primitives, components) compile into the frontend bundle
+                        - 'packages/quill/**'
+                        # The setup step builds the plugin transpiler from source
+                        - 'common/plugin_transpiler/**'
                         - 'bin/*'
                         - frontend/**/*
                         - package.json
@@ -178,7 +185,9 @@ jobs:
                         - uv.lock
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
-                        - Dockerfile
+                        # docker-compose.dev.yml extends the base file, and the job adds the profiles file
+                        - docker-compose.base.yml
+                        - docker-compose.profiles.yml
                         # Spec-selection selector + map: changes must run the suite (they're
                         # force-full anyway) so the map validation step actually executes.
                         - tools/playwright_spec_selection.py
@@ -834,10 +843,9 @@ jobs:
 
             - name: Prime posthog_e2e_test from cached schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
-              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
-              # schema, and runs ensure_migration_defaults to seed RunPython data that's
-              # missing from a schema-only dump. The migrate step below still runs and
-              # layers any newer migrations on top — the cache just skips the bulk of
+              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db and restores the
+              # schema. The migrate step below layers any newer migrations on top and
+              # seeds the RunPython data a schema-only dump lacks. The cache just skips the bulk of
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.
@@ -1168,8 +1176,6 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              env:
-                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc

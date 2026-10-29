@@ -1,17 +1,24 @@
 """Pick the (team, user) pairs that the next activity summary tick updates, and measure the daily caps.
 
 Each pair has a queue state row. One cursor per input source reads the new rows of all enrolled teams
-and adds them to the pending units of their pair. `select_pairs` then ranks the due pairs and fills the
-tick budget in two passes: paying organizations first, then free organizations with the budget that is
-left. Row counts here are only a queue estimate. `update_activity_summary` still applies the real drop
-rules and `min_units`, and backs a pair off when it skips, so the pair leaves the queue head.
+and adds them to the pending units and the weighted pending score of their pair. `select_pairs` then
+ranks the due pairs and fills the tick budget in two passes: paying organizations first, then free
+organizations with the budget that is left. Row counts here are only a queue estimate.
+`update_activity_summary` still applies the real drop rules and `min_units`, and backs a pair off when
+it skips, so the pair leaves the queue head.
+
+A view log row keeps one object's latest view, and its `viewed_at` moves on every reopen. So the view
+part of the score is not added up row by row. The feed computes it again from the view days of the
+pair's rows, relative to the pair's watermark, so a reopen of a known object adds at most one repeat
+day per day.
 """
 
 import math
 import uuid
 import hashlib
 import datetime
-from collections.abc import Callable
+import dataclasses
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from django.db import transaction
@@ -38,7 +45,7 @@ from django.db.models.functions import Cast, Coalesce, Extract, Greatest, Ln, Ro
 from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, FileSystemViewLog, Team
 
-from products.signals.backend.activity_summary.config import ActivitySummaryConfig
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
 from products.signals.backend.activity_summary.prompt import COMPUTED_MAX_CHARS, PROMPT_VERSION, system_prompt
@@ -49,6 +56,7 @@ from products.signals.backend.activity_summary.render import (
     NOISY_ACTIVITY_SCOPES,
     RENDER_VERSION,
     SANDBOX_PROMPT_TITLE_PREFIX,
+    SCENE_VIEW_TYPE,
     SCOUT_CLIENT_PREFIX,
     RenderLimits,
 )
@@ -65,7 +73,11 @@ DAY = datetime.timedelta(days=1)
 _BOUND_CHARS_PER_TOKEN = 2
 # The cost bound when the model has no price. One update of the default model costs far less.
 _UNPRICED_UPDATE_COST_USD = 0.05
-_CALLED_MODEL = (UserActivitySummary.Status.OK, UserActivitySummary.Status.FAILED)
+_CALLED_MODEL = (
+    UserActivitySummary.Status.OK,
+    UserActivitySummary.Status.FAILED,
+    UserActivitySummary.Status.EMPTY_PROFILE,
+)
 
 SOURCE_ACTIVITY_LOG = "activity_log"
 SOURCE_TASKS = "tasks"
@@ -79,11 +91,23 @@ TIER_FREE = "free"
 # A summary younger than this many target intervals counts as fresh on the tick event.
 _FRESH_STALENESS = 2
 
+# Why the queue picked a pair.
+TRIGGER_ACTIVITY = "activity"
+# Views make up more than half of the pending score.
+TRIGGER_VIEWS = "views"
+# A pair with no summary and a pending score below `min_score`, due on its days with views.
+TRIGGER_COLD_START_VIEWS = "cold_start_views"
+TRIGGER_STALE = "stale"
+TRIGGERS = (TRIGGER_ACTIVITY, TRIGGER_VIEWS, TRIGGER_COLD_START_VIEWS, TRIGGER_STALE)
+VIEW_TRIGGERS = frozenset({TRIGGER_VIEWS, TRIGGER_COLD_START_VIEWS})
+
 
 @frozen(order=True)
 class ActivitySummaryPair:
     team_id: int
     user_id: int
+    # Set only on the pairs that `select_pairs` returns. Has a default, so a plan recorded before it existed decodes.
+    trigger: str | None = None
 
 
 @frozen
@@ -101,12 +125,20 @@ class PairSelection:
     pairs: list[ActivitySummaryPair]
     due_pairs: int
     tiers: list[ActivitySummaryTierStats]
+    due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
 
 
 @frozen
 class _NewRows:
     units: int
     last_at: datetime.datetime
+    score: float = 0.0
+
+
+@frozen
+class _ViewState:
+    score: float
+    active_days: int
 
 
 _Pending = dict[ActivitySummaryPair, _NewRows]
@@ -275,12 +307,18 @@ def _parse_organization_ids(organization_ids: tuple[str, ...]) -> set[uuid.UUID]
     return parsed
 
 
-def _add(pending: _Pending, pair: ActivitySummaryPair, units: int, at: datetime.datetime) -> None:
+def _add(pending: _Pending, pair: ActivitySummaryPair, units: int, at: datetime.datetime, score: float = 0.0) -> None:
     current = pending.get(pair)
     if current is None:
-        pending[pair] = _NewRows(units=units, last_at=at)
+        pending[pair] = _NewRows(units=units, last_at=at, score=score)
     else:
-        pending[pair] = _NewRows(units=current.units + units, last_at=max(current.last_at, at))
+        pending[pair] = _NewRows(
+            units=current.units + units, last_at=max(current.last_at, at), score=current.score + score
+        )
+
+
+def _write_weight(weights: SourceWeights, source: str) -> float:
+    return weights.activity if source == SOURCE_ACTIVITY_LOG else weights.tasks
 
 
 def _watermarks(team_ids: list[int]) -> dict[ActivitySummaryPair, datetime.datetime | None]:
@@ -379,6 +417,63 @@ def queue_sources(config: ActivitySummaryConfig) -> tuple[str, ...]:
     )
 
 
+def _view_state(
+    rows: Iterable[tuple[str, Sequence[datetime.date] | None, datetime.datetime]],
+    watermark: datetime.datetime | None,
+    first_day: datetime.date,
+    weights: SourceWeights,
+) -> _ViewState:
+    """The view part of a pair's pending score, and its days with a view from `first_day` on.
+
+    An object with a view day on or before the watermark day is known: it adds `repeat_view_days` for
+    each day after the watermark day. Any other object opened after the watermark adds `new_views` once.
+    A scene adds `scene_views` for each day after the watermark day. With no watermark, every object is new.
+    """
+    watermark_day = watermark.astimezone(datetime.UTC).date() if watermark is not None else None
+    active: set[datetime.date] = set()
+    score = 0.0
+    for view_type, view_days, viewed_at in rows:
+        days = set(view_days or ()) or {viewed_at.astimezone(datetime.UTC).date()}
+        active |= {day for day in days if day >= first_day}
+        if watermark is not None and viewed_at <= watermark:
+            continue
+        new_days = sum(1 for day in days if day >= first_day and (watermark_day is None or day > watermark_day))
+        if view_type == SCENE_VIEW_TYPE:
+            score += new_days * weights.scene_views
+        elif watermark_day is not None and any(day <= watermark_day for day in days):
+            score += new_days * weights.repeat_view_days
+        else:
+            score += weights.new_views
+    return _ViewState(score=score, active_days=len(active))
+
+
+def _view_states(
+    config: ActivitySummaryConfig, pairs: Iterable[ActivitySummaryPair], end: datetime.datetime
+) -> dict[ActivitySummaryPair, _ViewState]:
+    """The view state of each pair, from all its rows in the window before `end`, in two queries."""
+    wanted = set(pairs)
+    if not wanted:
+        return {}
+    team_ids = sorted({pair.team_id for pair in wanted})
+    window_start = end - datetime.timedelta(days=config.limits.window_days)
+    rows: dict[ActivitySummaryPair, list[tuple[str, Sequence[datetime.date] | None, datetime.datetime]]] = {}
+    for team_id, user_id, view_type, view_days, viewed_at in (
+        FileSystemViewLog.objects.filter(
+            team_id__in=team_ids, user_id__in={pair.user_id for pair in wanted}, viewed_at__gte=window_start
+        )
+        .exclude(type="folder")
+        .values_list("team_id", "user_id", "type", "view_days", "viewed_at")
+    ):
+        pair = ActivitySummaryPair(team_id=team_id, user_id=user_id)
+        if pair in wanted:
+            rows.setdefault(pair, []).append((view_type, view_days, viewed_at))
+    watermarks = _watermarks(team_ids)
+    return {
+        pair: _view_state(rows.get(pair, []), watermarks.get(pair), window_start.date(), config.source_weights)
+        for pair in wanted
+    }
+
+
 _STORED_FIELDS = ("next_eligible_at", "generated_at", "prompt_version", "render_version")
 
 
@@ -409,16 +504,34 @@ def _create_missing_states(pairs: list[ActivitySummaryPair]) -> None:
     )
 
 
-def _add_pending(pending: _Pending) -> None:
+def _add_pending(pending: _Pending, views: dict[ActivitySummaryPair, _ViewState] | None = None) -> None:
+    """Add the new rows to each pair's state. With `views`, set the view part of the score in place of adding it."""
     if not pending:
         return
     _create_missing_states(list(pending))
     for pair, rows in pending.items():
-        UserActivitySummaryQueueState.objects.for_team(pair.team_id).filter(user_id=pair.user_id).update(
-            pending_units=F("pending_units") + rows.units,
+        fields: dict[str, Any] = {
+            "pending_units": F("pending_units") + rows.units,
+            "pending_score": F("pending_score") + rows.score,
             # Postgres GREATEST skips a null.
-            last_activity_at=Greatest("last_activity_at", rows.last_at),
-        )
+            "last_activity_at": Greatest("last_activity_at", rows.last_at),
+        }
+        if views is not None:
+            view = views[pair]
+            fields |= {
+                # Postgres reads the old `pending_view_score` on the right side of every assignment.
+                "pending_score": F("pending_score") - F("pending_view_score") + view.score,
+                "pending_view_score": view.score,
+                "view_active_days": view.active_days,
+            }
+        UserActivitySummaryQueueState.objects.for_team(pair.team_id).filter(user_id=pair.user_id).update(**fields)
+
+
+def _weighted(pending: _Pending, weight: float) -> _Pending:
+    return {
+        pair: _NewRows(units=rows.units, last_at=rows.last_at, score=rows.units * weight)
+        for pair, rows in pending.items()
+    }
 
 
 def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: list[int] | None = None) -> int:
@@ -441,7 +554,10 @@ def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: 
             if stop <= cursor.position:
                 continue
             pending = _READERS[source](team_ids, cursor.position, stop, False)
-            _add_pending(pending)
+            if source == SOURCE_VIEWS:
+                _add_pending(pending, _view_states(config, pending, stop))
+            else:
+                _add_pending(_weighted(pending, _write_weight(config.source_weights, source)))
             cursor.position = stop
             cursor.save(update_fields=["position", "updated_at"])
             fed += len(pending)
@@ -451,23 +567,32 @@ def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: 
 def seed_queue(config: ActivitySummaryConfig, team_ids: list[int], end: datetime.datetime) -> int:
     """Set the queue state of these teams from the rows in the window before `end`.
 
-    Pending units count the rows after each pair's watermark. Last activity counts every row, so a
-    stale summary with no new rows is still due.
+    Pending units and the pending score count the rows after each pair's watermark. Last activity counts
+    every row, so a stale summary with no new rows is still due.
 
-    Pending units of these teams that the window does not hold go to zero. Returns the pairs seeded.
+    The pending state of these teams that the window does not hold goes to zero. Returns the pairs seeded.
     """
     if not team_ids:
         return 0
     window_start = end - datetime.timedelta(days=config.limits.window_days)
     pending: _Pending = {}
+    viewed: _Pending = {}
     for source in queue_sources(config):
         for pair, rows in _READERS[source](team_ids, window_start, end, True).items():
-            _add(pending, pair, rows.units, rows.last_at)
+            if source == SOURCE_VIEWS:
+                viewed[pair] = rows
+            else:
+                score = rows.units * _write_weight(config.source_weights, source)
+                _add(pending, pair, rows.units, rows.last_at, score)
+    views = _view_states(config, viewed, end)
     with transaction.atomic():
         # nosemgrep: idor-lookup-without-team (operator backfill with no user input; filtered to the given teams)
-        UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids).update(pending_units=0)
+        UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids).update(
+            pending_units=0, pending_score=0.0, pending_view_score=0.0, view_active_days=0
+        )
         _add_pending(pending)
-    return len(pending)
+        _add_pending(viewed, views)
+    return len(pending.keys() | viewed.keys())
 
 
 def move_cursors_to(config: ActivitySummaryConfig, end: datetime.datetime) -> None:
@@ -484,7 +609,7 @@ def move_cursors_to(config: ActivitySummaryConfig, end: datetime.datetime) -> No
 def sync_pair_state(team_id: int, user_id: int) -> None:
     """Copy the times and versions of the stored summary to the pair's queue state.
 
-    Pending units go to zero when the summary's watermark includes the newest pending row.
+    Pending units and the pending score go to zero when the summary's watermark includes the newest pending row.
     """
     stored = (
         UserActivitySummary.objects.for_team(team_id)
@@ -495,11 +620,12 @@ def sync_pair_state(team_id: int, user_id: int) -> None:
     if stored is None:
         return
     watermark = stored["input_watermark"]
+    cleared = {
+        name: F(name) if watermark is None else Case(When(last_activity_at__lte=watermark, then=zero), default=F(name))
+        for name, zero in (("pending_units", 0), ("pending_score", 0.0), ("pending_view_score", 0.0))
+    }
     UserActivitySummaryQueueState.objects.for_team(team_id).filter(user_id=user_id).update(
-        **_state_fields(stored),
-        pending_units=F("pending_units")
-        if watermark is None
-        else Case(When(last_activity_at__lte=watermark, then=0), default=F("pending_units")),
+        **_state_fields(stored), **cleared
     )
 
 
@@ -517,11 +643,12 @@ def _hours_since(now: datetime.datetime, at: Coalesce) -> Combinable:
 
 
 def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: list[int]) -> QuerySet:
-    """The queue states of these teams, with their tier, staleness and priority score.
+    """The queue states of these teams, with their tier, staleness, pending score and priority score.
 
     Staleness is the summary age over the tier's target interval. A pair with no summary counts its age
-    from its first queued row. The score is log(1 + pending units) times staleness, plus a bonus for a
-    pair with no summary, or a bonus plus staleness for a stale summary.
+    from its first queued row. The pending score leaves out the view part when views do not count. The
+    priority score is log(1 + pending score) times staleness, plus a bonus for a pair with no summary,
+    or a bonus plus staleness for a stale summary.
     """
     paying = Coalesce(F("team__organization__has_active_subscription"), Value(False))
     target_hours = Case(
@@ -538,20 +665,37 @@ def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: lis
         default=Value(0.0),
         output_field=FloatField(),
     )
+    write_score = F("pending_score") - F("pending_view_score")
     return (
         # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
         UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids)
         .annotate(organization_id=F("team__organization_id"), paying=paying, stale=stale)
-        .annotate(staleness=age_hours / target_hours)
-        .annotate(score=Ln(F("pending_units") + 1) * F("staleness") + cold_bonus)
+        .annotate(
+            staleness=age_hours / target_hours,
+            write_score=write_score,
+            weighted_score=F("pending_score") if config.count_views else write_score,
+        )
+        .annotate(score=Ln(F("weighted_score") + 1) * F("staleness") + cold_bonus)
     )
 
 
 def _due(states: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime) -> QuerySet:
+    """The due states, each with the trigger that made it due."""
+    reason = Q(weighted_score__gte=config.min_score) | Q(stale=True)
+    if config.count_views:
+        reason |= Q(summarized_at__isnull=True, view_active_days__gte=config.cold_start_min_active_days)
     return states.filter(
+        reason,
         Q(due_at__isnull=True) | Q(due_at__lte=now),
-        Q(pending_units__gte=max(1, config.min_units)) | Q(stale=True),
         last_activity_at__gte=now - datetime.timedelta(days=config.limits.window_days),
+    ).annotate(
+        trigger=Case(
+            When(stale=True, then=Value(TRIGGER_STALE)),
+            # A due pair below `min_score` that is not stale is due only on its days with views.
+            When(weighted_score__lt=config.min_score, then=Value(TRIGGER_COLD_START_VIEWS)),
+            When(write_score__lt=F("weighted_score") / 2, then=Value(TRIGGER_VIEWS)),
+            default=Value(TRIGGER_ACTIVITY),
+        )
     )
 
 
@@ -565,7 +709,7 @@ def _cap_rebuilds(due: QuerySet, max_rebuilds: int) -> QuerySet:
     return due.filter(Q(stale=False) | Q(id__in=rebuild_ids))
 
 
-def _fill_pass(due: QuerySet, limit: int, max_org_share: float) -> list[UserActivitySummaryQueueState]:
+def _fill_pass(due: QuerySet, limit: int, max_org_share: float) -> list[dict[str, Any]]:
     """The highest scores first, with at most `max_org_share` of `limit` from one organization."""
     if limit <= 0:
         return []
@@ -574,8 +718,13 @@ def _fill_pass(due: QuerySet, limit: int, max_org_share: float) -> list[UserActi
         due.annotate(org_rank=Window(RowNumber(), partition_by=[F("organization_id")], order_by=order))
         .filter(org_rank__lte=max(1, int(max_org_share * limit)))
         .order_by(*order)
-        .only("id", "team_id", "user_id")[:limit]
+        .values("id", "team_id", "user_id", "trigger")[:limit]
     )
+
+
+def _due_by_trigger(due: QuerySet) -> dict[str, int]:
+    counts = {row["trigger"]: row["pairs"] for row in due.values("trigger").annotate(pairs=Count("id"))}
+    return {trigger: counts.get(trigger, 0) for trigger in TRIGGERS}
 
 
 def _tier_stats(
@@ -619,9 +768,10 @@ def select_pairs(
     """The due pairs of the enrolled teams, highest priority first, cut to `limit`.
 
     A pair is due when it has a row in the last `window_days` and its due time is empty or past. A pair
-    with a current summary also needs at least `min_units` pending units. One unit never comes from less
-    than one row, so a pair with fewer rows would only skip. A pair with a stale summary needs no pending
-    units, because its update reads the full window, and it ranks with the pairs with no summary.
+    with a current summary also needs a pending score of at least `min_score`. When views count, a pair
+    with no summary is also due once it opened objects or scenes on `cold_start_min_active_days` days.
+    A pair with a stale summary needs no pending score, because its update reads the full window, and it
+    ranks with the pairs with no summary. Each returned pair carries the trigger that made it due.
     Stale pairs take at most `rebuild_budget_share` of `limit`, paying pairs first, so a version change
     does not stop the other updates. The first pass ranks the paying pairs and the free pairs with at
     least `max_overdue_factor` staleness, for `paying_budget_share` of `limit`. The second pass ranks the
@@ -634,6 +784,7 @@ def select_pairs(
     states = _states(config, now, team_ids)
     due = _due(states, config, now)
     tiers = _tier_stats(states, due, config, now)
+    due_by_trigger = _due_by_trigger(due)
     due = _cap_rebuilds(due, math.ceil(limit * config.rebuild_budget_share))
     first = _fill_pass(
         due.filter(Q(paying=True) | Q(staleness__gte=config.max_overdue_factor)),
@@ -641,12 +792,16 @@ def select_pairs(
         config.max_org_share,
     )
     second = _fill_pass(
-        due.filter(paying=False).exclude(id__in=[state.id for state in first]),
+        due.filter(paying=False).exclude(id__in=[row["id"] for row in first]),
         limit - len(first),
         config.max_org_share,
     )
     return PairSelection(
-        pairs=[ActivitySummaryPair(team_id=state.team_id, user_id=state.user_id) for state in first + second],
+        pairs=[
+            ActivitySummaryPair(team_id=row["team_id"], user_id=row["user_id"], trigger=row["trigger"])
+            for row in first + second
+        ],
         due_pairs=sum(tier.due_pairs for tier in tiers),
         tiers=tiers,
+        due_by_trigger=due_by_trigger,
     )

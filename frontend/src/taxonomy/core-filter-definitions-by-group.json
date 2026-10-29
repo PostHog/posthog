@@ -797,6 +797,11 @@
             "label": "Anomaly interval",
             "type": "String"
         },
+        "$anomaly_model_id": {
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "label": "Anomaly model ID",
+            "type": "String"
+        },
         "$anomaly_profile": {
             "description": "Name of the scoring profile that produced the score.",
             "examples": ["default-v1"],
@@ -804,7 +809,7 @@
             "type": "String"
         },
         "$anomaly_run": {
-            "description": "How the bucket was scored. `train` fetched the full history of the series, and `score` scored the bucket on stored history. Empty when scoring fetches the full history on every run.",
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
             "examples": ["train", "score"],
             "label": "Anomaly scoring run",
             "type": "String"
@@ -4745,6 +4750,11 @@
             "label": "Anomaly interval",
             "type": "String"
         },
+        "$anomaly_model_id": {
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "label": "Anomaly model ID",
+            "type": "String"
+        },
         "$anomaly_profile": {
             "description": "Name of the scoring profile that produced the score.",
             "examples": ["default-v1"],
@@ -4752,7 +4762,7 @@
             "type": "String"
         },
         "$anomaly_run": {
-            "description": "How the bucket was scored. `train` fetched the full history of the series, and `score` scored the bucket on stored history. Empty when scoring fetches the full history on every run.",
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
             "examples": ["train", "score"],
             "label": "Anomaly scoring run",
             "type": "String"

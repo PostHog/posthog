@@ -2,12 +2,17 @@
 per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
-from typing import Any
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db import transaction
 
+import requests
 import structlog
+from prometheus_client import Counter, Histogram
 
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -25,9 +30,14 @@ from products.messaging.backend.facade.contracts import (
     MarketingTemplate,
     QueuedEmail,
     QuotaLimited,
+    RecipientSuppressed,
+    RecipientUnreachable,
     SenderUnavailable,
+    SendingPaused,
+    SendingSuspended,
     TemplateNotSendable,
     TemplateNotTransactional,
+    TransactionalEmailError,
     TransactionalEmailPaused,
 )
 from products.messaging.backend.models import MessageCategory, MessageTemplate
@@ -43,6 +53,110 @@ from products.workflows.backend.facade.transactional_emails import (
 )
 
 logger = structlog.get_logger(__name__)
+
+CDP_SEND_DURATION = Histogram(
+    "messaging_transactional_email_cdp_request_duration_seconds",
+    "Time for the CDP service to answer a request to queue one transactional email, including failed requests.",
+    buckets=(0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 7.5, 10, 15),
+)
+CDP_SEND_RESULTS = Counter(
+    "messaging_transactional_email_cdp_requests_total",
+    "Requests to the CDP service to queue one transactional email, by result: success (202), the HTTP status class "
+    "of any other answer, timeout, connection_error, or error.",
+    labelnames=["result"],
+)
+
+
+TransactionalEmailStage = Literal[
+    "auth",
+    "permissions",
+    "throttle",
+    "validation",
+    "feature_flag",
+    "template_lookup",
+    "workflow_access",
+    "workflow_lookup",
+    "cdp_call",
+    "usage_event",
+    "total",
+]
+STAGE_DURATION = Histogram(
+    "messaging_transactional_email_stage_duration_seconds",
+    "Time one transactional email send request spends in each stage, including requests that fail in that stage: "
+    "auth, permissions and throttle (DRF's checks), validation (the request body), feature_flag, template_lookup, "
+    "workflow_access (the caller's editor access to the workflow), workflow_lookup (the template and workflow "
+    "checks before the send), cdp_call (the same time as messaging_transactional_email_cdp_request_duration_seconds), "
+    "usage_event, and total (the DRF view from start to response).",
+    labelnames=["stage"],
+    buckets=(0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15),
+)
+
+
+def observe_transactional_email_stage(stage: TransactionalEmailStage, seconds: float) -> None:
+    STAGE_DURATION.labels(stage=stage).observe(seconds)
+
+
+@contextmanager
+def transactional_email_stage(stage: TransactionalEmailStage) -> Iterator[None]:
+    started_at = time.monotonic()
+    try:
+        yield
+    finally:
+        observe_transactional_email_stage(stage, time.monotonic() - started_at)
+
+
+def _cdp_error_result(error: Exception) -> str:
+    # ConnectTimeout is both a Timeout and a ConnectionError, so the timeout check goes first.
+    if isinstance(error, requests.Timeout):
+        return "timeout"
+    if isinstance(error, requests.ConnectionError):
+        return "connection_error"
+    return "error"
+
+
+def _cdp_response_result(status_code: int) -> str:
+    return "success" if status_code == 202 else f"{status_code // 100}xx"
+
+
+def _observe_cdp_call(seconds: float) -> None:
+    # Both histograms get the same value, so the stage breakdown and the CDP request metric can't disagree.
+    CDP_SEND_DURATION.observe(seconds)
+    observe_transactional_email_stage("cdp_call", seconds)
+
+
+# The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
+# same refusal, so each of these reaches the caller as a 4xx and not as a retryable 503.
+PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
+    "quota_limited": (QuotaLimited, "The project is over its email quota."),
+    "idempotency_key_in_flight": (
+        IdempotencyKeyInFlight,
+        "A request with this Idempotency-Key is still being processed. Retry in a few seconds.",
+    ),
+    "idempotency_key_reused": (
+        IdempotencyKeyReused,
+        "This Idempotency-Key was already used for a different request. Use a new key for a new email.",
+    ),
+    "sending_suspended": (
+        SendingSuspended,
+        "Email sending is suspended for this project. Check the Reputation tab in Workflows, or contact support.",
+    ),
+    "sending_paused": (
+        SendingPaused,
+        "Email sending is paused for this transactional email because of its bounce or complaint rate. "
+        "Check the Reputation tab in Workflows.",
+    ),
+    "recipient_suppressed": (
+        RecipientSuppressed,
+        "The recipient is on this project's suppression list after a hard bounce or a spam complaint, so the "
+        "email can't be sent. Remove the address from the suppression list if it can receive email again.",
+    ),
+    "recipient_unreachable": (
+        RecipientUnreachable,
+        "The recipient's address can't receive email: it isn't a valid address, or its domain has no mail servers, "
+        "so the email would bounce. Check the address for a typo.",
+    ),
+    "not_sendable": (TransactionalEmailPaused, "The template's transactional email isn't active."),
+}
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
@@ -262,6 +376,7 @@ def send_transactional_email(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
+    timeout: float = 10,
 ) -> QueuedEmail:
     if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
         raise InvalidIdempotencyKey(
@@ -271,7 +386,8 @@ def send_transactional_email(
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
 
-    hog_flow_id = _transactional_workflow_id(team.id, template_id)
+    with transactional_email_stage("workflow_lookup"):
+        hog_flow_id = _transactional_workflow_id(team.id, template_id)
     payload = {
         "to": to,
         # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
@@ -281,23 +397,22 @@ def send_transactional_email(
     if idempotency_key is not None:
         # The CDP service holds the key, because only it knows whether the email was queued.
         payload["idempotency_key"] = idempotency_key
+    started_at = time.monotonic()
     try:
-        response = run_transactional_workflow(team.id, str(hog_flow_id), payload)
+        response = run_transactional_workflow(team.id, str(hog_flow_id), payload, timeout=timeout)
     except Exception as e:
+        _observe_cdp_call(time.monotonic() - started_at)
+        CDP_SEND_RESULTS.labels(result=_cdp_error_result(e)).inc()
         logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
         raise DeliveryUnavailable() from e
+    _observe_cdp_call(time.monotonic() - started_at)
+    CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
     if response.status_code != 202:
-        if response.status_code == 429:
-            raise QuotaLimited("The project is over its email quota.")
-        if response.status_code == 409:
-            raise IdempotencyKeyInFlight(
-                "A request with this Idempotency-Key is still being processed. Retry in a few seconds."
-            )
-        if response.status_code == 422:
-            raise IdempotencyKeyReused(
-                "This Idempotency-Key was already used for a different request. Use a new key for a new email."
-            )
+        refusal = PIPELINE_REFUSALS.get(_refusal_code(response) or "")
+        if refusal is not None:
+            error_class, message = refusal
+            raise error_class(message)
         logger.error(
             "transactional_email_queue_rejected",
             team_id=team.id,
@@ -308,3 +423,12 @@ def send_transactional_email(
 
     body = response.json()
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+
+
+def _refusal_code(response: requests.Response) -> str | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    code = body.get("error") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else None

@@ -11,6 +11,7 @@ import structlog
 import temporalio.activity
 
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import on_asyncify_pool
 
 from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
@@ -128,7 +129,7 @@ async def calculate_experiment_metric_for_recalculation(
     # cancel, or a timeout the server enforces) only in a heartbeat response, so the drain below depends on it.
     async with Heartbeater(factor=_HEARTBEAT_FACTOR):
         task = asyncio.ensure_future(
-            _calculate_experiment_metric_for_recalculation_sync(
+            on_asyncify_pool(_calculate_experiment_metric_for_recalculation_sync)(
                 experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
             )
         )
