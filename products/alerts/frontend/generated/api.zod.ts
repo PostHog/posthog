@@ -55,6 +55,10 @@ export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
         .describe('Destination IDs to delete, as returned when the destination was created.'),
 })
 
+export const AlertsTestDeliveryCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
 /**
  * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
  */
