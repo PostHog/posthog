@@ -1492,7 +1492,6 @@ async function loadAllSnapshots(
             loadingStallCount = 0
             lastSnapshotCount = currentCount
         } else if (values.isLoadingSnapshots) {
-            stallCount = 0
             loadingStallCount++
         } else {
             stallCount++
