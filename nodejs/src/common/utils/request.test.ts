@@ -472,9 +472,15 @@ type IsolatedRequest = {
     readNegativeCacheCounter: (result: string) => Promise<number>
 }
 
-// The DNS negative cache is module state, so each case loads a fresh copy of request.ts with an empty cache.
-async function withIsolatedRequest(run: (isolated: IsolatedRequest) => Promise<void>) {
+// The DNS negative cache and the hosts file names are module state, so each case loads a fresh copy of request.ts.
+async function withIsolatedRequest(run: (isolated: IsolatedRequest) => Promise<void>, hostsFile = '') {
     await jest.isolateModulesAsync(async () => {
+        const actualFs = jest.requireActual('node:fs')
+        jest.doMock('node:fs', () => ({
+            ...actualFs,
+            readFileSync: (path: string, ...args: unknown[]) =>
+                path === '/etc/hosts' ? hostsFile : actualFs.readFileSync(path, ...args),
+        }))
         const request: typeof import('./request') = require('./request')
         const lookup = jest.mocked(require('dns/promises').lookup)
         const registry: typeof register = require('prom-client').register
@@ -493,7 +499,7 @@ async function withIsolatedRequest(run: (isolated: IsolatedRequest) => Promise<v
 const dnsError = (code: string): Error => Object.assign(new Error(`getaddrinfo ${code} example.com`), { code })
 
 describe('DNS lookups', () => {
-    it('resolves dotted hostnames as absolute names and leaves single-label names and IP literals as given', async () => {
+    it('resolves dotted hostnames as absolute names and leaves other names as given', async () => {
         await withIsolatedRequest(async ({ request, lookup }) => {
             lookup.mockResolvedValue([{ address: '1.1.1.1', family: 4 }])
 
@@ -501,14 +507,16 @@ describe('DNS lookups', () => {
             await request.raiseIfUserProvidedUrlUnsafe('https://already-absolute.com./path')
             await request.raiseIfUserProvidedUrlUnsafe('https://1.1.1.1/path')
             await request.raiseIfUserProvidedUrlUnsafe('http://maildev:1080/path')
+            await request.raiseIfUserProvidedUrlUnsafe('http://My.Alias.test:1080/path')
 
             expect(lookup.mock.calls.map(([hostname]) => hostname)).toEqual([
                 'example.com.',
                 'already-absolute.com.',
                 '1.1.1.1',
                 'maildev',
+                'my.alias.test',
             ])
-        })
+        }, '127.0.0.1 localhost\n# 10.0.0.9 commented.test\n10.1.2.3\tmy.alias.test other.alias.test\n')
     })
 
     it('skips the lookup for a hostname that recently returned ENOTFOUND', async () => {

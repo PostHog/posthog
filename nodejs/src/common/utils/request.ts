@@ -2,6 +2,7 @@ import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import { LRUCache } from 'lru-cache'
+import { readFileSync } from 'node:fs'
 import net from 'node:net'
 import { Counter, Gauge, Histogram } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
@@ -86,11 +87,33 @@ const dnsNegativeCacheCounter = new Counter({
 // the entry count is capped as well as the age.
 const dnsNegativeCache = new LRUCache<string, true>({ max: 10_000, ttl: 10_000 })
 
+// The hosts file matches a name exactly, so 'alias.test.' misses an 'alias.test' entry from Docker's --add-host or
+// Kubernetes hostAliases.
+function readHostsFileNames(): Set<string> {
+    try {
+        return new Set(
+            readFileSync('/etc/hosts', 'utf8')
+                .split('\n')
+                .flatMap((line) => line.replace(/#.*/, '').trim().split(/\s+/).slice(1))
+                .map((name) => name.toLowerCase())
+        )
+    } catch {
+        return new Set()
+    }
+}
+
+const hostsFileNames = readHostsFileNames()
+
 // The trailing dot skips the cluster search domains, so a missing hostname costs one query instead of one per domain.
 // A single-label name such as a Docker service name resolves only through the search domains, so it stays as given.
 // dns.lookup returns an IP literal without a DNS query, but it treats '1.1.1.1.' as a name that fails with ENOTFOUND.
 function dnsLookupName(hostname: string): string {
-    return hostname.includes('.') && !hostname.endsWith('.') && net.isIP(hostname) === 0 ? `${hostname}.` : hostname
+    return hostname.includes('.') &&
+        !hostname.endsWith('.') &&
+        net.isIP(hostname) === 0 &&
+        !hostsFileNames.has(hostname.toLowerCase())
+        ? `${hostname}.`
+        : hostname
 }
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
