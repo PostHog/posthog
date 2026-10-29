@@ -63,6 +63,41 @@ export function useTaskViewed() {
     },
   });
 
+  const markUnreadMutation = useMutation({
+    mutationFn: ({
+      taskId,
+      activityAt,
+    }: {
+      taskId: string;
+      activityAt: number;
+    }) => hostClient.workspace.markUnread.mutate({ taskId, activityAt }),
+    onMutate: async ({ taskId, activityAt }) => {
+      await queryClient.cancelQueries({ queryKey: timestampsQueryKey });
+      const previous =
+        queryClient.getQueryData<Record<string, RawTaskTimestamp>>(
+          timestampsQueryKey,
+        );
+      const lastViewedAt = new Date(activityAt - 1).toISOString();
+      queryClient.setQueryData<Record<string, RawTaskTimestamp>>(
+        timestampsQueryKey,
+        (old) => ({
+          ...old,
+          [taskId]: {
+            pinnedAt: old?.[taskId]?.pinnedAt ?? null,
+            lastActivityAt: old?.[taskId]?.lastActivityAt ?? null,
+            lastViewedAt,
+          },
+        }),
+      );
+      return { previous };
+    },
+    onError: (_, __, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(timestampsQueryKey, context.previous);
+      }
+    },
+  });
+
   const markActivityMutation = useMutation({
     mutationFn: ({ taskId }: { taskId: string }) =>
       hostClient.workspace.markActivity.mutate({ taskId }),
@@ -108,11 +143,18 @@ export function useTaskViewed() {
   const markViewedMutationRef = useRef(markViewedMutation);
   markViewedMutationRef.current = markViewedMutation;
 
+  const markUnreadMutationRef = useRef(markUnreadMutation);
+  markUnreadMutationRef.current = markUnreadMutation;
+
   const markActivityMutationRef = useRef(markActivityMutation);
   markActivityMutationRef.current = markActivityMutation;
 
   const markAsViewed = useCallback((taskId: string) => {
     markViewedMutationRef.current.mutate({ taskId });
+  }, []);
+
+  const markAsUnread = useCallback((taskId: string, activityAt: number) => {
+    markUnreadMutationRef.current.mutate({ taskId, activityAt });
   }, []);
 
   const markActivity = useCallback((taskId: string) => {
@@ -134,6 +176,7 @@ export function useTaskViewed() {
     timestampsReady,
     isLoading,
     markAsViewed,
+    markAsUnread,
     markActivity,
     getLastViewedAt,
     getLastActivityAt,
