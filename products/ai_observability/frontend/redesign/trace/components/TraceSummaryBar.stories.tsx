@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FIXTURE_STATS, withWidth } from '../storyFixtures'
+import { FIXTURE_CLUSTERS_CHIP, FIXTURE_STATS, withWidth } from '../storyFixtures'
 import { TraceSummaryBar } from './TraceSummaryBar'
 
 const meta: Meta<typeof TraceSummaryBar> = {
@@ -11,6 +11,7 @@ const meta: Meta<typeof TraceSummaryBar> = {
         timestamp: '2026-09-01T10:15:00Z',
         person: { label: 'ana@example.com', href: '/person/ana' },
         totals: FIXTURE_STATS,
+        clusters: null,
     },
 }
 export default meta
@@ -24,7 +25,8 @@ export const Default: Story = wide
 export const Anonymous: Story = { ...wide, args: { person: null } }
 export const ShortId: Story = { ...wide, args: { traceId: 'notes-run-42' } }
 export const LongSlugId: Story = { ...wide, args: { traceId: 'support-chat-session-2026-09-01-weekly-billing-review' } }
-export const Narrow: Story = { decorators: [withWidth(420)] }
+export const WithClusters: Story = { ...wide, args: { clusters: FIXTURE_CLUSTERS_CHIP } }
+export const Narrow: Story = { args: { clusters: FIXTURE_CLUSTERS_CHIP }, decorators: [withWidth(420)] }
 export const WithFeedback: Story = {
     args: { feedback: { chip: { total: 6 }, onClick: () => {} } },
     decorators: [withWidth(420)],
