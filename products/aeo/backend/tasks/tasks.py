@@ -17,6 +17,7 @@ from django.conf import settings
 
 import structlog
 from celery import shared_task
+from redis.exceptions import LockError
 
 from posthog.celery_queues import CeleryQueue
 from posthog.models.team import Team
@@ -108,4 +109,8 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
         logger.exception("aeo_citation_task_failed", team_id=team_id)
         raise
     finally:
-        lease.release()
+        try:
+            lease.release()
+        except LockError:
+            # The lease expired during a gap longer than its TTL and a later dispatch may own it now.
+            logger.warning("aeo_citation_task_lease_expired", team_id=team_id)
