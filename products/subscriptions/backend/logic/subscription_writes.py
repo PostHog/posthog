@@ -435,8 +435,11 @@ class _SubscriptionWrite:
                 raise SubscriptionRequestInvalidError({"enabled": [error_message]})
             # Deliveries run as the owner, so an owner who cannot run them would only get it disabled again.
             assert existing is not None
+            # The owner must be able to run the target this write leaves, not the one it replaces.
+            dashboard = attrs.get("dashboard") or existing.dashboard
+            insight = attrs.get("insight") or existing.insight
             try:
-                assert_creator_can_run(existing.created_by, self.team, existing.dashboard, existing.insight)
+                assert_creator_can_run(existing.created_by, self.team, dashboard, insight)
             except (CreatorLeftOrganizationError, UserAccessControlError) as error:
                 raise SubscriptionRequestInvalidError(
                     {"enabled": [owner_unavailable_message(existing.created_by, error)]},
