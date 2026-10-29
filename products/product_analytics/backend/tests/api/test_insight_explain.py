@@ -50,10 +50,10 @@ class TestInsightExplain(APIBaseTest):
                 "answers_map_to_the_chapters_sent",
                 {
                     "chapter_1": ChoiceAnswer(choice="outside_traffic", confidence=0.9, probabilities={}),
-                    "chapter_2": ChoiceAnswer(choice="tracking", confidence=0.7, probabilities={}),
+                    "chapter_2": ChoiceAnswer(choice="unclear", confidence=0.7, probabilities={}),
                 },
                 status.HTTP_200_OK,
-                [("peak-14", "outside_traffic"), ("dip-3", "tracking")],
+                [("peak-14", "outside_traffic"), ("dip-3", "unclear")],
             ),
             (
                 "refused_and_unknown_answers_are_dropped",

@@ -9597,6 +9597,7 @@ export interface InsightExplainRequestApi {
  * * `one_person` - One person
  * * `tracking` - Tracking
  * * `weekly_pattern` - Weekly pattern
+ * * `unclear` - Unclear
  */
 export type ChartCauseEnumApi = (typeof ChartCauseEnumApi)[keyof typeof ChartCauseEnumApi]
 
@@ -9606,18 +9607,20 @@ export const ChartCauseEnumApi = {
     OnePerson: 'one_person',
     Tracking: 'tracking',
     WeeklyPattern: 'weekly_pattern',
+    Unclear: 'unclear',
 } as const
 
 export interface InsightExplainChapterApi {
     /** Identifier of the chapter, as it was sent. */
     id: string
-    /** What most likely caused the chapter: outside traffic, a real change in usage, one person or a test account, a tracking change, or the usual weekly pattern.
+    /** What most likely caused the chapter: outside traffic, a real change in usage, one person or a test account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts.
      *
      * * `outside_traffic` - Outside traffic
      * * `usage` - Usage
      * * `one_person` - One person
      * * `tracking` - Tracking
-     * * `weekly_pattern` - Weekly pattern */
+     * * `weekly_pattern` - Weekly pattern
+     * * `unclear` - Unclear */
     cause: ChartCauseEnumApi
     /** How sure the model is of the cause, from 0 to 1. */
     confidence: number

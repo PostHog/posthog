@@ -17,7 +17,7 @@ from posthog.llm.system_one_client import build_system_one_client
 logger = structlog.get_logger(__name__)
 
 EXPLAIN_AI_PRODUCT = "insight_explain"
-# The walkthrough already shows its facts while it waits, so a slow answer only delays the likely causes.
+# The explanation already shows its facts while it waits, so a slow answer only delays the likely causes.
 EXPLAIN_TIMEOUT_SECONDS = 10.0
 
 
@@ -27,6 +27,7 @@ class ChartCause(models.TextChoices):
     ONE_PERSON = "one_person", "One person"
     TRACKING = "tracking", "Tracking"
     WEEKLY_PATTERN = "weekly_pattern", "Weekly pattern"
+    UNCLEAR = "unclear", "Unclear"
 
 
 CAUSE_CRITERIA: dict[str, str] = {
@@ -40,9 +41,15 @@ CAUSE_CRITERIA: dict[str, str] = {
     ),
     ChartCause.ONE_PERSON: "One person, a bot, a script or a test account caused most of the change.",
     ChartCause.TRACKING: (
-        "A change in tracking, not in behavior: events stopped, started, or were sent more than once."
+        "A change in how the data is collected or processed, not in what people do: tracking added, removed or "
+        "broken, an event renamed or sent twice, an SDK upgrade, ad blockers or consent, a changed filter or "
+        "definition, or data arriving late."
     ),
     ChartCause.WEEKLY_PATTERN: "The usual weekly or seasonal rhythm, such as quieter weekends or holidays.",
+    ChartCause.UNCLEAR: (
+        "None of the other causes fits the facts, or the facts are not enough to tell. For example a feature "
+        "flag, an experiment, an incident or a release that the facts do not mention."
+    ),
 }
 
 

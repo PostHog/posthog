@@ -1700,7 +1700,7 @@ class InsightExplainChapterSerializer(serializers.Serializer):
         choices=ChartCause.choices,
         help_text=(
             "What most likely caused the chapter: outside traffic, a real change in usage, one person or a test "
-            "account, a tracking change, or the usual weekly pattern."
+            "account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts."
         ),
     )
     confidence = serializers.FloatField(help_text="How sure the model is of the cause, from 0 to 1.")
