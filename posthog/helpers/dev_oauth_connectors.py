@@ -10,6 +10,7 @@ import base64
 import hashlib
 from urllib.parse import urlencode, urlparse
 
+import requests
 from oauth2_provider.settings import oauth2_settings
 
 from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, get_or_create_cimd_application
@@ -36,7 +37,6 @@ def _code_challenge(verifier: str) -> str:
 @frozen
 class DevOAuthConnectorSeedResult:
     created: list[str]
-    # CIMD URLs that could not be fetched or registered, for example without network access
     failed: list[str]
 
 
@@ -54,7 +54,8 @@ def seed_dev_oauth_connectors() -> DevOAuthConnectorSeedResult:
             continue
         try:
             application = get_or_create_cimd_application(url)
-        except (CIMDFetchError, CIMDValidationError):
+        # The fetcher wraps connection errors, but one raised while it streams the body comes through as is
+        except (CIMDFetchError, CIMDValidationError, requests.RequestException):
             failed.append(url)
             continue
         created.append(application.name)

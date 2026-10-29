@@ -22,6 +22,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
+import requests
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
@@ -38,6 +39,7 @@ from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.api.email_verification import is_email_verification_disabled
+from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.auth import (
     ExportRendererAuthentication,
     InternalAPIUser,
@@ -54,7 +56,7 @@ from posthog.auth import (
     mint_export_renderer_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
-from posthog.helpers.dev_oauth_connectors import DEV_OAUTH_CONNECTOR_CIMD_URLS
+from posthog.helpers.dev_oauth_connectors import DEV_OAUTH_CONNECTOR_CIMD_URLS, seed_dev_oauth_connectors
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -827,6 +829,19 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         emails = [user["email"] for user in response.json()["users"]]
         self.assertEqual(emails[:2], ["test@posthog.com", "zzz-recent@posthog.com"])
+
+    @parameterized.expand(
+        [
+            ("rejected_document", CIMDFetchError("Metadata document endpoint returned HTTP 503")),
+            ("dropped_connection", requests.exceptions.ChunkedEncodingError("Connection broken")),
+        ]
+    )
+    def test_dev_connector_seed_records_unreachable_documents(self, _name, error):
+        with patch("posthog.helpers.dev_oauth_connectors.get_or_create_cimd_application", side_effect=error):
+            result = seed_dev_oauth_connectors()
+
+        self.assertEqual(result.created, [])
+        self.assertEqual(result.failed, list(DEV_OAUTH_CONNECTOR_CIMD_URLS))
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
