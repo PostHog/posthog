@@ -55,6 +55,7 @@ from products.signals.backend.enums import (
     signal_source_product_choices,
 )
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
+from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 
 logger = logging.getLogger(__name__)
 
@@ -1235,6 +1236,7 @@ class SignalReportTrackerIssue(TeamScopedRootMixin, UUIDModel):
     pr_linked_at = models.DateTimeField(null=True, blank=True)
     # When we closed the issue in the provider, after the report was dismissed.
     closed_at = models.DateTimeField(null=True, blank=True)
+    close_comment_posted_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -2657,11 +2659,32 @@ class SignalReportMonitoringAttempt(UUIDModel):
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="monitoring_attempts")
     monitoring_started_at = models.DateTimeField()
     check_versions = models.JSONField(default=dict)
+    aggregation_state = models.CharField(max_length=24, choices=MonitoringAggregation, null=True, blank=True)
+    aggregation_result_ids = models.JSONField(null=True, blank=True)
+    aggregation_reason = models.TextField(null=True, blank=True)
+    aggregation_checked_at = models.DateTimeField(null=True, blank=True)
+    assessment_requested_at = models.DateTimeField(null=True, blank=True)
+    research_requested_at = models.DateTimeField(null=True, blank=True)
+    tracker_issue_close_requested_at = models.DateTimeField(null=True, blank=True)
+    tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
+    tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
+    close_pr_on_resolve = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["report", "monitoring_started_at"], name="signals_attempt_period_uniq")
+        ]
+        indexes = [
+            models.Index(
+                models.F("tracker_issue_close_next_attempt_at").asc(nulls_first=True),
+                models.F("tracker_issue_close_requested_at"),
+                models.F("id"),
+                condition=models.Q(
+                    tracker_issue_close_requested_at__isnull=False, tracker_issue_close_processed_at__isnull=True
+                ),
+                name="signals_pending_tracker_close",
+            ),
         ]
 
 

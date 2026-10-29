@@ -589,6 +589,8 @@ depends_on = [
     "products.workflows", "products.access_control",
     # Evaluations and taggers compile Hog through products.cdp.backend.validation and filters.
     "products.cdp",
+    # Trace feedback reads trace-linked survey responses through the surveys facade.
+    "products.surveys",
 ]
 layer = "modules"
 
