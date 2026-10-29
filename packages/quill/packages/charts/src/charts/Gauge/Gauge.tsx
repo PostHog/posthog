@@ -10,7 +10,8 @@ import { gaugeArcPath, gaugeFraction, thresholdColor, thresholdSegments, type Ga
 /** One gauge: a value read against the gauge's range. */
 export interface GaugeItem {
     key: string
-    /** Name shown under (radial, vertical bar) or beside (horizontal bar) the gauge. */
+    /** Name shown under (radial, vertical bar) or beside (horizontal bar) the gauge, and its
+     *  accessible name. Without one, assistive technology reads `key`. */
     label?: string
     /** `null` draws an empty gauge reading "No data". */
     value: number | null
@@ -91,7 +92,8 @@ function GaugeInner({
     })
     const meter = (g: ResolvedGauge): React.HTMLAttributes<HTMLDivElement> => ({
         role: 'meter',
-        'aria-label': g.item.label,
+        // A meter takes no name from its text, so fall back to the key when there is no label.
+        'aria-label': g.item.label || g.item.key,
         'aria-valuemin': min,
         'aria-valuemax': max,
         'aria-valuenow': g.item.value ?? undefined,
