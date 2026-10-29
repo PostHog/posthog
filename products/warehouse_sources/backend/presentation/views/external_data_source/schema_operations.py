@@ -21,6 +21,7 @@ from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
@@ -42,7 +43,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     new_source_requires_ssl,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.logic.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,

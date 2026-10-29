@@ -12,7 +12,6 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
-from products.warehouse_sources.backend.logic.column_sensitivity import classify_table_columns
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
@@ -42,7 +41,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     _statistics_stale,
     _verify_v3_lock_still_held,
     create_external_data_job_model_activity,
-    enrichment_needed_for,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
@@ -165,6 +163,14 @@ class TestEnrichmentPending:
         # currency has no annotation
         assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is True
 
+    def test_pending_when_a_column_only_carries_a_sensitivity_flag(self) -> None:
+        team = _team()
+        table = _table(team, columns={"email": {}})
+        WarehouseColumnAnnotation.objects.for_team(team.id).create(
+            team=team, table=table, column_name="email", description="", sensitivity="email"
+        )
+        assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is True
+
     def test_not_pending_when_all_columns_annotated_and_table_described(self) -> None:
         # The steady state: nothing new to do — must NOT spawn a workflow every sync.
         team = _team()
@@ -197,19 +203,6 @@ class TestEnrichmentPending:
         self._annotate(team, table, "amount")
         self._annotate(team, table, "")
         assert _enrichment_pending(team.id, table, _schema(team, table, description=None)) is False
-
-    def test_unstored_sensitivity_needs_enrichment_without_consent_until_stored(self) -> None:
-        # Fast return is off while enrichment is needed, so this must turn false once the flags are stored.
-        team = _team()
-        table = _table(team, columns={"amount": {}, "email": {"clickhouse": "Nullable(String)"}})
-        schema = _schema(team, table, description="present")
-        self._annotate(team, table, "amount")
-        assert enrichment_needed_for(team.id, table, schema, ai_data_processing_approved=False) is True
-
-        classify_table_columns(team.id, table)
-
-        assert enrichment_needed_for(team.id, table, schema, ai_data_processing_approved=False) is False
-        assert enrichment_needed_for(team.id, table, schema, ai_data_processing_approved=True) is True
 
 
 class TestBuildSchemaSnapshot:

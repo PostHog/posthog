@@ -42,6 +42,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
@@ -96,7 +97,6 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalSyncBlockedReason,
     WarehouseColumnSensitivity,
 )
-from products.warehouse_sources.backend.logic.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,

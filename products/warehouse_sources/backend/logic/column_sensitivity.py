@@ -15,8 +15,6 @@ from products.warehouse_sources.backend.models.column_annotation import Warehous
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.types import WarehouseColumnSensitivity
 
-Sensitivity = WarehouseColumnSensitivity
-
 _WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
 
 # Words that turn a column into a fact about the data rather than the data: `email_verified`, `token_type`.
@@ -58,52 +56,63 @@ class _Rule:
     sensitivity: WarehouseColumnSensitivity
     phrases: frozenset[str]
     excluded_words: frozenset[str] = frozenset()
+    # Glued names such as `useremail` match when a word ends with one of these.
+    word_suffixes: frozenset[str] = frozenset()
+    # Only the end of the name counts, so `email_subject` and `ip_city` describe something else.
+    trailing_only: bool = False
     allows_number: bool = False
     allows_temporal: bool = False
 
 
 # Checked in order, so `email_address` is an email and `ip_address` an IP, not a street address.
 _RULES: tuple[_Rule, ...] = (
-    _Rule(sensitivity=Sensitivity.EMAIL, phrases=frozenset({"email", "emails", "emailaddress", "mail"})),
     _Rule(
-        sensitivity=Sensitivity.IP_ADDRESS,
+        sensitivity=WarehouseColumnSensitivity.EMAIL,
+        phrases=frozenset({"email", "emails", "emailaddress", "mail"}),
+        word_suffixes=frozenset({"email"}),
+        trailing_only=True,
+    ),
+    _Rule(
+        sensitivity=WarehouseColumnSensitivity.IP_ADDRESS,
         phrases=frozenset({"ip", "ipaddress", "ipaddr", "ipv4", "ipv6", "remoteaddr", "remoteaddress"}),
+        trailing_only=True,
         allows_number=True,
     ),
     _Rule(
-        sensitivity=Sensitivity.CARD_NUMBER,
+        sensitivity=WarehouseColumnSensitivity.CARD_NUMBER,
         phrases=frozenset({"cardnumber", "cardno", "cardnum", "creditcard", "ccnumber", "pan", "cvv", "cvc"}),
         # A card's brand, last four digits and expiry are safe to keep in plaintext.
-        excluded_words=frozenset({"brand", "exp", "expiry", "expiration", "fingerprint", "funding", "last"}),
+        excluded_words=frozenset({"brand", "check", "exp", "expiry", "expiration", "fingerprint", "funding", "last"}),
         allows_number=True,
     ),
     _Rule(
-        sensitivity=Sensitivity.DATE_OF_BIRTH,
+        sensitivity=WarehouseColumnSensitivity.DATE_OF_BIRTH,
         phrases=frozenset({"dob", "dateofbirth", "birthdate", "birthday", "birth", "bday"}),
         allows_number=True,
         allows_temporal=True,
     ),
     _Rule(
-        sensitivity=Sensitivity.PHONE,
+        sensitivity=WarehouseColumnSensitivity.PHONE,
         phrases=frozenset(
-            {"phone", "phonenumber", "mobilenumber", "mobilephone", "cellphone", "telephone", "msisdn", "fax"}
+            {"phone", "phonenumber", "mobile", "mobilenumber", "cellphone", "telephone", "msisdn", "fax"}
         ),
+        word_suffixes=frozenset({"phone"}),
         allows_number=True,
     ),
     _Rule(
-        sensitivity=Sensitivity.TOKEN,
+        sensitivity=WarehouseColumnSensitivity.TOKEN,
         phrases=frozenset({"token", "tokens", "apikey", "authkey", "sessionkey", "bearer", "jwt"}),
         excluded_words=frozenset({"expires", "expiry", "limit", "name", "scope", "scopes", "usage", "used"}),
     ),
     _Rule(
-        sensitivity=Sensitivity.SECRET,
+        sensitivity=WarehouseColumnSensitivity.SECRET,
         phrases=frozenset(
             {"secret", "secrets", "password", "passwd", "pwd", "passphrase", "privatekey", "secretkey", "signingkey"}
         ),
         excluded_words=frozenset({"policy", "required", "strength"}),
     ),
     _Rule(
-        sensitivity=Sensitivity.ADDRESS,
+        sensitivity=WarehouseColumnSensitivity.ADDRESS,
         phrases=frozenset(
             {
                 "address",
@@ -111,17 +120,21 @@ _RULES: tuple[_Rule, ...] = (
                 "addressline",
                 "street",
                 "streetaddress",
+                "streetname",
                 "postcode",
                 "postalcode",
                 "zip",
                 "zipcode",
             }
         ),
-        excluded_words=frozenset({"contract", "mac", "wallet"}),
+        excluded_words=frozenset({"check", "contract", "mac", "wallet"}),
+        word_suffixes=frozenset({"address"}),
+        trailing_only=True,
+        allows_number=True,
     ),
     # A bare `name` is usually a product or a company, so only person-name phrases count.
     _Rule(
-        sensitivity=Sensitivity.NAME,
+        sensitivity=WarehouseColumnSensitivity.NAME,
         phrases=frozenset(
             {
                 "firstname",
@@ -141,11 +154,13 @@ _RULES: tuple[_Rule, ...] = (
                 "contactname",
                 "customername",
                 "holdername",
+                "cardholdername",
                 "recipientname",
                 "billingname",
                 "shippingname",
             }
         ),
+        excluded_words=frozenset({"app", "campaign", "company", "event", "file", "plan", "product", "template"}),
     ),
 )
 
@@ -181,6 +196,11 @@ def classify_column_sensitivity(column_name: str, data_type: str | None = None) 
     if kind in ("boolean", "float"):
         return None
     phrases = _phrases(words)
+    # Trailing digits are a numbering, not a new meaning: `address_line_2` still ends in an address.
+    core = list(words)
+    while len(core) > 1 and core[-1].isdigit():
+        core.pop()
+    trailing_phrases = {"".join(core[-size:]) for size in (1, 2, 3) if size <= len(core)}
     for rule in _RULES:
         if kind == "number" and not rule.allows_number:
             continue
@@ -188,7 +208,11 @@ def classify_column_sensitivity(column_name: str, data_type: str | None = None) 
             continue
         if rule.excluded_words.intersection(words):
             continue
-        if rule.phrases.intersection(phrases):
+        candidates = trailing_phrases if rule.trailing_only else phrases
+        suffix_words = core[-1:] if rule.trailing_only else words
+        if rule.phrases.intersection(candidates) or any(
+            word.endswith(suffix) for word in suffix_words for suffix in rule.word_suffixes
+        ):
             return rule.sensitivity
     return None
 
@@ -199,16 +223,6 @@ def _expected_sensitivities(table: DataWarehouseTable) -> dict[str, WarehouseCol
         for column in table.get_user_facing_columns()
         if column.get("name") and len(column["name"]) <= _MAX_COLUMN_NAME_LENGTH
     }
-
-
-def column_sensitivity_pending(team_id: int, table: DataWarehouseTable) -> bool:
-    """Whether any stored sensitivity differs from what the columns classify as now."""
-    stored = dict(
-        WarehouseColumnAnnotation.objects.for_team(team_id)
-        .filter(table_id=table.id)
-        .values_list("column_name", "sensitivity")
-    )
-    return any(stored.get(name) != sensitivity for name, sensitivity in _expected_sensitivities(table).items())
 
 
 def classify_table_columns(team_id: int, table: DataWarehouseTable) -> int:

@@ -19,11 +19,12 @@ class WarehouseColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     marked `is_user_edited` is never overwritten by automatic enrichment.
 
     `sensitivity` flags a column whose name and type suggest personal or secret data. A flagged column
-    can have a row before it has a description, so an empty `description` means "not described yet".
+    can have a row before it has a description, so every description reader filters on `DESCRIBED`.
     """
 
     # Kept on the model so the nested names stay unchanged.
     DescriptionSource = WarehouseColumnAnnotationDescriptionSource
+    DESCRIBED = ~models.Q(description="")
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     table = models.ForeignKey(

@@ -68,8 +68,8 @@ class TableDescriptions:
 
         try:
             with team_scope(team_id):
-                for table_id, column_name, description in WarehouseColumnAnnotation.objects.exclude(
-                    description=""
+                for table_id, column_name, description in WarehouseColumnAnnotation.objects.filter(
+                    WarehouseColumnAnnotation.DESCRIBED
                 ).values_list("table_id", "column_name", "description"):
                     warehouse[(str(table_id), column_name)] = description
                 for sq_id, column_name, description in DataWarehouseSavedQueryColumnAnnotation.objects.values_list(

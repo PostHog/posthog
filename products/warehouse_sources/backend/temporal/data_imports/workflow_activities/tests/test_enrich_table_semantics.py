@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     enrich_table_semantics_activity,
     enrich_table_semantics_sync,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, WarehouseColumnSensitivity
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 pytestmark = pytest.mark.django_db
 
@@ -520,21 +520,13 @@ class TestEnrichTableSemanticsSync:
         team = _team()
         team.organization.is_ai_data_processing_approved = False
         team.organization.save()
-        schema, table = _make_schema(
-            team,
-            columns=[
-                {"name": "amount", "data_type": "Int64", "is_nullable": False},
-                {"name": "email", "data_type": "String", "is_nullable": True},
-            ],
-        )
+        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
         with patch.object(enrich, "_generate_descriptions") as mock_llm:
             result = enrich_table_semantics_sync(team.pk, schema.id)
         mock_llm.assert_not_called()
         assert result["status"] == "skipped"
         assert result["reason"] == "ai_data_processing_not_approved"
-        assert {name: (a.description, a.sensitivity) for name, a in _annotations(team, table).items()} == {
-            "email": ("", WarehouseColumnSensitivity.EMAIL)
-        }
+        assert _annotations(team, table) == {}
 
     def test_skipped_when_team_was_deleted(self):
         # Same fire-and-forget race as the schema case below, but for the team itself.
@@ -631,6 +623,9 @@ class TestEnrichTableSemanticsSync:
                 {"name": "receipt_email", "data_type": "String", "is_nullable": True},
             ],
         )
+        WarehouseColumnAnnotation.objects.for_team(team.pk).create(
+            team=team, table=table, column_name="receipt_email", description="", sensitivity="email"
+        )
         canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
         generated = {
             "table_description": "Stripe charges",
@@ -643,7 +638,7 @@ class TestEnrichTableSemanticsSync:
         ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
-        # Only columns without a canonical description are sent to the LLM, including a flagged one.
+        # Only the column without a canonical description is sent to the LLM.
         assert mock_llm.call_args.kwargs["columns_needing_description"] == ["status", "receipt_email"]
         # The canonical description is passed to the LLM as context for neighbouring columns.
         assert mock_llm.call_args.kwargs["known_descriptions"] == {"amount": "charge amount in cents"}
@@ -652,9 +647,10 @@ class TestEnrichTableSemanticsSync:
         assert annotations["amount"].description_source == WarehouseColumnAnnotation.DescriptionSource.CANONICAL
         assert annotations["status"].description == "Charge lifecycle status"
         assert annotations["status"].description_source == WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED
-        assert annotations["status"].sensitivity is None
-        assert annotations["receipt_email"].description == "Where the receipt was sent"
-        assert annotations["receipt_email"].sensitivity == WarehouseColumnSensitivity.EMAIL
+        assert (annotations["receipt_email"].description, annotations["receipt_email"].sensitivity) == (
+            "Where the receipt was sent",
+            "email",
+        )
         # Table-level description added because neither canonical nor the source schema had one.
         assert annotations[""].description == "Stripe charges"
 

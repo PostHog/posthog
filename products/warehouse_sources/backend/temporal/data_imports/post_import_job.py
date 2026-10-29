@@ -29,6 +29,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -37,6 +38,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
 )
+from products.warehouse_sources.backend.logic.column_sensitivity import classify_table_columns
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -44,6 +46,10 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     EmitSignalsActivityInputs,
     data_quality_checks_needed_for,
     emit_signals_enabled_for,
+)
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import (
+    COLUMN_SENSITIVITY_FLAG,
+    is_schema_flag_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
@@ -56,8 +62,8 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ComputeTableStatisticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+    _enrichment_pending,
     _statistics_stale,
-    enrichment_needed_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
     EnrichTableSemanticsInputs,
@@ -156,7 +162,7 @@ def _enrichment_gate(gate: PostImportGateContext) -> bool:
     # Same gates create_external_data_job_model_activity applies for V2, but evaluated
     # post-register: columns this sync added are already visible, so enrichment picks
     # them up now instead of on the next sync. Both children re-check and are idempotent.
-    return enrichment_needed_for(gate.team_id, gate.schema.table, gate.schema, gate.ai_data_processing_approved)
+    return gate.ai_data_processing_approved and _enrichment_pending(gate.team_id, gate.schema.table, gate.schema)
 
 
 def _statistics_gate(gate: PostImportGateContext) -> bool:
@@ -375,6 +381,21 @@ def _legacy_step_keys(ctx: PostImportContext) -> list[str]:
     return keys
 
 
+def _store_column_sensitivity(schema: ExternalDataSchema) -> None:
+    # Runs after every completed load, so columns a sync adds get classified. It must never fail the other steps.
+    table = schema.table
+    if table is None or not is_schema_flag_enabled(schema, COLUMN_SENSITIVITY_FLAG):
+        return
+    try:
+        changed = classify_table_columns(schema.team_id, table)
+    except Exception as e:
+        capture_exception(e)
+        LOGGER.warning("Column sensitivity classification failed", schema_id=str(schema.id), error=str(e))
+        return
+    if changed:
+        LOGGER.info("Column sensitivity classified", schema_id=str(schema.id), changed_columns=changed)
+
+
 @activity.defn
 @with_internal_db_retries
 def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> PostImportContext:
@@ -405,6 +426,8 @@ def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> Po
             job_status=job.status,
         )
         return PostImportContext(steps=[])
+
+    _store_column_sensitivity(schema)
 
     source_type = schema.source.source_type
     snapshot = job.schema_snapshot or {}
