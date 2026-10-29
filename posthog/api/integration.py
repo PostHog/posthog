@@ -797,6 +797,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     # Typed as a plain field, because the create request schema below swaps in a choice field.
     kind: serializers.Field = serializers.CharField(
         max_length=32,
+        trim_whitespace=False,
         help_text=(
             "The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds "
             "that PostHog connects here. Data warehouse sources also store their typed-in credentials as "

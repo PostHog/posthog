@@ -7047,6 +7047,13 @@ class TestSlackPostHogCodeKindDeprecated:
         serializer.is_valid()
         assert "kind" not in serializer.errors
 
+    def test_validate_kind_rejects_whitespace_padded_kind(self):
+        # PersonalConnectionRecentAuthPermission compares the raw kind, so a trimmed kind would bypass it.
+        serializer = IntegrationSerializer(data={"kind": "posthog ", "config": {}})
+
+        assert not serializer.is_valid()
+        assert "kind" in serializer.errors
+
 
 class TestGitHubIntegrationListStatusFields:
     @pytest.fixture(autouse=True)
