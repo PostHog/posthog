@@ -10,6 +10,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -101,6 +102,34 @@ class TestPushDispatcher(TestCase):
         self.assertEqual(data["notificationKind"], _name)
         # No presence rows in this test's setUp, so nothing to suppress.
         self.assertEqual(suppressed, [])
+
+    @parameterized.expand(
+        [
+            (notify, use_dedicated)
+            for notify in (notify_task_run_completed, notify_task_run_turn_completed, notify_task_run_awaiting_input)
+            for use_dedicated in (False, True)
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.get_tasks_stream_redis_sync")
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_preview_timeout_falls_back_to_status(
+        self,
+        notify: Callable[[TaskRun], object],
+        use_dedicated: bool,
+        mock_delay: Mock,
+        mock_redis: Mock,
+    ) -> None:
+        self.task_run.state = {"use_dedicated_stream": use_dedicated}
+        self.task_run.output = {"final_message": "Previous reply."}
+        mock_redis.return_value.get.side_effect = RedisTimeoutError("preview unavailable")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.task_run)
+
+        mock_redis.assert_called_once_with(use_dedicated, socket_timeout=0.5, socket_connect_timeout=0.5)
+        mock_delay.assert_called_once()
+        expected_status = "needs your input" if notify is notify_task_run_awaiting_input else "finished"
+        self.assertEqual(mock_delay.call_args.args[2], f'"My Task" {expected_status}')
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_trial_completion_does_not_notify_the_operator(self, mock_delay) -> None:

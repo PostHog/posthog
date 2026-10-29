@@ -309,7 +309,10 @@ def _enqueue_inner(
 
     if kind in {"completed", "turn_completed", "awaiting"}:
         try:
-            client = get_tasks_stream_redis_sync(run_uses_dedicated_stream(task_run.state))
+            # Preview reads run inline with turn-end ingestion, so fail fast and keep the status body.
+            client = get_tasks_stream_redis_sync(
+                run_uses_dedicated_stream(task_run.state), socket_timeout=0.5, socket_connect_timeout=0.5
+            )
             preview = client.get(f"{get_task_run_stream_key(str(task_run.id))}:push-message")
             if preview is not None:
                 message = PushMessage.from_json(preview)

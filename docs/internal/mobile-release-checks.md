@@ -61,6 +61,9 @@ Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.
   report-specific titles. Check the master and category controls in Settings, foreground suppression for
   the open chat, and a local snooze reminder. Report pushes also need `posthog-code-mobile-push`.
   See [Push notifications](../../products/mobile/docs/PUSH.md) for setup and routing checks.
+- **Chat notification fallback.** With stream Redis unavailable or slow, confirm chat completion and
+  input-needed pushes use the task status body and turn-end processing continues. Preview reads use
+  0.5-second socket and connection timeouts.
 - **Recovery and appearance.** Disconnect during refresh or send, then reconnect. Show a retryable error,
   preserve the draft and avoid duplicate sends. Check light and dark appearance, a narrow supported phone,
   larger text and screen-reader labels on the main actions.
