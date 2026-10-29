@@ -130,6 +130,7 @@ export interface sidepanelTicketsLogicValues {
     sendSupportRequest: SupportFormFields // supportLogic
     user: UserType | null // userLogic
     canCreateTicket: boolean
+    composerRevision: number
     currentTicket: ConversationTicket | null
     currentTicketDraft: JSONContent | null
     currentTicketHasDraft: boolean
@@ -143,7 +144,6 @@ export interface sidepanelTicketsLogicValues {
     messageSending: boolean
     messages: ChatMessage[]
     messagesLoading: boolean
-    composerRevision: number
     newTicketContext: string | null
     newTicketDraft: JSONContent | null
     pendingTicketId: string | null
@@ -191,6 +191,9 @@ export interface sidepanelTicketsLogicActions {
     initTickets: () => {
         value: true
     }
+    loadDrafts: (drafts: StoredDrafts) => {
+        drafts: StoredDrafts
+    }
     loadMessages: (ticketId: string) => {
         ticketId: string
     }
@@ -208,9 +211,6 @@ export interface sidepanelTicketsLogicActions {
     }
     openTicketById: (ticketId: string) => {
         ticketId: string
-    }
-    loadDrafts: (drafts: StoredDrafts) => {
-        drafts: StoredDrafts
     }
     requestRestoreLink: (email: string) => {
         email: string
@@ -262,8 +262,8 @@ export interface sidepanelTicketsLogicActions {
         ticketId: string,
         content: JSONContent | null
     ) => {
-        ticketId: string
         content: JSONContent | null
+        ticketId: string
     }
     setTickets: (tickets: ConversationTicket[]) => {
         tickets: ConversationTicket[]
@@ -292,12 +292,12 @@ export interface sidepanelTicketsLogicActions {
 export interface sidepanelTicketsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         draftOwnerId: (user: UserType | null) => string | null
-        hasNewTicketDraft: (draft: JSONContent | null) => boolean
+        hasNewTicketDraft: (newTicketDraft: JSONContent | null) => boolean
         currentTicketDraft: (
             ticketDrafts: Record<string, TicketDraft>,
             currentTicket: ConversationTicket | null
         ) => JSONContent | null
-        currentTicketHasDraft: (draft: JSONContent | null) => boolean
+        currentTicketHasDraft: (currentTicketDraft: JSONContent | null) => boolean
         ticketIdsWithDrafts: (ticketDrafts: Record<string, TicketDraft>) => string[]
         totalUnreadCount: (tickets: ConversationTicket[]) => number
         effectiveStatusFilter: (
