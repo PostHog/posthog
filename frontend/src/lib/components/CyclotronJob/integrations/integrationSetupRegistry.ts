@@ -20,9 +20,13 @@ export type IntegrationSetupDefinition = {
         isOpen: boolean
         kind: string
         integration?: any
+        // Starting values for the setup form, read when the modal first mounts.
+        defaults?: Record<string, any>
         onComplete: (id?: number) => void
         onClose: () => void
     }>
+    // Setup form field -> key in a migrated destination's vendor config, for the non-secret fields only.
+    vendorConfigKeys?: Record<string, string>
 }
 
 const registeredSetups = new Map<string, IntegrationSetupDefinition>()

@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import 'lib/components/CyclotronJob/integrations/integrationSetups'
 import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,7 +23,8 @@ export const scene: SceneExport = {
 
 export function DestinationConnectScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { kind, destinationDefinition, isModalOpen, integrationId } = useValues(destinationConnectSceneLogic)
+    const { kind, destinationDefinition, isModalOpen, integrationId, migrationPrefillLoading, setupDefaults } =
+        useValues(destinationConnectSceneLogic)
     const { setModalOpen, setIntegrationId } = useActions(destinationConnectSceneLogic)
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
@@ -62,7 +62,9 @@ export function DestinationConnectScene(): JSX.Element {
                 }
             />
             <div className="max-w-200">
-                {integrationId !== null ? (
+                {migrationPrefillLoading ? (
+                    <Spinner />
+                ) : integrationId !== null ? (
                     <LemonBanner type="success">
                         <p className="font-semibold mb-1">{typeLabel} connection saved</p>
                         <p className="m-0 text-sm">
@@ -82,13 +84,17 @@ export function DestinationConnectScene(): JSX.Element {
                     )
                 )}
             </div>
-            <SetupModal
-                isOpen={isModalOpen && integrationId === null}
-                kind={kind}
-                // The modals' close button calls onComplete with the click event, so only a number is a saved id.
-                onComplete={(id) => (typeof id === 'number' ? setIntegrationId(id) : setModalOpen(false))}
-                onClose={() => setModalOpen(false)}
-            />
+            {/* The form reads its defaults once, so it mounts only after the migration prefill loads. */}
+            {!migrationPrefillLoading && (
+                <SetupModal
+                    isOpen={isModalOpen && integrationId === null}
+                    kind={kind}
+                    defaults={setupDefaults}
+                    // The modals' close button calls onComplete with the click event, so only a number is a saved id.
+                    onComplete={(id) => (typeof id === 'number' ? setIntegrationId(id) : setModalOpen(false))}
+                    onClose={() => setModalOpen(false)}
+                />
+            )}
         </SceneContent>
     )
 }

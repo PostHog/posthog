@@ -15187,6 +15187,10 @@ export type ExternalDataDestinationsConnectLinkRetrieveParams = {
      * @minLength 1
      */
     integration_kind?: string
+    /**
+     * Optional warehouse migration item whose planned destination this link sets up. The page then shows the destination's non-secret settings from the vendor, so the user only enters the secret, and the instructions give the target config to create the destination with.
+     */
+    migration_item_id?: string
 }
 
 export type ExternalDataDestinationsConnectLinkRetrieveDestinationType =
