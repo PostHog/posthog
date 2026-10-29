@@ -307,12 +307,13 @@ class EventsScan:
         join = node.select_from
         if join is None or not isinstance(join.table, ast.Field):
             return None
-        table_name = ".".join(str(part) for part in join.table.chain)
+        parts = [str(part) for part in join.table.chain]
+        table_name = ".".join(parts)
         if table_name not in _EVENTS_NAMES or table_name in ctes:
             return None
         scan = cls(
             join=join,
-            alias=join.alias or "__".join(str(part) for part in join.table.chain),
+            alias=join.alias or "__".join(parts),
             # A field without a table prefix can bind to a joined table or an ARRAY JOIN alias instead.
             has_other_sources=join.next_join is not None or bool(node.array_join_list),
             flag_key_compares_as_string=flag_key_compares_as_string,
@@ -339,21 +340,19 @@ class EventsScan:
             return expr.chain[1:]
         if self.has_other_sources or expr.chain[0] in self.shadowed:
             return None
-        qualifier_length = self._dotted_qualifier_length(expr.chain)
-        if qualifier_length is not None:
-            return expr.chain[qualifier_length:]
-        return expr.chain
+        unqualified = self._without_dotted_qualifier(expr.chain)
+        return expr.chain if unqualified is None else unqualified
 
-    def _dotted_qualifier_length(self, chain: list[str | int]) -> int | None:
-        """How many segments of `chain` spell `posthog.events`, or None. Without an alias, `FROM posthog.events` puts
-        the table in scope as `posthog__events`, and a read can spell that name as `posthog.events` or
+    def _without_dotted_qualifier(self, chain: list[str | int]) -> list[str | int] | None:
+        """`chain` without a leading `posthog.events`, or None when it has none. Without an alias, `FROM posthog.events`
+        puts the table in scope as `posthog__events`, and a read can spell that name as `posthog.events` or
         `` `posthog.events` ``."""
         if self.alias != "posthog__events" or str(chain[0]) in self.qualifier_shadows:
             return None
         if chain[0] == "posthog.events" and len(chain) > 1:
-            return 1
+            return chain[1:]
         if chain[:2] == ["posthog", "events"] and len(chain) > 2:
-            return 2
+            return chain[2:]
         return None
 
     def shape_refusal(self, node: ast.SelectQuery) -> str | None:
@@ -1167,7 +1166,8 @@ class _FlagCallViewFinder(SyntaxVisitor):
 
 
 def _reads_only_flag_calls_from_events(node: ast.SelectQuery) -> bool:
-    scan = EventsScan.of(node, lambda: True)
+    # `_reads_events_table` tells a CTE from the table by its resolved type.
+    scan = EventsScan.of(node, lambda: True, frozenset())
     return (
         scan is not None
         and _reads_events_table(scan.join)

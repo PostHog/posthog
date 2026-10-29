@@ -1304,6 +1304,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("flag_calls", f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}", "saved_calls"),
+            (
+                "posthog_events_flag_calls",
+                f"SELECT uuid FROM posthog.events WHERE {FLAG_CALL_CONJUNCTS}",
+                "saved_calls",
+            ),
             ("view_of_a_flag_call_view", "SELECT uuid FROM inner_calls", "inner_calls"),
             ("pageviews", f"SELECT uuid FROM events WHERE {PAGEVIEW_CONJUNCTS}", None),
             (
