@@ -895,6 +895,7 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
     from posthog.api.project import ProjectSerializer
     from posthog.api.team.team_serializer import TeamSerializer
     from posthog.api.user import UserSerializer
+    from posthog.caching.team_serializer_cache import cached_team_app_context
     from posthog.models.user_home_settings import UserHomeSettings
     from posthog.user_permissions import UserPermissions
 
@@ -948,7 +949,7 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
                 },
                 many=False,
             )
-            posthog_app_context["current_team"] = team_serialized.data
+            posthog_app_context["current_team"] = cached_team_app_context(team_serialized, user.team, user.id)
 
         with tracer.start_as_current_span("template.project_serializer"):
             project_serialized = ProjectSerializer(
