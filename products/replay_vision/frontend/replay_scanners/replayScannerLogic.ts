@@ -2279,7 +2279,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             draftScannerFromGoal: ({ request: { goal, templateKey, spend } }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
-                    // Set when a goal starter card wrote the goal, so the funnel can split typed goals from one-click ones.
+                    // Set when a starter wrote the goal and it was sent unedited, or when an experiment was picked,
+                    // so the funnel can split typed goals from starter ones.
                     template_key: templateKey ?? null,
                     spend_mode: 'freeOnly' in spend ? 'free' : 'budget',
                     // The goal is customer text, so only its length is captured.
