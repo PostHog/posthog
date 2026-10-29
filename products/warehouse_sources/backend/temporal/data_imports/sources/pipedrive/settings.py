@@ -11,7 +11,7 @@ PaginationStyle = Literal["cursor", "offset", "none"]
 PAGE_SIZE = 500
 
 
-@dataclass
+@dataclass(frozen=True)
 class PipedriveEndpointConfig:
     name: str
     path: str
