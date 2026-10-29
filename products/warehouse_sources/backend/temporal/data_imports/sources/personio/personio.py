@@ -6,6 +6,8 @@ from typing import Any, Optional, cast
 import requests
 from requests import Request, Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -21,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
@@ -37,7 +40,7 @@ PERSONIO_BASE_URL = "https://api.personio.de"
 TOKEN_URL = f"{PERSONIO_BASE_URL}/v2/auth/token"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PersonioResumeConfig:
     # Personio v2 paginates via _meta.links.next.href, a self-contained URL (opaque cursor), so
     # the URL is all we persist. Optional/defaulted so previously saved state (which always carried
@@ -87,15 +90,23 @@ def _add_months(month: date, months: int) -> date:
     return date(index // 12, index % 12 + 1, 1)
 
 
-def _month_windows(first: date, last: date) -> list[tuple[date, date]]:
-    """Calendar-month (start, end) windows from the month of `first` through the month of `last`."""
-    windows = []
+def _month_starts(first: date, last: date) -> list[date]:
+    """The first day of each calendar month from the month of `first` through the month of `last`."""
+    months = []
     month = _month_start(first)
     while month <= last:
-        next_month = _add_months(month, 1)
-        windows.append((month, next_month - timedelta(days=1)))
-        month = next_month
-    return windows
+        months.append(month)
+        month = _add_months(month, 1)
+    return months
+
+
+@frozen
+class _Segment:
+    """One listing of an endpoint that Personio serves as several listings."""
+
+    key: str
+    params: dict[str, Any]
+    row_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
 
 class PersonioPaginator(JSONResponsePaginator):
@@ -141,33 +152,30 @@ def _client_config(auth: OAuth2Auth) -> ClientConfig:
     }
 
 
-def _segments(
-    config: PersonioEndpointConfig, should_use_incremental_field: bool, db_incremental_field_last_value: Any
-) -> list[tuple[str, dict[str, Any], Callable[[dict[str, Any]], dict[str, Any]] | None]]:
-    """The listings a multi-listing endpoint reads, in order: (segment key, params, row map)."""
+def _segments(config: PersonioEndpointConfig) -> list[_Segment]:
+    """The listings a multi-listing endpoint reads, in order."""
     if config.monthly_windows:
         today = datetime.now(UTC).date()
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
-            # Re-read the watermark month: the current month keeps changing until payroll closes.
-            first = _month_start(db_incremental_field_last_value)
-        else:
-            first = _add_months(_month_start(today), -COMPENSATIONS_LOOKBACK_MONTHS)
+        first = _add_months(_month_start(today), -COMPENSATIONS_LOOKBACK_MONTHS)
 
         def add_period(period_start: date) -> Callable[[dict[str, Any]], dict[str, Any]]:
             return lambda row: {**row, "period_start": period_start}
 
         return [
-            (
-                start.isoformat(),
-                {"start_date": start.isoformat(), "end_date": end.isoformat()},
-                add_period(start),
+            _Segment(
+                key=start.isoformat(),
+                params={
+                    "start_date": start.isoformat(),
+                    "end_date": (_add_months(start, 1) - timedelta(days=1)).isoformat(),
+                },
+                row_map=add_period(start),
             )
-            for start, end in _month_windows(first, today)
+            for start in _month_starts(first, today)
         ]
-    return [(variant["type"], dict(variant), None) for variant in config.query_variants]
+    return [_Segment(key=variant["type"], params=dict(variant)) for variant in config.query_variants]
 
 
-def _segmented_items(
+def _segmented_resource(
     endpoint: str,
     config: PersonioEndpointConfig,
     auth: OAuth2Auth,
@@ -175,59 +183,66 @@ def _segmented_items(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[PersonioResumeConfig],
     resume: Optional[PersonioResumeConfig],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> Callable[[], Iterator[list[dict[str, Any]]]]:
-    segments = _segments(config, should_use_incremental_field, db_incremental_field_last_value)
+) -> Resource:
+    segments = _segments(config)
     start_index = 0
     if resume is not None and resume.segment is not None:
-        start_index = next((i for i, (key, _, _) in enumerate(segments) if key == resume.segment), 0)
+        start_index = next((i for i, segment in enumerate(segments) if segment.key == resume.segment), 0)
 
-    def items() -> Iterator[list[dict[str, Any]]]:
-        for index, (key, segment_params, row_map) in enumerate(segments[start_index:], start=start_index):
-            initial_paginator_state: Optional[dict[str, Any]] = None
-            if index == start_index and resume is not None and resume.segment == key and resume.next_url:
-                initial_paginator_state = {"next_url": resume.next_url}
-            else:
-                resumable_source_manager.save_state(PersonioResumeConfig(segment=key))
-            # Every earlier listing is fully yielded, so a hand-off here loses nothing. Months with
+    def build(index: int) -> Resource:
+        segment = segments[index]
+        key = segment.key
+        next_key = segments[index + 1].key if index + 1 < len(segments) else None
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if index == start_index and resume is not None and resume.segment == key and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state is not None and state.get("next_url") is not None:
+                resumable_source_manager.save_state(PersonioResumeConfig(segment=key, next_url=state["next_url"]))
+            elif next_key is not None:
+                # The last page of this listing is on its way, so a resume starts at the next one.
+                resumable_source_manager.save_state(PersonioResumeConfig(segment=next_key))
+
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(auth),
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": {"limit": config.page_size, **segment.params},
+                        "data_selector": "_data",
+                        "paginator": PersonioPaginator(),
+                    },
+                }
+            ],
+        }
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        return resource.add_map(segment.row_map) if segment.row_map is not None else resource
+
+    first = build(start_index)
+
+    def pages() -> Iterator[list[dict[str, Any]]]:
+        for index in range(start_index, len(segments)):
+            resource = first if index == start_index else build(index)
+            if index != start_index:
+                resumable_source_manager.save_state(PersonioResumeConfig(segment=segments[index].key))
+            # Every earlier listing is fully handed on, so a hand-off here loses nothing. Months with
             # no compensations otherwise send requests with no yield in between.
             resumable_source_manager.safe_point()
+            yield from resource
 
-            def save_checkpoint(state: Optional[dict[str, Any]], key: str = key) -> None:
-                if state is not None and state.get("next_url") is not None:
-                    resumable_source_manager.save_state(PersonioResumeConfig(segment=key, next_url=state["next_url"]))
-
-            params: dict[str, Any] = {"limit": config.page_size, **segment_params}
-            rest_config: RESTAPIConfig = {
-                "client": _client_config(auth),
-                "resources": [
-                    {
-                        "name": endpoint,
-                        "endpoint": {
-                            "path": config.path,
-                            "params": params,
-                            "data_selector": "_data",
-                            "paginator": PersonioPaginator(),
-                        },
-                    }
-                ],
-            }
-            resource = rest_api_resource(
-                rest_config,
-                team_id,
-                job_id,
-                None,
-                resume_hook=save_checkpoint,
-                initial_paginator_state=initial_paginator_state,
-            )
-            if row_map is not None:
-                resource = resource.add_map(row_map)
-            for page in resource:
-                yield page
-                resumable_source_manager.safe_point()
-
-    return items
+    # As a `Resource`, the chain keeps the framework's checkpoints: each page reaches the pipeline
+    # with its cursor already staged.
+    return Resource(pages, name=endpoint, hints=first._hints)
 
 
 def personio_source(
@@ -281,17 +296,8 @@ def personio_source(
         )
         items = lambda: resource
     elif config.monthly_windows or config.query_variants:
-        items = _segmented_items(
-            endpoint,
-            config,
-            auth,
-            team_id,
-            job_id,
-            resumable_source_manager,
-            resume,
-            should_use_incremental_field,
-            db_incremental_field_last_value,
-        )
+        segmented = _segmented_resource(endpoint, config, auth, team_id, job_id, resumable_source_manager, resume)
+        items = lambda: segmented
     else:
         params: dict[str, Any] = {**incremental_params}
         if config.page_size is not None:

@@ -260,26 +260,46 @@ class TestGetRows:
         assert result.response is not None
         assert result.response.sort_mode is None
 
-    def test_org_units_lists_each_type(self) -> None:
+    def test_org_units_lists_each_type_and_stages_cursor_before_each_page(self) -> None:
+        next_url = "https://api.personio.de/v2/org-units?type=department&cursor=p2"
         result = _driver().run(
             "org_units",
             [
                 _token_response(),
-                _page([{"id": "1", "type": "department"}]),
+                _page([{"id": "1", "type": "department"}], next_url=next_url),
+                _page([{"id": "2", "type": "department"}]),
                 _page([{"id": "1", "type": "team"}]),
             ],
         )
 
         assert result.raised is None
-        assert [request.param("type") for request in result.requests[1:]] == ["department", "team"]
-        assert all(request.param("include_parent_chain") == "true" for request in result.requests[1:])
-        assert [(row["type"], row["id"]) for row in result.rows] == [("department", "1"), ("team", "1")]
+        assert [request.param("type") for request in result.requests[1:]] == ["department", "department", "team"]
+        assert result.requests[1].param("include_parent_chain") == "true"
+        assert [(row["type"], row["id"]) for row in result.rows] == [
+            ("department", "1"),
+            ("department", "2"),
+            ("team", "1"),
+        ]
+        # Each page reaches the pipeline with the cursor past it, so a hand-off after a write never
+        # re-reads that page. The last department page already points at the team listing.
+        assert result.committed_states == [
+            PersonioResumeConfig(segment="department", next_url=next_url),
+            PersonioResumeConfig(segment="team"),
+        ]
 
-    def test_compensations_full_refresh_walks_month_windows(self) -> None:
-        result = _driver().run("compensations", _answer_empty)
+    def test_compensations_walks_month_windows(self) -> None:
+        result = _driver().run(
+            "compensations",
+            lambda request: _token_response()
+            if request.path == "/v2/auth/token"
+            else _page([{"id": "c1"}] if request.param("start_date") == _this_month().isoformat() else []),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2099, 1, 1),
+        )
 
         assert result.raised is None
         windows = [(request.param("start_date"), request.param("end_date")) for request in result.requests[1:]]
+        # Always the full lookback: a compensation can land in a past month after it was synced.
         assert len(windows) == COMPENSATIONS_LOOKBACK_MONTHS + 1
         assert windows[0][0] == _months_before(_this_month(), COMPENSATIONS_LOOKBACK_MONTHS).isoformat()
         assert windows[-1][0] == _this_month().isoformat()
@@ -287,28 +307,7 @@ class TestGetRows:
             assert start is not None and end is not None
             # Personio rejects a window longer than one month.
             assert start[:7] == end[:7] and start.endswith("-01")
-
-    def test_compensations_incremental_rereads_watermark_month(self) -> None:
-        last_month = _months_before(_this_month(), 1)
-        result = _driver().run(
-            "compensations",
-            [_token_response(), _page([{"id": "c1"}]), _page([{"id": "c1"}, {"id": "c2"}])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=last_month.replace(day=10),
-        )
-
-        assert result.raised is None
-        assert [request.param("start_date") for request in result.requests[1:]] == [
-            last_month.isoformat(),
-            _this_month().isoformat(),
-        ]
-        assert [(row["period_start"], row["id"]) for row in result.rows] == [
-            (last_month, "c1"),
-            (_this_month(), "c1"),
-            (_this_month(), "c2"),
-        ]
-        assert result.response is not None
-        assert result.response.sort_mode == "asc"
+        assert [(row["period_start"], row["id"]) for row in result.rows] == [(_this_month(), "c1")]
 
     def test_compensations_resume_skips_finished_windows(self) -> None:
         last_month = _months_before(_this_month(), 1)
@@ -316,8 +315,6 @@ class TestGetRows:
         result = _driver().run(
             "compensations",
             [_token_response(), _page([{"id": "c9"}]), _page([])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=_months_before(_this_month(), 2),
             resume_state=PersonioResumeConfig(segment=last_month.isoformat(), next_url=resume_url),
         )
 

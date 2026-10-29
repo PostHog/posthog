@@ -75,20 +75,13 @@ PERSONIO_ENDPOINTS: dict[str, PersonioEndpointConfig] = {
         ),
     ),
     # One row per compensation per month window: recurring compensations repeat in every window,
-    # so the window start is part of the key and the only usable cursor.
+    # so the window start is part of the key. Full refresh only: a compensation can be added to a
+    # past month at any time, and the API has no change timestamp to find it with.
     "compensations": PersonioEndpointConfig(
         name="compensations",
         path="/v2/compensations",
         scope="personio:compensations:read",
         primary_keys=("period_start", "id"),
-        incremental_fields=[
-            {
-                "label": "period_start",
-                "type": IncrementalFieldType.Date,
-                "field": "period_start",
-                "field_type": IncrementalFieldType.Date,
-            },
-        ],
         monthly_windows=True,
     ),
     "absence_periods": PersonioEndpointConfig(
