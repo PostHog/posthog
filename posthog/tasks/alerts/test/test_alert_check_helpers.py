@@ -13,7 +13,7 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
 )
 
-from products.alerts.backend.logic.insight_alert_message import INVESTIGATION_SUMMARY_MAX_CHARS
+from products.alerts.backend.facade.destinations import INVESTIGATION_SUMMARY_MAX_CHARS
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 

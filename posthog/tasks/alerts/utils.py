@@ -27,11 +27,13 @@ from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     INVESTIGATION_SUMMARY_MAX_CHARS,
     alert_internal_event_delivered,
+    bounded_destination_summary,
     flush_alert_internal_events,
     insight_alert_slack_properties,
     list_active_alert_destinations,
     produce_alert_internal_event,
     serialize_deliveries,
+    truncate_markdown_safely,
 )
 from products.alerts.backend.facade.email import alert_email_recipients, send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
@@ -40,7 +42,6 @@ from products.alerts.backend.insight_alert_state_machine import (
     evaluate_alert_check,
     should_notify,
 )
-from products.alerts.backend.logic.insight_alert_message import bounded_destination_summary, truncate_markdown_safely
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo

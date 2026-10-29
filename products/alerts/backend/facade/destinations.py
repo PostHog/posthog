@@ -115,6 +115,16 @@ def build_insight_alert_slack_config(
 INVESTIGATION_SUMMARY_MAX_CHARS: Final = insight_alert_message.INVESTIGATION_SUMMARY_MAX_CHARS
 
 
+def truncate_markdown_safely(text: str, limit: int) -> str:
+    """Cut the text to the limit without leaving a markdown construct open."""
+    return insight_alert_message.truncate_markdown_safely(text, limit)
+
+
+def bounded_destination_summary(summary: str, *, limit: int, allowed_root: str | None = None) -> str:
+    """The investigation summary in the form a chat destination can show it."""
+    return insight_alert_message.bounded_destination_summary(summary, limit=limit, allowed_root=allowed_root)
+
+
 def insight_alert_slack_properties(
     *,
     breaches: list[str],
