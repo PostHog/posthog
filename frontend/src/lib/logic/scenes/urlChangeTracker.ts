@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 /**
@@ -9,6 +10,11 @@ import posthog from 'posthog-js'
  *
  * Owner: team-web-analytics
  * Context: https://github.com/PostHog/posthog/pull/49891
+ *
+ * Two detectors share this module:
+ * - `trackUrlChange` sees writes that go through `trackedActionToUrl`, keyed per logic.
+ * - `trackRouterLocationChange` sees every push and replace the router makes, whatever wrote it. It
+ *   catches loops between logics, plain `actionToUrl` writes, and direct `router.actions.replace` calls.
  *
  * This is observability-only code - it does not suppress or modify URL updates,
  * only logs warnings and captures events when thresholds are exceeded.
@@ -140,11 +146,34 @@ class UrlChangeTracker {
     }
 }
 
+type UrlChangeDetector = 'action_to_url' | 'router'
+
+const DETECTOR_ERRORS: Record<UrlChangeDetector, { message: string; tag: string; component: string }> = {
+    action_to_url: {
+        message: 'Rapid URL changes detected in kea router',
+        tag: 'web_analytics_rapid_url_changes',
+        component: 'tabAwareActionToUrl',
+    },
+    router: {
+        message: 'Router URL loop detected',
+        tag: 'router_rapid_url_changes',
+        component: 'router',
+    },
+}
+
+// The router logic's own path, so it can't collide with a logic tracked through `trackedActionToUrl`
+const ROUTER_TRACKER_KEY = 'kea.router'
+
+// The router tracker counts the writes of every mounted logic together, so a scene where a few logics
+// each settle the URL once on load can pass the per-logic ceiling. A real loop writes dozens of times a
+// second, so a higher ceiling still catches it within the first second.
+const ROUTER_TRACKER_CONFIG: Partial<UrlChangeTrackerConfig> = { maxChangesPerSecond: 12 }
+
 const trackersByLogicPath = new Map<string, UrlChangeTracker>()
 
-export function getUrlChangeTracker(logicPath: string): UrlChangeTracker {
+export function getUrlChangeTracker(logicPath: string, config?: Partial<UrlChangeTrackerConfig>): UrlChangeTracker {
     if (!trackersByLogicPath.has(logicPath)) {
-        trackersByLogicPath.set(logicPath, new UrlChangeTracker())
+        trackersByLogicPath.set(logicPath, new UrlChangeTracker(config))
     }
     return trackersByLogicPath.get(logicPath)!
 }
@@ -157,7 +186,8 @@ export function captureRapidUrlChangeWarning(
     tracker: UrlChangeTracker,
     currentUrl: string,
     logicPath: string,
-    actionName: string
+    actionName: string,
+    detector: UrlChangeDetector = 'action_to_url'
 ): void {
     if (!tracker.canWarn()) {
         return
@@ -179,16 +209,20 @@ export function captureRapidUrlChangeWarning(
         sessionReplayUrl,
     })
 
-    // Capture exception to PostHog for monitoring
-    const error = new Error('Rapid URL changes detected in kea router')
+    // Capture exception to PostHog for monitoring. This runs synchronously inside the write that tripped
+    // the detector, so the stack trace shows which code wrote the URL.
+    const { message, tag, component } = DETECTOR_ERRORS[detector]
+    const error = new Error(message)
     posthog.captureException(error, {
-        tag: 'web_analytics_rapid_url_changes',
-        component: 'tabAwareActionToUrl',
+        tag,
+        component,
+        detector,
         severity: 'warning',
         url: currentUrl,
         logic_path: logicPath,
         action_name: actionName,
         change_count: debugInfo.changeCount,
+        recent_urls: debugInfo.recentUrls,
         session_replay_url: sessionReplayUrl,
     })
 
@@ -204,10 +238,12 @@ export function captureRapidUrlChangeWarning(
 
     // Capture as event for easier querying/alerting
     posthog.capture('kea_router_rapid_url_changes', {
+        detector,
         url: currentUrl,
         logic_path: logicPath,
         action_name: actionName,
         change_count: debugInfo.changeCount,
+        recent_urls: debugInfo.recentUrls,
         has_object_object: containsSerializationBug(currentUrl),
         session_replay_url: sessionReplayUrl,
     })
@@ -245,5 +281,42 @@ export function trackUrlChange(response: ActionToUrlResponse, logicPath: string,
         // Silently ignore errors - this is observability code that should never disturb the app
     }
 }
+
+export function trackRouterLocationChange(method: string, url: string): void {
+    // Back and forward come from the person, not from code, so they can't be a write loop
+    if (method === 'POP') {
+        return
+    }
+    try {
+        const tracker = getUrlChangeTracker(ROUTER_TRACKER_KEY, ROUTER_TRACKER_CONFIG)
+        tracker.recordChange(url, ROUTER_TRACKER_KEY, method)
+        if (tracker.isRapidlyChanging()) {
+            captureRapidUrlChangeWarning(tracker, url, ROUTER_TRACKER_KEY, method, 'router')
+        }
+    } catch {
+        // Silently ignore errors - this is observability code that should never disturb the app
+    }
+}
+
+type RouterAction = { type?: string; payload?: { method?: string; url?: string; initial?: boolean } }
+
+/** Redux middleware that feeds every router location change to `trackRouterLocationChange`. */
+export const routerUrlChangeTrackingMiddleware =
+    () =>
+    (next: (action: unknown) => unknown) =>
+    (action: unknown): unknown => {
+        // Same reason as in `trackUrlChange`: jest navigates many times per second
+        if (process.env.NODE_ENV !== 'test') {
+            try {
+                const { type, payload } = (action ?? {}) as RouterAction
+                if (type === router.actionTypes.locationChanged && payload?.url && !payload.initial) {
+                    trackRouterLocationChange(payload.method ?? '', payload.url)
+                }
+            } catch {
+                // Silently ignore errors - this is observability code that should never disturb the app
+            }
+        }
+        return next(action)
+    }
 
 export { UrlChangeTracker }

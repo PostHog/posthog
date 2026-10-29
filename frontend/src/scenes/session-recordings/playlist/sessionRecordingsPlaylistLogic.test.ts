@@ -823,6 +823,19 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
         })
 
+        it("leaves another scene's array of filters in the URL alone", async () => {
+            const webAnalyticsFilters = [
+                { type: 'session', key: '$channel_type', value: 'AI', operator: PropertyOperator.Exact },
+            ]
+
+            await expectLogic(logic, () => {
+                router.actions.push('/web', { filters: webAnalyticsFilters })
+            })
+                .toNotHaveDispatchedActions(['setFilters'])
+                .toMatchValues({ filters: getDefaultFilters() })
+            expect(router.values.searchParams.filters).toEqual(webAnalyticsFilters)
+        })
+
         describe('session_ids filter', () => {
             const emptyFilterGroup = {
                 type: FilterLogicalOperator.And,

@@ -11,6 +11,7 @@ import posthog from 'posthog-js'
 
 import { isAccessDeniedError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { routerUrlChangeTrackingMiddleware } from 'lib/logic/scenes/urlChangeTracker'
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
@@ -396,6 +397,7 @@ export function initKea({
     resetContext({
         plugins: plugins,
         createStore: {
+            middleware: [routerUrlChangeTrackingMiddleware],
             // Disable redux dev-tools's compose by passing `compose` from redux directly
             compose: ((...funcs: any[]) => {
                 if (funcs.length === 0) {

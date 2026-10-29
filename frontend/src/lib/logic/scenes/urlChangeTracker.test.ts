@@ -1,10 +1,15 @@
+import posthog from 'posthog-js'
+
 import {
     containsSerializationBug,
     extractUrlString,
     getUrlChangeTracker,
     resetAllTrackers,
+    trackRouterLocationChange,
     UrlChangeTracker,
 } from './urlChangeTracker'
+
+jest.mock('posthog-js')
 
 describe('extractUrlString', () => {
     it.each([
@@ -295,5 +300,53 @@ describe('UrlChangeTracker', () => {
 
             expect(customTracker.canWarn()).toBe(true)
         })
+    })
+})
+
+describe('trackRouterLocationChange', () => {
+    beforeEach(() => {
+        jest.useFakeTimers()
+        jest.clearAllMocks()
+        resetAllTrackers()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    it('flags two logics rewriting the same param back and forth, whatever wrote the URL', () => {
+        // Neither write goes through `trackedActionToUrl`, so only the router detector can see this loop
+        for (let i = 0; i < 20; i++) {
+            trackRouterLocationChange('REPLACE', i % 2 === 0 ? '/web?filters=[]' : '/web?filters={}')
+        }
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        expect(posthog.captureException).toHaveBeenCalledWith(
+            new Error('Router URL loop detected'),
+            expect.objectContaining({ detector: 'router', tag: 'router_rapid_url_changes', action_name: 'REPLACE' })
+        )
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'kea_router_rapid_url_changes',
+            expect.objectContaining({ detector: 'router', logic_path: 'kea.router' })
+        )
+    })
+
+    it.each([
+        { count: 12, expected: 0 },
+        { count: 13, expected: 1 },
+    ])('allows a scene to settle the URL a few times on load: $count writes', ({ count, expected }) => {
+        for (let i = 0; i < count; i++) {
+            trackRouterLocationChange('REPLACE', '/web?filters=[]')
+        }
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(expected)
+    })
+
+    it('ignores back and forward navigation', () => {
+        for (let i = 0; i < 20; i++) {
+            trackRouterLocationChange('POP', i % 2 === 0 ? '/web' : '/replay/home')
+        }
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
     })
 })

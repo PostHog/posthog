@@ -334,7 +334,9 @@ export function overviewPropertyFilterType(
 }
 
 export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
-    if (!filters || typeof filters !== 'object') {
+    // Other scenes put an array of property filters in the same `filters` search param (e.g. web
+    // analytics). An array passes every field check below, so adopting it would rewrite that scene's URL.
+    if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
         return false
     }
 
