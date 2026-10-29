@@ -171,13 +171,17 @@ export function ExplainChartView({
                     className="relative shrink-0 border-t border-border @3xl/story:w-(--story-panel-width) @3xl/story:border-t-0 @3xl/story:border-l"
                     style={
                         {
-                            '--story-panel-width': panelWidth === null ? DEFAULT_PANEL_WIDTH : `${panelWidth}px`,
+                            // The browser keeps room for the chart when the space shrinks after a drag.
+                            '--story-panel-width':
+                                panelWidth === null
+                                    ? DEFAULT_PANEL_WIDTH
+                                    : `clamp(${MIN_PANEL_WIDTH}px, ${panelWidth}px, calc(100% - ${MIN_CHART_WIDTH}px))`,
                         } as CSSProperties
                     }
                     aria-label="Explanation of this chart"
                 >
                     <StoryPanelResizeGrip
-                        getWidth={() => panelWidth ?? asideRef.current?.offsetWidth ?? MIN_PANEL_WIDTH}
+                        getWidth={() => asideRef.current?.offsetWidth ?? panelWidth ?? MIN_PANEL_WIDTH}
                         minWidth={MIN_PANEL_WIDTH}
                         maxWidth={maxPanelWidth()}
                         onResize={(width) => setPanelWidth(Math.min(Math.max(width, MIN_PANEL_WIDTH), maxPanelWidth()))}
