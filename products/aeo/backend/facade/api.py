@@ -20,6 +20,7 @@ from django.db.models import Aggregate, Count, Max, Min, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
 from products.aeo.backend import gaps
@@ -304,6 +305,8 @@ def _top_domains(
     each check's distinct hosts. `answers` is the number of answered checks the shares are over."""
     if answers == 0:
         return ()
+    # The ORM reads above map a child environment to its parent; raw SQL has to do the same.
+    team_id = resolve_effective_team_id(team_id)
     with connection.cursor() as cursor:
         cursor.execute(
             """

@@ -19,6 +19,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
 from products.aeo.backend.engines import top_domains
+from products.aeo.backend.facade.api import get_prompt_set_overview
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.test.factories import create_citation_check
 
@@ -660,6 +661,9 @@ class TestAEOPromptAPI(APIBaseTest):
             ("docs.example.com", 2, 0.5, True),
             ("rival.example.org", 2, 0.5, False),
         ]
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        via_child = get_prompt_set_overview(child.id, timezone_name="UTC", days=7)
+        assert [domain.domain for domain in via_child.top_domains] == ["docs.example.com", "rival.example.org"]
 
     def test_overview_rejects_a_window_outside_the_bounds(self) -> None:
         assert self.client.get(f"{self.url}overview/?days=0").status_code == status.HTTP_400_BAD_REQUEST
