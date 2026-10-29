@@ -14,6 +14,7 @@ use common::{
     test_recovery, unique_team_id, NUM_PARTITIONS,
 };
 use personhog_common::partitioning::partition_for_person;
+use personhog_common::properties::jsonb_column_size;
 use personhog_leader::cache::{
     CacheLookup, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey,
 };
@@ -3708,4 +3709,35 @@ async fn a_fenced_person_refuses_a_raise() {
         "delete"
     );
     assert!(changelog_records(&harness).is_empty());
+}
+
+#[tokio::test]
+async fn a_raise_trims_a_stored_person_over_the_size_limit() {
+    let big = "x".repeat(400_000);
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            properties: serde_json::to_vec(&serde_json::json!({
+                "email": "test@example.com", "custom_a": big, "custom_b": big,
+            }))
+            .unwrap(),
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+
+    harness
+        .client
+        .raise_person_version(with_partition(
+            raise_request(harness.team_id, harness.person_id, 10),
+            harness.partition,
+        ))
+        .await
+        .expect("raise succeeds");
+
+    let records = changelog_records(&harness);
+    assert_eq!(records.len(), 1);
+    let properties = person_properties(&records[0]);
+    assert!(jsonb_column_size(&properties) <= 524_288);
+    assert_eq!(properties["email"], "test@example.com");
 }

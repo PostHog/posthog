@@ -1372,7 +1372,42 @@ impl PersonHogLeader for PersonHogLeaderService {
             .checked_add(1)
             .ok_or_else(|| Status::invalid_argument("no version left above the emitted floor"))?
             .max(req.min_version);
-        let raised = CachedPerson { version, ..person };
+        let mut raised = CachedPerson { version, ..person };
+
+        // A stored row over the size limit would stop the writer's partition, so trim it as an update does.
+        let stored = raised
+            .parse_properties()
+            .map_err(|e| Status::internal(format!("cached properties unparseable: {e}")))?;
+        let stored_size = jsonb_column_size(&stored);
+        if stored_size >= self.size_limits.threshold {
+            match trim_properties_to_fit_size(&stored, self.size_limits.trim_target) {
+                TrimResult::Trimmed(trimmed) => {
+                    counter!("personhog_leader_properties_trimmed_total").increment(1);
+                    self.warnings.emit(&SizeViolationWarning {
+                        team_id: cache_key.team_id,
+                        person_uuid: raised.uuid.clone(),
+                        message: "Oversized person properties were trimmed to fit the size limit"
+                            .to_string(),
+                    });
+                    raised.properties = serde_json::to_vec(&trimmed).map_err(|e| {
+                        Status::internal(format!("serialize trimmed properties: {e}"))
+                    })?;
+                }
+                TrimResult::Fits => {}
+                TrimResult::CannotFit => {
+                    counter!(
+                        "personhog_leader_version_raises_total",
+                        "outcome" => "rejected_unremediable"
+                    )
+                    .increment(1);
+                    return Err(Status::invalid_argument(format!(
+                        "person properties exceed the size limit: stored state is {stored_size} \
+                         bytes (jsonb) and protected properties alone exceed the {} trim target",
+                        self.size_limits.trim_target,
+                    )));
+                }
+            }
+        }
 
         let committed = self
             .commit_document(partition, &cache_key, raised, guard, inflight_guard)
