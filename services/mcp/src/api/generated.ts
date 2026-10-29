@@ -95136,6 +95136,8 @@ export namespace Schemas {
       product: string;
       /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
       total_cost_usd: number;
+      /** Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount. */
+      billable_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events captured across every product. */
       event_count: number;
       /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
@@ -95154,6 +95156,8 @@ export namespace Schemas {
       event_count: number;
       /** Total cost in USD for this product over the lookback window. */
       cost_usd: number;
+      /** Whether this product is eligible for PostHog AI or Desktop credit billing, independent of event-level billing rules. */
+      billable: boolean;
     }
 
     export interface _ProductBreakdown {
