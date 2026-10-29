@@ -290,9 +290,11 @@ class TestGetRows:
     def test_compensations_walks_month_windows(self) -> None:
         result = _driver().run(
             "compensations",
-            lambda request: _token_response()
-            if request.path == "/v2/auth/token"
-            else _page([{"id": "c1"}] if request.param("start_date") == _this_month().isoformat() else []),
+            lambda request: (
+                _token_response()
+                if request.path == "/v2/auth/token"
+                else _page([{"id": "c1"}] if request.param("start_date") == _this_month().isoformat() else [])
+            ),
             should_use_incremental_field=True,
             db_incremental_field_last_value=date(2099, 1, 1),
         )
