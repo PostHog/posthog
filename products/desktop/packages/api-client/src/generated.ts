@@ -10050,6 +10050,10 @@ export namespace Schemas {
          */
         subcode: string | null;
         /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         */
+        reason: string | null;
+        /**
          * How much the problem affects the results: critical, warning, or info.
          *
          * * `critical` - Critical severity
@@ -10572,6 +10576,10 @@ export namespace Schemas {
          * The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.
          */
         evidence: Record<string, string | number | null>;
+        /**
+         * A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          */
