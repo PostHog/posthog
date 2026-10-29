@@ -15,6 +15,7 @@ import {
     materializeSaving,
     notNowCondition,
     readSummary,
+    rebuiltSummary,
     savingHighlight,
     unmaterializeSaving,
 } from '../suggestionCopy'
@@ -52,6 +53,15 @@ function suggestedChange(suggestion: WarehouseSuggestionApi): SuggestedChange | 
         }
     }
     return null
+}
+
+function detailLines(suggestion: WarehouseSuggestionApi): string[] {
+    const rebuiltByViews = isMaterializePayload(suggestion.payload) ? (suggestion.payload.recomputed_by_views ?? 0) : 0
+    const readByPeople = (suggestion.evidence.human_requests ?? 0) > 0
+    return [
+        ...(rebuiltByViews > 0 ? [rebuiltSummary(rebuiltByViews)] : []),
+        ...(readByPeople || rebuiltByViews === 0 ? [readSummary(suggestion.evidence)] : []),
+    ]
 }
 
 function SuggestionActions({ suggestion }: { suggestion: WarehouseSuggestionApi }): JSX.Element | null {
@@ -134,9 +144,11 @@ const COLUMNS: DataTableProps<WarehouseSuggestionApi, unknown>['columns'] = [
                     <span className="truncate">{row.original.payload.subject_name}</span>
                     <span className="sr-only"> (opens in a new tab)</span>
                 </Button>
-                <Text size="xs" variant="muted" className="@min-[40rem]/main-content:hidden">
-                    {readSummary(row.original.evidence)}
-                </Text>
+                {detailLines(row.original).map((line) => (
+                    <Text key={line} size="xs" variant="muted" className="@min-[40rem]/main-content:hidden">
+                        {line}
+                    </Text>
+                ))}
             </div>
         ),
     },
@@ -145,9 +157,13 @@ const COLUMNS: DataTableProps<WarehouseSuggestionApi, unknown>['columns'] = [
         header: () => <span className="hidden @min-[40rem]/main-content:inline">Detail</span>,
         enableSorting: false,
         cell: ({ row }: SuggestionCellContext) => (
-            <Text size="xs" variant="muted" className="hidden whitespace-nowrap @min-[40rem]/main-content:block">
-                {readSummary(row.original.evidence)}
-            </Text>
+            <div className="hidden flex-col @min-[40rem]/main-content:flex">
+                {detailLines(row.original).map((line) => (
+                    <Text key={line} size="xs" variant="muted" className="whitespace-nowrap">
+                        {line}
+                    </Text>
+                ))}
+            </div>
         ),
     },
     {

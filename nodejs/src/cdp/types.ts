@@ -298,11 +298,12 @@ export type AppMetricType = MinimalAppMetric & {
  * Where an event stopped, for a record on a dead-letter topic.
  *
  * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
- * `parse` and `process` are the ones it does not: a message it cannot read, and anything else
- * that throws while an event is being turned into invocations. Those two exist so an unanticipated
- * bug parks the event rather than stalling the partition it arrived on.
+ * `parse`, `lookup` and `process` are the ones it does not: a message it cannot read, a team, hog
+ * function or hog flow lookup that failed with an error that is not retriable, and anything else
+ * that throws while the pipeline turns an event into invocations. Those three park a lone
+ * unanticipated failure rather than stalling the partition it arrived on.
  */
-export type DeadLetterStep = 'parse' | 'filter' | 'inputs' | 'process'
+export type DeadLetterStep = 'parse' | 'lookup' | 'filter' | 'inputs' | 'process'
 
 export type InvocationBuildFailure = {
     sourceId: string
@@ -341,6 +342,10 @@ export type CyclotronJobInvocation = {
     queuePriority: number
     // When the invocation is scheduled to run
     queueScheduledAt?: DateTime
+    // When the queue first stored the job. A reschedule moves queueScheduledAt but not this, and a clone keeps it.
+    queueCreatedAt?: DateTime
+    // The scheduled time this job had when it was dequeued. A clone resets queueScheduledAt but keeps this.
+    queueDueAt?: DateTime
     // Metadata for the invocation - TODO: check when this gets cleared
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)

@@ -17,6 +17,9 @@ export function canUnassignMe(report: SignalReport, isScopedToMe: boolean): bool
  * the server-side autostart rules: only when ready & actionable, or blocked on user input.
  */
 export function canCreateImplementationPr(report: SignalReport): boolean {
+    if (report.is_self_improvement_report && !report.repo_slug) {
+        return false
+    }
     if (primaryReportPullRequest(report).url) {
         return false
     }
@@ -42,6 +45,7 @@ export function canResolveReport(report: SignalReport): boolean {
         report.status === SignalReportStatus.READY ||
         report.status === SignalReportStatus.PENDING_INPUT ||
         report.status === SignalReportStatus.FAILED ||
+        report.status === SignalReportStatus.CLOSED ||
         report.status === SignalReportStatus.MONITORING
     )
 }
@@ -51,6 +55,7 @@ export function canMonitorReport(report: SignalReport, hasFollowUpChecks: boolea
         hasFollowUpChecks &&
         'monitoring_started_at' in report &&
         canResolveReport(report) &&
+        report.status !== SignalReportStatus.CLOSED &&
         report.status !== SignalReportStatus.MONITORING
     )
 }

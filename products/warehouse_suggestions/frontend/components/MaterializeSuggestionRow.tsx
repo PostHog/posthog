@@ -7,7 +7,13 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { suggestionBlockedReason } from '../suggestionBlockedReason'
-import { isMaterializePayload, materializeSaving, readSummary, savingHighlight } from '../suggestionCopy'
+import {
+    isMaterializePayload,
+    materializeSaving,
+    readSummary,
+    rebuiltSummary,
+    savingHighlight,
+} from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
@@ -30,6 +36,8 @@ export function MaterializeSuggestionRow({
         return null
     }
     const leaving = leavingSuggestionIds.includes(suggestion.id)
+    const rebuiltByViews = payload.recomputed_by_views ?? 0
+    const readByPeople = (suggestion.evidence.human_requests ?? 0) > 0
     const blockedReason = suggestionBlockedReason(suggestion, actionsInFlight, leaving)
 
     return (
@@ -41,13 +49,16 @@ export function MaterializeSuggestionRow({
             icon={iconForType('data_modeling')}
             title={<SuggestionSubjectLink suggestion={suggestion} />}
             meta={[
-                <WhyThisSuggestion
-                    key="reads"
-                    evidence={suggestion.evidence}
-                    windowDays={windowDays}
-                    label={readSummary(suggestion.evidence)}
-                />,
-            ]}
+                rebuiltByViews > 0 && <span key="rebuilt">{rebuiltSummary(rebuiltByViews)}</span>,
+                (readByPeople || rebuiltByViews === 0) && (
+                    <WhyThisSuggestion
+                        key="reads"
+                        evidence={suggestion.evidence}
+                        windowDays={windowDays}
+                        label={readSummary(suggestion.evidence)}
+                    />
+                ),
+            ].filter(Boolean)}
             highlight={savingHighlight(materializeSaving(payload))}
             actions={
                 <>

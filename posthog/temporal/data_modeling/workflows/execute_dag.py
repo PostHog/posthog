@@ -20,6 +20,7 @@ from posthog.temporal.data_modeling.activities import (
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
     check_team_managed_warehouse_shadow_eligibility_activity,
+    get_clickhouse_kill_switch_level_activity,
     get_dag_structure_activity,
     notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
@@ -49,6 +50,13 @@ MAX_CONCURRENT_CHILDREN = 10
 TRINO_SHADOW_MAX_CONCURRENT_CHILDREN = 25
 TRINO_SHADOW_CONCURRENCY_PATCH = "data-modeling-trino-shadow-concurrency"
 
+KILL_SWITCH_WINDOW_PATCH = "data-modeling-kill-switch-window"
+# Under a ClickHouse kill switch a DAG run starts fewer materializations at once, so the CPU that the
+# switch frees goes to interactive queries. A node that waits for a slot waits inside this workflow and
+# holds no activity slot, so a smaller window does not grow the task queue that the worker scales on.
+KILL_SWITCH_MAX_CONCURRENT_CHILDREN = {"off": MAX_CONCURRENT_CHILDREN, "light": 3, "full": 1}
+KILL_SWITCH_RECHECK_INTERVAL = dt.timedelta(minutes=2)
+
 TRINO_SHADOW_DAG_RUN_PATCH = "data-modeling-trino-shadow-dag-run"
 # Under a day, so a run that uses its whole budget still ends before the next daily shadow starts.
 TRINO_SHADOW_RUN_TIMEOUT = dt.timedelta(hours=23)
@@ -69,6 +77,92 @@ def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
     return f"execute-dag-trino-{dag_id}"
 
 
+def manual_trino_workflow_id(dag_id: str) -> str:
+    """The fixed id of a Trino run that a person starts by hand.
+
+    It shares the `execute-dag-trino-{dag_id}` prefix with the scheduled shadows, so one
+    visibility query finds every Trino run of the DAG.
+    """
+    return f"execute-dag-trino-{dag_id}-manual"
+
+
+def trino_runs_of_dag_query(dag_id: str) -> str:
+    prefix = f"execute-dag-trino-{dag_id}"
+    return f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" AND ExecutionStatus = "Running"'
+
+
+async def _kill_switch_child_limit(team_id: int) -> int:
+    try:
+        level = await temporalio.workflow.execute_activity(
+            get_clickhouse_kill_switch_level_activity,
+            team_id,
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+        )
+    except temporalio.exceptions.ActivityError:
+        return MAX_CONCURRENT_CHILDREN
+    return KILL_SWITCH_MAX_CONCURRENT_CHILDREN.get(level, MAX_CONCURRENT_CHILDREN)
+
+
+class _KillSwitchChildWindow:
+    def __init__(self, team_id: int) -> None:
+        self._team_id = team_id
+        self._limit = MAX_CONCURRENT_CHILDREN
+        self._running = 0
+        self._waiting = 0
+        self._checked_at: dt.datetime | None = None
+        self._reading = False
+        self._closed = False
+        self._refresher: asyncio.Task[None] | None = None
+
+    async def _refresh(self) -> None:
+        if self._closed:
+            return
+        # The children of a level all arrive in the same instant. Without this wait they would enter
+        # with the old limit while the first one is still reading the new one.
+        if self._reading:
+            await temporalio.workflow.wait_condition(lambda: not self._reading)
+            return
+        now = temporalio.workflow.now()
+        if self._checked_at is not None and now - self._checked_at < KILL_SWITCH_RECHECK_INTERVAL:
+            return
+        self._reading = True
+        try:
+            self._checked_at = now
+            self._limit = await _kill_switch_child_limit(self._team_id)
+        finally:
+            self._reading = False
+
+    async def _refresh_while_children_wait(self) -> None:
+        # One shared timer rereads the level. A timeout on each waiter would put a timer in the history
+        # for every waiter on every completion, and frequent completions would keep resetting those
+        # timeouts so that the level was never read again.
+        while True:
+            await temporalio.workflow.wait_condition(lambda: self._waiting > 0 or self._closed)
+            if self._closed:
+                return
+            await temporalio.workflow.sleep(KILL_SWITCH_RECHECK_INTERVAL)
+            await self._refresh()
+
+    def close(self) -> None:
+        self._closed = True
+
+    async def __aenter__(self) -> None:
+        if self._refresher is None:
+            self._refresher = asyncio.create_task(self._refresh_while_children_wait())
+        await self._refresh()
+        while self._running >= self._limit:
+            self._waiting += 1
+            try:
+                await temporalio.workflow.wait_condition(lambda: self._running < self._limit)
+            finally:
+                self._waiting -= 1
+        self._running += 1
+
+    async def __aexit__(self, *_: object) -> None:
+        self._running -= 1
+
+
 class EmptyDAGOrCycleError(Exception):
     """Raised when the DAG is empty or contains a cycle according to _dag_execution_levels."""
 
@@ -86,6 +180,7 @@ class ExecuteDAGInputs:
             all materializable nodes in the DAG will be processed.
         shadow: a Trino shadow of a ClickHouse run. Its failures stay in job rows and metrics,
             so it runs no data quality checks and sends no failure notifications.
+        manually_triggered_by_id: the user who asked for this run, when a person did.
     """
 
     team_id: int
@@ -96,6 +191,7 @@ class ExecuteDAGInputs:
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
     shadow: bool = False
+    manually_triggered_by_id: int | None = None
 
     @property
     def properties_to_log(self) -> dict:
@@ -336,7 +432,13 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         max_concurrent_children = MAX_CONCURRENT_CHILDREN
         if managed_warehouse_only and temporalio.workflow.patched(TRINO_SHADOW_CONCURRENCY_PATCH):
             max_concurrent_children = TRINO_SHADOW_MAX_CONCURRENT_CHILDREN
-        semaphore = asyncio.Semaphore(max_concurrent_children)
+        # Histories from before the patch keep the semaphore, because its wake-up order decides the
+        # order of child-start commands, and replay must reproduce that order.
+        child_window: asyncio.Semaphore | _KillSwitchChildWindow
+        if not managed_warehouse_only and temporalio.workflow.patched(KILL_SWITCH_WINDOW_PATCH):
+            child_window = _KillSwitchChildWindow(inputs.team_id)
+        else:
+            child_window = asyncio.Semaphore(max_concurrent_children)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
                 f"Executing level {i + 1}/{len(levels)}",
@@ -414,7 +516,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 continue
 
             async def _run_child(node_id: str) -> NodeResult:
-                async with semaphore:
+                async with child_window:
                     blocked_trino_upstreams = sorted(
                         upstream for upstream in unavailable_trino_nodes if node_id in downstreams[upstream]
                     )
@@ -424,6 +526,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         node_id=node_id,
                         managed_warehouse_only=managed_warehouse_only,
                         dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                        manually_triggered_by_id=inputs.manually_triggered_by_id,
                         skip_trino=bool(blocked_trino_upstreams),
                     )
                     trino_skip = (
@@ -517,6 +620,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     failed_node_set.add(nr.node_id)
                     if nr.quality_failed:
                         quality_failed_node_set.add(nr.node_id)
+
+        if isinstance(child_window, _KillSwitchChildWindow):
+            child_window.close()
 
         if skipped_jobs:
             await temporalio.workflow.execute_activity(

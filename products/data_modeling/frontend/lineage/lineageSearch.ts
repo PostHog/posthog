@@ -4,6 +4,7 @@ export type LineageSearchMode = 'search' | 'upstream' | 'downstream' | 'both'
 
 export interface ParsedLineageSearch {
     mode: LineageSearchMode
+    anchorNodeId?: string
     /** The name to anchor lineage traversal on, or the term to match for plain search */
     term: string
 }
@@ -140,7 +141,9 @@ export function orderedNodesForLineageSearch(
     if (parsed.mode === 'search' || !parsed.term) {
         return null
     }
-    const anchor = matchNodesByName(nodes, parsed.term)[0]
+    const anchor = parsed.anchorNodeId
+        ? nodes.find((node) => node.id === parsed.anchorNodeId)
+        : matchNodesByName(nodes, parsed.term)[0]
     if (!anchor) {
         return []
     }

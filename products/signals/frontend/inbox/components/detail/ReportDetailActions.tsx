@@ -194,7 +194,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                   },
               ]
             : []),
-        ...(report.status === SignalReportStatus.MONITORING
+        ...([SignalReportStatus.MONITORING, SignalReportStatus.CLOSED].includes(report.status)
             ? [
                   {
                       key: 'reopen',
