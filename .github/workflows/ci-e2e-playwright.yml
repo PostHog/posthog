@@ -176,6 +176,8 @@ jobs:
                         - 'packages/personhog-proto/**'
                         # quill workspace packages (charts, primitives, components) compile into the frontend bundle
                         - 'packages/quill/**'
+                        # The setup step builds the plugin transpiler from source
+                        - 'common/plugin_transpiler/**'
                         - 'bin/*'
                         - frontend/**/*
                         - package.json
@@ -183,6 +185,9 @@ jobs:
                         - uv.lock
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
+                        # docker-compose.dev.yml extends the base file, and the job adds the profiles file
+                        - docker-compose.base.yml
+                        - docker-compose.profiles.yml
                         - Dockerfile
                         # Spec-selection selector + map: changes must run the suite (they're
                         # force-full anyway) so the map validation step actually executes.
