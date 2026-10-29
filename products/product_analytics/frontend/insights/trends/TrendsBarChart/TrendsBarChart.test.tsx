@@ -6,7 +6,14 @@ import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/test
 
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, getChart, personsModal, renderInsight } from '~/test/insight-testing'
+import {
+    annotationBadges,
+    buildTrendsQuery,
+    chart,
+    getChart,
+    personsModal,
+    renderInsight,
+} from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
@@ -554,7 +561,7 @@ describe('TrendsBarChart overlays', () => {
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
         await waitFor(
             () => {
-                expect(getChart().annotationBadges().length).toBeGreaterThan(0)
+                expect(annotationBadges().length).toBeGreaterThan(0)
             },
             { timeout: 5000 }
         )
