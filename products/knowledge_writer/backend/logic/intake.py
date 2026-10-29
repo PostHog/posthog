@@ -9,6 +9,7 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskDetailDTO
 
 from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
 from ..feature_flags import is_agent_launch_enabled
@@ -49,7 +50,7 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     if writer is None or writer.team_id != team_id:
         return IntakeOutcome(status="unconfigured")
     existing_task = tasks_facade.get_task_by_origin_key(team_id, request.dedupe_id)
-    if existing_task is not None:
+    if existing_task is not None and not latest_run_failed(existing_task):
         return IntakeOutcome(status="duplicate", task_id=existing_task.id)
     team = Team.objects.get(id=team_id)
     if not is_agent_launch_enabled(team):
@@ -70,7 +71,14 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
         alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
     try:
-        task_id = start_writer(request, routing, team=team, writer=writer, joining=joining)
+        task_id = start_writer(
+            request,
+            routing,
+            team=team,
+            writer=writer,
+            joining=joining,
+            rerun_task_id=existing_task.id if existing_task is not None else None,
+        )
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
     except WriterSectionBusy:
@@ -84,6 +92,10 @@ def pull_request_to_join(open_pull_requests: list[WriterPullRequest], section: s
     if not section:
         return None
     return next((pull_request for pull_request in open_pull_requests if pull_request.section == section), None)
+
+
+def latest_run_failed(task: TaskDetailDTO) -> bool:
+    return task.latest_run is not None and task.latest_run.status == tasks_facade.TaskRunStatus.FAILED
 
 
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
@@ -101,6 +113,8 @@ def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
                     "reason": verdict.reason,
                     "change_kind": request.change_kind if request else None,
                     "dedupe_id": request.dedupe_id if request else None,
+                    "requested_by": request.requested_by if request else None,
+                    "requested_by_user_id": request.requested_by_user_id if request else None,
                     "team_id": team_id,
                 },
             )

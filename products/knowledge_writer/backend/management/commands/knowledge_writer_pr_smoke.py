@@ -186,7 +186,7 @@ def run_agent_requests(
     timeout_minutes: int,
     branches: list[str],
 ) -> SmokeRequests:
-    first_source, second_source = (merged_source(github, url) for url in source_urls)
+    first_source, second_source = (merged_source(github, url, writer.user_id) for url in source_urls)
     async_to_sync(initialize_self_capture_api_token)()
     deadline = time.monotonic() + timeout_minutes * 60
     opened, first_joined = run_agent_request(writer, team, section, first_source, f"{smoke_id}-1", deadline)
@@ -195,7 +195,7 @@ def run_agent_requests(
     return opened, first_joined, joined, second_joined
 
 
-def merged_source(github: GitHubIntegration, source_url: str) -> DocsCommandRequest:
+def merged_source(github: GitHubIntegration, source_url: str, requested_by_user_id: int) -> DocsCommandRequest:
     pull_request = github.get_pull_request_from_url(source_url)
     if not pull_request.get("success"):
         raise CommandError(f"Could not read {source_url}: {pull_request.get('error')}")
@@ -209,10 +209,11 @@ def merged_source(github: GitHubIntegration, source_url: str) -> DocsCommandRequ
         head_sha=pull_request["head_sha"],
         note=SMOKE_NOTE,
         requested_by=SMOKE_REQUESTER,
+        requested_by_user_id=requested_by_user_id,
     )
 
 
-def unreachable_source() -> DocsCommandRequest:
+def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
     source_number = UNREACHABLE_PULL_REQUEST_FLOOR + secrets.randbelow(UNREACHABLE_PULL_REQUEST_FLOOR)
     return DocsCommandRequest(
         repository="PostHog/posthog",
@@ -221,6 +222,7 @@ def unreachable_source() -> DocsCommandRequest:
         head_sha=secrets.token_hex(20),
         note=SMOKE_NOTE,
         requested_by=SMOKE_REQUESTER,
+        requested_by_user_id=requested_by_user_id,
     )
 
 
@@ -281,7 +283,9 @@ def ended_run_problem(run: TaskRunDTO, docs_repository: str) -> str | None:
 
 
 def run_writer_request(writer: WriterSettings, team: Team, section: str, branch: str) -> tuple[WriterPullRequest, bool]:
-    request = smoke_request(REGISTRY[DocsRequestSource.COMMAND_TAG].assess(unreachable_source()), section, branch)
+    request = smoke_request(
+        REGISTRY[DocsRequestSource.COMMAND_TAG].assess(unreachable_source(writer.user_id)), section, branch
+    )
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
     task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)

@@ -13,6 +13,7 @@ from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import caps, intake
+from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
 from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_label, section_marker
 from products.knowledge_writer.backend.logic.records import PULL_REQUEST_STATE_KEY, REQUEST_STATE_KEY
 from products.knowledge_writer.backend.logic.routing import docs_section
@@ -37,6 +38,7 @@ COMMAND = DocsCommandRequest(
     head_sha="abc123",
     note="Document the new retention option.",
     requested_by="@octo",
+    requested_by_user_id=42,
 )
 
 
@@ -322,3 +324,40 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(team, writer_env
     assert outcome.status == "capped"
     start_workflow.assert_not_called()
     assert capture_alert.call_args.kwargs["additional_properties"]["cap"] == cap
+
+
+@pytest.mark.django_db
+def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, user, writer_env) -> None:
+    verdict = _verdict()
+    renewed_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
+        dataclasses.replace(COMMAND, head_sha="fff999", note="Only touch the API reference.")
+    )
+
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        started = intake.submit(verdict, team_id=team.id)
+        assert started.task_id is not None
+        TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
+        rerun = intake.submit(renewed_verdict, team_id=team.id)
+        repeated = intake.submit(renewed_verdict, team_id=team.id)
+
+    assert (rerun.status, rerun.task_id) == ("started", started.task_id)
+    assert repeated.status == "duplicate"
+    assert start_workflow.call_count == 2
+    new_run = TaskRun.objects.filter(task_id=started.task_id).order_by("-created_at").first()
+    assert new_run is not None
+    assert new_run.state["pending_dispatch"]["create_pr"] is False
+    assert new_run.state["pending_dispatch"]["posthog_mcp_scopes"] == []
+    assert new_run.state["inactivity_timeout_seconds"] == WRITER_IDLE_TIMEOUT_SECONDS
+    assert new_run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
+    task = Task.objects.get(id=started.task_id)
+    assert "fff999" in task.description and "Only touch the API reference." in task.description
+    stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
+    assert (
+        isinstance(stored_request, dict) and stored_request["trigger_instructions"] == "Only touch the API reference."
+    )
+    dispatch_options = start_workflow.call_args.kwargs["options"]
+    assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])
