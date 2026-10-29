@@ -336,7 +336,7 @@ function PlayerWrapper({
         pinnedFilters,
         sessionRecordingsResponseLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
+    const { setFilters, applySavedFilter, resetFilters, setSelectedRecordingId, loadAllRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -360,6 +360,7 @@ function PlayerWrapper({
                         resetFilters={resetFilters}
                         filters={filters}
                         setFilters={setFilters}
+                        applySavedFilter={applySavedFilter}
                         totalFiltersCount={totalFiltersCount}
                         allowReplayHogQLFilters={allowHogQLFilters}
                         pinnedFilters={pinnedFilters}

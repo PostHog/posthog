@@ -1454,9 +1454,22 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(logic.values.totalFiltersCount).toBe(expected ? 1 : 0)
         })
 
-        it('reads the person from the URL', async () => {
-            router.actions.push('/replay', { filters: { person_uuid: 'p' } })
-            await expectLogic(logic).toMatchValues({ filters: expect.objectContaining({ person_uuid: 'p' }) })
+        it.each([
+            { name: 'reads the person from the URL', picked: null, urlFilters: { person_uuid: 'p' }, expected: 'p' },
+            {
+                name: 'drops the picked person for a URL without one',
+                picked: 'p',
+                urlFilters: { date_from: '-7d' },
+                expected: undefined,
+            },
+        ])('$name', async ({ picked, urlFilters, expected }) => {
+            if (picked) {
+                logic.actions.filterByPerson(picked)
+            }
+            router.actions.push('/replay', { filters: urlFilters })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.person_uuid).toBe(expected)
+            expect('person_uuid' in logic.values.filters).toBe(expected !== undefined)
         })
     })
 

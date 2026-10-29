@@ -590,6 +590,9 @@ const applyFilterUpdate = (
         date_to: update.date_from && isRelativeDate(update.date_from) ? null : state.date_to,
         ...update,
     }
+    if ('person_uuid' in update && !update.person_uuid) {
+        delete newState.person_uuid
+    }
     if (pinnedFilters) {
         newState.filter_group = mergePinnedFilters(newState.filter_group, pinnedFilters)
     }
@@ -2593,6 +2596,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     ...(params.filters && !equal(params.filters, values.filters)
                         ? {
                               ...getDefaultFilters(props.personUUID, props.pinnedFilters, params.filters),
+                              // A link without a person drops the one picked from the player.
+                              person_uuid: undefined,
                               ...params.filters,
                           }
                         : {}),
