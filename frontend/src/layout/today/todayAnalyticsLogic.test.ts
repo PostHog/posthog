@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { fileSystemEntryToAnalytics } from 'scenes/analytics/analyticsUtils'
+
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -47,6 +49,17 @@ describe('todayAnalyticsLogic', () => {
         await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
         const row = (type: string, ref: string, name: string): FileSystemEntry =>
             ({ id: `fs-${ref}`, type, ref, path: `Unfiled/${name}`, meta: {} }) as FileSystemEntry
+
+        await expectLogic(logic, () =>
+            logic.actions.storeRecentAnalytics(
+                [row('insight', 'i1', 'Signups'), row('insight', 'i2', 'Retention')].flatMap(
+                    (entry) => fileSystemEntryToAnalytics(entry) ?? []
+                )
+            )
+        )
+            .toDispatchActions(['storeRecentAnalytics'])
+            .toNotHaveDispatchedActions(['storeRecentAnalytics'])
+        expect(logic.values.recentAnalytics.map((item) => item.name)).toEqual(['Signups'])
 
         recentItemsModel.actions.loadRecentsSuccess([
             row('insight', 'i1', 'Signups'),

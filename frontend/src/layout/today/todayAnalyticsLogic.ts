@@ -220,8 +220,13 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
             }
         },
     })),
-    subscriptions(({ actions }) => ({
-        // Saves what the section shows, so the next page load starts from it.
-        recentAnalytics: (items: AnalyticsItem[]) => actions.storeRecentAnalytics(items),
+    subscriptions(({ actions, values }) => ({
+        // Saves what the section shows, so the next page load starts from it. Before the shared list loads, the
+        // section shows a filtered copy of the saved list, and saving that copy would start the subscription again.
+        recentAnalytics: (items: AnalyticsItem[]) => {
+            if (values.recentsHasLoaded) {
+                actions.storeRecentAnalytics(items)
+            }
+        },
     })),
 ])
