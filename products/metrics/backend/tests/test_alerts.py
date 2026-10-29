@@ -6,7 +6,7 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import requests
@@ -16,6 +16,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
+from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
@@ -34,7 +35,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.metrics.backend.alerts.evaluation import evaluate_metrics_alert_batch
+from products.metrics.backend.alerts.evaluation import INFLIGHT_KEY, evaluate_metrics_alert_batch
 from products.metrics.backend.alerts.freshness import evaluation_time
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 
@@ -161,7 +162,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def _kinds(self, outcome: PlatformAlertOutcome) -> dict[str, AlertEventKind]:
         return {json.loads(group.grouping_key)["group"]: group.kind for group in outcome.groups}
 
-    def test_a_series_fires_resolves_when_it_vanishes_and_holds_when_it_has_no_number(self) -> None:
+    def test_a_series_fires_and_holds_when_it_vanishes_or_has_no_number(self) -> None:
         self.freshness.return_value = self.due_at - timedelta(seconds=30)
         self.snuffle.return_value = _response(
             200, _vector(({"group": "a"}, "2000"), ({"group": "b"}, "3000"), ({"group": "c"}, "10"))
@@ -176,16 +177,21 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             200, _vector(({"group": "b"}, "NaN"), ({"group": "b"}, "10"), ({"group": "c"}, "10"))
         )
 
-        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
-
-    def test_a_vanished_series_keeps_its_group_when_ingestion_progress_is_unknown(self) -> None:
-        self.freshness.return_value = self.due_at - timedelta(seconds=30)
-        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
-        self._next_check(self._evaluate())
-        self.freshness.return_value = None
-        self.snuffle.return_value = _response(200, _vector())
-
         assert self._kinds(self._evaluate()) == {}
+
+    @override_settings(ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES=1)
+    def test_a_batch_over_the_pool_limit_stays_due_for_a_later_tick(self) -> None:
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        slot = slot_of(self.due_at, self.cutoff)
+        held_until = hold_evaluation_slot("other-batch", limit=1, key=INFLIGHT_KEY)
+        assert held_until is not None
+        with team_scope(self.team.id):
+            deferred = evaluate_metrics_alert_batch(self.team.id, slot, self.cutoff)
+        release_evaluation_slot("other-batch", held_until=held_until, key=INFLIGHT_KEY)
+
+        assert (deferred.outcomes, deferred.omitted, self.snuffle.call_count) == ((), 1, 0)
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.FIRING}
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.FIRING}
 
     @parameterized.expand(
         [

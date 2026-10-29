@@ -5,9 +5,11 @@ held back to where the team's ingestion has reached. Each series the query retur
 condition. Under grouping by result labels, each distinct set of grouping label values is a group.
 Without grouping, the alert has one group that breaches when any series does.
 
-A series the query no longer returns resolves its group, as it does in Prometheus. When the batch
-cannot tell where ingestion has reached, a missing series keeps its group's state instead, so a
-lag never reads as recovery. A series whose value is not a number reaches no verdict either.
+A series the query no longer returns keeps its group's state, and so does a series whose value is
+not a number. Prometheus resolves a missing series, but a team's samples spread over ingestion
+partitions, and the freshness read cannot tell that every partition has caught up. So a missing
+series could be one a lagging partition has not written yet, and resolving it would read lag as
+recovery. Absence resolves again once a watermark covers every partition.
 
 This reads and decides. It writes nothing, so a retried attempt reads the same due checks and makes
 the same decisions. The platform records the outcomes in its own activity.
@@ -20,12 +22,16 @@ import operator
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
+from uuid import uuid4
+
+from django.conf import settings
 
 import structlog
 from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
 from products.alerts_platform.backend.facade.api import due_checks, has_incident_destination, slot_of
 from products.alerts_platform.backend.facade.contracts import (
@@ -83,6 +89,10 @@ MAX_QUERY_SECONDS: Final = 10
 # Below this there is no point starting another query.
 MIN_QUERY_SECONDS: Final = 2
 FRESHNESS_QUERY_SECONDS: Final = 5
+INFLIGHT_KEY: Final = "alerts:platform:metrics:batches:inflight"
+# Outlasts the evaluation activity's run, so a slot frees before its batch ends only when a worker
+# died mid-batch.
+BATCH_SLOT_LEASE_SECONDS: Final = 90
 # Ten times the most groups a configuration can hold. A query past it is refused before its series
 # are judged, so one high-cardinality expression cannot exhaust the worker.
 MAX_SERIES: Final = 1000
@@ -119,6 +129,30 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
+    # One slot per batch, because a batch runs its queries one after another, so the batches in
+    # flight bound the concurrent metrics queries across the fleet. A batch the pool turns away
+    # records nothing, so its checks stay due and a later tick finds them again.
+    # Unique per execution: a redispatch of a batch whose old query still runs must hold its own slot.
+    member = f"{team_id}:{slot}:{uuid4().hex}"
+    held_until = hold_evaluation_slot(
+        member,
+        limit=settings.ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform metrics batch over the pool limit", team_id=team_id, slot=slot)
+        safe_record(increment_checks_deferred, SOURCE.value, len(checks))
+        return SourceBatchEvaluation(outcomes=(), deliveries=(), omitted=len(checks))
+    try:
+        return _evaluate_admitted(team, slot, checks, cutoff=cutoff, started_at=started_at)
+    finally:
+        release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def _evaluate_admitted(
+    team: Team, slot: str, checks: Sequence[PlatformAlertCheckInput], *, cutoff: datetime, started_at: float
+) -> SourceBatchEvaluation:
     freshness = _freshness(team)
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     decided: list[Decision] = []
@@ -135,10 +169,9 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
                 now=cutoff,
                 query_seconds=min(MAX_QUERY_SECONDS, remaining),
                 muted=_in_quiet_hours(check, cutoff, team.timezone),
-                absence_resolves=freshness is not None,
             )
         )
-    evaluation = _collect(decided, team_id=team_id, slot=slot, past_budget=len(checks) - len(decided))
+    evaluation = _collect(decided, team_id=team.id, slot=slot, past_budget=len(checks) - len(decided))
     safe_record(record_batch_duration, SOURCE.value, int((time.monotonic() - started_at) * 1000))
     return evaluation
 
@@ -147,7 +180,7 @@ def _freshness(team: Team) -> datetime | None:
     try:
         return fetch_metrics_freshness(team, max_execution_time=FRESHNESS_QUERY_SECONDS)
     except Exception:
-        # Without a freshness the batch still runs, and a missing series keeps its group's state.
+        # Without a freshness the batch still runs, at its due time.
         logger.exception("Failed to fetch the metrics ingestion freshness", team_id=team.id)
         return None
 
@@ -169,7 +202,6 @@ def _evaluate(
     now: datetime,
     query_seconds: float,
     muted: bool,
-    absence_resolves: bool,
 ) -> Decision:
     started_at = time.monotonic()
     try:
@@ -186,7 +218,7 @@ def _evaluate(
         return _failed(check, _UNEXPECTED_ERROR, transient=True, now=now, muted=muted)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
-    observations, unknown = _observations(check, config.condition, samples)
+    observations = _observations(check, config.condition, samples)
     decision = decide_groups(
         check,
         observations,
@@ -194,13 +226,8 @@ def _evaluate(
         policy=POLICY,
         now=now,
         muted=muted,
-        # A group with no number this check keeps its state. One the query no longer returns resolves,
-        # unless the batch cannot tell whether ingestion has written it yet.
-        absent=lambda key: (
-            GroupObservation(grouping_key=key, current_breached=False)
-            if absence_resolves and key not in unknown
-            else None
-        ),
+        # A group this check has no number for keeps its state. The module docstring says why.
+        absent=lambda _key: None,
     )
     for verdict in decision.verdicts:
         safe_record(increment_checks, SOURCE.value, verdict.outcome.notification.value)
@@ -272,8 +299,8 @@ def _breached(condition: MetricsPlatformAlertCondition, value: float | None) -> 
 
 def _observations(
     check: PlatformAlertCheckInput, condition: MetricsPlatformAlertCondition, samples: Sequence[_Sample]
-) -> tuple[list[GroupObservation], set[str]]:
-    """One observation per sample, and the keys of the groups held without a verdict.
+) -> list[GroupObservation]:
+    """One observation per sample, leaving out the groups held without a verdict.
 
     A group with a sample that has no number is held, unless another of its samples breaches. A healthy
     sample beside it does not show that the unknown one recovered.
@@ -296,7 +323,7 @@ def _observations(
         )
     breaching = {observation.grouping_key for observation in observations if observation.current_breached}
     held = unknown - breaching
-    return [observation for observation in observations if observation.grouping_key not in held], held
+    return [observation for observation in observations if observation.grouping_key not in held]
 
 
 def _grouping_key_of(labels: dict[str, str]) -> str:
