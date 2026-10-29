@@ -6747,13 +6747,13 @@ snapshots:
     products-business-intelligence-metric-snapshot-context--proposed--light:
         hash: v1.k794b7964.f90e05112efecb61d341c0c1b795fac5fb8b633feb0dee221ec6a0f2c1e1fd6f.QHGWgQX5pi-FN6VMPjdDfAFgbfq7cbptsTiFfzC_09E
     products-business-intelligence-pivot-table--conditional-formatting--dark:
-        hash: v1.k794b7964.8647a315842a7e58e16b9597686a037f51fca27b39cc31a86364531342f0de2d.KI6_i9LRgw64b1jPz_P-_1ghk-QlxGRt8OphgQTyh6o
+        hash: v1.k794b7964.8927e708d4896acb51ff9fa5302f9dd0214abdef779694f9d1a09c352296086a.FgF9lZB76rg6TesSU387LQwIgPk-4D-nKIqm0leCqnQ
     products-business-intelligence-pivot-table--conditional-formatting--light:
-        hash: v1.k794b7964.3cbbadacb98d1e07b58dc31fdd88e3e69bfe7c74d8512c0cf96afa81092bd4c8.Nk8eKH-PHZdZqcSCV7DoYEjwNNX8DL9nArAgYohDblU
+        hash: v1.k794b7964.4a2fad62464021ea970c5530aca3bb1677ac156af9af38a7f6b50b6baf32ce55.KT2qaQJlZnP2vtaCnHIFMyzEwDvk9gYSjQds27pSZ7k
     products-business-intelligence-pivot-table--multiple-measures-and-hierarchies--dark:
-        hash: v1.k794b7964.26ebc58171eb340426f9fe220739132bca02f59b8489cb5a0b8a6411f99bb34d.oNv5X9sNKiPmhC_sE607b5P0yHAJju-hcC7higWxX9g
+        hash: v1.k794b7964.04ea7d0a1ce8ad5297116b2bb38b75133d0fdee6193c53dfdc3588be8e04da93.WCi3zbnqRQ05ZksnNUhKZMAe3zZ8E1GhTjcu0rGMp9k
     products-business-intelligence-pivot-table--multiple-measures-and-hierarchies--light:
-        hash: v1.k794b7964.a536391f02b293d2bdef0f6bb873b8daf6848e3c6bd2fd1b12f248f5847f2a4e.L_mE9SUEZfVSdz4aGS_wbCmwOg9CYDJr9fC5-sEH0ZU
+        hash: v1.k794b7964.c12158891f540bc42e9d49f48b9bb6c89595272cb50c0464f46a7c88ef7c7387.qqAQKnrFBm4FgDyKd3CnYcXP_wupjQvoJD3o0t3rTmM
     products-business-intelligence-result-menu--comparison-period--dark:
         hash: v1.k794b7964.50272d68c5a1d4568fad5027f5f071a87f5d7a3e41f4e2b0ba0c092b328acc12.mvP0bfecTXSDmdsWb-4q60r34LYfl6EW_2JrJgqmAQM
     products-business-intelligence-result-menu--comparison-period--light:
@@ -10883,9 +10883,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-one-click-comparison--light:
         hash: v1.k794b7964.0f90c14cd12a3f4a166687b69dde3516674f4152d70b7db4c7ee5e9ec81269f1.KVtNP2Z7u-Zo5FXH_WFGbtwKRetmCGCKZ7fTBGqg7G0
     scenes-app-data-warehouse-sql-editor--bi-pivot-totals--dark:
-        hash: v1.k794b7964.a7f2fae9f6e58cc514dc6b4ea7070928c8045be0f863eb86496ec99975f1795a.G3UiEpCP_ElGHUVHgL2bR-eweievpW4WF2HBSyVqF_c
+        hash: v1.k794b7964.68eed15af08bc6bafbfb93a6498d1e56a1ae20266b05b2884e890594438285df.XwDJzh_0PzpOcDcifgpWI488LWBSgg6phJUEk10SQxU
     scenes-app-data-warehouse-sql-editor--bi-pivot-totals--light:
-        hash: v1.k794b7964.d2c7e0bf74821578bb45b1f42ce92d12096b32b1320bb84dd991f9cd6a5b6851.tz00BuUNFzAY78a1Dj2q22bk0NkjHiIg26aZg2qKSlE
+        hash: v1.k794b7964.f471b9cfe8d9c08351377dd1bf21a92d5d1cddc2df92b5959509f9b89719232a.Y3DSxUC3noFECYSVLGJRvJXVU_0jfXCT2vV4I_AtmMc
     scenes-app-data-warehouse-sql-editor--bi-quick-filters--dark:
         hash: v1.k794b7964.be74d6e8accc2887e029a462983d1aa4895a64488e5e77558643988d1c5383d0.XDdSVpGEvgCkmdqGEpRkzla9SsQkQSw8jV0Du7HxtJY
     scenes-app-data-warehouse-sql-editor--bi-quick-filters--light:
@@ -10903,13 +10903,13 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-source-preview-large-sample--light:
         hash: v1.k794b7964.ddb42f5556e7e09b1219e54d68f83213e8737ebbde55266a4dd1427d9cab5326.S77Umy6YW9HB314IPWIm5yyYg_G0KpQKpBoG99A-iBE
     scenes-app-data-warehouse-sql-editor--bi-table-analysis--dark:
-        hash: v1.k794b7964.8e5e14fc64a4db188055d8c1f86db24f7141b3e9bd25bba821070231ea99f53d.nYQuEegEy1vfbcvOZBhML27nhwtWKB6YNpLr5T5ulMg
+        hash: v1.k794b7964.f5c301e216273b7a0cfd59190ca46159641bc991fab8c31ffee7a2704f898314.PpMisf1ay9ifGxpH0U8JkqEngZjzafiuUSAC8rpfDqY
     scenes-app-data-warehouse-sql-editor--bi-table-analysis--light:
-        hash: v1.k794b7964.222855798a3123f816a945a51c85bc3ba4654e7495bf839b40642279abfcf188.ee_DmapFr84nuFWe5fEF24YDFD2qSppU-8jwlYEc4Xk
+        hash: v1.k794b7964.20cd5d30e53afdf4eb33456f4c8ed5a60ef1ec6f3f9676a19c4e8610fda0e9fe.JOi3COiabs5Jx_fwm729UTyY4RuE9EoSsCMphr3RG94
     scenes-app-data-warehouse-sql-editor--bi-wide-transposed-results--dark:
-        hash: v1.k794b7964.6a420f7474558367a8c3e4ed5d3fa96f7d51edb3b4f7a6cac4e9af1b5cc0e531.Fcz42DazeV4XO1xHNi5h6puOzCUrftQY5jVIeXZut8k
+        hash: v1.k794b7964.50ee98abf001c7c2fbea46f2e8f713e5644d5935117e0e776fbb79b6ce575ccb.nI7fd5MkElCJ3yCb_vlTOn0CWiAH8LiNz2mhHpeVtnA
     scenes-app-data-warehouse-sql-editor--bi-wide-transposed-results--light:
-        hash: v1.k794b7964.ca232e5bde8705f79816e729e77216e37fec62eb32164484e2364620b0d86dde.8AHKAl3ynJlU82UXlaJAAgcZsHhGw5-O1ZkAC5XVugE
+        hash: v1.k794b7964.0eafe803214c84bb135a4387533442f6f8c1525c100d98bdde0fa33ce4237413.NjZStKhVDecpAV0K-LuY4T3Ja1SdDNYM8hY2hsKMWwU
     scenes-app-data-warehouse-sql-editor--customer-images--dark:
         hash: v1.k794b7964.10b9dd73c78556d1b3990ff4ba8d0872e17f375ed655c487b3ca9ca8af21c665.K_W25GnvkQUo791SarbtGIBFaySZ0v_Ebd4cv6sJhsQ
     scenes-app-data-warehouse-sql-editor--customer-images--light:
@@ -11247,9 +11247,9 @@ snapshots:
     scenes-app-errortracking--group-page-releases-stacked--light:
         hash: v1.k794b7964.bbd7d8f861510cc79188ecbe20e6af110f08f96a53ef27ac75ce28bbd704f48c.bBi7jDw0DwllpcX_pkQJi-DdiBG_XAmTwS_GzqDEoRw
     scenes-app-errortracking--group-page-today-rail-nav--dark:
-        hash: v1.k794b7964.45333b8ac34d1969ce924ac944fd203f5f894b77bd648b1ddabd334e358a84a9.idoJ_9mN1DW6iaTAberGn3zMxARWpVZq9OqWE5lDDQU
+        hash: v1.k794b7964.44bec3bc5d0ee4ef65f548012c4ec6e4cc65ddb94d6251f4cd9563bdc90f16bf.iSE4tmNbkJFoeG6DCM5k-F8hXt0cFQUPYkcOfbamQUk
     scenes-app-errortracking--group-page-today-rail-nav--light:
-        hash: v1.k794b7964.16e1cb61689aeecacd7d21e8cf97ff33760cc6b77a140faeec4e67e4acd03440.G88NZldjGRM_wNvECGEPrOTyyyJgpS1p4HJ7gzWR7Fs
+        hash: v1.k794b7964.e74f7ba76b28c0803dcd71ec276c0774cc236ead25cbcd7c5e911775e1b2391c.Utp2DqgtqoD_iT_VmejgjPgCsR1YJYhZAAmyrqE_dkA
     scenes-app-errortracking--group-page-with-many-self-driving-reports--dark:
         hash: v1.k794b7964.80a2533ac0237e1c88e747da106127fb7f335c4dfbda4dcd9acc58d5fad4133d.-bwvh6NUGPl4apMtIctBlqZHzMtXaDazhCLw-q4AUtM
     scenes-app-errortracking--group-page-with-many-self-driving-reports--light:
