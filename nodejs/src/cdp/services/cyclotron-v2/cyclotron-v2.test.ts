@@ -170,8 +170,8 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-async function gaugeValueForQueue(queue: string): Promise<number | null> {
-    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
+async function gaugeValueForQueue(queue: string, metricName = 'cdp_cyclotron_v2_queue_depth'): Promise<number | null> {
+    const metric = await register.getSingleMetricAsString(metricName)
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
     return line ? Number(line.trim().split(' ').pop()) : null
 }
@@ -2757,19 +2757,28 @@ describe('Cyclotron V2', () => {
         it('measureQueueDepths reports 0 for a queue that drains', async () => {
             // GROUP BY returns no row for an empty queue. Without the zero write the gauge
             // keeps the last depth, and a depth alert then fires on an idle queue.
+            const ageMetric = 'cdp_cyclotron_v2_queue_oldest_due_age_ms'
             const jobId = uuidv7()
-            await insertRawJob({ id: jobId, queue_name: 'queue-drains', status: 'available' })
+            await insertRawJob({
+                id: jobId,
+                queue_name: 'queue-drains',
+                status: 'available',
+                scheduled: new Date(Date.now() - 30_000),
+            })
 
             const janitor = createJanitor({ stallTimeoutMs: 60_000 })
             const before = await janitor.runOnce()
             expect(before.depths.get('queue-drains')).toBe(1)
             expect(await gaugeValueForQueue('queue-drains')).toBe(1)
+            expect(await gaugeValueForQueue('queue-drains', ageMetric)).toBeGreaterThanOrEqual(30_000)
+            expect(await gaugeValueForQueue('queue-drains', ageMetric)).toBeLessThan(60_000)
 
             await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [jobId])
             await janitor.runOnce()
             await janitor.stop()
 
             expect(await gaugeValueForQueue('queue-drains')).toBe(0)
+            expect(await gaugeValueForQueue('queue-drains', ageMetric)).toBe(0)
         })
 
         it('measureQueueDepths returns correct counts per queue', async () => {

@@ -71,6 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
     _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _SERVER_STARTING_UP_ERROR_SUBSTRINGS,
+    _SERVICE_UNAVAILABLE_ERROR_SUBSTRING,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -480,6 +481,16 @@ _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
     "Your database wasn't accepting connections, and it was still unavailable after every retry. It "
     "reported that it's starting up, recovering, or shutting down. Check that the database is "
     "running and healthy. This sync is still enabled and will run again on its next schedule."
+)
+
+# Twin of `_SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE` for a bare proxy/pooler "service temporarily
+# unavailable" refusal (see `_SERVICE_UNAVAILABLE_ERROR_SUBSTRING` in postgres.py), which names no
+# lifecycle state, so the message doesn't claim one either.
+_SERVICE_UNAVAILABLE_EXHAUSTED_MESSAGE = (
+    "Your database refused PostHog's connection, reporting that the service was temporarily "
+    "unavailable, and it was still refusing connections after every retry. Check your database and "
+    "any connection pooler or proxy in front of it for an ongoing outage, maintenance, or failover. "
+    "This sync is still enabled and will run again on its next schedule."
 )
 
 _CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
@@ -1505,6 +1516,14 @@ class PostgresSource(
             # so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             "invalid input syntax for type bigint": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against a bigint incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            # Same mechanism as the integer/bigint keys above, but for a column whose declared type
+            # changed to boolean at the source after it was picked as the incremental field (e.g. an
+            # integer status column altered to `boolean`). `IncrementalFieldType` has no boolean
+            # variant, so this never happens for a freshly configured field — only when the source
+            # column's type drifted out from under an already-stored cursor. The stored watermark no
+            # longer parses against the column's new type, and every retry re-runs the identical
+            # failing query, so stop and ask the user to reset.
+            "invalid input syntax for type boolean": "PostHog tried to resume this table's incremental sync from a cursor value that your database can no longer parse as a boolean. This usually means the incremental field's column type changed at the source after this sync started. Please reset and fully re-sync this table, or pick a different incremental field.",
             # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
             # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
             # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
@@ -1694,6 +1713,11 @@ class PostgresSource(
         # new connections while the source is going down — all retried in-process by the
         # offset-chunking reconnect, same exhausted-budget fallback as above.
         #
+        # `_SERVICE_UNAVAILABLE_ERROR_SUBSTRING` is a bare proxy/pooler "service temporarily
+        # unavailable" refusal at connect time — no lifecycle state, no capacity limit, just a brief
+        # outage on the layer in front of Postgres. Same self-recovering shape, same in-process retry
+        # via `_is_dropped_or_connect_timeout` / `_is_dropped_or_connection_limit`.
+        #
         # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
         # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
@@ -1752,6 +1776,7 @@ class PostgresSource(
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
+            _SERVICE_UNAVAILABLE_ERROR_SUBSTRING,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
             "conflict with recovery",
             "TransactionRetryWithProtoRefreshError",
@@ -1776,6 +1801,7 @@ class PostgresSource(
             **dict.fromkeys(_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
+            _SERVICE_UNAVAILABLE_ERROR_SUBSTRING: _SERVICE_UNAVAILABLE_EXHAUSTED_MESSAGE,
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
             "TransactionRetryWithProtoRefreshError": _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE,

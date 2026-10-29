@@ -704,7 +704,10 @@ def _build_template_context(
             ).data
         elif request.user.pk:
             user = cast("User", request.user)
-            if template_name == "index.html" and should_defer_app_context(request, user):
+            variant = deferred_app_context_variant(request, user) if template_name == "index.html" else None
+            if variant:
+                posthog_app_context["deferred_app_context_variant"] = variant
+            if variant == "test":
                 # The page fetches the user's data from `app_context` while its JS loads.
                 posthog_app_context["deferred"] = True
                 posthog_distinct_id = user.distinct_id
@@ -813,14 +816,15 @@ DEFERRED_APP_CONTEXT_FLAG = "deferred-app-context"
 DEFERRED_APP_CONTEXT_PARAM = "deferred_app_context"
 
 
-def should_defer_app_context(request: HttpRequest, user: "User") -> bool:
+def deferred_app_context_variant(request: HttpRequest, user: "User") -> Optional[str]:
     """
-    Whether the app page leaves out the user's data and fetches it from `app_context` instead.
+    The variant of the app page. "test" leaves out the user's data and fetches it from `app_context` instead.
+    None means the user is outside the experiment.
     The query param wins over the experiment, so a lab run can pick a side and a failed fetch can reload without it.
     """
     param = request.GET.get(DEFERRED_APP_CONTEXT_PARAM)
     if param is not None:
-        return param == "1"
+        return "test" if param == "1" else "control"
     try:
         variant = posthoganalytics.get_feature_flag(
             DEFERRED_APP_CONTEXT_FLAG,
@@ -836,10 +840,11 @@ def should_defer_app_context(request: HttpRequest, user: "User") -> bool:
                 distinct_id=str(user.distinct_id),
                 properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
             )
-        return variant == "test"
+            return variant
+        return None
     except Exception as e:
         capture_exception(e)
-        return False
+        return None
 
 
 def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -2567,8 +2572,7 @@ def to_json(obj: dict) -> bytes:
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
-    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
-    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)
 
 
 def get_current_user_from_thread() -> Optional["User"]:

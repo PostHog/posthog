@@ -27,6 +27,9 @@ PAGE_SIZE = 100
 # Periodic reports return one row per day; 500 covers the full default backfill.
 # Breakdown reports page through with offset at the same size.
 REPORT_ROW_LIMIT = 500
+# The campaign periodic report applies its limit per campaign, so a page holds
+# this many days for every campaign; kept small to bound the response size.
+CAMPAIGN_PERIODIC_ROW_LIMIT = 31
 # Tokens are valid 30 days but /login is capped at 2 requests/hour, so the
 # token is cached across runs and only re-minted when it expires.
 TOKEN_CACHE_TTL_SECONDS = 29 * 24 * 60 * 60
@@ -146,11 +149,17 @@ def get_rows(
     def fetch_paginated(path: str) -> Iterator[list[dict[str, Any]]]:
         offset = 0
         while True:
-            params = {"limit": PAGE_SIZE, "offset": offset} if config.paginated else {}
+            params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset} if config.paginated else {}
+            params.update(config.params)
             url = f"{OUTBRAIN_BASE_URL}{path}"
             if params:
                 url = f"{url}?{urlencode(params)}"
-            rows = rows_of(fetch(url), config.data_key)
+            data = fetch(url)
+            rows = rows_of(data, config.data_key)
+            if config.excluded_data_key:
+                rows = [{**row, "_excluded": False} for row in rows] + [
+                    {**row, "_excluded": True} for row in rows_of(data, config.excluded_data_key)
+                ]
             if rows:
                 yield rows
             if not config.paginated or len(rows) < PAGE_SIZE:
@@ -220,6 +229,8 @@ def get_rows(
         saved_from, saved_to = _to_date(resume_config.window_from), _to_date(resume_config.window_to)
         if saved_from is not None and saved_to is not None:
             window_start, today = saved_from, saved_to
+    is_periodic = config.kind in ("periodic_report", "campaign_periodic_report")
+    row_limit = CAMPAIGN_PERIODIC_ROW_LIMIT if config.kind == "campaign_periodic_report" else REPORT_ROW_LIMIT
     marketer_ids = list_marketer_ids()
     for index in range(start_index, len(marketer_ids)):
         marketer_id = marketer_ids[index]
@@ -227,33 +238,47 @@ def get_rows(
         offset = start_offset if index == start_index else 0
         while True:
             params: dict[str, Any] = {"from": window_start.isoformat(), "to": today.isoformat()}
-            if config.kind == "periodic_report":
+            if is_periodic:
                 params["breakdown"] = "daily"
-            params["limit"] = REPORT_ROW_LIMIT
+            params["limit"] = row_limit
             if config.paginated:
                 params["offset"] = offset
             if config.include_inactive_campaigns:
                 params["includeArchivedCampaigns"] = "true"
                 params["enabledCampaignsOnly"] = "false"
-            rows = rows_of(fetch(f"{OUTBRAIN_BASE_URL}{path}?{urlencode(params)}"), config.data_key)
+            data = fetch(f"{OUTBRAIN_BASE_URL}{path}?{urlencode(params)}")
+
+            # The campaign periodic report nests each campaign's daily rows under it.
+            row_groups: list[tuple[Optional[str], list[dict[str, Any]]]]
+            if config.kind == "campaign_periodic_report":
+                row_groups = [
+                    (str(campaign["campaignId"]), rows_of(campaign, "results"))
+                    for campaign in rows_of(data, config.data_key)
+                    if campaign.get("campaignId")
+                ]
+            else:
+                row_groups = [(None, rows_of(data, config.data_key))]
 
             out: list[dict[str, Any]] = []
-            for row in rows:
-                enriched = {**row, "_marketer_id": marketer_id}
-                if config.kind == "periodic_report":
-                    metadata_value = row.get("metadata")
-                    metadata = metadata_value if isinstance(metadata_value, dict) else {}
-                    row_date = metadata.get("fromDate") or metadata.get("id")
-                    if not row_date:
-                        continue
-                    enriched["_date"] = row_date
-                out.append(enriched)
+            for campaign_id, rows in row_groups:
+                for row in rows:
+                    enriched = {**row, "_marketer_id": marketer_id}
+                    if campaign_id is not None:
+                        enriched["_campaign_id"] = campaign_id
+                    if is_periodic:
+                        metadata_value = row.get("metadata")
+                        metadata = metadata_value if isinstance(metadata_value, dict) else {}
+                        row_date = metadata.get("fromDate") or metadata.get("id")
+                        if not row_date:
+                            continue
+                        enriched["_date"] = row_date
+                    out.append(enriched)
 
-            has_more = config.paginated and len(rows) >= REPORT_ROW_LIMIT
+            has_more = config.paginated and any(len(rows) >= row_limit for _, rows in row_groups)
             next_state = (
                 OutbrainResumeConfig(
                     next_index=index,
-                    next_offset=offset + len(rows),
+                    next_offset=offset + row_limit,
                     window_from=window_start.isoformat(),
                     window_to=today.isoformat(),
                 )
@@ -269,7 +294,7 @@ def get_rows(
 
             if not has_more:
                 break
-            offset += len(rows)
+            offset += row_limit
 
 
 def _to_date(value: Any) -> Optional[date]:

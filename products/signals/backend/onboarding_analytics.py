@@ -33,13 +33,14 @@ class InboxOnboardingAnalytics:
         draft = state.get("draft") or {}
         variant = state.get("variant")
         return {
+            **({"activation_mode": draft["activation_mode"]} if draft.get("activation_mode") else {}),
             "project_id": config.team_id,
             "variant": variant,
             "$feature/inbox-ui-onboarding": variant,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
             "setup_mode": "quick"
-            if variant == "test-github"
+            if variant == "test-github" or draft.get("activation_mode") == "github_optional"
             else "guided"
             if draft or variant == "test-ui"
             else "legacy",

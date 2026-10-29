@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
@@ -124,7 +124,11 @@ export function TimeSeriesComboChart<Meta = unknown>({
     } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
-    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
+    const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, chartSeries)
+    const valueDomain = useMemo(
+        () => mergeValueDomains(config?.valueDomain, goalLineDomain),
+        [config?.valueDomain, goalLineDomain]
+    )
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
@@ -149,7 +153,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barCornerRadius,
         bandPadding,
         tooltip: timeSeriesTooltipConfig,
-        valueDomain: mergeValueDomains(config?.valueDomain, valueDomain),
+        valueDomain,
         yAxes,
     }
 

@@ -375,6 +375,7 @@ class GoogleAdsSource(
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
+                        account_selector=True,
                         label="Using MCC account?",
                         caption="Whether your account is a Google Ads MCC account and you're accessing a clients account?",
                         default=False,

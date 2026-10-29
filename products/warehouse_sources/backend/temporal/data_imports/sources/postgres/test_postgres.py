@@ -737,6 +737,11 @@ class TestPostgresSourceNonRetryableErrors:
             "restart transaction: TransactionRetryWithProtoRefreshError: ReadWithinUncertaintyIntervalError: "
             "read at time 100.000000000,0 encountered previous write with future timestamp 100.000000000,1: "
             '"sql txn" meta={id=00000000}',
+            # A proxy/pooler's own brief service outage at connect time, with no lifecycle or
+            # capacity wording. Self-recovering once the outage clears, so it must stay classified
+            # retryable like the other connect-time refusals above. IP is invented, not a real
+            # customer value.
+            'OperationalError: connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  service temporarily unavailable',
         ],
     )
     def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
@@ -780,6 +785,10 @@ class TestPostgresSourceNonRetryableErrors:
                 "read at time 100.000000000,0",
                 "serialization conflict",
             ),
+            (
+                'OperationalError: connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  service temporarily unavailable',
+                "temporarily unavailable",
+            ),
         ],
     )
     def test_exhausted_retries_replace_raw_driver_text(self, source, error_msg, expected_phrase):
@@ -796,7 +805,7 @@ class TestPostgresSourceNonRetryableErrors:
         )
         assert message is not None, f"Exhausted retryable error must surface a message: {error_msg}"
         assert expected_phrase in message.lower()
-        assert "db.example.com" not in message and "10.0.0.1" not in message
+        assert "db.example.com" not in message and "10.0.0.1" not in message and "203.0.113.7" not in message
 
     def test_every_retryable_error_has_an_exhaustion_message(self, source):
         # A transient substring added to postgres.py flows into get_retryable_errors automatically,
@@ -1499,6 +1508,8 @@ class TestPostgresSourceNonRetryableErrors:
             'InvalidTextRepresentation: invalid input syntax for type integer: "1.5"',
             'invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
             'InvalidTextRepresentation: invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
+            'invalid input syntax for type boolean: "2"',
+            'InvalidTextRepresentation: invalid input syntax for type boolean: "2"',
         ],
     )
     def test_non_integer_incremental_cursor_errors_are_non_retryable(self, source, error_msg):
@@ -2840,6 +2851,13 @@ class TestDroppedOrConnectTimeout:
             psycopg.OperationalError(
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  the database system is shutting down"
+            ),
+            # A proxy/pooler in front of the source refusing a connect attempt during its own brief
+            # internal hiccup — no SQLSTATE-mapped subclass, no lifecycle wording. Transient — a
+            # fresh connect after a short backoff succeeds once the outage clears — so it must be
+            # recognised here too instead of burning the whole activity's retry budget.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  service temporarily unavailable'
             ),
             # This worker's process-wide (EMFILE) or system-wide (ENFILE) file-descriptor table is
             # full while opening the socket for a fresh connect. Transient on our side of the wire —
