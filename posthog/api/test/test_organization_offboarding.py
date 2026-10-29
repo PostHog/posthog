@@ -149,12 +149,12 @@ class TestOrganizationOffboarding(APIBaseTest):
     @parameterized.expand([("dashboard",), ("insight",), ("notebook",)])
     @patch("posthog.api.sharing.export_asset_for_opengraph")
     def test_publishers_survive_rotation_without_activity_history(self, kind: str, _export: object) -> None:
-        model: type[Dashboard] | type[Insight] | type[Notebook] = {
+        models: dict[str, type[Dashboard] | type[Insight] | type[Notebook]] = {
             "dashboard": Dashboard,
             "insight": Insight,
             "notebook": Notebook,
-        }[kind]
-        resource = model.objects.create(team=self.team, created_by=self.user)
+        }
+        resource = models[kind].objects.create(team=self.team, created_by=self.user)
         lookup_id = resource.short_id if isinstance(resource, Notebook) else resource.pk
         route = "notebooks" if kind == "notebook" else f"{kind}s"
         self.client.force_login(self.departing)
@@ -345,13 +345,13 @@ class TestOrganizationOffboarding(APIBaseTest):
 
     @parameterized.expand([("dashboard",), ("insight",), ("notebook",), ("recording",)])
     def test_removal_revokes_hidden_soft_deleted_resources(self, kind: str) -> None:
-        model: type[Dashboard] | type[Insight] | type[Notebook] | type[SessionRecording] = {
+        models: dict[str, type[Dashboard] | type[Insight] | type[Notebook] | type[SessionRecording]] = {
             "dashboard": Dashboard,
             "insight": Insight,
             "notebook": Notebook,
             "recording": SessionRecording,
-        }[kind]
-        resource = model.objects.create(
+        }
+        resource = models[kind].objects.create(
             team=self.team, deleted=True, **({"session_id": "deleted-recording"} if kind == "recording" else {})
         )
         share = SharingConfiguration.objects.create(
