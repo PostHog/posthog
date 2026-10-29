@@ -156,10 +156,17 @@ describe('hog error-tracking upload', () => {
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
     })
 
-    test('--delete-after leaves maps outside the selected paths, and skips unreadable CSS references', () => {
+    test('--delete-after leaves alone maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
         const bundle = 'a();\n//# sourceMappingURL=../maps/a.js.map\n'
-        const stylesheet = 'a{}\n/*# sourceMappingURL=%FF.css.map */\n'
-        const folder = project({ 'dist/a.js': bundle, 'maps/a.js.map': MAP, 'dist/site.css': stylesheet })
+        const folder = project({
+            'dist/a.js': bundle,
+            'maps/a.js.map': MAP,
+            'dist/broken.css': 'a{}\n/*# sourceMappingURL=%FF.css.map */\n',
+            'dist/settings.css': 'a{}\n/*# sourceMappingURL=settings.json */\n',
+            'dist/settings.json': '{"theme":"dark"}',
+            'dist/ignored.css': 'a{}\n/*# sourceMappingURL=ignored.css.map */\n',
+            'dist/ignored.css.map': MAP,
+        })
         const warnings: string[] = []
         const outside = {
             sourcePath: join(folder, 'dist/a.js'),
@@ -168,15 +175,22 @@ describe('hog error-tracking upload', () => {
             mapFingerprint: contentHash(serializeMapContent(loadMapContent(MAP))),
             kind: 'js' as const,
         }
-        const css = cssTargets([join(folder, 'dist/site.css')], undefined, warnings)
+        const css = cssTargets(
+            ['broken.css', 'settings.css', 'ignored.css'].map((name) => join(folder, 'dist', name)),
+            undefined,
+            warnings,
+            (mapPath) => mapPath.endsWith('ignored.css.map')
+        )
         const result = cleanUp([outside, ...css], [join(folder, 'dist')])
 
         expect(result.deletedMaps).toEqual([])
         expect([...warnings, ...result.warnings]).toEqual([
-            expect.stringContaining("site.css: its sourcemap reference can't be read"),
+            expect.stringContaining("broken.css: its sourcemap reference can't be read"),
             expect.stringContaining('resolves outside the selected paths'),
         ])
-        expect(existsSync(join(folder, 'maps/a.js.map'))).toBe(true)
+        for (const path of ['maps/a.js.map', 'dist/settings.json', 'dist/ignored.css.map']) {
+            expect(existsSync(join(folder, path))).toBe(true)
+        }
         expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
     })
 
