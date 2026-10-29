@@ -115,13 +115,30 @@ class TestHistoryWriter:
             (None, "x", _at(2), None, "current"),
         ]
 
+    @pytest.mark.asyncio
+    async def test_an_order_column_that_is_also_a_key_keeps_working_once_history_exists(self, tmp_path: Path) -> None:
+        writer = _writer(tmp_path, primary_keys=["id", "_ph_valid_from"])
+        await _run(writer, "run-1", _batch([(1, "a", _at(1))]))
+        await _run(writer, "run-2", _batch([(1, "b", _at(2))]))
+
+        assert [row[1] for row in _history(tmp_path)] == ["a", "b"]
+
+    @pytest.mark.asyncio
+    async def test_a_source_column_named_like_staging_metadata_is_refused(self, tmp_path: Path) -> None:
+        batch = _batch([(1, "a", _at(1))]).append_column("_ph_staged_row", pa.array([5]))
+
+        with pytest.raises(ValueError, match="_ph_staged_row"):
+            await _writer(tmp_path).append(batch, run_uuid="run", batch_index=0)
+
     @pytest.mark.parametrize("bucket_target_mib,several_buckets", [(1024.0, False), (0.001, True)])
     @pytest.mark.parametrize(
-        "crash_point",
+        "crash_point,later_run",
         [
             # After the append and before the close, so each key has its old and its new version open.
-            (deltalake.DeltaTable, "merge"),
-            (DeltaWriter, "delete_where"),
+            ((deltalake.DeltaTable, "merge"), False),
+            # The next run stages a newer version before anything re-runs the interrupted close.
+            ((deltalake.DeltaTable, "merge"), True),
+            ((DeltaWriter, "delete_where"), False),
         ],
     )
     @pytest.mark.asyncio
@@ -130,6 +147,7 @@ class TestHistoryWriter:
         bucket_target_mib: float,
         several_buckets: bool,
         crash_point: tuple[type, str],
+        later_run: bool,
         tmp_path: Path,
     ) -> None:
         writer = _writer(tmp_path, bucket_target_mib=bucket_target_mib)
@@ -141,13 +159,16 @@ class TestHistoryWriter:
         with patch.object(*crash_point, side_effect=RuntimeError("crash")):
             with pytest.raises(RuntimeError):
                 await writer.finalize()
+        if later_run:
+            await writer.append(_batch([(key, "c", _at(3)) for key in range(20)]), run_uuid="run-3", batch_index=0)
         rerun = await writer.finalize()
 
         history = _history(tmp_path)
-        assert len(history) == 40
+        assert len(history) == (60 if later_run else 40)
         assert [row for row in history if row[0] == 7] == [
             (7, "a", _at(1), _at(2), "2026-02"),
-            (7, "b", _at(2), None, "current"),
+            *([(7, "b", _at(2), _at(3), "2026-03"), (7, "c", _at(3), None, "current")] if later_run else []),
+            *([] if later_run else [(7, "b", _at(2), None, "current")]),
         ]
         assert (rerun.buckets > 1) == several_buckets
         assert (await writer.finalize()).staged_rows == 0
