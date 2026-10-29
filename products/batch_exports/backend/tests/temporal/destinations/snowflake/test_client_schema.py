@@ -1,13 +1,17 @@
+from collections.abc import AsyncIterator
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeClient,
     SnowflakeIncompatibleSchemaError,
     SnowflakeTable,
 )
+from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, SchemaTransformer
 
 
 @pytest.fixture
@@ -51,3 +55,43 @@ async def test_get_table_validates_keys_and_filters_columns(client: SnowflakeCli
             assert result["version"].data_type == pa.int64()
             assert result["version"].nullable is True
     execute.assert_awaited_once_with('DESCRIBE TABLE "test""table"')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("destination_type", ["UUID", "VARCHAR(16777216)"])
+async def test_get_table_distinguishes_uuid_from_text_and_preserves_uuid_buffers(
+    client: SnowflakeClient, destination_type: str
+) -> None:
+    batch = pa.record_batch(
+        [pa.array([bytes.fromhex("00112233445546778899aabbccddeeff"), None], type=pa.uuid())],
+        names=["Id"],
+    )
+    table = SnowflakeTable.from_arrow_schema(
+        batch.schema, name="test_table", table_schema="public", database="test_db", primary_key=(), version_key=()
+    )
+    with patch.object(
+        client,
+        "execute_async_query",
+        new=AsyncMock(return_value=([("Id", destination_type, "COLUMN", "Y")], [])),
+    ) as execute:
+        result = await client.get_table(table)
+    execute.assert_awaited_once_with('DESCRIBE TABLE "test_table"')
+
+    expected_type = pa.uuid() if destination_type == "UUID" else pa.string()
+    assert result["Id"].data_type == expected_type
+    assert result["Id"].snowflake_type_name == ("UUID" if destination_type == "UUID" else "TEXT")
+    transformed = SchemaTransformer(table=result).cast_record_batch(batch)
+    assert transformed.equals(batch)
+    source_buffer = batch.column(0).buffers()[1]
+    result_buffer = transformed.column(0).buffers()[1]
+    assert source_buffer is not None
+    assert result_buffer is not None
+    assert result_buffer.address == source_buffer.address
+
+    async def record_batches() -> AsyncIterator[pa.RecordBatch]:
+        yield transformed
+
+    chunks = [chunk.data async for chunk in ParquetStreamTransformer(compression="zstd").iter(record_batches())]
+    parquet = pq.ParquetFile(pa.BufferReader(b"".join(chunks)))
+    assert parquet.schema.column(0).logical_type.type == "UUID"
+    assert parquet.read().equals(pa.Table.from_batches([batch]))

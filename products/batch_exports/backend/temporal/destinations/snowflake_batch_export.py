@@ -271,6 +271,7 @@ SnowflakeTypeName = typing.Literal[
     "STRING",
     "TEXT",
     "BINARY",
+    "UUID",
     # Semi-structured type
     "VARIANT",
     # The following are all aliases representing the same integer type
@@ -354,6 +355,9 @@ def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
     elif pa.types.is_binary(data_type):
         snowflake_type_name = "BINARY"
 
+    elif isinstance(data_type, pa.UuidType):
+        snowflake_type_name = "UUID"
+
     elif pa.types.is_signed_integer(data_type) or pa.types.is_unsigned_integer(data_type):
         # Snowflake's integer is weird: It supports all signed numbers with 38 digits:
         # So the range is -10^38 + 1 to 10^38 - 1.
@@ -393,6 +397,8 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type: pa.DataType = pa.string()
         case "BINARY":
             base_type = pa.binary()
+        case "UUID":
+            base_type = pa.uuid()
         case "INT" | "INTEGER" | "BIGINT" | "SMALLINT" | "TINYINT" | "BYTEINT" | "FIXED":
             base_type = pa.int64()
         case "BOOLEAN":

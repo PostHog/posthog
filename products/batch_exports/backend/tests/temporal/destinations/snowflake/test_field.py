@@ -20,6 +20,7 @@ from products.batch_exports.backend.temporal.utils import JsonType
             "NUMBER(38,2)",
         ),
         (pa.int64(), "INTEGER", SnowflakeDestinationField("value", "FIXED", False, 38, 0), "NUMBER(38,0)"),
+        (pa.uuid(), "UUID", SnowflakeDestinationField("value", "UUID", True), "UUID"),
         (pa.binary(), "BINARY", SnowflakeDestinationField("value", "BINARY", False), "BINARY(8388608)"),
         (pa.string(), "STRING", SnowflakeDestinationField("value", "TEXT", True), "VARCHAR(16777216) COLLATE 'en-ci'"),
         (pa.float64(), "FLOAT", SnowflakeDestinationField("value", "FLOAT", True), "FLOAT"),
