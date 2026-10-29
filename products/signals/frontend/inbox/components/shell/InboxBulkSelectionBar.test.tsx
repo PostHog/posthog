@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, type SignalReport, SignalReportStatus } from '../../types'
@@ -109,5 +110,33 @@ describe('InboxBulkSelectionBar', () => {
             .toDispatchActions([logic.actionCreators.unassignedMe(unassigned), 'bulkUnassignMeSuccess'])
             .toMatchValues({ selectedReportIds: [] })
         expect(deleted.sort()).toEqual(sent)
+    })
+
+    // A bulk claim must skip reports a person already holds, and only broadcast the claims the server took.
+    it('claims only the unclaimed reports and broadcasts the ones that succeeded', async () => {
+        const claimed: string[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/claim/': ({ params }) => {
+                    claimed.push(String(params.id))
+                    return params.id === 'c'
+                        ? [500, {}]
+                        : [200, { id: params.id, assignee: myClaim, updated_at: '2026-06-11T11:00:00Z' }]
+                },
+            },
+        })
+        logic.actions.setSelectedReportIds(['a', 'b', 'c'])
+        render(
+            <InboxBulkSelectionBar
+                reports={[makeReport('a'), makeReport('b', { assignee: teammateClaim }), makeReport('c')]}
+            />
+        )
+
+        await expectLogic(logic, () => {
+            fireEvent.click(screen.getByText('Claim'))
+        })
+            .toDispatchActions([logic.actionCreators.reportClaimChanged('a', myClaim), 'bulkClaimSuccess'])
+            .toMatchValues({ selectedReportIds: [] })
+        expect(claimed.sort()).toEqual(['a', 'c'])
     })
 })
