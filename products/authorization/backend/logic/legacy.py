@@ -122,6 +122,6 @@ def _access(session: Session, principal: Any, team_id: int) -> UserAccessControl
     if team is None:
         return None
     access = UserAccessControl(user=cast(User, principal), team=team)
-    if not session.uncommitted:
+    if session.can_cache():
         session.access[key] = access
     return access

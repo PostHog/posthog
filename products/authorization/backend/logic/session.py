@@ -43,6 +43,12 @@ class Session:
         self.clear()
         self.uncommitted = False
 
+    def can_cache(self) -> bool:
+        # A rollback never runs `committed`, so caching resumes once no transaction is open.
+        if self.uncommitted and not connection.in_atomic_block:
+            self.committed()
+        return not self.uncommitted
+
 
 _current: ContextVar[Session | None] = ContextVar("authorization_session", default=None)
 
