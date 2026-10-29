@@ -139,7 +139,7 @@ products/slack_app/backend/services/slack_app_home_stats.py 1
 products/slack_app/backend/services/slack_auth.py 1
 products/slack_app/backend/services/slack_messages.py 2
 products/slack_app/backend/services/slack_settings.py 1
-products/slack_app/backend/services/slack_user_info.py 3
+products/slack_app/backend/services/slack_user_info.py 2
 products/slack_app/backend/services/slack_welcome_messages.py 1
 products/slack_app/backend/services/turn_feedback.py 2
 products/slack_app/backend/signals.py 2
