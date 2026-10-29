@@ -497,9 +497,9 @@ tools:
             server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
             nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
             reaches real people until workflows-publish. The updated workflow is returned without step inputs; read one
-            back with workflows-get. Prefer this over
-            workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in
-            sync. For library templates use workflows-patch-email-template instead.
+            back with workflows-get. Prefer this over workflows-patch-graph update_action for email content - it's
+            smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template
+            instead.
         response:
             exclude:
                 - actions.*.config.inputs
@@ -524,10 +524,10 @@ tools:
             validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing
             changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch
             copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until
-            workflows-publish. The updated workflow is returned without step inputs, so you can confirm every step's
-            id and type without re-fetching; read a step's inputs back with workflows-get. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
-            {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with
-            workflows-test-run after patching.
+            workflows-publish. The updated workflow is returned without step inputs, so you can confirm every step's id
+            and type without re-fetching; read a step's inputs back with workflows-get. When adding or editing a
+            conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not
+            {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.
         response:
             exclude:
                 - actions.*.config.inputs
