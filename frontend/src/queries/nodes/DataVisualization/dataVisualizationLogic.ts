@@ -787,6 +787,15 @@ export interface dataVisualizationLogicActions {
     deleteYSeries: (seriesIndex: number) => {
         seriesIndex: number
     }
+    initializeAxes: (
+        tabularColumns: SelectedYAxis[] | null,
+        yAxis: SelectedYAxis[] | null,
+        xAxis: string | null
+    ) => {
+        tabularColumns: SelectedYAxis[] | null
+        xAxis: string | null
+        yAxis: SelectedYAxis[] | null
+    }
     loadHogVm: () => {
         value: true
     }
@@ -1077,6 +1086,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             allColumns: values.columns,
         }),
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
+        initializeAxes: (
+            tabularColumns: SelectedYAxis[] | null,
+            yAxis: SelectedYAxis[] | null,
+            xAxis: string | null
+        ) => ({ tabularColumns, yAxis, xAxis }),
         clearAxis: true,
         setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => ({ setter }),
         updateChartSettings: (settings: ChartSettings) => ({ settings }),
@@ -1128,6 +1142,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return state
                 },
                 clearAxis: () => null,
+                initializeAxes: (state, { tabularColumns }) => tabularColumns ?? state,
                 addSeries: (state, { columnName, settings, allColumns }) => {
                     if (!state && columnName !== undefined) {
                         return [{ name: columnName, settings: settings ?? DefaultAxisSettings() }]
@@ -1194,6 +1209,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 _setQuery: (_, { node }) => node.chartSettings?.xAxis?.column ?? null,
                 clearAxis: () => null,
                 updateXSeries: (_, { columnName }) => columnName,
+                initializeAxes: (state, { xAxis }) => xAxis ?? state,
             },
         ],
         selectedYAxis: [
@@ -1221,6 +1237,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return state
                 },
                 clearAxis: () => null,
+                initializeAxes: (state, { yAxis }) => yAxis ?? state,
                 addYSeries: (state, { columnName, settings, allNumericalColumns }) => {
                     if (!state && columnName !== undefined) {
                         return [{ name: columnName, settings: settings ?? DefaultAxisSettings() }]
@@ -2092,6 +2109,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateXSeries: [sharedListeners.axesChanged],
         addYSeries: [sharedListeners.axesChanged],
         addSeries: [sharedListeners.axesChanged],
+        initializeAxes: [sharedListeners.axesChanged],
         updateSeriesIndex: [sharedListeners.axesChanged],
         updateSeries: [sharedListeners.axesChanged],
         deleteYSeries: [sharedListeners.axesChanged],
@@ -2137,34 +2155,30 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 }
             }
 
-            // Set up table columns
-            if (values.response && values.tabularColumnSettings === null) {
-                value.forEach((column) => {
-                    if (oldTabularColumnSettings) {
-                        const lastValue = oldTabularColumnSettings.find((n) => n?.name === column.name)
-                        return actions.addSeries(column.name, lastValue?.settings)
-                    }
-
-                    actions.addSeries(column.name)
-                })
-            }
-
-            // Set up chart series
-            if (values.response && values.selectedXAxis === null && values.selectedYAxis === null) {
-                const { xAxis, yAxis } = deriveDefaultAxes(value)
-
-                yAxis.forEach((columnName) => {
-                    if (oldTabularColumnSettings) {
-                        const lastValue = oldTabularColumnSettings.find((n) => n?.name === columnName)
-                        return actions.addYSeries(columnName, lastValue?.settings)
-                    }
-
-                    actions.addYSeries(columnName)
-                })
-
-                if (xAxis) {
-                    actions.updateXSeries(xAxis)
-                }
+            // Set up the table columns and chart series in one action. Each dispatch runs the reducers of every
+            // mounted logic, so a dispatch per column makes each dashboard tile slower to mount than the last.
+            const lastSettings = (columnName: string): AxisSeriesSettings | undefined =>
+                oldTabularColumnSettings?.find((n) => n?.name === columnName)?.settings
+            const tabularColumns =
+                values.response && values.tabularColumnSettings === null
+                    ? value.map((column) => ({
+                          name: column.name,
+                          settings: lastSettings(column.name) ?? DefaultAxisSettings(),
+                      }))
+                    : null
+            const defaultAxes =
+                values.response && values.selectedXAxis === null && values.selectedYAxis === null
+                    ? deriveDefaultAxes(value)
+                    : null
+            const yAxis = defaultAxes?.yAxis.length
+                ? defaultAxes.yAxis.map((columnName) => ({
+                      name: columnName,
+                      settings: lastSettings(columnName) ?? DefaultAxisSettings(),
+                  }))
+                : null
+            const xAxis = defaultAxes?.xAxis ?? null
+            if (tabularColumns?.length || yAxis || xAxis) {
+                actions.initializeAxes(tabularColumns?.length ? tabularColumns : null, yAxis, xAxis)
             }
 
             if (values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
