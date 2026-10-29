@@ -112,6 +112,7 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     ExternalDataSourceTypeEnumApi,
     IncrementalSyncBlockedReasonEnumApi,
     RowFilterColumnApi,
@@ -6597,17 +6598,8 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
 }
 
-/** The kind of personal or secret data a column's name and type suggest. Mirrors `WarehouseColumnSensitivity`. */
-export type ColumnSensitivity =
-    | 'email'
-    | 'phone'
-    | 'name'
-    | 'address'
-    | 'date_of_birth'
-    | 'ip_address'
-    | 'token'
-    | 'secret'
-    | 'card_number'
+/** The kind of personal or secret data a column's name and type suggest. */
+export type ColumnSensitivity = NonNullable<ExternalDataSchemaApiAvailableColumnsItemSensitivity>
 
 /** A column offered by the column picker. */
 export interface SchemaAvailableColumn {
