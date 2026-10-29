@@ -84,3 +84,4 @@ class TestDynamoDBSource:
             resumable_source_manager=manager,
             api_version="2012-08-10",
         )
+        assert source_fn.call_args.kwargs["credentials"].access_key == "AKIA"

@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws
     AWS_AUTH_NON_RETRYABLE_ERRORS,
     AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
+    aws_auth_endpoint_reasons,
     aws_auth_field,
     resolve_aws_credentials,
 )
@@ -134,7 +135,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
         try:
             credentials = resolve_aws_credentials(config.aws_auth, team_id)
         except AwsAuthError as error:
-            return {endpoint: str(error) for endpoint in endpoints}
+            return aws_auth_endpoint_reasons(error, endpoints)
         return probe_endpoint_permissions(
             credentials,
             config.aws_region,
