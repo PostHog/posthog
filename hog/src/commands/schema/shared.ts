@@ -1,7 +1,8 @@
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { join } from 'node:path'
 
 import type { LoadedConfig } from '@/core/config'
 import type { Context } from '@/core/context'
+import { absolutePath } from '@/core/paths'
 
 export const LANGUAGES = ['typescript', 'golang', 'python'] as const
 export type Language = (typeof LANGUAGES)[number]
@@ -60,15 +61,6 @@ export function fetchDefinitions(ctx: Context, language: Language): Promise<Defi
 // posthog.json stores paths relative to its own folder. A new file goes in the working folder.
 export function configRoot(ctx: Context, loaded: LoadedConfig | undefined): string {
     return loaded?.root ?? ctx.runtime.cwd()
-}
-
-export function absolutePath(root: string, path: string): string {
-    return isAbsolute(path) ? path : resolve(root, path)
-}
-
-export function storedPath(root: string, path: string): string {
-    const rel = relative(root, path)
-    return rel.startsWith('..') || isAbsolute(rel) ? path : rel
 }
 
 // Resolves a path the caller typed. A folder, or a path that ends with a slash, gets the

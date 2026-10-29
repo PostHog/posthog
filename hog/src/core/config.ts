@@ -64,6 +64,18 @@ export const PostHogConfig = z
     .strictObject({
         $schema: z.string().optional().describe('The JSON schema for this file.'),
         errorTracking: ErrorTracking.optional(),
+        endpoints: z
+            .strictObject({
+                dir: z
+                    .string()
+                    .min(1)
+                    .optional()
+                    .describe(
+                        'The folder of endpoint YAML files, relative to posthog.json. `hog endpoints pull` writes there, and `push` and `diff` read it when no path is passed.'
+                    ),
+            })
+            .optional()
+            .describe('Settings for `hog endpoints`.'),
         languages: z
             .record(z.string(), SchemaLanguage)
             .optional()

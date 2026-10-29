@@ -20,6 +20,8 @@ export type OptionSpec =
           // The name shown in help, as in `--host <url>`. Defaults to the option name.
           placeholder?: string
           choices?: readonly string[]
+          // The option can repeat, as in `--var a=1 --var b=2`, and its value is a list.
+          multiple?: boolean
       }
 
 type ArgumentValues<Args> = {
@@ -33,7 +35,9 @@ type ArgumentValues<Args> = {
 export type OptionValues<Options> = {
     [Name in keyof Options]: Options[Name] extends { type: 'boolean' }
         ? boolean | undefined
-        : (Options[Name] extends { choices: readonly (infer Choice)[] } ? Choice : string) | undefined
+        : Options[Name] extends { multiple: true }
+          ? string[] | undefined
+          : (Options[Name] extends { choices: readonly (infer Choice)[] } ? Choice : string) | undefined
 }
 
 interface CommandInput<Args, Options> {

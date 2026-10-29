@@ -46,8 +46,8 @@ describe('hog', () => {
         ],
         [
             'an --output that the legacy command owns',
-            ['endpoints', 'pull', 'example', '--output', './queries'],
-            'posthog-cli exp endpoints pull example --output ./queries',
+            ['logs', 'import', '--output', './logs'],
+            'posthog-cli exp logs import --output ./logs',
         ],
     ])('%s points to posthog-cli', async (_name, argv, invocation) => {
         const result = await runHog(argv)
@@ -115,6 +115,13 @@ describe('hog', () => {
             'error-tracking release',
             'error-tracking download',
             'error-tracking extract',
+            'endpoints list',
+            'endpoints get',
+            'endpoints open',
+            'endpoints run',
+            'endpoints push',
+            'endpoints pull',
+            'endpoints diff',
             'schema pull',
             'schema status',
             'config check',

@@ -1,7 +1,8 @@
 import { defineCommand } from '@/core/command'
+import { absolutePath } from '@/core/paths'
 import { plural } from '@/core/text'
 
-import { absolutePath, configRoot, fetchDefinitions, isLanguage, LANGUAGE_INFO } from './shared'
+import { configRoot, fetchDefinitions, isLanguage, LANGUAGE_INFO } from './shared'
 
 interface LanguageStatus {
     language: string

@@ -45,6 +45,7 @@ function fakePrompts(answers: string[]): Prompts {
         select: (message) => next(message) as never,
         text: (message) => next(message),
         password: (message) => next(message),
+        confirm: async (message) => (await next(message)) === 'yes',
         note: () => {},
         spinner: () => ({ stop: () => {}, error: () => {} }),
     }
@@ -103,6 +104,21 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             options.useDisk
                 ? existsSync(path) && statSync(path).isDirectory()
                 : Object.keys(files).some((file) => file.startsWith(`${path.replace(/\/$/, '')}/`)),
+        listFiles: async (folder) => {
+            const prefix = `${folder.replace(/\/$/, '')}/`
+            return Object.keys(files)
+                .filter((file) => file.startsWith(prefix) && !file.slice(prefix.length).includes('/'))
+                .map((file) => file.slice(prefix.length))
+                .sort()
+        },
+        glob: async (pattern, cwd) => {
+            const prefix = `${cwd.replace(/\/$/, '')}/`
+            const glob = new Bun.Glob(pattern)
+            return Object.keys(files)
+                .filter((file) => file.startsWith(prefix) && glob.match(file.slice(prefix.length)))
+                .map((file) => file.slice(prefix.length))
+                .sort()
+        },
         writeFile: async (path, contents) => {
             files[path] = contents
         },
