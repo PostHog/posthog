@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
     MONDAY_VERSION_2026_07,
+    MONDAY_VERSION_2026_10,
     MONDAY_VERSION_V2,
     monday_source,
     validate_credentials as validate_monday_credentials,
@@ -38,8 +39,8 @@ class MondaySource(SimpleSource[MondaySourceConfig]):
         npm=("@mondaydotcomorg/api", "monday-sdk-js", "@mondaycom/apps-sdk"),
     )
 
-    supported_versions = (MONDAY_VERSION_V2, MONDAY_VERSION_2026_07)
-    default_version = MONDAY_VERSION_2026_07
+    supported_versions = (MONDAY_VERSION_V2, MONDAY_VERSION_2026_07, MONDAY_VERSION_2026_10)
+    default_version = MONDAY_VERSION_2026_10
     api_docs_url = "https://developer.monday.com/api-reference"
     # "v2" sends `API-Version: 2024-10`, which monday deprecated on this date. monday now answers it with
     # its maintenance version instead of rejecting it, so a v2 pin no longer selects what it names.
@@ -56,6 +57,7 @@ class MondaySource(SimpleSource[MondaySourceConfig]):
         # key would also catch transient server-side errors and permanently disable the sync.
         return {
             "401 Client Error: Unauthorized for url: https://api.monday.com": "monday.com authentication failed. Please check your API token.",
+            "403 Client Error: Forbidden for url: https://api.monday.com": "monday.com rejected the request. Please check that your API token has access to the requested data.",
             "monday.com GraphQL error: Not authenticated": "monday.com authentication failed. Please check your API token.",
             "monday.com GraphQL error: User unauthorized": "monday.com rejected the request. Please check that your API token has access to the requested data.",
         }
@@ -80,7 +82,7 @@ class MondaySource(SimpleSource[MondaySourceConfig]):
 You can find your personal API token in monday.com under your avatar > Developers > My access tokens (admins can also use the account API token). Items are synced from every board the token can access.""",
             iconPath="/static/services/monday.png",
             docsUrl="https://posthog.com/docs/cdp/sources/monday",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

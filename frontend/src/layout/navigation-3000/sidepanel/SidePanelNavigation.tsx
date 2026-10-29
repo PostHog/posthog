@@ -4,16 +4,16 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { RenderKeybind } from 'lib/components/Shortcuts/RenderKeybind'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
 import { SidePanelTab } from '~/types'
 
-import { SIDE_PANEL_TABS } from './SidePanel'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { SIDE_PANEL_TABS } from './sidePanelTabs'
 
 interface SidePanelNavigationProps {
     activeTab: SidePanelTab

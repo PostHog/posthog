@@ -79,7 +79,7 @@ class MedusaSource(ResumableSource[MedusaSourceConfig, MedusaResumeConfig], Vali
             name=ExternalDataSourceType.MEDUSA,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Medusa",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=CAPTION,
             iconPath="/static/services/medusa.png",
             docsUrl="https://posthog.com/docs/cdp/sources/medusa",

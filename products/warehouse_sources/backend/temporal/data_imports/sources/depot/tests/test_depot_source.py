@@ -7,11 +7,15 @@ from unittest import mock
 
 from requests import HTTPError, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     scripted_network,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import DEPOT_CI_SERVICE_URL
+from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import (
+    DEPOT_CI_SERVICE_URL,
+    DepotResumeState,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.source import DepotSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType
@@ -66,10 +70,13 @@ class TestDepotSource:
         source = DepotSource()
         session = mock.MagicMock()
         session.post.return_value = _response(status, reason, body)
-        inputs = mock.MagicMock(should_use_incremental_field=False, history_start=None)
+        inputs = mock.MagicMock(should_use_incremental_field=False, history_start=None, schema_name="job_attempts")
+        resume_manager = ResumableSourceManager(inputs, DepotResumeState)
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            response = source.source_for_pipeline(DepotSourceConfig(api_token="token", repository="a/b"), inputs)
+        with scripted_network([]), mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+            response = source.source_for_pipeline(
+                DepotSourceConfig(api_token="token", repository="a/b"), resume_manager, inputs
+            )
             with pytest.raises(HTTPError) as error:
                 list(cast(Iterable[list[dict[str, Any]]], response.items()))
 
@@ -78,8 +85,11 @@ class TestDepotSource:
     def test_rejects_existing_append_mode_before_extracting_replayed_attempts(self) -> None:
         source = DepotSource()
         inputs = mock.MagicMock(sync_type=ExternalDataSchemaSyncType.APPEND)
+        resume_manager = ResumableSourceManager(inputs, DepotResumeState)
         with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
             with pytest.raises(ValueError, match="Switch this table to incremental merge") as error:
-                source.source_for_pipeline(DepotSourceConfig(api_token="token", repository="a/b"), inputs)
+                source.source_for_pipeline(
+                    DepotSourceConfig(api_token="token", repository="a/b"), resume_manager, inputs
+                )
         assert str(error.value) in source.get_non_retryable_errors()
         make_session.assert_not_called()

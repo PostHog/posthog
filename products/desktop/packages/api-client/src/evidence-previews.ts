@@ -658,10 +658,8 @@ function outcomeValue(
 }
 
 function hasInsufficientData(
-  response: Schemas.ExperimentQueryResponse,
   stats: Schemas.ExperimentStatsBaseValidated[],
 ): boolean {
-  if (response.significance_code === "not_enough_exposure") return true;
   return stats.some((entry) =>
     (entry.validation_failures ?? []).some(
       (failure) =>
@@ -736,7 +734,7 @@ function shapeMetricResult(
 
   const baselineOutcome = outcomeValue(baseline, definition.valueType);
   const allStats = [baseline, ...variants];
-  const insufficient = hasInsufficientData(response, allStats);
+  const insufficient = hasInsufficientData(allStats);
   const upliftedRows: Array<{
     row: ExperimentVariantResultPresentation;
     value: number;
@@ -746,22 +744,19 @@ function shapeMetricResult(
     const isControl = index === 0;
     const statsRecord = stats as unknown as QueryRecord;
     const interval = validInterval(
-      statsRecord.confidence_interval ??
-        statsRecord.credible_interval ??
-        response.credible_intervals?.[stats.key],
+      statsRecord.confidence_interval ?? statsRecord.credible_interval,
     );
-    const pValue = cellNumber(
-      statsRecord.p_value ?? (variants.length === 1 ? response.p_value : null),
-    );
-    const chanceToWin = cellNumber(
-      statsRecord.chance_to_win ?? response.probability?.[stats.key],
-    );
+    // The API sends an unset statistic as null, and cellNumber reads null as 0.
+    const pValue =
+      typeof statsRecord.p_value === "number" ? statsRecord.p_value : null;
+    const chanceToWin =
+      typeof statsRecord.chance_to_win === "number"
+        ? statsRecord.chance_to_win
+        : null;
     const significantValue =
       typeof statsRecord.significant === "boolean"
         ? statsRecord.significant
-        : variants.length === 1 && typeof response.significant === "boolean"
-          ? response.significant
-          : null;
+        : null;
     const uplift =
       !isControl &&
       outcome.comparable !== null &&

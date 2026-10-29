@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 ZEP_BASE_URL = "https://api.getzep.com/api/v2"
 
 
-@dataclass
+@dataclass(frozen=False)  # tests patch fields such as page_size
 class ZepEndpointConfig:
     name: str
     path: str
@@ -26,7 +26,13 @@ class ZepEndpointConfig:
     # thread_messages fans out one paginated request per thread (Zep only exposes messages
     # per-thread). When True, `path` is a template with a `{thread_id}` placeholder.
     fan_out_over_threads: bool = False
+    # Graph endpoints list one graph per request. When True, `path` is a template with `{scope}`
+    # ("user" or "graph") and `{owner_id}` placeholders, and the source fans out over every user
+    # graph and every standalone graph. The response body is a bare list.
+    fan_out_over_graphs: bool = False
 
+
+GRAPH_ELEMENT_PRIMARY_KEYS = ["graph_scope", "graph_owner_id", "uuid"]
 
 ZEP_ENDPOINTS: dict[str, ZepEndpointConfig] = {
     "users": ZepEndpointConfig(
@@ -53,6 +59,40 @@ ZEP_ENDPOINTS: dict[str, ZepEndpointConfig] = {
         path="/threads/{thread_id}/messages",
         data_key="messages",
         fan_out_over_threads=True,
+    ),
+    "graphs": ZepEndpointConfig(
+        name="graphs",
+        path="/graph/list-all",
+        data_key="graphs",
+        page_number_param="pageNumber",
+        page_size_param="pageSize",
+        order_by="created_at",
+    ),
+    # Graph elements carry no reference to their graph, so each row gets `graph_scope` and
+    # `graph_owner_id` (the user_id or graph_id). The key includes them because the API does not
+    # document element uuids as unique across graphs.
+    "graph_edges": ZepEndpointConfig(
+        name="graph_edges",
+        path="/graph/edge/{scope}/{owner_id}",
+        data_key="",
+        primary_keys=GRAPH_ELEMENT_PRIMARY_KEYS,
+        fan_out_over_graphs=True,
+    ),
+    "graph_nodes": ZepEndpointConfig(
+        name="graph_nodes",
+        path="/graph/node/{scope}/{owner_id}",
+        data_key="",
+        primary_keys=GRAPH_ELEMENT_PRIMARY_KEYS,
+        fan_out_over_graphs=True,
+    ),
+    "graph_episodes": ZepEndpointConfig(
+        name="graph_episodes",
+        path="/graph/episodes/{scope}/{owner_id}",
+        data_key="",
+        primary_keys=GRAPH_ELEMENT_PRIMARY_KEYS,
+        # The API clamps an explicit episode `limit` to 50.
+        page_size=50,
+        fan_out_over_graphs=True,
     ),
 }
 

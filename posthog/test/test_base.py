@@ -1,11 +1,16 @@
 import pytest
 from posthog.test.base import (
+    QueryMatchingTest,
     run_clickhouse_statement_in_parallel,
     skip_clickhouse_query_snapshots,
     snapshot_clickhouse_queries,
+    snapshot_postgres_queries_context,
 )
 
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
+from django.db import reset_queries
+from django.test import TestCase
 
 from clickhouse_driver.errors import ServerException
 
@@ -17,6 +22,7 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_DATA_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
 )
+from posthog.models.team.team import Team
 
 
 def test_snapshot_clickhouse_queries_skips_marked_methods() -> None:
@@ -58,3 +64,23 @@ def test_events_schema_setting_controls_legacy_table_availability(django_db_setu
         assert json_table_names <= actual_table_names
     else:
         assert legacy_table_names <= actual_table_names
+
+
+class TestSnapshotPostgresQueriesContext(TestCase, QueryMatchingTest):
+    def test_cold_content_type_cache_fill_is_neither_captured_nor_counted(self) -> None:
+        ContentType.objects.clear_cache()
+
+        with self.assertNumQueries(1) as counted:
+            with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: False) as context:
+                ContentType.objects.get_for_model(Team)
+                Team.objects.exists()
+
+        assert context.captured_queries == [{"sql": query["sql"]} for query in counted.captured_queries]
+
+    def test_capture_keeps_queries_that_ran_before_a_query_log_clear(self) -> None:
+        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: False) as context:
+            Team.objects.exists()
+            reset_queries()
+            Team.objects.exists()
+
+        assert len(context.captured_queries) == 2

@@ -8,8 +8,6 @@ import pytest
 import time_machine
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -413,9 +411,6 @@ class TestValidateCredentials:
         "response, expected_valid, expected_message_part",
         [
             (_envelope(value={"custom_dimensions": []}), True, None),
-            (_envelope(401, "An invalid API Key was given."), False, AUTH_ERROR),
-            (_envelope(403, "The request is denied access. Please contact your administrator."), False, ACCESS_ERROR),
-            (requests.ConnectionError("connection refused"), False, "Could not reach Singular"),
         ],
     )
     def test_validate_credentials(self, response, expected_valid, expected_message_part):

@@ -138,7 +138,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/knock",
             iconPath="/static/services/knock.png",
             keywords=["notifications"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -152,6 +152,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="object_collections",
+                        sync_setting=True,
                         label="Object collections",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -161,6 +162,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="audience_keys",
+                        sync_setting=True,
                         label="Audience keys",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

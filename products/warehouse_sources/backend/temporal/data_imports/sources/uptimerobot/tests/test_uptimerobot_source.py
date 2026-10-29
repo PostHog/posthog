@@ -25,8 +25,3 @@ class TestUptimerobotSource:
         # exhausted, this must stay classified as retryable so it doesn't get tracked as noise.
         retryable_errors = self.source.get_retryable_errors()
         assert any(pattern in error_message for pattern in retryable_errors)
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["monitors"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "monitors"

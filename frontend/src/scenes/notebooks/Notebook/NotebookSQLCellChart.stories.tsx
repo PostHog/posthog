@@ -57,7 +57,7 @@ const meta: Meta = {
         mockDate: '2023-07-04',
         featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
         testOptions: {
-            waitForSelector: '[data-attr="notebook-node-sql-v2"] canvas',
+            waitForSelector: '.DataVisualization canvas',
         },
     },
     decorators: [

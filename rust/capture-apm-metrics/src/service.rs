@@ -32,6 +32,7 @@ pub struct MetricsService {
     pub(crate) sink: KafkaSink,
     pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
+    pub(crate) remote_write_max_expanded_bytes: u64,
     pub(crate) series_label_gate: Arc<SeriesLabelGate>,
 }
 
@@ -45,12 +46,14 @@ impl MetricsService {
         kafka_sink: KafkaSink,
         authorizer: Authorizer,
         max_request_body_size_bytes: usize,
+        remote_write_max_expanded_bytes: u64,
         series_label_gate: Arc<SeriesLabelGate>,
     ) -> Self {
         Self {
             sink: kafka_sink,
             authorizer,
             max_request_body_size_bytes,
+            remote_write_max_expanded_bytes,
             series_label_gate,
         }
     }

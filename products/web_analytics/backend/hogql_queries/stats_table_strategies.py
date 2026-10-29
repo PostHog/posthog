@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
+    CHANNEL_TYPE_TWO_PHASE_INNER_QUERY,
     FIRST_PAGEVIEW_INNER_QUERY,
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
@@ -263,6 +264,53 @@ class ChannelTypeStrategy(SimpleBreakdownStrategy):
     per-row work materially heavier than other simple breakdowns, which
     is why this gets its own tag for attribution even though the outer
     SQL is the same template."""
+
+
+class ChannelTypeTwoPhaseStrategy(ChannelTypeStrategy):
+    """INITIAL_CHANNEL_TYPE breakdown without the per-event sessions join.
+
+    Eligible when the tile shows only visitors and views: every other
+    session-derived column would need the join back. The outer query is
+    inherited unchanged; only the inner scan differs.
+    """
+
+    INNER_QUERY = CHANNEL_TYPE_TWO_PHASE_INNER_QUERY
+
+    def build_query(self) -> ast.SelectQuery:
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_channel_type").inc()
+        return super().build_query()
+
+    def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            self.INNER_QUERY,
+            timings=self.runner.timings,
+            placeholders={
+                **self._event_aggregation_placeholders(),
+                "event_where": self.runner.event_type_expr,
+                "all_properties": self.runner.all_properties(),
+                "inside_periods": self.runner._periods_expression(),
+                "sessions_in_range": self._sessions_start_range(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _sessions_start_range(self) -> ast.Expr:
+        # Without a compare period the outer query counts every in-range event, so a
+        # session that started before the range still needs its channel. The lazy
+        # events↔sessions join pads its session pushdown by 3 days; pad the same way
+        # so both paths see the same sessions.
+        date_from = self.runner.query_date_range.date_from()
+        compare = self.runner.query_compare_to_date_range
+        if compare is not None:
+            date_from = min(date_from, compare.date_from())
+        return parse_expr(
+            "and(sessions.$start_timestamp >= {date_from} - toIntervalDay(3), sessions.$start_timestamp <= {date_to})",
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=self.runner.query_date_range.date_to()),
+            },
+        )
 
 
 class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):

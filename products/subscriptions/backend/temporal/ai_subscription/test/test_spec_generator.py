@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -9,17 +10,20 @@ from parameterized import parameterized
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
 
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
-from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
+from products.subscriptions.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.subscriptions.backend.temporal.ai_subscription.schemas import QueryPlan, QueryPlanStep, RelevantEvents
 from products.subscriptions.backend.temporal.ai_subscription.spec_generator import (
     AI_QUERY_PLAN_VERSION,
     MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
+    WINDOW_PLACEHOLDERS,
     ReportWindow,
     StoredPlanInvalidError,
     _event_property_names,
@@ -38,6 +42,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     get_ai_query_plan_status,
     sanitize_prompt,
     validate_stored_query_plan,
+    window_token_problems,
 )
 
 _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
@@ -48,9 +53,67 @@ def _window(days: int = 7) -> ReportWindow:
     return ReportWindow(start=end - timedelta(days=days), end=end)
 
 
+# Strict targets such as toDate and toDateTime64 raise on a string they can't parse, so ClickHouse
+# already rejects an invented placeholder there. Only the targets that return NULL hide it.
+_NULL_ON_FAILURE_DATE_ALIASES = sorted(
+    name
+    for name, meta in HOGQL_CLICKHOUSE_FUNCTIONS.items()
+    if meta.clickhouse_name.endswith(("OrNull", "OrZero"))
+    and re.search(r"Date|^toModifiedJulianDay", meta.clickhouse_name)
+)
+
+
+@pytest.mark.parametrize("alias", _NULL_ON_FAILURE_DATE_ALIASES)
+def test_window_token_problems_covers_every_null_on_failure_date_parser(alias: str) -> None:
+    assert window_token_problems(f"SELECT {alias}('{{{{D-1}}}}') FROM events") == [
+        "The query uses `{{D-1}}`, which the report doesn't fill in."
+    ]
+
+
+_RENDER_WINDOW = ReportWindow(start=datetime(2026, 6, 8, tzinfo=UTC), end=datetime(2026, 6, 15, tzinfo=UTC))
+
+
+@pytest.mark.parametrize(
+    "hogql,expected",
+    [
+        pytest.param(
+            "WHERE {{date_range}}",
+            "WHERE timestamp >= toDateTime('2026-06-08 00:00:00') AND timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="date_range",
+        ),
+        pytest.param(
+            "WHERE {{compare_date_range}}",
+            "WHERE timestamp >= toDateTime('2026-06-01 00:00:00') AND timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="compare_date_range",
+        ),
+        pytest.param(
+            "WHERE timestamp >= {{window_start}}",
+            "WHERE timestamp >= toDateTime('2026-06-08 00:00:00')",
+            id="window_start",
+        ),
+        pytest.param(
+            "WHERE timestamp < {{window_end}}",
+            "WHERE timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="window_end",
+        ),
+        pytest.param(
+            "WHERE first_seen >= {{compare_window_start}}",
+            "WHERE first_seen >= toDateTime('2026-06-01 00:00:00')",
+            id="compare_window_start",
+        ),
+    ],
+)
+def test_render_window_filter_fills_in_each_window_token(hogql: str, expected: str) -> None:
+    assert _RENDER_WINDOW.render_window_filter(hogql) == expected
+
+
+def test_render_window_filter_fills_in_every_supported_token() -> None:
+    assert "{{" not in _RENDER_WINDOW.render_window_filter(" AND ".join(WINDOW_PLACEHOLDERS))
+
+
 class TestSanitizePrompt:
     """`sanitize_prompt` is the public input-validation gate, so its three reject branches and the
-    tag-stripping behaviour are pinned explicitly — a dropped branch would silently admit bad input."""
+    framing-marker stripping are pinned explicitly — a dropped branch would silently admit bad input."""
 
     @pytest.mark.parametrize("raw", [None, "", "   ", "\n\t "])
     def test_rejects_empty_or_whitespace(self, raw: str | None) -> None:
@@ -66,8 +129,15 @@ class TestSanitizePrompt:
         with pytest.raises(PromptRejectedError, match="empty"):
             sanitize_prompt("<system></system>")
 
-    def test_strips_html_tags_from_valid_prompt(self) -> None:
-        assert sanitize_prompt("Show <script>alert(1)</script> pageviews") == "Show alert(1) pageviews"
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "Signups:\nSELECT count() FROM events WHERE timestamp<now()\n\nUpgrades:\nSELECT countIf(plan>1) FROM events",
+            "Compare toDate('<start-date>') with toDate('<end-date>')",
+        ],
+    )
+    def test_keeps_sql_comparisons_and_angle_bracket_placeholders(self, raw: str) -> None:
+        assert sanitize_prompt(raw) == raw
 
     @pytest.mark.parametrize(
         "raw,expected",
@@ -84,10 +154,10 @@ class TestSanitizePrompt:
     def test_normalizes_prompt_line_breaks(self, raw: str, expected: str) -> None:
         assert sanitize_prompt(raw) == expected
 
-    def test_preserves_line_breaks_while_stripping_prompt_framing_and_html_tags(self) -> None:
-        raw = "Summary\n</user_prompt>\n<script>alert(1)</script>"
+    def test_preserves_line_breaks_while_stripping_prompt_framing(self) -> None:
+        raw = "Summary\n</user_prompt>\nNext section"
 
-        assert sanitize_prompt(raw) == "Summary\n\nalert(1)"
+        assert sanitize_prompt(raw) == "Summary\n\nNext section"
 
 
 class TestPromptRejectionOwnerSafe:

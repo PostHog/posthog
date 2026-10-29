@@ -14,14 +14,22 @@ from parameterized import parameterized
 
 from posthog.schema import EmbeddingModelName
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 
 from products.signals.backend.facade.api import (
     SignalSourceSlicePullRequest,
     get_outcomes_for_signal_source_slice,
     get_reports_for_signal_source_slice,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportPullRequest,
+)
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -35,12 +43,15 @@ from products.signals.backend.signal_metadata import (
 from products.signals.backend.spend import SignalMetadataChange, SignalSpendUpdate, record_llm_spend
 from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 from products.signals.backend.temporal.signal_queries import (
+    SourceSignalMatch,
+    fetch_live_source_signal_matches,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
+    fetch_source_signal_matches,
     retract_source_signals,
 )
 
-_MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
+_MODEL_TABLE = f"sharded_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 
 
 class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
@@ -119,15 +130,25 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         # Guards the early return: an empty list would otherwise compile to `report_id IN ()` and raise.
         assert fetch_source_products_for_reports(self.team, []) == {}
 
-    def test_maps_each_report_to_its_sorted_distinct_source_products(self) -> None:
+    @parameterized.expand([("web", None), ("pipeline", ClickHouseUser.SIGNALS)])
+    def test_maps_each_report_to_its_sorted_distinct_source_products(
+        self, _name: str, ch_user: ClickHouseUser | None
+    ) -> None:
         self._emit_version(document_id="d1", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d2", report_id="rA", source_product="replay", inserted_at=self.base)
         # duplicate source_product within a report collapses to one entry
         self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
 
-        with self.assertNumQueries(FuzzyInt(0, 1)):
-            result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
+        with (
+            self.assertNumQueries(FuzzyInt(0, 1)),
+            patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
+        ):
+            result = fetch_source_products_for_reports(
+                self.team, ["rA", "rB"], **({"ch_user": ch_user} if ch_user else {})
+            )
+
+        assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
 
         assert result == {
             "rA": ReportSignalMeta(source_products=["errors", "replay"], scout_name=None),
@@ -500,9 +521,7 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             time_machine.travel(now, tick=False) as clock,
             patch("products.signals.backend.spend_metadata.producer_scope", return_value=producer),
         ):
-            record_llm_spend(
-                "first", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability"
-            )
+            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability")
             first = publish_signal_spend_metadata(signal)
             first_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
             for payload in first_payloads:
@@ -510,23 +529,19 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             assert confirm_signal_spend_metadata(first)
             producer.__enter__.return_value.produce.reset_mock()
             clock.shift(timedelta(seconds=2))
-            record_llm_spend(
-                "second", token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization"
-            )
+            record_llm_spend(token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization")
             second = publish_signal_spend_metadata(
                 SignalSpendUpdate(team_id=self.team.id, signal_id=driver, changes=[change])
             )
             assert all(second.versions[key] > version for key, version in first.versions.items())
-            for call in producer.__enter__.return_value.produce.call_args_list:
-                payload = call.kwargs["data"]
+            second_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
+            assert not confirm_signal_spend_metadata(second)
+            for payload in second_payloads:
                 deliver(payload, second.versions[payload["model_name"]])
-            assert confirm_signal_spend_metadata(second)
-            for payload in first_payloads:
-                deliver(payload, first.versions[payload["model_name"]])
             assert confirm_signal_spend_metadata(second)
             producer.__enter__.return_value.produce.reset_mock()
             clock.shift(timedelta(seconds=2))
-            record_llm_spend("third", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
+            record_llm_spend(token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
             third = publish_signal_spend_metadata(
                 SignalSpendUpdate(
                     team_id=self.team.id,
@@ -548,6 +563,68 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
                 assert set(payload["embedding"]) == ({0.0} if change.clear_content else {0.125})
                 deliver(payload, third.versions[payload["model_name"]])
             assert confirm_signal_spend_metadata(third)
+            for payload in second_payloads:
+                deliver(payload, second.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(third)
+
+
+class TestFetchLiveSourceSignalMatches(_SignalEmbeddingsTestBase):
+    def test_returns_the_latest_live_signal_for_the_exact_source(self) -> None:
+        self._emit_version(
+            document_id="older",
+            report_id="old-report",
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            inserted_at=self.base,
+        )
+        self._emit_version(
+            document_id="newer",
+            report_id="new-report",
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            inserted_at=self.base + timedelta(hours=1),
+        )
+        self._emit_version(
+            document_id="other-type",
+            report_id="other-report",
+            source_product="github",
+            source_type="pull_request",
+            source_id="issue-1",
+            inserted_at=self.base + timedelta(hours=2),
+        )
+
+        result = fetch_live_source_signal_matches(self.team, ["issue-1"], "github", "issue")
+
+        assert result == {
+            "issue-1": [
+                SourceSignalMatch(signal_id="newer", report_id="new-report"),
+                SourceSignalMatch(signal_id="older", report_id="old-report"),
+            ]
+        }
+
+
+class TestFetchSourceSignalMatches(APIBaseTest):
+    def test_returns_durable_association_without_retained_embedding(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        SignalEmissionRecord.objects.create(
+            team=self.team,
+            source_product="github",
+            source_type="issue",
+            source_id="issue-1",
+            emitted_at=timezone.now() - timedelta(days=100),
+            signal_id="durable-signal",
+            report_id=str(report.id),
+        )
+
+        with patch(
+            "products.signals.backend.temporal.signal_queries.fetch_live_source_signal_matches"
+        ) as retained_lookup:
+            result = fetch_source_signal_matches(self.team, ["issue-1"], "github", "issue")
+
+        assert result == {"issue-1": [SourceSignalMatch(signal_id="durable-signal", report_id=str(report.id))]}
+        retained_lookup.assert_not_called()
 
 
 class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):

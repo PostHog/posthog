@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { IconTarget } from '@posthog/icons'
 
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportCheckApi, SignalReportStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { DetailSection } from './DetailSection'
 import { buildReportCheckRows, reportChecksMeta } from './reportCheckPresentation'
@@ -84,15 +84,21 @@ const explanations = new Map([
     ['inconclusive', 'The crash only shows on a physical device, which no tool here can reach.'],
 ])
 
-function ChecksSection({ checks }: { checks: SignalReportCheckApi[] }): JSX.Element {
+function ChecksSection({
+    checks,
+    reportStatus = 'resolved',
+}: {
+    checks: SignalReportCheckApi[]
+    reportStatus?: SignalReportStatusEnumApi
+}): JSX.Element {
     return (
         <DetailSection
             icon={<IconTarget />}
             title="Follow-up checks"
-            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(checks)}</span>}
+            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(checks, reportStatus)}</span>}
         >
             <div className="flex flex-col gap-1.5">
-                {buildReportCheckRows(checks, explanations).map((row) => (
+                {buildReportCheckRows(checks, explanations, reportStatus).map((row) => (
                     <ReportCheckRow key={row.check.id} row={row} cancelling={false} onCancel={() => undefined} />
                 ))}
             </div>
@@ -126,10 +132,64 @@ export const EveryState: Story = {
 }
 
 export const Running: Story = {
+    name: 'Resolved with stale dispatch',
     args: { checks: [check({ id: 'running', dispatched_at: '2026-09-21T09:00:00Z' })] },
 }
 
 export const NarrowRail: Story = {
     parameters: { railWidth: 'narrow' },
     args: { checks: everyState },
+}
+
+export const Monitoring: Story = {
+    args: {
+        reportStatus: 'monitoring',
+        checks: [
+            check({
+                id: 'monitoring-scheduled',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                run_interval_minutes: 360,
+                next_run_at: '2026-09-21T21:00:00Z',
+                monitoring_timing: {
+                    state: 'scheduled',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: '2026-09-21T21:00:00Z',
+                },
+            }),
+            check({
+                id: 'monitoring-ended',
+                title: 'The export backlog stays clear',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'window_ended',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'monitoring-paused',
+                title: 'No new reports of the export timeout',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-22T00:00:00Z',
+                monitoring_timing: {
+                    state: 'paused',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+        ],
+    },
+}
+
+export const MonitoringNarrowRail: Story = {
+    ...Monitoring,
+    parameters: { railWidth: 'narrow' },
 }

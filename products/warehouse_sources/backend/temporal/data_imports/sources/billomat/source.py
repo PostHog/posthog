@@ -157,10 +157,10 @@ class BillomatSource(ResumableSource[BillomatSourceConfig, BillomatResumeConfig]
             name=ExternalDataSourceType.BILLOMAT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Billomat",
-            caption="Sync clients, suppliers, invoices, estimates, credit notes and incoming supplier bills from Billomat.",
+            caption="Sync clients, contacts, suppliers, invoices, payments, estimates, confirmations, recurring invoices, credit notes and incoming supplier bills from Billomat.",
             docsUrl="https://posthog.com/docs/cdp/sources/billomat",
             iconPath="/static/services/billomat.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["invoicing", "accounting", "invoices"],
             fields=cast(
                 list[FieldType],

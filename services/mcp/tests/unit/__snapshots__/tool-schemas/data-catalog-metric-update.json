@@ -35,7 +35,7 @@
             "description": "Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical."
         },
         "description": {
-            "description": "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+            "description": "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.",
             "maxLength": 300,
             "type": "string"
         },
@@ -53,8 +53,21 @@
             "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
             "type": "string"
         },
+        "owner": {
+            "anyOf": [
+                {
+                    "format": "email",
+                    "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        },
         "reasoning": {
-            "description": "AI author's reasoning, surfaced as review context.",
+            "description": "Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history.",
             "type": "string"
         },
         "source_insight_short_id": {

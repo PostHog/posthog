@@ -13,7 +13,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import now
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient
@@ -29,7 +29,7 @@ from posthog.api.sharing_publish_gate import dashboard_filter_leaves
 from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import ActivityLog, OrganizationMembership
+from posthog.models import ActivityLog, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -39,6 +39,7 @@ from posthog.test.insight_queries import browser_filtered_pageview_query
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -46,9 +47,9 @@ from products.dashboards.backend.models.dashboard_tile import ButtonTile, Dashbo
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
-from products.exports.backend.models.subscription import Subscription
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.testing import create_subscription
 
 
 def mock_exporter_template(test_func):
@@ -98,6 +99,15 @@ def mock_exporter_template(test_func):
             return test_func(self, *args, **kwargs)
 
     return wrapper
+
+
+def _exported_data(response: HttpResponse) -> dict:
+    html = response.content.decode()
+    marker = '<script id="posthog-exported-data" type="application/json">'
+    start = html.index(marker) + len(marker)
+    end = html.index("</script>", start)
+    encoded_data = json.loads(html[start:end])
+    return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
 
 
 @parameterized.expand(
@@ -158,7 +168,68 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
+
+    @parameterized.expand(
+        [
+            param("dashboard", resource="dashboard"),
+            param("notebook", resource="notebook", shared_resource="notebook"),
+            param("insight", resource="insight", shared_resource="insight"),
+            param("project", resource="project"),
+            param("source", resource="external_data_source"),
+            param("warehouse_objects", resource="warehouse_objects"),
+            param("table", resource="warehouse_table"),
+            param("table_object", resource="warehouse_table", resource_id="example-object"),
+            param("view", resource="warehouse_view"),
+            param("property", resource="property_definition"),
+            param("no_rules", expected=False),
+            param("unrelated_rules", resource="feature_flag", expected=False),
+            param("unavailable_feature", resource="dashboard", entitled=False, expected=False),
+            param("other_team", resource="dashboard", other_team=True, expected=False),
+            param("other_team_property", resource="property_definition", other_team=True, expected=False),
+        ]
+    )
+    def test_sharing_config_reports_relevant_access_controls(
+        self,
+        _name: str,
+        *,
+        resource: str | None = None,
+        resource_id: str | None = None,
+        shared_resource: str = "dashboard",
+        entitled: bool = True,
+        other_team: bool = False,
+        expected: bool = True,
+    ) -> None:
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}] if entitled else []
+        )
+        self.organization.save()
+        rule_team = Team.objects.create(organization=self.organization) if other_team else self.team
+        if resource == "property_definition":
+            definition = PropertyDefinition.objects.create(
+                team=rule_team, name="example_property", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(team=rule_team, property_definition=definition, access_level="none")
+        elif resource:
+            AccessControl.objects.create(
+                team=rule_team,
+                resource=resource,
+                resource_id=resource_id,
+                access_level="viewer",
+            )
+
+        if shared_resource == "notebook":
+            notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+            url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
+        elif shared_resource == "insight":
+            url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing"
+        else:
+            url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["has_relevant_access_controls"] is expected
 
     @parameterized.expand(
         [
@@ -233,6 +304,7 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
 
         response = self.client.patch(
@@ -247,6 +319,7 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
@@ -380,7 +453,6 @@ class TestSharing(APIBaseTest):
             team=self.team,
             name="example dashboard",
             created_by=other_user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         response = self.client.patch(
@@ -1536,6 +1608,8 @@ class TestExportCacheKeyFlow(APIBaseTest):
             "results": [{"count": 42, "note": marker}],
             "last_refresh": "2024-01-01T00:00:00Z",
             "timezone": "UTC",
+            "resolved_date_range": {"date_from": "2023-12-25T00:00:00Z", "date_to": "2023-12-31T23:59:59Z"},
+            "resolved_compare_date_range": {"date_from": "2023-12-18T00:00:00Z", "date_to": "2023-12-24T23:59:59Z"},
         }
         mock_query_cache_cls.return_value.lookup.return_value.entry = mock_entry
 
@@ -1551,6 +1625,24 @@ class TestExportCacheKeyFlow(APIBaseTest):
             timezone="UTC",
         )
 
+    @parameterized.expand([("render", True), ("shared", False)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @mock_exporter_template
+    def test_threshold_snapshot_is_only_used_by_the_export_renderer(
+        self, _name: str, is_renderer: bool, mock_calculate: MagicMock
+    ) -> None:
+        self.insight.query = {"kind": "BIVisualizationNode"}
+        self.insight.save(update_fields=["query"])
+        self.exported_asset.export_context = {"reference_lines": [{"label": "Threshold snapshot", "value": 250}]}
+        self.exported_asset.save(update_fields=["export_context"])
+        self._calculated_result(mock_calculate)
+        url = self._render_url("") if is_renderer else f"/shared/{self.sharing_config.access_token}"
+        response = self.client.get(url)
+        assert response.status_code == 200
+        assert (b"Threshold snapshot" in response.content) is is_renderer
+        self.insight.refresh_from_db()
+        assert "chartSettings" not in self.insight.query
+
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
@@ -1565,6 +1657,16 @@ class TestExportCacheKeyFlow(APIBaseTest):
 
         assert response.status_code == 200
         assert b"warmed-by-the-exporter" in response.content
+        exported_insight = _exported_data(response)["insight"]
+        assert exported_insight["is_cached"] is True
+        assert exported_insight["resolved_date_range"] == {
+            "date_from": "2023-12-25T00:00:00Z",
+            "date_to": "2023-12-31T23:59:59Z",
+        }
+        assert exported_insight["resolved_compare_date_range"] == {
+            "date_from": "2023-12-18T00:00:00Z",
+            "date_to": "2023-12-24T23:59:59Z",
+        }
         mock_query_cache_cls.assert_called_once_with(team_id=self.insight.team_id, cache_key=cache_key)
         mock_calculate.assert_not_called()
 
@@ -1692,15 +1794,6 @@ class TestSharedAdhocQueryExport(APIBaseTest):
 
 
 class TestExportRendererTokenFlow(APIBaseTest):
-    @staticmethod
-    def _exported_data(response: HttpResponse) -> dict:
-        html = response.content.decode()
-        marker = '<script id="posthog-exported-data" type="application/json">'
-        start = html.index(marker) + len(marker)
-        end = html.index("</script>", start)
-        encoded_data = json.loads(html[start:end])
-        return json.loads(encoded_data) if isinstance(encoded_data, str) else encoded_data
-
     @parameterized.expand(
         [
             ("exact", "https://example.com", "url_exact", "https://example.com"),
@@ -1741,7 +1834,7 @@ class TestExportRendererTokenFlow(APIBaseTest):
             response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
 
         assert response.status_code == status.HTTP_200_OK
-        renderer_token = self._exported_data(response)["exportToken"]
+        renderer_token = _exported_data(response)["exportToken"]
         claims = decode_jwt(renderer_token, PosthogJwtAudience.EXPORT_RENDERER)
         assert claims["id"] == self.user.id
         assert claims["team_id"] == self.team.id
@@ -2418,8 +2511,63 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"query": self._DENIED_QUERY}
         )
 
-    @parameterized.expand([("direct",), ("dashboard",), ("notebook",)])
-    def test_query_update_blocked_when_insight_is_publicly_shared(self, coverage: str):
+    def test_query_update_blocked_when_a_modifier_reads_the_denied_view(self):
+        # A warehouse events mapping parses id_field as an expression, so a saved query can reach a
+        # denied view through its modifiers without naming it in the SQL.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="open_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 2 AS id"},
+            columns={"id": "String"},
+        )
+        governed_view = DataWarehouseSavedQuery.objects.get(team=self.team, name="governed_view")
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_view", resource_id=str(governed_view.id), access_level="none"
+        )
+        SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/",
+            {
+                "query": {
+                    "kind": "DataTableNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT id FROM open_view",
+                        "modifiers": {
+                            "dataWarehouseEventsModifiers": [
+                                {
+                                    "table_name": "open_view",
+                                    "id_field": "(SELECT id FROM governed_view LIMIT 1)",
+                                    "distinct_id_field": "id",
+                                    "timestamp_field": "id",
+                                }
+                            ]
+                        },
+                    },
+                }
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "governed_view" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("direct", "this insight is publicly shared"),
+            ("dashboard", "this insight is publicly shared"),
+            ("notebook", "this insight is publicly shared"),
+            ("subscription", "delivered by a subscription"),
+            ("dashboard_subscription", "delivered by a subscription"),
+            # Restoring the dashboard resumes delivery without a subscription write.
+            ("deleted_dashboard_subscription", "delivered by a subscription"),
+            # A selection whose insights are all deleted delivers every live tile.
+            ("dashboard_subscription_with_deleted_selection", "delivered by a subscription"),
+            # Deleting the dashboard hides its tiles; restoring it brings them back without a gate.
+            ("dashboard_subscription_with_hidden_tile", "delivered by a subscription"),
+        ]
+    )
+    def test_query_update_blocked_when_insight_is_shared_or_delivered(self, coverage: str, expected_reason: str):
         self._deny_editor()
         if coverage == "direct":
             SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
@@ -2427,6 +2575,25 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        elif coverage == "subscription":
+            create_subscription(team_id=self.team.id, insight_id=self.insight.id)
+        elif coverage in ("dashboard_subscription", "deleted_dashboard_subscription"):
+            dashboard = Dashboard.objects.create(
+                team=self.team, created_by=self.user, deleted=coverage == "deleted_dashboard_subscription"
+            )
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
+        elif coverage == "dashboard_subscription_with_hidden_tile":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight, deleted=True)
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
+        elif coverage == "dashboard_subscription_with_deleted_selection":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            deleted_insight = Insight.objects.create(team=self.team, created_by=self.user, deleted=True)
+            create_subscription(
+                team_id=self.team.id, dashboard_id=dashboard.id, dashboard_export_insight_ids=[deleted_insight.id]
+            )
         else:
             notebook = Notebook.objects.create(
                 team=self.team,
@@ -2449,16 +2616,25 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         response = self._patch_insight_query()
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "publicly shared" in str(response.json())
+        assert expected_reason in str(response.json())
         self.insight.refresh_from_db()
         assert self.insight.query == {
             "kind": "DataTableNode",
             "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
         }
 
-    @parameterized.expand([("no_share",), ("deleted_tile",)])
-    def test_query_update_allowed_when_not_shared(self, coverage: str):
+    @parameterized.expand(
+        [
+            ("no_share", {}),
+            ("deleted_tile", {}),
+            ("disabled_subscription", {"enabled": False}),
+            ("deleted_subscription", {"deleted": True}),
+        ]
+    )
+    def test_query_update_allowed_when_not_shared(self, coverage: str, subscription_fields: dict):
         self._deny_editor()
+        if subscription_fields:
+            create_subscription(team_id=self.team.id, insight_id=self.insight.id, **subscription_fields)
         if coverage == "deleted_tile":
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             # The shared dashboard also carries a live tile for another insight. A share lookup
@@ -2476,6 +2652,25 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         response = self._patch_insight_query()
 
         assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_restoring_shared_dashboard_blocked_when_a_hidden_insight_changed(self):
+        self._deny_editor()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        dashboard_url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}"
+        assert self.client.patch(dashboard_url, {"deleted": True}).status_code == status.HTTP_200_OK
+
+        # The tiles are hidden with the dashboard, so the insight is not shared at this moment.
+        assert self._patch_insight_query().status_code == status.HTTP_200_OK
+
+        response = self.client.patch(dashboard_url, {"deleted": False})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        dashboard.refresh_from_db()
+        assert dashboard.deleted is True
+        assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
 
     @parameterized.expand([("stored_query",), ("query_in_same_patch",)])
     def test_adding_insight_to_shared_dashboard_blocked(self, coverage: str):
@@ -2502,6 +2697,41 @@ class TestSaveTimeAccessBlock(APIBaseTest):
                 "kind": "DataTableNode",
                 "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
             }
+
+    @parameterized.expand(
+        [
+            ("whole_dashboard", status.HTTP_400_BAD_REQUEST),
+            ("insight_selection", status.HTTP_200_OK),
+        ]
+    )
+    def test_adding_insight_to_dashboard_with_subscription(self, coverage: str, expected_status: int):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        selected_insight_ids: list[int] = []
+        if coverage == "insight_selection":
+            selected_insight = Insight.objects.create(
+                team=self.team,
+                query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2 AS two"}},
+                created_by=self.user,
+            )
+            DashboardTile.objects.create(dashboard=dashboard, insight=selected_insight)
+            selected_insight_ids.append(selected_insight.id)
+        create_subscription(
+            team_id=self.team.id, dashboard_id=dashboard.id, dashboard_export_insight_ids=selected_insight_ids
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
+        )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "delivered by a subscription" in str(response.json())
+        assert DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists() == (
+            expected_status == status.HTTP_200_OK
+        )
 
     def test_adding_insight_to_unshared_dashboard_allowed(self):
         self._deny_editor()
@@ -2689,15 +2919,7 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         if exposure == "shared":
             SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         elif exposure == "subscription":
-            Subscription.objects.create(
-                team=self.team,
-                dashboard=dashboard,
-                target_type="email",
-                target_value="recipient@example.com",
-                frequency="daily",
-                start_date=timezone.now(),
-                created_by=self.user,
-            )
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
         filters = {"properties": [denied_filter]}
         sent_filters: dict[str, Any] = filters
         if target.startswith("grouped"):

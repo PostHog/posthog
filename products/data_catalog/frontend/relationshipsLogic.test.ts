@@ -134,6 +134,17 @@ describe('relationshipsLogic', () => {
         ).toFinishAllListeners()
         expect(dataCatalogRelationshipProposalsList).toHaveBeenLastCalledWith('1', { table_name: 'events' })
         expect(logic.values.proposals).toHaveLength(1)
+        const listCalls = (dataCatalogRelationshipProposalsList as jest.Mock).mock.calls.length
+        const joinCalls = (warehouseViewLinksList as jest.Mock).mock.calls.length
+        await expectLogic(logic, () =>
+            router.actions.push('/data-catalog', {
+                tab: 'relationships',
+                table: 'events',
+                'data-catalog-relationships_order': '-confidence',
+            })
+        ).toFinishAllListeners()
+        expect(dataCatalogRelationshipProposalsList).toHaveBeenCalledTimes(listCalls)
+        expect(warehouseViewLinksList).toHaveBeenCalledTimes(joinCalls)
         await expectLogic(logic, () => logic.actions.loadProposals()).toFinishAllListeners()
         expect(dataCatalogRelationshipProposalsList).toHaveBeenLastCalledWith('1', { table_name: 'events' })
         await expectLogic(logic, () =>

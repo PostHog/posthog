@@ -23,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OwnerrezSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.ownerrez import (
+    OWNERREZ_API_VERSION_V1,
+    OWNERREZ_API_VERSION_V2,
     OwnerRezResumeConfig,
     ownerrez_source,
     validate_credentials as validate_ownerrez_credentials,
@@ -40,8 +42,8 @@ class OwnerrezSource(ResumableSource[OwnerrezSourceConfig, OwnerRezResumeConfig]
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    # OwnerRez's API is unversioned in practice: paths are pinned under /v2 with no dated
-    # version header, param, or named release to declare.
+    supported_versions = (OWNERREZ_API_VERSION_V1, OWNERREZ_API_VERSION_V2)
+    default_version = OWNERREZ_API_VERSION_V2
     api_docs_url = "https://api.ownerreservations.com/help/v2"
 
     @property
@@ -54,7 +56,7 @@ class OwnerrezSource(ResumableSource[OwnerrezSourceConfig, OwnerRezResumeConfig]
             name=ExternalDataSourceType.OWNERREZ,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="OwnerRez",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OwnerRez account email and personal access token to pull your bookings, guests, payments, and property data into the PostHog Data warehouse.
 
 Create a personal access token under **Settings → Advanced Tools → Developer/API Settings** in your OwnerRez account. OwnerRez rate limits personal access tokens per IP address to two accounts every 24 hours, so this connection method suits a single OwnerRez account rather than many.""",

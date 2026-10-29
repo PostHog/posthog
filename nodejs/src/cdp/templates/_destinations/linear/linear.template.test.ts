@@ -1,3 +1,4 @@
+import { parseJSON } from '../../../../common/utils/json-parse'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './linear.template'
 
@@ -40,5 +41,42 @@ describe('linear template', () => {
         const attachmentBody = (attachmentResponse.invocation.queueParameters as any).body
         expect(attachmentBody).toContain('attachmentCreate')
         expect(attachmentBody).toContain(expectedLinkPart)
+    })
+
+    it('builds the title and description from the event properties, with the stack trace', async () => {
+        const { title: _title, description: _description, ...inputs } = baseInputs
+        const response = await tester.invoke(inputs, {
+            event: {
+                properties: {
+                    $exception_types: ['RangeError'],
+                    $exception_values: ['Invalid Date'],
+                    $current_url: 'https://example.com/reset?token=secret',
+                    $session_id: 'session-1',
+                    $exception_list: [
+                        {
+                            stacktrace: {
+                                frames: [
+                                    {
+                                        source: 'src/checkout.ts',
+                                        line: 42,
+                                        resolved_name: 'parseDate',
+                                        resolved: true,
+                                        in_app: true,
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            },
+        })
+
+        expect(response.error).toBeUndefined()
+        const mutation = parseJSON((response.invocation.queueParameters as any).body).query
+        expect(mutation).toContain('title: "RangeError: Invalid Date"')
+        expect(mutation).not.toContain('token=secret')
+        expect(mutation).toContain(
+            'description: "```\\nInvalid Date\\n```\\n\\n- Session replay: https://us.posthog.com/projects/1/replay/session-1\\n\\n```\\n  File \\"checkout.ts\\", line: 42, in: parseDate\\n```"'
+        )
     })
 })

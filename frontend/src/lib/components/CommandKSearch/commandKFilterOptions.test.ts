@@ -13,13 +13,13 @@ const resolved = (filters: QueryChip[], freeText = ''): ResolvedQuery => ({ filt
 
 describe('viewAllFor', () => {
     test.each([
-        ['a manifest list page', [chip('feature_flag', 'Feature flag')], 'View all feature flags', '/feature_flags'],
+        ['a manifest list page', [chip('feature_flag', 'Feature flag')], 'View all feature flags', '/feature-flags'],
         ['a type with a fallback page', [chip('dashboard', 'Dashboard')], 'View all dashboards', '/dashboard'],
         [
             'other filters alongside',
             [chip('feature_flag', 'Feature flag'), chip('me', 'Me', { key: 'createdBy' })],
             'View all feature flags',
-            '/feature_flags',
+            '/feature-flags',
         ],
     ])('names the list page for %s', (_, chips, name, href) => {
         expect(viewAllFor(resolved(chips))?.item).toMatchObject({ name, href })

@@ -68,7 +68,11 @@ export function chunkLoaderScript(chunks, chunkMapFile) {
             }
             for (const chunk of chunks || []) {
                 if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
+                    // Fetch and parse only: the scene's own imports run the chunks, in order.
+                    var link = document.createElement('link');
+                    link.rel = 'modulepreload';
+                    link.href = (window.JS_URL || '') + '/static/chunk-' + chunk + '.js';
+                    document.head.appendChild(link);
                     window.ESBUILD_LOADED_CHUNKS.add(chunk);
                 }
             }

@@ -5,6 +5,7 @@ from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
+from uuid import UUID
 
 from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
@@ -32,6 +33,7 @@ else:
 
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import RoleMembership
 
 from .contracts import ObjectAccessRef
 from .enums import ResolvedAccessSourceSubjectValue, ResolvedAccessSourceValue
@@ -54,6 +56,7 @@ AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor",
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
 
 NO_ACCESS_LEVEL = "none"
+DASHBOARD_EDIT_LIMIT_RESOURCE = "dashboard_edit_limit"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
 ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
@@ -452,6 +455,60 @@ class UserAccessControl:
 
         self._organization_id = organization_id
 
+    @classmethod
+    def for_user_ids(cls, *, user_ids: Iterable[int], team: Team) -> dict[int, "UserAccessControl"]:
+        memberships = list(
+            OrganizationMembership.objects.filter(
+                organization_id=team.organization_id, user_id__in=set(user_ids)
+            ).select_related("user", "organization")
+        )
+        if not memberships:
+            return {}
+
+        roles_by_user: dict[int, list[UUID]] = defaultdict(list)
+        if memberships[0].organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            for user_id, role_id in (
+                RoleMembership.objects.filter(
+                    user_id__in=[member.user_id for member in memberships], role__organization_id=team.organization_id
+                )
+                .valid_for_authorization()
+                .values_list("user_id", "role_id")
+            ):
+                roles_by_user[user_id].append(role_id)
+
+        default_rules: list[AccessControl] = []
+        rules_by_member: dict[UUID, list[AccessControl]] = defaultdict(list)
+        rules_by_role: dict[UUID, list[AccessControl]] = defaultdict(list)
+        if EE_AVAILABLE and memberships[0].organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            for rule in AccessControl.objects.filter(team_id=team.id).filter(
+                Q(organization_member__isnull=True, role__isnull=True)
+                | Q(organization_member_id__in=[member.id for member in memberships], role__isnull=True)
+                | Q(
+                    organization_member__isnull=True,
+                    role_id__in={role_id for roles in roles_by_user.values() for role_id in roles},
+                )
+            ):
+                if rule.organization_member_id is not None:
+                    rules_by_member[rule.organization_member_id].append(rule)
+                elif rule.role_id is not None:
+                    rules_by_role[rule.role_id].append(rule)
+                else:
+                    default_rules.append(rule)
+
+        access_by_user: dict[int, UserAccessControl] = {}
+        for member in memberships:
+            access = cls(user=member.user, team=team)
+            role_ids = roles_by_user[member.user_id]
+            access.__dict__["_organization_membership"] = member
+            access.__dict__["_user_role_ids"] = role_ids
+            access.__dict__["_cached_access_controls"] = [
+                *default_rules,
+                *rules_by_member.get(member.id, []),
+                *(rule for role_id in role_ids for rule in rules_by_role.get(role_id, [])),
+            ]
+            access_by_user[member.user_id] = access
+        return access_by_user
+
     def allowed_object_ids(
         self, resource: str, team_id: int, required_level: str, resolve: Callable[[], frozenset]
     ) -> frozenset:
@@ -467,6 +524,8 @@ class UserAccessControl:
         # Pop from __dict__ rather than hasattr/delattr
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)
+        self.__dict__.pop("_dashboard_edit_limits", None)
+        self.__dict__.pop("_is_project_admin", None)
         self.__dict__.pop("blocked_resource_ids_by_scope", None)
         self.__dict__.pop("allowlisted_resource_ids_by_scope", None)
         self.__dict__.pop("blocked_resources", None)
@@ -861,6 +920,54 @@ class UserAccessControl:
 
         # If there are access controls we pick the highest level the user has
         return self._highest_access_from_rows(resource, access_controls).access_level
+
+    @cached_property
+    def _dashboard_edit_limits(self) -> dict[str, dict[str, str]]:
+        limits: dict[str, dict[str, str]] = defaultdict(dict)
+        for row in self._cached_access_controls:
+            if row.resource == DASHBOARD_EDIT_LIMIT_RESOURCE and row.resource_id is not None:
+                subject = (
+                    "member"
+                    if row.organization_member_id is not None
+                    else "role"
+                    if row.role_id is not None
+                    else "default"
+                )
+                limits[row.resource_id][subject] = row.access_level
+        return limits
+
+    @cached_property
+    def _is_project_admin(self) -> bool:
+        return self._team is not None and self.get_user_access_level(self._team, explicit=True) == "admin"
+
+    def has_object_access_limit(self, resource: APIScopeObject, resource_id: str) -> bool:
+        if resource != "dashboard" or self.is_organization_admin or not self.access_controls_supported:
+            return False
+        limits = self._dashboard_edit_limits.get(resource_id)
+        return limits is not None and limits.get("default") != "editor"
+
+    def _apply_dashboard_edit_limit(
+        self, target: _ObjectAccessTarget, access: Optional[ResolvedAccess]
+    ) -> Optional[ResolvedAccess]:
+        if (
+            target.resource != "dashboard"
+            or access is None
+            or access.access_level in ("none", "viewer")
+            or self._is_creator_id(target.created_by_id)
+            or not self.has_object_access_limit(target.resource, target.object_id)
+            or self._is_project_admin
+        ):
+            return access
+        limits = self._dashboard_edit_limits[target.object_id]
+        if limits.get("member") == "editor" or limits.get("role") == "editor":
+            return access
+        return ResolvedAccess(
+            access_level="viewer",
+            source="object",
+            source_subject="default",
+            source_resource="dashboard",
+            source_resource_id=target.object_id,
+        )
 
     def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel, explicit=False) -> bool:
         """
@@ -1719,22 +1826,22 @@ class UserAccessControl:
             fallback_parent_id=None,
         )
 
-    def _access_level_for_target(
+    def _resolved_access_for_target(
         self, target: _ObjectAccessTarget, explicit: bool = False
-    ) -> Optional[AccessControlLevel]:
+    ) -> Optional[ResolvedAccess]:
         """The enforced object resolution. Model instances and references both end here, so the
         two entry points cannot drift."""
         if self._is_most_specific_access_control_enabled:
             resolved_access = self._most_specific_access_for_target(target)
             if resolved_access is None or (explicit and resolved_access.source == "system_default"):
                 return None
-            return resolved_access.access_level
+            return resolved_access
 
         resolved, access = self._object_access_level_precheck(
             target.resource, self._is_creator_id(target.created_by_id), explicit=explicit
         )
         if resolved:
-            return access.access_level if access else None
+            return access
 
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(target.resource, target.object_id)
@@ -1751,9 +1858,19 @@ class UserAccessControl:
             self._report_resolved_access_divergence(
                 "object", target.resource, access, lambda: self._most_specific_access_for_target(target)
             )
+        return access
+
+    def _access_level_for_target(
+        self, target: _ObjectAccessTarget, explicit: bool = False
+    ) -> Optional[AccessControlLevel]:
+        access = self._apply_dashboard_edit_limit(target, self._resolved_access_for_target(target, explicit=explicit))
         return access.access_level if access else None
 
     def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
+        if self._team is not None and model_to_resource(obj) == "dashboard":
+            team_id = getattr(obj, "team_id", None)
+            if isinstance(team_id, int) and team_id != self._team.id:
+                return self.for_team_ids([team_id])[team_id].get_user_access_level(obj, explicit=explicit)
         target = self._target_for_object(obj)
         if target is None:
             return None
@@ -1777,21 +1894,7 @@ class UserAccessControl:
         if target is None:
             return None
 
-        if self._is_most_specific_access_control_enabled:
-            return self._most_specific_access_for_target(target)
-
-        resolved, access = self._object_access_level_precheck(
-            target.resource, self._is_creator_id(target.created_by_id)
-        )
-        if resolved:
-            return access
-
-        object_access_controls = self._get_access_controls(
-            self._access_controls_filters_for_object(target.resource, target.object_id)
-        )
-        return self._object_access_level_from_rows(
-            target.resource, object_access_controls, fallback_parent_id=target.fallback_parent_id
-        )
+        return self._apply_dashboard_edit_limit(target, self._resolved_access_for_target(target))
 
     def bulk_object_access_levels(
         self,
@@ -1832,6 +1935,12 @@ class UserAccessControl:
                 access = self._most_specific_object_access_from_rows(resource, object_rows)
             else:
                 access = self._object_access_level_from_rows(resource, object_rows)
+            access = self._apply_dashboard_edit_limit(
+                _ObjectAccessTarget(
+                    resource=resource, object_id=object_id, created_by_id=created_by_id, fallback_parent_id=None
+                ),
+                access,
+            )
             results[object_id] = access.access_level if access else None
 
         return results
@@ -1876,7 +1985,7 @@ class UserAccessControl:
         target = self._target_for_object(obj)
         if target is None:
             return None
-        return self._most_specific_access_for_target(target)
+        return self._apply_dashboard_edit_limit(target, self._most_specific_access_for_target(target))
 
     def _most_specific_access_for_target(self, target: _ObjectAccessTarget) -> Optional[ResolvedAccess]:
         resolved, access = self._object_access_level_precheck(

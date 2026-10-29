@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import probe_status_message
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 if TYPE_CHECKING:
@@ -45,8 +46,9 @@ class AwsMacieResumeConfig:
 
 
 class AwsMacieError(Exception):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, status_code: int | None = None) -> None:
         self.code = code
+        self.status_code = status_code
         super().__init__(f"AWS Macie request failed: {code} - {message}")
 
 
@@ -113,7 +115,11 @@ class AwsMacieClient:
                 error = {}
             raw_code = response.headers.get("x-amzn-ErrorType") or error.get("__type") or error.get("code")
             code = str(raw_code or f"HTTP {response.status_code}").split(":")[0].split("#")[-1]
-            raise AwsMacieError(code, str(error.get("message") or error.get("Message") or "Request failed.")[:500])
+            raise AwsMacieError(
+                code,
+                str(error.get("message") or error.get("Message") or "Request failed.")[:500],
+                response.status_code,
+            )
         return response.json()
 
 
@@ -307,6 +313,9 @@ def validate_credentials(
         for pattern, message in ERROR_MESSAGES.items():
             if pattern.lower() in str(error).lower():
                 return False, message
+        status_message = probe_status_message("AWS Macie", error.status_code)
+        if status_message:
+            return False, status_message
         raise
     finally:
         client.close()

@@ -9,6 +9,17 @@ import {
 } from './dashboardChanges'
 
 describe('getDashboardFilterChanges', () => {
+    it('lists a changed metric variable selection', () => {
+        expect(
+            getDashboardFilterChanges(
+                { metricVariables: [{ name: 'job', source: 'custom', current: { values: ['api'] } }] },
+                { metricVariables: [{ name: 'job', source: 'custom', current: { values: ['api', 'web'], all: true } }] }
+            )
+        ).toEqual([
+            { label: 'Metric variables', previousValue: ['$job = api'], value: ['$job = All'], status: 'changed' },
+        ])
+    })
+
     it('lists new, changed, and removed property filters with their values', () => {
         expect(
             getDashboardFilterChanges(

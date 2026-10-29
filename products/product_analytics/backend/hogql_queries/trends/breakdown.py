@@ -1,4 +1,5 @@
 import json
+from functools import cached_property
 from typing import Union, cast
 
 from posthog.schema import (
@@ -31,7 +32,6 @@ from posthog.hogql_queries.utils.breakdowns import (
     strip_user_aliases,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 
 from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay

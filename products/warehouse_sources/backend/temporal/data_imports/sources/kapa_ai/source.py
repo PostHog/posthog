@@ -126,5 +126,5 @@ class KapaAISource(ResumableSource[KapaAISourceConfig, KapaResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

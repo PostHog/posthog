@@ -20,8 +20,20 @@ import { ResizableColumns, useResizableColumns } from './components/TableColumns
 
 const ROW_HEIGHT = 44
 const HEADER_HEIGHT = 32
+/** The table frame's `border` class, on the top and the bottom. */
+const FRAME_BORDER_WIDTH = 1
+
+/** Height of a table that shows the header and `rowCount` rows with no vertical scroll. */
+export function virtualizedTableHeight(rowCount: number): number {
+    return HEADER_HEIGHT + rowCount * ROW_HEIGHT + 2 * FRAME_BORDER_WIDTH
+}
 
 export type VirtualizedSortOrder = 1 | -1
+
+export interface VirtualizedSort {
+    columnKey: string
+    order: VirtualizedSortOrder
+}
 
 export interface VirtualizedTableColumn<T> {
     key: string
@@ -87,6 +99,7 @@ interface VirtualizedRowProps {
     dataSource: any[]
     rowKey: (record: any) => string
     onRowClick?: (record: any) => void
+    rowClassName?: (record: any) => string | undefined
 }
 
 function VirtualizedRow({
@@ -98,6 +111,7 @@ function VirtualizedRow({
     dataSource,
     rowKey,
     onRowClick,
+    rowClassName,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
@@ -115,7 +129,8 @@ function VirtualizedRow({
             <div
                 className={cn(
                     'flex items-center border-b border-border hover:bg-surface-primary-hover',
-                    onRowClick && 'cursor-pointer'
+                    onRowClick && 'cursor-pointer',
+                    rowClassName?.(record)
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ height: ROW_HEIGHT }}
@@ -151,7 +166,15 @@ export interface VirtualizedTableProps<T> {
     loading: boolean
     rowKey: (record: T) => string
     onRowClick?: (record: T) => void
-    defaultSort?: { columnKey: string; order: VirtualizedSortOrder }
+    /** Extra classes for one row, such as a highlight. */
+    rowClassName?: (record: T) => string | undefined
+    defaultSort?: VirtualizedSort
+    /**
+     * Controlled sort, which replaces `defaultSort` and the table's own sort state. A caller that sorts its
+     * full list before it cuts the list down owns the sort, because the table sees only the rows it gets.
+     */
+    sort?: VirtualizedSort | null
+    onSortChange?: (sort: VirtualizedSort | null) => void
     emptyLabel?: string
     'data-attr'?: string
 }
@@ -163,12 +186,17 @@ export function VirtualizedTable<T>({
     loading,
     rowKey,
     onRowClick,
+    rowClassName,
     defaultSort,
+    sort: controlledSort,
+    onSortChange,
     emptyLabel = 'No rows',
     'data-attr': dataAttr,
 }: VirtualizedTableProps<T>): JSX.Element {
-    const [sortKey, setSortKey] = useState<string | null>(defaultSort?.columnKey ?? null)
-    const [sortOrder, setSortOrder] = useState<VirtualizedSortOrder>(defaultSort?.order ?? -1)
+    const [internalSort, setInternalSort] = useState<VirtualizedSort | null>(defaultSort ?? null)
+    const sort = controlledSort === undefined ? internalSort : controlledSort
+    const sortKey = sort?.columnKey ?? null
+    const sortOrder = sort?.order ?? -1
     const resizableColumns = useResizableColumns(tableKey, columns)
 
     const rows = useMemo(() => {
@@ -180,12 +208,11 @@ export function VirtualizedTable<T>({
     }, [dataSource, columns, sortKey, sortOrder])
 
     const onSort = (key: string): void => {
-        if (key === sortKey) {
-            setSortOrder((order) => (order === 1 ? -1 : 1))
-        } else {
-            setSortKey(key)
-            setSortOrder(-1)
+        const next: VirtualizedSort = { columnKey: key, order: key === sortKey && sortOrder === -1 ? 1 : -1 }
+        if (controlledSort === undefined) {
+            setInternalSort(next)
         }
+        onSortChange?.(next)
     }
 
     if (rows.length === 0) {
@@ -235,7 +262,7 @@ export function VirtualizedTable<T>({
                                     rowCount={rows.length}
                                     rowHeight={ROW_HEIGHT}
                                     rowComponent={VirtualizedRow}
-                                    rowProps={{ columns, widths, dataSource: rows, rowKey, onRowClick }}
+                                    rowProps={{ columns, widths, dataSource: rows, rowKey, onRowClick, rowClassName }}
                                 />
                             </div>
                         </div>

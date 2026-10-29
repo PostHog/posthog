@@ -1,5 +1,7 @@
 """DRF serializers for today. Response shapes come from the facade contracts."""
 
+from typing import Any
+
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -9,6 +11,8 @@ from ..facade.contracts import (
     FigureQuote,
     HighlightItem,
     HighlightMetric,
+    HighlightMover,
+    HighlightPin,
     Highlights,
     HighlightValueFormat,
     ImpactNumber,
@@ -17,6 +21,8 @@ from ..facade.contracts import (
     PageLink,
     PreviewLine,
     PullRequestLink,
+    PulsePin,
+    PulsePins,
     RecordingTarget,
     ReportKeyClauses,
     ReportPage,
@@ -29,6 +35,8 @@ from ..facade.enums import (
     FigureText,
     HighlightInterval,
     HighlightLabel,
+    HighlightMetricReason,
+    HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
@@ -270,6 +278,57 @@ class HighlightValueFormatSerializer(DataclassSerializer):
         dataclass = HighlightValueFormat
 
 
+class HighlightMoverSerializer(DataclassSerializer):
+    label = serializers.CharField(  # type: ignore[assignment]
+        help_text="Name of one series of the insight, for example a breakdown value."
+    )
+    value = serializers.FloatField(help_text="Value of the series for the last complete period.")
+    change_pct = serializers.FloatField(
+        allow_null=True,
+        help_text="Change of the series against the period before, in percent. Null when the period before is 0.",
+    )
+
+    class Meta:
+        dataclass = HighlightMover
+
+
+class PulsePinSerializer(DataclassSerializer):
+    key = serializers.CharField(
+        max_length=200,
+        help_text="Key of the number to keep: a key metric setting such as signup_event, or insight:<short_id>.",
+    )
+    name = serializers.CharField(
+        max_length=400, help_text="Name to show for the number until the highlights compute its value."
+    )
+    dashboard_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="For an insight pinned from a dashboard tile, the dashboard whose filters it keeps. Null otherwise.",
+    )
+
+    class Meta:
+        dataclass = PulsePin
+
+
+MAX_PINS_IN_REQUEST = 20
+
+
+class PulsePinsSerializer(DataclassSerializer):
+    pins = PulsePinSerializer(
+        many=True,
+        help_text=f"Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most {MAX_PINS_IN_REQUEST} entries.",
+    )
+
+    class Meta:
+        dataclass = PulsePins
+
+    def to_internal_value(self, data: Any) -> PulsePins:
+        if isinstance(data, dict) and isinstance(data.get("pins"), list) and len(data["pins"]) > MAX_PINS_IN_REQUEST:
+            raise serializers.ValidationError({"pins": [f"Send at most {MAX_PINS_IN_REQUEST} pins."]})
+        return super().to_internal_value(data)
+
+
 class HighlightMetricSerializer(DataclassSerializer):
     key = serializers.CharField(
         help_text="Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>."
@@ -305,6 +364,35 @@ class HighlightMetricSerializer(DataclassSerializer):
         child=serializers.DateField(),
         help_text="The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`.",
     )
+    reason = serializers.ChoiceField(
+        choices=HighlightMetricReason.choices,
+        allow_null=True,
+        help_text="Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.",
+    )
+    dashboard_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.",
+    )
+    dashboard_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="Id of the dashboard the tile comes from, with its filters applied. Pass it when pinning the tile. Null otherwise.",
+    )
+    opened_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="On how many of the last 14 days the person opened the insight, or the dashboard of the tile. Null for a key metric.",
+    )
+    last_opened = serializers.DateField(
+        allow_null=True,
+        help_text="The last day the person opened the insight, or the dashboard of the tile, in the project's timezone. Null for a key metric.",
+    )
+    previous_value = serializers.FloatField(
+        allow_null=True,
+        help_text="Value for the period before the last complete one, the base of `change_pct`. Null when unknown.",
+    )
+    movers = HighlightMoverSerializer(
+        many=True,
+        help_text="For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise.",
+    )
 
     class Meta:
         dataclass = HighlightMetric
@@ -334,7 +422,21 @@ class HighlightItemSerializer(DataclassSerializer):
         dataclass = HighlightItem
         extra_kwargs = {
             "source": {"help_text": "Name of the highlight source that found the item, for example alerts."},
+            "product": {
+                "help_text": "Product that declares the source, for example feature_flags. Null for items stored before this field existed and for sources that no product declares any more."
+            },
         }
+
+
+class HighlightPinSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Key of a number the person keeps on their home.")
+    status = serializers.ChoiceField(
+        choices=HighlightPinStatus.choices,
+        help_text="`ready` when the number is in `pulse`. `unavailable` when it has no number to show, for example a deleted insight, one that is not a trend, or a query that failed or did not finish in time. A pin missing from this list was added after these highlights were computed.",
+    )
+
+    class Meta:
+        dataclass = HighlightPin
 
 
 class HighlightsSerializer(DataclassSerializer):
@@ -353,6 +455,10 @@ class HighlightsSerializer(DataclassSerializer):
     items = HighlightItemSerializer(
         many=True,
         help_text="Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first.",
+    )
+    pins = HighlightPinSerializer(
+        many=True,
+        help_text="The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`.",
     )
 
     class Meta:

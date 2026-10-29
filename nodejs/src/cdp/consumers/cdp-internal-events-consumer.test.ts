@@ -3,7 +3,6 @@ import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -89,24 +88,41 @@ describe('CDP Internal Events Consumer', () => {
             expect(events).toHaveLength(0)
         })
 
-        it('should fail the batch when the team lookup hits a retriable error', async () => {
-            const error = new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset'))
-            jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+        const lookupError = new Error('canceling statement due to conflict with recovery')
 
-            await expect(
-                processor._parseKafkaBatch([createKafkaMessage(createInternalEvent(team.id, {}))])
-            ).rejects.toThrow(error)
-        })
+        it.each([
+            {
+                lookup: 'the team lookup',
+                spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
+            },
+            {
+                lookup: 'the hog function lookup',
+                spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
+            },
+            {
+                lookup: 'the hog flow lookup',
+                spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam'),
+            },
+        ])(
+            'should fail the batch when $lookup throws, and queue the event when the batch is read again',
+            async ({ spy }) => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    filters: internalEventFilters(),
+                })
+                spy().mockRejectedValueOnce(lookupError)
+                const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+                const messages = [createKafkaMessage(createInternalEvent(team.id, {}))]
 
-        it('should let that failure escape the batch handler rather than swallowing it', async () => {
-            // Offsets are stored only after the handler resolves, so the rejection reaching the
-            // consumer is what leaves the batch unacknowledged.
-            const error = new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset'))
-            jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
-            const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+                await expect(handleBatch(messages)).rejects.toBe(lookupError)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
 
-            await expect(handleBatch([createKafkaMessage(createInternalEvent(team.id, {}))])).rejects.toThrow(error)
-        })
+                const { backgroundTask } = await handleBatch(messages)
+                await backgroundTask
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            }
+        )
 
         describe('with an existing team and hog function', () => {
             beforeEach(async () => {
@@ -115,6 +131,14 @@ describe('CDP Internal Events Consumer', () => {
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                 })
+            })
+
+            it('should skip a message with an out-of-range team_id and keep the rest', async () => {
+                const events = await processor._parseKafkaBatch([
+                    createKafkaMessage({ ...createInternalEvent(team.id, {}), team_id: 3_000_000_000 }),
+                    createKafkaMessage(createInternalEvent(team.id, {})),
+                ])
+                expect(events).toHaveLength(1)
             })
 
             it('should ignore invalid payloads', async () => {

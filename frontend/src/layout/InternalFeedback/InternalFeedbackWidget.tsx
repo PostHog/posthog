@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { createPortal } from 'react-dom'
 
-import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
+import { ElementHighlight } from '~/toolbar/shared/product-tours/ElementHighlight'
 
 import { INTERNAL_FEEDBACK_IGNORE_ATTR } from './captureFeedbackScreenshot'
 import { InternalFeedbackBar } from './InternalFeedbackBar'

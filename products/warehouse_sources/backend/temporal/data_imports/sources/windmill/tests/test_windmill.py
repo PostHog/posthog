@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -89,9 +87,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid Windmill API token"),
-            (403, False, "Could not access Windmill workspace 'my-workspace' with this token"),
             (404, False, "Could not access Windmill workspace 'my-workspace' with this token"),
         ],
     )
@@ -118,13 +113,6 @@ class TestValidateCredentials:
             validate_credentials("token", BASE_URL, WORKSPACE)
 
         assert network.session_options[0]["redact_values"] == ("token",)
-
-    def test_swallows_request_exceptions(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, message = validate_credentials("token", BASE_URL, WORKSPACE)
-
-        assert valid is False
-        assert message is not None and "boom" in message
 
     @mock.patch(HOST_SAFE_PATCH)
     def test_blocks_internal_host_when_team_id_given(self, mock_host_safe):

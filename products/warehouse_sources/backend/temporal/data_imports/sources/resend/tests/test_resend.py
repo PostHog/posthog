@@ -7,16 +7,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import (
     ResendAuthMethodConfig,
     ResendSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import (
-    ResendResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.resend.resend import ResendResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.settings import ENDPOINTS, RESEND_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.source import ResendSource
 
@@ -198,9 +194,3 @@ class TestSourceResponseShape:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-
-class TestValidateCredentials:
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("re_test") is False

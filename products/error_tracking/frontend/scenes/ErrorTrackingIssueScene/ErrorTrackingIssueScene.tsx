@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconRewindPlay, IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -20,6 +20,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/quill'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -33,6 +34,7 @@ import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { markScannerHandoffIntent } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffIntent'
+import { messageAudienceAccessDisabledReason } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
@@ -50,10 +52,15 @@ import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueStatusSelect } from '../../components/IssueStatusSelect'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { IssueEmailMenu } from './IssueEmailMenu'
+import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
+import { IssueSummary } from './IssueSummary'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -62,6 +69,10 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
     paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
+}
+
+function isDisplayed(element: HTMLElement | null): boolean {
+    return !!element && getComputedStyle(element).display !== 'none'
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
@@ -73,6 +84,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
+    // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
+    const [emailInOverflow, setEmailInOverflow] = useState(true)
 
     // Jump to the session replay list filtered to this issue. Captured so we can measure how often
     // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
@@ -141,13 +155,14 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 <SceneTitleSection
+                                    noPadding
                                     canEdit
                                     name={issue.name ?? undefined}
                                     onNameChange={updateName}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(
-                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] mt-0 mx-0 mb-0',
+                                        'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] [&>.scene-title-section]:py-2',
                                         isMobile
                                             ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
                                             : undefined
@@ -183,13 +198,21 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                             View recordings
                                                             <IconRewindPlay />
                                                         </Button>
-                                                        <DropdownMenu>
+                                                        <DropdownMenu
+                                                            onOpenChange={(open) => {
+                                                                if (open) {
+                                                                    setEmailInOverflow(
+                                                                        !isDisplayed(inlineEmailMenuRef.current)
+                                                                    )
+                                                                }
+                                                            }}
+                                                        >
                                                             <DropdownMenuTrigger
                                                                 render={
                                                                     <Button
                                                                         variant="outline"
                                                                         size="icon"
-                                                                        aria-label="More recording options"
+                                                                        aria-label="More options"
                                                                     />
                                                                 }
                                                             >
@@ -206,6 +229,16 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     <IconSparkles className="text-ai" />
                                                                     Set up a scanner to watch these
                                                                 </DropdownMenuItem>
+                                                                {emailInOverflow &&
+                                                                    !messageAudienceAccessDisabledReason() && (
+                                                                        <>
+                                                                            <DropdownMenuSeparator />
+                                                                            <IssueEmailMenuItems
+                                                                                issueId={issue.id}
+                                                                                issueName={issue.name}
+                                                                            />
+                                                                        </>
+                                                                    )}
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     </ButtonGroup>
@@ -219,6 +252,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         <IconRewindPlay />
                                                     </Button>
                                                 )}
+                                                <IssueEmailMenu
+                                                    issueId={issue.id}
+                                                    issueName={issue.name}
+                                                    collapseWhenNarrow={!!issue.name}
+                                                    wrapperRef={inlineEmailMenuRef}
+                                                />
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>
                                         )
@@ -245,6 +284,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 disabled={issue.status != 'active'}
                                             />
                                         </ButtonGroup>
+                                        <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
                                         <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                         {!mobileDetailOpen && (
                                             <LemonButton
@@ -260,6 +300,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
                                 {hasIssueSplitting && <ManageFingerprintsModal issueId={issueId} />}
+                                <SuppressSimilarIssuesDialog />
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
@@ -289,10 +330,12 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
+    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
+    const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
+    const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
 
     if (isMobile && !isOpen) {
         return null
@@ -313,6 +356,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
+            <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
                 <ExceptionCard
@@ -320,6 +364,7 @@ const RightHandColumn = ({
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
+                    onShowOnlyWithRecording={showOnlyWithRecording}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)

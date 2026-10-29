@@ -819,6 +819,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return ['Scanned recordings', replayVisionScanWidgetDef(toolCall)]
         },
     },
+    get_replay_vision_scan_results: {
+        name: 'Read scan results',
+        description: 'Read scan results for each recording in a Replay Vision scan, failures included',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Read the scan results'
+            }
+            return 'Reading the scan results...'
+        },
+    },
     retry_replay_vision_observation: {
         name: 'Retry a scan',
         description: 'Retry a scan on a recording whose observation failed',
@@ -925,18 +937,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Measure impact'
             }
             return 'Measure impact...'
-        },
-    },
-    suggest_replay_vision_tags: {
-        name: 'Suggest categories',
-        description: 'Suggest categories for a classifier, grounded in what it has seen',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Suggest categories'
-            }
-            return 'Suggest categories...'
         },
     },
     create_survey: {

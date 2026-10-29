@@ -1145,18 +1145,17 @@ def get_cache_stats() -> dict[str, Any]:
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
-# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), REFRESH_ROUTING_FLAG, _refresh_routing_enabled,
-# route_refresh_to_kafka (and its config binding), SHADOW_COMPARE_FLAG,
-# _shadow_compare_enabled, publish_shadow_invalidation, _produce_invalidation,
-# _enqueue_invalidation, and the Kafka branch inside it.
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), route_refresh_to_kafka (and its config
+# binding), SHADOW_COMPARE_FLAG, _shadow_compare_enabled, publish_shadow_invalidation,
+# _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover. The one
 # call site outside this block is the tail of update_team_service_flags_cache in
 # tasks.py, which goes with it.
 #
-# At cutover the sweep routes unconditionally: REFRESH_ROUTING_FLAG and its gate go,
-# and the binding is replaced by a hook that always produces, not deleted. The generic
-# surface it uses — route_refresh_fn, the enqueued count and RefreshPacing — keeps its
-# caller and stays.
+# At cutover the sweep routes unconditionally: the FLAGS_CACHE_REFRESH_KAFKA_ENABLED
+# guard goes, and the binding is replaced by a hook that always produces, not deleted.
+# The generic surface it uses — route_refresh_fn, the enqueued count and RefreshPacing —
+# keeps its caller and stays.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
 # _enqueue_invalidation for why the two paths are mutually exclusive. The key
@@ -1252,63 +1251,6 @@ def _route_to_kafka(team_id: int) -> bool:
     return bool(result)
 
 
-# Per-team gate for the hourly expiry refresh sweep. A different flag from
-# KAFKA_ROUTING_FLAG on purpose: that one is pinned at 100% for the edit path, so
-# reusing it would move the sweep the moment this code shipped. The two ramp
-# independently, and setting this one back to 0 returns the next hourly run to the
-# Python builder with no cleanup, because a refresh message already in flight still
-# produces a correct build.
-REFRESH_ROUTING_FLAG = "flags-cache-refresh-kafka"
-
-
-def _refresh_routing_enabled(team_id: int) -> bool:
-    """Return True if this team's hourly refresh should be raised as a Kafka
-    invalidation instead of being built in the Celery worker.
-
-    FLAGS_CACHE_REFRESH_KAFKA_ENABLED is read before the flag, because the flag cannot
-    be scoped to one deployment: local evaluation resolves it against the single
-    project key set in posthog/apps.py, so raising it raises it in every region at
-    once. A region whose flags-cache-builder image predates the `source` field rejects
-    the message through deny_unknown_fields, counts it as a parse error and drops it,
-    and the dead letter queue holds build failures rather than parse failures, so
-    nothing can be replayed. The setting is read per deployment, so a lagging region
-    holds routing off on its own until its builder is rolled.
-
-    Every failure mode returns False, which keeps the sweep building in Python. That
-    is the safe direction: a build that happens is never worse than a message nobody
-    consumes.
-
-    Unlike `_route_to_kafka`, an unresolvable flag ticks no TOMBSTONE_COUNTER, for the
-    reason `_shadow_compare_enabled` gives. Local evaluation cannot resolve
-    REFRESH_ROUTING_FLAG for as long as the flag does not exist in PostHog, so a tick
-    would fire for every team of every run, which is about 5,000 an hour, and hold a
-    constant high rate on a panel that means "rare anomaly". A client that is actually
-    broken raises instead, and the warning below records that.
-    """
-    if not settings.FLAGS_CACHE_REFRESH_KAFKA_ENABLED:
-        return False
-
-    try:
-        return feature_enabled_or_false(
-            REFRESH_ROUTING_FLAG,
-            f"team-{team_id}",
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        # Log so a fleet-wide silent disable is visible in Sentry rather than only as
-        # an enqueued gauge that quietly returns to zero mid-ramp.
-        logger.warning(
-            "flags_cache_refresh_routing_flag_evaluation_failed",
-            team_id=team_id,
-            flag=REFRESH_ROUTING_FLAG,
-            exc_info=True,
-        )
-        return False
-
-
 def route_refresh_to_kafka(team_id: int) -> bool:
     """Routing hook for the expiry refresh sweep, bound on
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.
@@ -1330,8 +1272,16 @@ def route_refresh_to_kafka(team_id: int) -> bool:
     building the team anyway. The sweep skips its own build for a team whose hook
     failed. A team whose message is lost stays inside the expiry window, so the next
     hourly run raises it again, and the verifier repairs it in the meantime.
+
+    FLAGS_CACHE_REFRESH_KAFKA_ENABLED is read per deployment, so each region turns
+    routing on only after its flags-cache-builder image accepts the `source` field.
+    An older builder rejects the message through deny_unknown_fields, counts it as a
+    parse error and drops it, and the dead letter queue holds build failures rather
+    than parse failures, so nothing can be replayed. With the setting off the sweep
+    keeps building in Python, which is the safe direction: a build that happens is
+    never worse than a message nobody consumes.
     """
-    if not _refresh_routing_enabled(team_id):
+    if not settings.FLAGS_CACHE_REFRESH_KAFKA_ENABLED:
         return False
 
     _produce_invalidation(team_id, source="refresh", raise_on_error=True)

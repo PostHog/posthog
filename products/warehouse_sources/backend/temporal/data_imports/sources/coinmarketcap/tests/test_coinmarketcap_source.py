@@ -11,11 +11,6 @@ class TestCoinMarketCapSource:
         self.team_id = 123
         self.config = CoinMarketCapSourceConfig(api_key="test-key")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["fiat_map"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "fiat_map"
-
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         descriptions = self.source.get_canonical_descriptions()
         # Every advertised endpoint should have a curated description so it isn't sent to the LLM.

@@ -43,6 +43,7 @@ from structlog._log_levels import LEVEL_TO_NAME, NAME_TO_LEVEL
 from structlog.processors import EventRenamer
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
+from posthog.logging.exceptions import add_otel_exception_attributes
 
 if typing.TYPE_CHECKING:
     from posthog.kafka_client.client import _AsyncKafkaProducer
@@ -580,9 +581,7 @@ def configure_logger(
             )
 
         base_processors += [
-            # show_locals=False prevents sensitive data from being logged in exception tracebacks.
-            # The default (True) dumps all local variables at each stack frame.
-            structlog.processors.ExceptionRenderer(structlog.tracebacks.ExceptionDictTransformer(show_locals=False)),
+            add_otel_exception_attributes,
             EventRenamer("msg"),
             LogMessagesRenderer(event_key="msg"),
         ]

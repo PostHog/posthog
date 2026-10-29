@@ -7,7 +7,7 @@ import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 
-from products.exports.backend.models.subscription import Subscription
+from products.subscriptions.backend.models.subscription import Subscription
 
 if TYPE_CHECKING:
     from products.subscriptions.backend.temporal.types import NoExportableInsightsContext

@@ -45,6 +45,7 @@ export interface PropertyFiltersProps {
     schemaColumns?: DatabaseSchemaField[]
     dataWarehouseTableName?: string
     logicalRowDivider?: boolean
+    logicalRowDividerTooltip?: string
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
@@ -69,12 +70,6 @@ export interface PropertyFiltersProps {
     addFilterDocLink?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
     hogQLGlobals?: Record<string, any>
-    /**
-     * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
-     * (the default) renders a button. Only has an effect on the rebuild menu
-     * (`TAXONOMIC_FILTER_MENU_REBUILD`).
-     */
-    triggerVariant?: 'button' | 'input'
     staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
     renderOperatorValueSelect?: PropertyFilterInternalProps['renderOperatorValueSelect']
     /** Override inferred property definitions for contexts where one event key is polymorphic. */
@@ -110,6 +105,7 @@ export function PropertyFilters({
     dataWarehouseTableName,
     orFiltering = false,
     logicalRowDivider = false,
+    logicalRowDividerTooltip,
     propertyGroupType = null,
     addText = null,
     buttonText = 'Filter',
@@ -132,7 +128,6 @@ export function PropertyFilters({
     addFilterDocLink,
     operatorAllowlist,
     hogQLGlobals,
-    triggerVariant = 'button',
     staticValueOptions,
     renderOperatorValueSelect,
     propertyDefinitionsOverride,
@@ -170,7 +165,10 @@ export function PropertyFilters({
         return (
             <React.Fragment key={displayedFilterIds[index]}>
                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
-                    <LogicalRowDivider logicalOperator={propertyGroupType ?? FilterLogicalOperator.And} />
+                    <LogicalRowDivider
+                        logicalOperator={propertyGroupType ?? FilterLogicalOperator.And}
+                        tooltip={logicalRowDividerTooltip}
+                    />
                 )}
                 {addFilterDivider &&
                     showNewFilterRow &&
@@ -247,7 +245,6 @@ export function PropertyFilters({
                                 editable={editable}
                                 operatorAllowlist={operatorAllowlist}
                                 hogQLGlobals={hogQLGlobals}
-                                triggerVariant={triggerVariant}
                                 staticValueOptions={staticValueOptions}
                                 renderOperatorValueSelect={renderOperatorValueSelect}
                                 propertyDefinitionsOverride={propertyDefinitionsOverride}

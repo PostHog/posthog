@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -11,8 +11,8 @@ import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic
 import { OnboardingStep } from '../OnboardingStep'
 
 export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
+    const { flowVariant } = useValues(onboardingLogic)
     const { goToNextStep } = useActions(onboardingLogic)
-    const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
     return (
         <OnboardingStep
@@ -24,7 +24,7 @@ export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = (
         >
             <InlineSourceSetup
                 onComplete={() => {
-                    reportOnboardingStepCompleted(OnboardingStepKey.LINK_DATA)
+                    reportOnboardingStepCompleted(OnboardingStepKey.LINK_DATA, flowVariant)
                     goToNextStep()
                 }}
                 featured

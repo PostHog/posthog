@@ -10,8 +10,8 @@ from django.test import SimpleTestCase
 
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import key_metrics
 from products.today.backend.logic.highlight_types import Context, DailyValueNotReady
+from products.today.backend.logic.today_highlights import key_metrics
 
 TODAY = date(2026, 10, 13)
 
@@ -71,12 +71,15 @@ class TestKeyMetrics(SimpleTestCase):
 
         self.assertEqual(
             (
-                [(m.key, m.value, m.unit, m.change_pct, len(m.series)) for m in found.pulse],
+                [(m.key, m.value, m.unit, m.change_pct, m.previous_value, len(m.series)) for m in found.pulse],
                 [(c.title, c.detail, c.label) for c in found.items],
                 [_query(m.url) for m in found.pulse],
             ),
             (
-                [("signup_event", 6500.0, "events", -7.1, 28), ("activity_event", 140.0, "people", 0.0, 28)],
+                [
+                    ("signup_event", 6500.0, "events", -7.1, 7000.0, 28),
+                    ("activity_event", 140.0, "people", 0.0, 140.0, 28),
+                ],
                 [("‘Signup event’ decreased by 50% yesterday", "500 yesterday · 1,000 on an average Monday", "risk")],
                 [
                     _trend({"kind": "EventsNode", "event": "signup_event", "math": "total"}),

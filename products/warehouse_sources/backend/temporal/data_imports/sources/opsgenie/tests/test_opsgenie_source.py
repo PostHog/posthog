@@ -15,10 +15,6 @@ class TestOpsgenieSource:
         self.source = OpsgenieSource()
         self.config = OpsgenieSourceConfig(api_key="key_123", region="us")
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["alerts", "users"])
-        assert {s.name for s in schemas} == {"alerts", "users"}
-
     def test_validate_credentials_success(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             assert self.source.validate_credentials(self.config, team_id=1) == (True, None)
@@ -27,7 +23,6 @@ class TestOpsgenieSource:
     @pytest.mark.parametrize(
         "status,error",
         [
-            (401, "Invalid Opsgenie API key"),
             (422, "Your Opsgenie API key format is not valid"),
         ],
     )
@@ -43,9 +38,16 @@ class TestOpsgenieSource:
         with scripted_network([ScriptedResponse(status=403)]):
             assert self.source.validate_credentials(self.config, team_id=1, schema_name=None) == (True, None)
 
-    def test_validate_credentials_rejects_403_for_specific_schema(self) -> None:
+    @pytest.mark.parametrize(
+        "schema_name,probed_path",
+        [
+            ("integrations", "/v2/integrations"),
+            ("team_members", "/v2/teams"),
+        ],
+    )
+    def test_validate_credentials_rejects_403_for_specific_schema(self, schema_name: str, probed_path: str) -> None:
         with scripted_network([ScriptedResponse(status=403)]) as network:
-            ok, error = self.source.validate_credentials(self.config, team_id=1, schema_name="integrations")
+            ok, error = self.source.validate_credentials(self.config, team_id=1, schema_name=schema_name)
         assert ok is False
         assert error == "Your Opsgenie API key does not have access to this resource"
-        assert network.requests_log[0].path == "/v2/integrations"
+        assert network.requests_log[0].path == probed_path

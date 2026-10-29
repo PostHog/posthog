@@ -1,4 +1,5 @@
-from typing import cast
+from datetime import date, datetime
+from typing import Any, cast
 
 from requests import RequestException
 
@@ -33,7 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.settings import (
     AUTH_ERROR,
+    DEFAULT_SEARCH_ENGINE,
     DOCS_BASE,
+    DOMAIN_ERROR,
     ENDPOINTS,
     QUOTA_ERROR,
     REQUEST_ERROR,
@@ -55,7 +58,7 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
         return ExternalDataSourceType.SERPSTAT
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {message: message for message in (AUTH_ERROR, QUOTA_ERROR, REQUEST_ERROR)}
+        return {message: message for message in (AUTH_ERROR, QUOTA_ERROR, REQUEST_ERROR, DOMAIN_ERROR)}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -72,8 +75,9 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
         return [
             SourceSchema(
                 name=name,
-                supports_incremental=False,
+                supports_incremental=bool(endpoint.incremental_fields),
                 supports_append=False,
+                incremental_fields=endpoint.incremental_fields,
                 detected_primary_keys=list(endpoint.primary_keys),
                 description=CANONICAL_DESCRIPTIONS[name]["description"],
             )
@@ -124,6 +128,9 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
             inputs.job_id,
             self.resolve_api_version(inputs.api_version),
             resumable_source_manager,
+            date_from=_date_from(inputs.db_incremental_field_last_value)
+            if inputs.should_use_incremental_field
+            else None,
         )
         return SourceResponse(
             name=resource.name,
@@ -143,12 +150,13 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
             label="Serpstat",
             iconPath="/static/services/serpstat.png",
             docsUrl="https://posthog.com/docs/cdp/sources/serpstat",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API token on your [Serpstat profile](https://serpstat.com/users/profile/). "
                 "API access requires the Team plan or higher. "
                 "Syncs use your account's API units when Serpstat applies a charge. "
-                "Serpstat lists these methods as free of API credit charges. "
+                "Serpstat lists the project methods as free of API credit charges. "
+                "The domain and backlink tables use API credits for each returned row, and they need a domain. "
                 "Paginated tables include up to 500 records. Positions cover the last seven days for one project region."
             ),
             fields=cast(
@@ -180,6 +188,39 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
                         secret=False,
                         caption="Use the region ID from the Serpstat getProjectRegions method.",
                     ),
+                    SourceFieldInputConfig(
+                        name="domain",
+                        label="Domain",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="example.com",
+                        secret=False,
+                        caption="The domain to analyze for the domain and backlink tables.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="search_engine",
+                        sync_setting=True,
+                        label="Search engine database",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder=DEFAULT_SEARCH_ENGINE,
+                        secret=False,
+                        caption=(
+                            "The Serpstat database code for the domain tables, for example `g_us` for Google US. "
+                            f"Leave blank to use `{DEFAULT_SEARCH_ENGINE}`. See the "
+                            f"[database list]({DOCS_BASE}ba97ni814ao9p-search-engine-short-names)."
+                        ),
+                    ),
                 ],
             ),
         )
+
+
+def _date_from(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str) and value:
+        return value[:10]
+    return None

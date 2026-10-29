@@ -8,7 +8,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Final
 
-from django.db.models import Prefetch, Q, QuerySet
+from django.db.models import Max, Prefetch, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -62,6 +62,10 @@ SKIP_RECENT_RUN: Final = "recent_run_exists"
 SKIP_ZERO_ROLLOUT: Final = "zero_rollout"
 SKIP_NO_METRICS: Final = "no_metrics"
 SKIP_EXPOSURE_BACKOFF: Final = "exposure_backoff"
+SKIP_DISPATCH_UNCERTAIN: Final = "dispatch_uncertain"
+SKIP_START_WINDOW_ELAPSED: Final = "start_window_elapsed"
+
+NEVER_SCHEDULED = datetime.min.replace(tzinfo=UTC)
 
 
 @frozen
@@ -131,6 +135,9 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     or an exposure back-off. The query count does not grow with the number of candidates.
 
     An exposure-frozen experiment stays eligible, because its metric events keep arriving.
+
+    Candidates come oldest scheduled run first, so an experiment that the workflow deferred
+    yesterday starts before the ones that ran.
     """
     # Deferred: importing this module runs posthog/temporal/experiments/__init__.py, which pulls
     # activities.py, which imports back into products.experiments.backend.facade.timeseries.
@@ -204,6 +211,9 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
                 organization_id=str(experiment.team.organization_id),
             )
         )
+
+    last_scheduled_runs = _last_scheduled_runs([c.experiment_id for c in candidates])
+    candidates.sort(key=lambda c: (last_scheduled_runs.get(c.experiment_id, NEVER_SCHEDULED), c.experiment_id))
 
     logger.info("scheduled_recalculation_candidates", hour=hour, count=len(candidates), skipped=len(skips))
     return ScheduledRecalculationSelection(
@@ -305,6 +315,18 @@ def _recent_run_skips(experiment_ids: list[int]) -> dict[int, SkipDecision]:
         if completed_at is not None:
             skips.setdefault(experiment_id, _recent_run_skip(str(recalculation_id), completed_at))
     return skips
+
+
+def _last_scheduled_runs(experiment_ids: list[int]) -> dict[int, datetime]:
+    """When each experiment last got a scheduled run, in one query across teams."""
+    rows = (
+        ExperimentMetricsRecalculation.objects.unscoped()
+        .filter(experiment_id__in=experiment_ids, trigger=ExperimentMetricsRecalculation.Trigger.SCHEDULED)
+        .values("experiment_id")
+        .annotate(last_created_at=Max("created_at"))
+        .values_list("experiment_id", "last_created_at")
+    )
+    return dict(rows)
 
 
 def _exposure_backoff_key(experiment_id: int) -> str:

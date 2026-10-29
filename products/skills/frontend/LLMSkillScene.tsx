@@ -22,6 +22,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -49,6 +50,7 @@ import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from 'product
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { llmSkillsLogic } from './llmSkillsLogic'
+import { QuillLLMSkillActions } from './QuillLLMSkillActions'
 import {
     PRODUCT_OWNED_SKILL_NAME_PREFIXES,
     SKILL_NAME_MAX_LENGTH,
@@ -121,6 +123,7 @@ export function LLMSkillScene(): JSX.Element {
     const { publishToCommunity } = useActions(llmSkillsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const {
         submitSkillForm,
@@ -204,111 +207,122 @@ export function LLMSkillScene(): JSX.Element {
                     resourceType={{ type: 'llm_skill' }}
                     isLoading={skillLoading}
                     actions={
-                        <>
-                            {isSkill(skill) && (
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconDownload />}
-                                    onClick={downloadSkill}
-                                    loading={downloadingZip}
-                                    size="small"
-                                    tooltip="Download this skill as a spec-compliant .zip (SKILL.md + bundled files)"
-                                    data-attr="llma-skill-download-zip-button"
-                                >
-                                    Download .zip
-                                </LemonButton>
-                            )}
-
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmSkill}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPencil />}
-                                    onClick={() => {
-                                        if (isSkill(skill)) {
-                                            setSkillFormValues({
-                                                name: skill.name,
-                                                description: skill.description,
-                                                body: skill.body,
-                                                license: skill.license || '',
-                                                compatibility: skill.compatibility || '',
-                                            })
-                                            setMode(SkillMode.Edit)
-                                        }
-                                    }}
-                                    size="small"
-                                    tooltip={
-                                        isHistoricalVersion
-                                            ? 'Start a new version from this historical version'
-                                            : undefined
-                                    }
-                                    data-attr="llma-skill-new-version-button"
-                                >
-                                    New version
-                                </LemonButton>
-                            </AccessControlAction>
-
-                            <More
-                                size="small"
-                                overlay={
-                                    <>
-                                        {communitySkillsEnabled && isSkill(skill) && (
-                                            <AccessControlAction
-                                                resourceType={AccessControlResourceType.LlmSkill}
-                                                minAccessLevel={AccessControlLevel.Editor}
-                                            >
-                                                <LemonButton
-                                                    onClick={() =>
-                                                        openPublishToCommunityDialog({
-                                                            skillName: skill.name,
-                                                            githubLogin,
-                                                            onPublish: publishToCommunity,
-                                                        })
-                                                    }
-                                                    disabledReason={publishDisabledReason}
-                                                    data-attr="llma-skill-publish-community-button"
-                                                    fullWidth
-                                                >
-                                                    Publish to PostHog community…
-                                                </LemonButton>
-                                            </AccessControlAction>
-                                        )}
-
-                                        {isSkill(skill) && (
-                                            <AccessControlAction
-                                                resourceType={AccessControlResourceType.LlmSkill}
-                                                minAccessLevel={AccessControlLevel.Editor}
-                                            >
-                                                <LemonButton
-                                                    onClick={() => openRenameSkillDialog(skill.name, renameSkill)}
-                                                    disabledReason={renamingSkill ? 'Renaming…' : renameDisabledReason}
-                                                    data-attr="llma-skill-rename-button"
-                                                    fullWidth
-                                                >
-                                                    Rename
-                                                </LemonButton>
-                                            </AccessControlAction>
-                                        )}
-
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.LlmSkill}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                        >
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => openArchiveSkillDialog(deleteSkill)}
-                                                data-attr="llma-skill-delete-button"
-                                                fullWidth
-                                            >
-                                                Archive
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    </>
-                                }
+                        todayRailNav ? (
+                            <QuillLLMSkillActions
+                                view
+                                communitySkillsEnabled={communitySkillsEnabled}
+                                publishDisabledReason={publishDisabledReason}
+                                renameDisabledReason={renameDisabledReason}
                             />
-                        </>
+                        ) : (
+                            <>
+                                {isSkill(skill) && (
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconDownload />}
+                                        onClick={downloadSkill}
+                                        loading={downloadingZip}
+                                        size="small"
+                                        tooltip="Download this skill as a spec-compliant .zip (SKILL.md + bundled files)"
+                                        data-attr="llma-skill-download-zip-button"
+                                    >
+                                        Download .zip
+                                    </LemonButton>
+                                )}
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmSkill}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPencil />}
+                                        onClick={() => {
+                                            if (isSkill(skill)) {
+                                                setSkillFormValues({
+                                                    name: skill.name,
+                                                    description: skill.description,
+                                                    body: skill.body,
+                                                    license: skill.license || '',
+                                                    compatibility: skill.compatibility || '',
+                                                })
+                                                setMode(SkillMode.Edit)
+                                            }
+                                        }}
+                                        size="small"
+                                        tooltip={
+                                            isHistoricalVersion
+                                                ? 'Start a new version from this historical version'
+                                                : undefined
+                                        }
+                                        data-attr="llma-skill-new-version-button"
+                                    >
+                                        New version
+                                    </LemonButton>
+                                </AccessControlAction>
+
+                                <More
+                                    size="small"
+                                    overlay={
+                                        <>
+                                            {communitySkillsEnabled && isSkill(skill) && (
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.LlmSkill}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                >
+                                                    <LemonButton
+                                                        onClick={() =>
+                                                            openPublishToCommunityDialog({
+                                                                skillName: skill.name,
+                                                                githubLogin,
+                                                                onPublish: publishToCommunity,
+                                                            })
+                                                        }
+                                                        disabledReason={publishDisabledReason}
+                                                        data-attr="llma-skill-publish-community-button"
+                                                        fullWidth
+                                                    >
+                                                        Publish to PostHog community…
+                                                    </LemonButton>
+                                                </AccessControlAction>
+                                            )}
+
+                                            {isSkill(skill) && (
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.LlmSkill}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                >
+                                                    <LemonButton
+                                                        onClick={() => openRenameSkillDialog(skill.name, renameSkill)}
+                                                        disabledReason={
+                                                            renamingSkill ? 'Renaming…' : renameDisabledReason
+                                                        }
+                                                        data-attr="llma-skill-rename-button"
+                                                        fullWidth
+                                                    >
+                                                        Rename
+                                                    </LemonButton>
+                                                </AccessControlAction>
+                                            )}
+
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.LlmSkill}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                            >
+                                                <LemonButton
+                                                    status="danger"
+                                                    onClick={() => openArchiveSkillDialog(deleteSkill)}
+                                                    data-attr="llma-skill-delete-button"
+                                                    fullWidth
+                                                >
+                                                    Archive
+                                                </LemonButton>
+                                            </AccessControlAction>
+                                        </>
+                                    }
+                                />
+                            </>
+                        )
                     }
                 />
 
@@ -338,41 +352,50 @@ export function LLMSkillScene(): JSX.Element {
                         resourceType={{ type: 'llm_analytics' }}
                         isLoading={skillLoading}
                         actions={
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => cancelEditing()}
-                                    disabledReason={isSkillFormSubmitting ? 'Saving…' : undefined}
-                                    size="small"
-                                    data-attr="llma-skill-cancel-button"
-                                >
-                                    Cancel
-                                </LemonButton>
-
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmSkill}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
+                            todayRailNav ? (
+                                <QuillLLMSkillActions
+                                    view={false}
+                                    communitySkillsEnabled={communitySkillsEnabled}
+                                    publishDisabledReason={publishDisabledReason}
+                                    renameDisabledReason={renameDisabledReason}
+                                />
+                            ) : (
+                                <>
                                     <LemonButton
-                                        type="primary"
-                                        onClick={isNewSkill ? submitSkillForm : requestPublish}
-                                        loading={isSkillFormSubmitting}
-                                        disabledReason={
-                                            !isNewSkill && !isHistoricalVersion && !isSkillFormDirty
-                                                ? 'No changes to publish'
-                                                : undefined
-                                        }
+                                        type="secondary"
+                                        onClick={() => cancelEditing()}
+                                        disabledReason={isSkillFormSubmitting ? 'Saving…' : undefined}
                                         size="small"
-                                        data-attr={isNewSkill ? 'skill-create-button' : 'skill-save-button'}
+                                        data-attr="llma-skill-cancel-button"
                                     >
-                                        {isNewSkill
-                                            ? 'Create skill'
-                                            : nextVersion
-                                              ? `Publish v${nextVersion}`
-                                              : 'Publish version'}
+                                        Cancel
                                     </LemonButton>
-                                </AccessControlAction>
-                            </>
+
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmSkill}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={isNewSkill ? submitSkillForm : requestPublish}
+                                            loading={isSkillFormSubmitting}
+                                            disabledReason={
+                                                !isNewSkill && !isHistoricalVersion && !isSkillFormDirty
+                                                    ? 'No changes to publish'
+                                                    : undefined
+                                            }
+                                            size="small"
+                                            data-attr={isNewSkill ? 'skill-create-button' : 'skill-save-button'}
+                                        >
+                                            {isNewSkill
+                                                ? 'Create skill'
+                                                : nextVersion
+                                                  ? `Publish v${nextVersion}`
+                                                  : 'Publish version'}
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                </>
+                            )
                         }
                     />
 
