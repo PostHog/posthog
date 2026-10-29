@@ -1,7 +1,8 @@
 # Depot mirror of .github/actions/pnpm-install (same pattern as .depot/actions/setup-sqlx-cli).
-# Kept equivalent to canonical except for the `inputs.install` guards and the master-gated
-# "Save pnpm store" step below. actions/cache routes to Depot Cache, so shared keys do not
-# collide.
+# Kept equivalent to canonical except for the `inputs.install` guards, the master-gated
+# "Save pnpm store" step below, and the timeout-minutes and continue-on-error on both restores,
+# which turn a stalled restore into a cache miss. actions/cache routes to Depot Cache, so shared
+# keys do not collide.
 name: Install pnpm dependencies
 description: |
     Sets up pnpm + Node via `setup-pnpm`, restores the shared pnpm store cache,
@@ -55,6 +56,10 @@ runs:
         - name: Restore pnpm store
           id: restore
           if: inputs.install != 'false'
+          # Depot-only bound, because GitHub Actions rejects timeout-minutes in a composite
+          # step. See the actions/cache bullet in .depot/workflows/ci-backend.yml.
+          timeout-minutes: 2
+          continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
@@ -75,6 +80,10 @@ runs:
         - name: Restore pnpm lockfile verdict
           id: restore-verdict
           if: inputs.install != 'false'
+          # Depot-only bound, because GitHub Actions rejects timeout-minutes in a composite
+          # step. See the actions/cache bullet in .depot/workflows/ci-backend.yml.
+          timeout-minutes: 2
+          continue-on-error: true
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl

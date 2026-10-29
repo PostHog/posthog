@@ -41,9 +41,9 @@
 # - The actions/cache client gives each cache service request a 3-minute socket timeout and
 #   tries it 5 times. No input or env var shortens either, and SEGMENT_DOWNLOAD_TIMEOUT_MINS
 #   only covers the blob download that follows. A stalled request therefore holds a restore for
-#   about 15 minutes and still ends in a miss. Restores in this file and in the setup-pnpm,
-#   setup-python-cached and setup-sqlx-cli mirrors set timeout-minutes and continue-on-error so
-#   that a stall becomes an early miss. Schema restores get 4 minutes so that one retry runs,
+#   about 15 minutes and still ends in a miss. Restores in this file and in the pnpm-install,
+#   setup-pnpm, setup-python-cached and setup-sqlx-cli mirrors set timeout-minutes and
+#   continue-on-error so that a stall becomes an early miss. Schema restores get 4 minutes so that one retry runs,
 #   because a schema miss means a from-scratch migrate. Saves stay unbounded, because a timeout
 #   drops what they write. The uv cache restore inside astral-sh/setup-uv stays unbounded too,
 #   because a timeout there also kills the uv install.
