@@ -772,8 +772,9 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * reads the events up to the end. It is info otherwise. When the first failure reached the
  * read, memory or time limit, `reason` names the cause that the calculation shows: `metric`
  * when another metric of the same calculation completed, or `exposure_criteria` when every
- * metric reached a limit and the exposure criteria filter on a property that ClickHouse keeps
- * in no column of its own. It is null otherwise.
+ * metric reached a limit and each metric's query applies an exposure filter on a property that
+ * ClickHouse keeps in no column of its own. A metric's query doesn't apply the exposure filters
+ * when the project precomputes the exposures. It is null otherwise.
  *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from

@@ -346,7 +346,33 @@ class TestMetricCalculationFailed(TestCase):
                 (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
                 1,
                 (PLAN_FILTER,),
-                ("metric", "while another metric of the experiment calculated. Simplify this metric"),
+                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+            ),
+            (
+                "one_metric_reached_a_limit_with_an_exposure_filter_without_a_column",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
+                0,
+                (PLAN_FILTER,),
+                (
+                    "exposure_criteria",
+                    'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one '
+                    'calculation. The likely cause is the exposure criteria\'s filter on the group property "plan"',
+                ),
+            ),
+            (
+                "two_limits_and_two_exposure_filters_without_a_column",
+                (
+                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
+                    _failure("Limit for rows or bytes to read exceeded", error_type="byte_limit", role="secondary"),
+                ),
+                0,
+                (ExposureFilterWithoutColumn(type="event", key="country"), PLAN_FILTER),
+                (
+                    "exposure_criteria",
+                    "Every metric's query needed more resources than PostHog allows for one calculation. The likely "
+                    'cause is the exposure criteria\'s filters on the event property "country" and the group property '
+                    '"plan", which make each query read all event and group properties. Remove or change these filters',
+                ),
             ),
             (
                 "every_metric_reached_a_limit_without_an_exposure_filter_without_a_column",
@@ -546,7 +572,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
             (
                 "other_metrics_completed",
                 ("rejected", "secondary"),
-                ("metric", "while other metrics of the experiment calculated"),
+                ("metric", "while other metrics of the experiment returned results"),
             ),
         ]
     )

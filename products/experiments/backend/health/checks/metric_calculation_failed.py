@@ -303,9 +303,10 @@ def _with_query_limit_cause(
     """The words of each failure that reached the read, memory or time limit of a query, with the cause that the rest
     of the calculation shows.
 
-    Every metric's query includes the exposure query. So when another metric of the calculation completed, the exposure
-    query fits the limits, and the failing metric's own part of its query reached them. When every metric reached a
-    limit and the exposure criteria filter on a property without a column of its own, that filter is the likely cause.
+    Every metric's query reads the exposures, from the events or from precomputed exposures. So when another metric of
+    the calculation completed, that read fits the limits, and the failing metric's own part of its query reached them.
+    When every metric reached a limit and each metric's query applies an exposure filter on a property without a column
+    of its own, that filter is the likely cause.
     """
     limited = {
         failure.metric_id: wording.error
@@ -322,7 +323,9 @@ def _with_query_limit_cause(
             for failure, wording in worded
         ]
     if limited and len(limited) == calculation.metric_count and filters_without_column:
-        explanation = _exposure_explanation(set(limited.values()), filters_without_column)
+        # With one metric the words name it, as for a failure of the metric.
+        every_metric = calculation.metric_count > 1
+        explanation = _exposure_explanation(set(limited.values()), filters_without_column, every_metric=every_metric)
         return [
             (
                 failure,
@@ -330,7 +333,7 @@ def _with_query_limit_cause(
                     kind=MetricCalculationFailureKind.QUERY_LIMIT,
                     error=limited[failure.metric_id],
                     explanation=explanation,
-                    every_metric=True,
+                    every_metric=every_metric,
                     reason=QueryLimitCause.EXPOSURE_CRITERIA.value,
                 ),
             )
@@ -345,22 +348,24 @@ def _metric_cause(failure: MetricCalculationFailure, limit: str, completed_count
         kind=MetricCalculationFailureKind.QUERY_LIMIT,
         error=limit,
         explanation=f"Its query {_LIMIT_NEEDS[limit]} than PostHog allows for one calculation, while {others} of the "
-        f"experiment calculated. Simplify this metric, for example with {_simpler(failure)}, or contact support for "
-        "help.",
+        f"experiment returned results. Simplify this metric, for example with {_simpler(failure)}, or contact support "
+        "for help.",
         reason=QueryLimitCause.METRIC.value,
     )
 
 
-def _exposure_explanation(limits: set[str], filters: tuple[ExposureFilterWithoutColumn, ...]) -> str:
+def _exposure_explanation(
+    limits: set[str], filters: tuple[ExposureFilterWithoutColumn, ...], *, every_metric: bool
+) -> str:
     needs = _LIMIT_NEEDS[next(iter(limits))] if len(limits) == 1 else "needed more resources"
     named = _join([f'the {exposure_filter.type} property "{exposure_filter.key}"' for exposure_filter in filters])
     read = _join(list(dict.fromkeys(exposure_filter.type for exposure_filter in filters)))
     one = len(filters) == 1
+    query, each_query = ("Every metric's query", "each query") if every_metric else ("Its query", "the query")
     return (
-        f"Every metric's query {needs} than PostHog allows for one calculation. The likely cause is the exposure "
-        f"criteria's {'filter' if one else 'filters'} on {named}, which {'makes' if one else 'make'} each query read "
-        f"all {read} properties. Remove or change {'the filter' if one else 'these filters'}, or contact support for "
-        "help."
+        f"{query} {needs} than PostHog allows for one calculation. The likely cause is the exposure criteria's "
+        f"{'filter' if one else 'filters'} on {named}, which {'makes' if one else 'make'} {each_query} read all {read} "
+        f"properties. Remove or change {'the filter' if one else 'these filters'}, or contact support for help."
     )
 
 

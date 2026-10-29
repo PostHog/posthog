@@ -348,8 +348,7 @@ ExposureFilterPropertyType = Literal["event", "person", "group"]
 @frozen
 class ExposureFilterWithoutColumn:
     """A property that the exposure criteria filter on and that ClickHouse keeps in no column of its own. To apply the
-    filter, the exposure query reads all the properties of each event, person or group, which every metric's query
-    repeats."""
+    filter, the exposure query reads all the properties of each event, person or group."""
 
     type: ExposureFilterPropertyType
     key: str
@@ -521,8 +520,9 @@ class HealthContext:
     # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
     # isn't archived.
     latest_calculation: LatestCalculation | None
-    # None when not loaded or unknown. Only the health endpoints load it, and only when the latest calculation has a
-    # failure.
+    # The exposure filters that each metric's query applies itself, on a property without a column of its own. Empty
+    # when the metric queries read precomputed exposures. None when not loaded or unknown. Only the health endpoints
+    # load it, and only when the latest calculation has a failure.
     exposure_filters_without_column: tuple[ExposureFilterWithoutColumn, ...] | None
 
 

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +14,7 @@ from posthog.models.event.new_events_schema import events_route_scope
 from products.experiments.backend.health import exposure_columns
 from products.experiments.backend.health.exposure_columns import load_exposure_filters_without_column
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 MATERIALIZED = {("events", "properties", "plan"), ("events", "person_properties", "tier")}
@@ -28,11 +31,13 @@ class TestExposureFiltersWithoutColumn(BaseTest):
                 "person_properties_on_events",
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 False,
+                False,
                 ["event:utm_campaign", "group:industry"],
             ),
             (
                 "persons_joined",
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                False,
                 False,
                 ["event:utm_campaign", "person:tier", "group:industry"],
             ),
@@ -40,20 +45,37 @@ class TestExposureFiltersWithoutColumn(BaseTest):
                 "native_events_table",
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
                 True,
+                False,
                 ["group:industry"],
+            ),
+            (
+                "exposures_precomputed",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                False,
+                True,
+                [],
             ),
         ]
     )
-    def test_looks_up_the_column_that_the_exposure_query_reads(
-        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, new_events_schema: bool, expected: list[str]
+    def test_looks_up_the_column_that_each_metric_query_reads(
+        self,
+        _name: str,
+        persons_on_events_mode: PersonsOnEventsMode,
+        new_events_schema: bool,
+        precomputes_exposures: bool,
+        expected: list[str],
     ) -> None:
         self.team.modifiers = {"personsOnEventsMode": persons_on_events_mode}
         self.team.save()
+        TeamExperimentsConfig.objects.update_or_create(
+            team=self.team, defaults={"experiment_precomputation_enabled": precomputes_exposures}
+        )
         experiment = Experiment.objects.create(
             team=self.team,
             name="Pricing page",
             feature_flag=FeatureFlag.objects.create(team=self.team, key="pricing-page", created_by=self.user),
-            start_date=timezone.now(),
+            # Long enough for the team's precompute rules to apply.
+            start_date=timezone.now() - timedelta(days=3),
             exposure_criteria={
                 "exposure_config": {
                     "kind": "ExperimentEventExposureConfig",
@@ -64,6 +86,7 @@ class TestExposureFiltersWithoutColumn(BaseTest):
                         {"key": "tier", "type": "person", "operator": "exact", "value": ["gold"]},
                         {"key": "industry", "type": "group", "group_type_index": 0, "operator": "is_set"},
                         {"key": "$group_key", "type": "group", "group_type_index": 0, "operator": "is_set"},
+                        {"key": "$virt_revenue", "type": "group", "group_type_index": 0, "operator": "is_set"},
                     ],
                 }
             },

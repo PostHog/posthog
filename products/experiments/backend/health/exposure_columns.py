@@ -13,6 +13,8 @@ from posthog.models.materialized_column_slots import MaterializedColumnSlot, Mat
 from products.experiments.backend.health.context import ExposureFilterPropertyType, ExposureFilterWithoutColumn
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import normalize_to_exposure_criteria
+from products.experiments.backend.hogql_queries.precompute_policy import team_precompute_skip_reason
+from products.experiments.backend.metric_calculation.config import team_experiments_configs
 from products.experiments.backend.models.experiment import Experiment
 
 # The modes that read person properties from the events table. The other modes join the persons table.
@@ -25,9 +27,9 @@ _PERSON_PROPERTIES_ON_EVENTS = frozenset(
 
 
 def load_exposure_filters_without_column(experiment: Experiment) -> tuple[ExposureFilterWithoutColumn, ...] | None:
-    """The properties that the exposure criteria filter on and that ClickHouse keeps in no column of their own, as the
-    exposure query reads them, in the order of the filters. None when the criteria don't parse or the lookup fails.
-    Never raises."""
+    """The properties that each metric's query reads to apply the exposure filters and that ClickHouse keeps in no
+    column of their own, in the order of the filters. Empty when the metric queries read precomputed exposures. None
+    when the criteria don't parse or the lookup fails. Never raises."""
     try:
         return _filters_without_column(experiment)
     except Exception as error:
@@ -48,7 +50,7 @@ def _filters_without_column(experiment: Experiment) -> tuple[ExposureFilterWitho
         if source
         for prop in source.properties or []
     ]
-    if not filters:
+    if not filters or _reads_precomputed_exposures(experiment):
         return ()
     modifiers = create_default_modifiers_for_team(experiment.team)
     # Each property of the native events table is a subcolumn of its own.
@@ -61,7 +63,7 @@ def _filters_without_column(experiment: Experiment) -> tuple[ExposureFilterWitho
             case EventPropertyFilter(key=key):
                 has_column = (
                     events_have_subcolumns
-                    # HogQL computes a `$virt` property from other columns.
+                    # HogQL computes a `$virt` property from other fields, so no column of its own can exist.
                     or key.startswith("$virt")
                     or get_materialized_column_for_property("events", "properties", key) is not None
                     or _has_dynamic_column(experiment, key)
@@ -80,8 +82,10 @@ def _filters_without_column(experiment: Experiment) -> tuple[ExposureFilterWitho
                 property_type = "person"
             case GroupPropertyFilter(key=key):
                 # The exposure query joins the groups table for a group property, also with person properties on events.
+                # It reads the group key and a `$virt` property from columns of that table.
                 has_column = (
                     key == GROUP_KEY_PROPERTY
+                    or key.startswith("$virt_")
                     or get_materialized_column_for_property("groups", "group_properties", key) is not None
                 )
                 property_type = "group"
@@ -90,6 +94,18 @@ def _filters_without_column(experiment: Experiment) -> tuple[ExposureFilterWitho
         if not has_column:
             without_column[ExposureFilterWithoutColumn(type=property_type, key=key)] = None
     return tuple(without_column)
+
+
+def _reads_precomputed_exposures(experiment: Experiment) -> bool:
+    """Whether the metric queries read the exposures from a table that a separate query fills, which applies the
+    exposure filters once. It follows the precompute rules of `ExperimentQueryRunner`, without a metric's cohorts.
+
+    When that query fails, the metric queries read the events, but the stored failure doesn't say which way they read,
+    so the answer assumes the table."""
+    if experiment.feature_flag.aggregation_group_type_index is not None:
+        return False
+    config = team_experiments_configs([experiment.team_id])[experiment.team_id]
+    return team_precompute_skip_reason(experiment.team, config, experiment, experiment.exposure_criteria) is None
 
 
 def _has_dynamic_column(experiment: Experiment, key: str) -> bool:
