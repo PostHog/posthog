@@ -7,9 +7,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { myClaim } from '../__mocks__/inboxMocks'
 import { SignalReport, SignalReportStatus } from '../types'
-import { BULK_CLAIM_CONCURRENCY, inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { BULK_CLAIM_CONCURRENCY, BULK_CLAIM_TIMEOUT_MS, inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
 describe('inboxBulkActionsLogic', () => {
     let logic: ReturnType<typeof inboxBulkActionsLogic.build>
@@ -123,13 +122,22 @@ describe('inboxBulkActionsLogic', () => {
         expect(mostInFlight).toBe(BULK_CLAIM_CONCURRENCY)
     })
 
-    // A bulk claim can finish after the user released one of its reports. The late result started first,
-    // so it must not bring the released claim back.
-    it('keeps the newer claim when a result from an older request lands later', () => {
-        logic.actions.reportClaimsChanged([{ reportId: 'r', assignee: null, startedAt: 2000 }])
-        logic.actions.reportClaimsChanged([{ reportId: 'r', assignee: myClaim, startedAt: 1000 }])
+    // One stalled request must not keep the bulk bar and the selection locked.
+    it('finishes a bulk claim when a request stalls', async () => {
+        jest.useFakeTimers()
+        try {
+            useMocks({
+                post: { '/api/projects/:team_id/signals/reports/:id/claim/': () => new Promise(() => {}) },
+            })
+            logic.actions.bulkClaim([{ id: 'r-1', status: SignalReportStatus.READY, assignee: null } as SignalReport])
+            expect(logic.values.isClaiming).toBe(true)
 
-        expect(logic.values.claimOverrides.r.assignee).toBeNull()
+            await jest.advanceTimersByTimeAsync(BULK_CLAIM_TIMEOUT_MS)
+
+            expect(logic.values.isClaiming).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('clears the anchor when the anchor row leaves the list', async () => {

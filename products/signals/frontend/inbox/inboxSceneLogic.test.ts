@@ -405,28 +405,35 @@ describe('inboxSceneLogic routing', () => {
     // A rank read at open time is null on a cold load, and joins to no impression row. The event is
     // then captured after the wait, so it also has to carry the moment the report opened: a scroll
     // or an action taken during the wait would otherwise read earlier than the open.
-    // The detail pane reads the selected report, so a claim made from a list row must reach it. A fetch
-    // that started before the claim finished can still answer with the old assignee, and must not win.
-    it('keeps a list claim on the open report when an older fetch lands after it', async () => {
+    // The detail pane reads the selected report, so a claim made from a list row must reach it. A fetch that
+    // started before the claim saved answers with the old assignee, and must not be what the pane shows.
+    it('reloads the open report after a list claim, so an older fetch cannot win', async () => {
         const report = { id: 'r1', title: 'Crash on login', assignee: null } as SignalReport
+        let claimSaved = false
         let release: () => void = () => {}
-        const fetchHeld = new Promise<void>((resolve) => (release = resolve))
+        const olderFetchHeld = new Promise<void>((resolve) => (release = resolve))
+        let reachedServer: () => void = () => {}
+        const olderFetchReachedServer = new Promise<void>((resolve) => (reachedServer = resolve))
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/r1/': async () => {
-                    await fetchHeld
-                    return [200, report]
+                    const seesClaim = claimSaved
+                    if (!seesClaim) {
+                        reachedServer()
+                        await olderFetchHeld
+                    }
+                    return [200, { ...report, assignee: seesClaim ? myClaim : null }]
                 },
             },
         })
         mountLogic()
-        logic.actions.loadSelectedReport({ id: 'r1' })
+        logic.actions.setSelectedReportId('r1', 'deeplink', 'slack')
+        await olderFetchReachedServer
 
-        inboxBulkActionsLogic.actions.reportClaimsChanged([
-            { reportId: 'r1', assignee: myClaim, startedAt: Date.now() },
-        ])
+        claimSaved = true
+        inboxBulkActionsLogic.actions.reportClaimChanged('r1', myClaim)
         release()
-        await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.selectedReport?.assignee).toEqual(myClaim)
     })

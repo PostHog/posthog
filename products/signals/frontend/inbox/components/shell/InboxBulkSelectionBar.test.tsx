@@ -112,61 +112,41 @@ describe('InboxBulkSelectionBar', () => {
         expect(deleted.sort()).toEqual(sent)
     })
 
-    // A bulk claim must skip reports a person already holds. A report that changed after the list loaded
-    // comes back 409, and its row must then show the current holder and section, not offer the claim again.
-    // When the report cannot be read again, every list reconciles with the server instead.
-    it.each([
-        {
-            conflict: 'a teammate claimed it',
-            read: [200, { id: 'c', assignee: teammateClaim, status: SignalReportStatus.READY }],
-            holders: { a: myClaim, c: teammateClaim },
-            reconciles: false,
-        },
-        {
-            conflict: 'it was resolved',
-            read: [200, { id: 'c', assignee: null, status: SignalReportStatus.RESOLVED }],
-            holders: { a: myClaim, c: null },
-            reconciles: true,
-        },
-        { conflict: 'it cannot be read again', read: [500, {}], holders: { a: myClaim }, reconciles: true },
-    ])('claims only the unclaimed reports and reconciles one that $conflict', async ({ read, holders, reconciles }) => {
+    // A bulk claim must skip reports a person already holds, and must end even when some claims fail, so the
+    // lists reload the server state and the bar unlocks.
+    it('claims only the unclaimed reports and finishes when some claims fail', async () => {
         const claimed: string[] = []
         useMocks({
-            get: {
-                '/api/projects/:team_id/signals/reports/:id/': () => read as [number, Record<string, unknown>],
-            },
             post: {
                 '/api/projects/:team_id/signals/reports/:id/claim/': ({ params }) => {
                     claimed.push(String(params.id))
-                    return params.id === 'c'
-                        ? [409, {}]
-                        : [200, { id: params.id, assignee: myClaim, updated_at: '2026-06-11T11:00:00Z' }]
+                    if (params.id === 'c') {
+                        return [409, {}]
+                    }
+                    if (params.id === 'd') {
+                        return [500, {}]
+                    }
+                    return [200, { id: params.id, assignee: myClaim, updated_at: '2026-06-11T11:00:00Z' }]
                 },
             },
         })
-        logic.actions.setSelectedReportIds(['a', 'b', 'c'])
+        logic.actions.setSelectedReportIds(['a', 'b', 'c', 'd'])
         render(
             <InboxBulkSelectionBar
-                reports={[makeReport('a'), makeReport('b', { assignee: teammateClaim }), makeReport('c')]}
+                reports={[
+                    makeReport('a'),
+                    makeReport('b', { assignee: teammateClaim }),
+                    makeReport('c'),
+                    makeReport('d'),
+                ]}
             />
         )
 
         await expectLogic(logic, () => {
             fireEvent.click(screen.getByText('Claim'))
         })
-            .toDispatchActions([
-                'reportClaimsChanged',
-                ...(reconciles ? ['reportStateChanged'] : []),
-                'bulkClaimSuccess',
-            ])
-            .toMatchValues({ selectedReportIds: [] })
-        if (!reconciles) {
-            await expectLogic(logic).toNotHaveDispatchedActions(['reportStateChanged'])
-        }
-        const shownHolders = Object.fromEntries(
-            Object.entries(logic.values.claimOverrides).map(([id, override]) => [id, override.assignee])
-        )
-        expect(shownHolders).toEqual(holders)
-        expect(claimed.sort()).toEqual(['a', 'c'])
+            .toDispatchActions(['bulkClaimSuccess'])
+            .toMatchValues({ selectedReportIds: [], isClaiming: false })
+        expect(claimed.sort()).toEqual(['a', 'c', 'd'])
     })
 })
