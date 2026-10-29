@@ -33,7 +33,7 @@ QUESTION = [{"role": "user", "content": "Why did my invoice go up?"}]
 ANSWER = [{"role": "assistant", "content": "Two seats were added."}]
 
 
-def _create_trace(team: Team, trace_id: str = "trace-1") -> None:
+def _create_trace(team: Team, trace_id: str = "trace-1", *, extra_properties: dict[str, object] | None = None) -> None:
     bulk_create_ai_events(
         [
             {
@@ -42,7 +42,12 @@ def _create_trace(team: Team, trace_id: str = "trace-1") -> None:
                 "distinct_id": "user-1",
                 "team": team,
                 "timestamp": T0,
-                "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, "$ai_input_tokens": 3},
+                "properties": {
+                    "$ai_trace_id": trace_id,
+                    "$ai_parent_id": trace_id,
+                    "$ai_input_tokens": 3,
+                    **(extra_properties or {}),
+                },
             }
         ]
     )
@@ -104,6 +109,22 @@ def _create_evaluation_result(team: Team) -> None:
     )
 
 
+def _restrict_property(test: APIBaseTest, name: str) -> None:
+    test.organization.available_product_features = [
+        {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+    ]
+    test.organization.save()
+    definition = PropertyDefinition.objects.create(
+        team=test.team, name=name, property_type="String", type=PropertyDefinition.Type.EVENT
+    )
+    PropertyAccessControl.objects.create(
+        team=test.team,
+        property_definition=definition,
+        organization_member=test.organization_membership,
+        access_level=PropertyAccessLevel.NONE.value,
+    )
+
+
 def _encode(trace_id: str) -> str:
     return base64.urlsafe_b64encode(trace_id.encode()).decode().rstrip("=")
 
@@ -126,6 +147,21 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
         assert body["threadNodeIds"] == ["00000000-0000-0000-0000-000000000001"]
         assert body["defaultNodeId"] == "00000000-0000-0000-0000-000000000001"
         assert body["nodeIdsByAlias"] == {}
+
+    @parameterized.expand(
+        [
+            ("visible", False, {"branch": "feat/rag", "repo": "acme/app"}),
+            ("restricted for the viewer", True, None),
+        ]
+    )
+    def test_returns_the_git_branch_unless_the_viewer_may_not_read_it(
+        self, _name: str, restricted: bool, expected: dict[str, str] | None
+    ) -> None:
+        if restricted:
+            _restrict_property(self, "$ai_git_branch")
+        _create_trace(self.team, extra_properties={"$ai_git_branch": "feat/rag", "$ai_git_repo": "acme/app"})
+
+        assert self.client.get(self._url(_encode("trace-1"))).json()["git"] == expected
 
     @parameterized.expand([("unknown trace", False), ("another team's trace", True)])
     def test_not_found(self, _name: str, other_team_owns_it: bool) -> None:
@@ -243,19 +279,7 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
         assert self.client.get(url).status_code == 400
 
     def test_masks_properties_the_viewer_may_not_read(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
-        )
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=definition,
-            organization_member=self.organization_membership,
-            access_level=PropertyAccessLevel.NONE.value,
-        )
+        _restrict_property(self, "secret_plan")
         _create_node_trace(self.team, extra_properties={"secret_plan": "enterprise"})
 
         properties = self.client.get(self._url("trace-1", _encode(GENERATION))).json()["event"]["properties"]
@@ -274,43 +298,39 @@ class TestTraceEvaluationsView(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(self._url(_encode("trace-1")))
 
         assert response.status_code == 200
-        assert response.json()["results"][0] | {"timestamp": None} == {
+        body = response.json()
+        assert body["results"][0] | {"timestamp": None} == {
             "id": EVALUATION_RESULT,
             "evaluationId": None,
             "evaluationName": "Answers the question",
             "targetNodeId": GENERATION,
             "outcome": "pass",
             "label": "True",
+            "score": None,
             "reasoning": "Direct answer.",
             "timestamp": None,
             "isBackfill": False,
+        }
+        assert body["summary"] == {
+            "passed": 1,
+            "failed": 0,
+            "unrated": 0,
+            "nodes": [{"nodeId": GENERATION, "outcome": "pass"}],
         }
 
     def test_an_unknown_trace_has_no_results(self) -> None:
         response = self.client.get(self._url(_encode("trace-2")))
 
-        assert (response.status_code, response.json()) == (200, {"results": []})
+        assert (response.status_code, response.json()) == (
+            200,
+            {"results": [], "summary": {"passed": 0, "failed": 0, "unrated": 0, "nodes": []}},
+        )
 
     def test_rejects_an_unencoded_trace_id(self) -> None:
         assert self.client.get(self._url("trace-1")).status_code == 400
 
     def test_masks_properties_the_viewer_may_not_read(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        definition = PropertyDefinition.objects.create(
-            team=self.team,
-            name="$ai_evaluation_reasoning",
-            property_type="String",
-            type=PropertyDefinition.Type.EVENT,
-        )
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=definition,
-            organization_member=self.organization_membership,
-            access_level=PropertyAccessLevel.NONE.value,
-        )
+        _restrict_property(self, "$ai_evaluation_reasoning")
         _create_evaluation_result(self.team)
 
         result = self.client.get(self._url(_encode("trace-1"))).json()["results"][0]

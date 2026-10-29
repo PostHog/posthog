@@ -210,7 +210,7 @@ class TestMetricCannotCompile(BaseTest):
                 "primary_metric_after_the_end",
                 "metrics",
                 _mean(_hogql(COMPOUND)),
-                ("compound_aggregation", INFO, 'the primary metric "Revenue"'),
+                ("compound_aggregation", WARNING, 'the primary metric "Revenue"'),
                 {"start_date": timezone.now() - timedelta(days=10), "end_date": timezone.now() - timedelta(days=1)},
             ),
         ]

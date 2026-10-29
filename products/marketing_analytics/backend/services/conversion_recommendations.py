@@ -566,7 +566,9 @@ class ConversionRecommendationService:
             return ConversionRecommendationResults()
         result = ConversionRecommendationResults.model_validate(run.results)
         action_ids = [
-            item.candidate.action_id for item in result.recommendations if item.candidate.kind == "ActionsNode"
+            item.candidate.action_id
+            for item in result.recommendations
+            if item.candidate.kind == "ActionsNode" and item.candidate.action_id is not None
         ]
         allowed = set(
             UserAccessControl(self.user, team=self.team)

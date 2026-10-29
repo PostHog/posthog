@@ -3,6 +3,7 @@ from datetime import datetime
 from functools import cached_property
 
 from .event import TraceEvent
+from .git import GitRef
 from .node_ids import NodeIdResolver, NodeIds
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
@@ -82,6 +83,10 @@ class Trace:
             for event in self.events
             if not event.is_trace_event
         ).aliases
+
+    @cached_property
+    def git(self) -> GitRef | None:
+        return GitRef.from_rows(event.row for event in self.events)
 
     @property
     def person_label(self) -> str | None:

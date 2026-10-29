@@ -1532,6 +1532,20 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
+    def test_sso_invite_for_another_email_redirects_to_login(self, mock_sso_providers, mock_request):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        org = Organization.objects.create(name="Test org")
+        invite = OrganizationInvite.objects.create(organization=org, target_email="invited@example.com")
+
+        response = self._complete_sso_with_invite_id(mock_request, str(invite.id), "someone-else@example.com")
+
+        self.assertRedirects(response, "/login?error_code=invite_email_mismatch")
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+        self.assertFalse(User.objects.filter(email="someone-else@example.com").exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
     def test_first_time_sso_login_clears_password_and_passkeys_on_unverified_account(
         self, mock_sso_providers, mock_request
     ):

@@ -2,6 +2,7 @@ import { urls } from 'scenes/urls'
 
 import type { TraceEvaluationResultApi, TraceNodeApi } from '../../../generated/api.schemas'
 import { EvalResult, EvalTarget } from '../types'
+import { flattenTree } from './toTraceTree'
 
 export interface EvalResultsContext {
     /** Every node of the trace, root first, to name what each result targets. */
@@ -9,13 +10,9 @@ export interface EvalResultsContext {
     viewedNodeId: string
 }
 
-function flatten(nodes: TraceNodeApi[]): TraceNodeApi[] {
-    return nodes.flatMap((node) => [node, ...flatten(node.children)])
-}
-
 // Two steps can share a name, such as two calls to the same model, so repeated names get their position.
 export function nodeLabels(tree: TraceNodeApi[]): Map<string, string> {
-    const nodes = flatten(tree)
+    const nodes = flattenTree(tree)
     const totals = new Map<string, number>()
     nodes.forEach((node) => totals.set(node.name, (totals.get(node.name) ?? 0) + 1))
     const seen = new Map<string, number>()

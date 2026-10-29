@@ -2536,7 +2536,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
         return DashboardTile.objects_including_soft_deleted.update_or_create(
-            id=tile_data.get("id", None),
+            id=tile_data.get("id", None),  # type: ignore[misc]  # id=None matches no row, so a new tile is created
             dashboard=instance,
             defaults={**tile_defaults, **extra_defaults, "dashboard": instance},
         )

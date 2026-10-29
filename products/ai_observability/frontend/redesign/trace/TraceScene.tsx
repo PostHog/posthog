@@ -19,6 +19,9 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'evalsChip'
+    | 'evalOutcomesByNode'
+    | 'gitBranch'
     | 'feedbackChip'
     | 'feedbackCount'
     | 'feedbackCountByNodeId'
@@ -33,6 +36,7 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    showFailingEvals: () => void
     showFeedback: (nodeId: string | null, entry: FeedbackEntry) => void
     retryTraceFeedback: () => void
 }
@@ -45,9 +49,11 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         header: values.header,
         summary: {
             ...values.summary,
+            evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
             feedback: values.feedbackChip
                 ? { chip: values.feedbackChip, onClick: () => actions.showFeedback(null, 'chip') }
                 : null,
+            git: values.gitBranch,
         },
         mode: values.mode,
         onModeChange: actions.setMode,
@@ -73,6 +79,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        evalOutcomes: values.evalOutcomesByNode,
         feedbackMode: values.feedbackMode,
         onRetryFeedback: actions.retryTraceFeedback,
         feedbackCount: values.feedbackCount,
@@ -99,6 +106,9 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        evalsChip,
+        evalOutcomesByNode,
+        gitBranch,
         feedbackChip,
         feedbackCount,
         feedbackCountByNodeId,
@@ -122,6 +132,9 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      evalsChip,
+                      evalOutcomesByNode,
+                      gitBranch,
                       feedbackChip,
                       feedbackCount,
                       feedbackCountByNodeId,

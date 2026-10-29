@@ -13,6 +13,8 @@ import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import { TraceScene } from '../TraceScene'
 import {
     decodeIdSegment,
+    makeEvaluationResult,
+    makeEvaluationResults,
     makeEvent,
     makeFeedback,
     makeFeedbackScore,
@@ -52,7 +54,7 @@ const nodeMock = {
         return [200, nodeId === 'gen-2' ? answeredGeneration : makeNodeDetail({ id: nodeId })]
     },
 }
-const evaluationsMock = { [EVALUATIONS_URL]: () => [200, { results: [] }] }
+const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
 const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
 
 const generation = makeEvent({
@@ -117,6 +119,53 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('opens the failing step on its Evals tab from the evals chip', async () => {
+            useMocks({
+                get: {
+                    [EVALUATIONS_URL]: () => [
+                        200,
+                        makeEvaluationResults({
+                            results: [
+                                makeEvaluationResult({
+                                    evaluationName: 'Cites a source',
+                                    targetNodeId: 'gen-1',
+                                    outcome: 'fail',
+                                    label: 'False',
+                                }),
+                            ],
+                            summary: {
+                                passed: 0,
+                                failed: 1,
+                                unrated: 0,
+                                nodes: [{ nodeId: 'gen-1', outcome: 'fail' }],
+                            },
+                        }),
+                    ],
+                },
+            })
+            const { findByText, queryByText } = renderNewView()
+            const chip = await findByText('Evals 0/1 passed')
+            expect(queryByText('Cites a source')).toBeNull()
+
+            fireEvent.click(chip)
+
+            expect(await findByText('Cites a source')).toBeTruthy()
+        })
+
+        it('shows the trace git branch in the summary bar', async () => {
+            useMocks({
+                get: {
+                    [TRACE_URL]: () => [
+                        200,
+                        makeTraceResource({ defaultNodeId: 'gen-2', git: { branch: 'feat/rag', repo: 'acme/app' } }),
+                    ],
+                },
+            })
+            const { findByText } = renderNewView()
+
+            expect(await findByText('feat/rag')).toBeTruthy()
         })
 
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {

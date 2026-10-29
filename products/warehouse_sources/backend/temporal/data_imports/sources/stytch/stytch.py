@@ -1,3 +1,4 @@
+import bisect
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -37,8 +38,11 @@ TRANSIENT_ERROR_TYPES = {"search_timeout"}
 # error types on every request, so they can never sync against the connected project.
 PRODUCT_LINE_MISMATCH_MESSAGES: dict[str, str] = {
     "invalid_consumer_endpoint": "The users and sessions tables only exist for Stytch consumer projects, and this is a B2B project. Sync the organizations and members tables instead.",
-    "invalid_b2b_endpoint": "The organizations and members tables only exist for Stytch B2B projects, and this is a consumer project. Sync the users and sessions tables instead.",
+    "invalid_b2b_endpoint": "The organizations, members, sso_connections, organization_connected_apps and member_connected_apps tables only exist for Stytch B2B projects, and this is a consumer project. Sync the users and sessions tables instead.",
 }
+CONSUMER_RBAC_POLICY_PATH = "/v1/rbac/policy"
+# Response field -> connection_type value for the rows of the sso_connections table.
+SSO_CONNECTION_FIELDS = {"saml_connections": "saml", "oidc_connections": "oidc", "external_connections": "external"}
 
 
 class StytchRetryableError(Exception):
@@ -49,8 +53,13 @@ class StytchAPIError(Exception):
     """Non-2xx Stytch response. The message carries Stytch's `error_type` so permanent
     credential failures can be matched by `get_non_retryable_errors`."""
 
+    def __init__(self, message: str, status_code: int | None = None, error_type: str | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.error_type = error_type
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class StytchResumeConfig:
     # Search cursor for the page chain currently being walked. For the sessions fan-out this is the
     # users-search cursor of the next page of users to fan out over (the interrupted page's sessions
@@ -59,6 +68,8 @@ class StytchResumeConfig:
     # Members fan-out bookmark: first organization_id of the chunk currently being processed.
     # Organization ids are sorted before chunking, so chunks are deterministic across resumes.
     org_bookmark: str | None = None
+    # member_connected_apps bookmark: next unread member on the member-search page at `cursor`.
+    member_bookmark: str | None = None
 
 
 def base_url_for_project(project_id: str) -> str:
@@ -147,7 +158,11 @@ def _request(
             )
 
         logger.error(f"Stytch API error: status={response.status_code}, error_type={error_type}, url={url}")
-        raise StytchAPIError(f"Stytch API error: status={response.status_code}, error_type={error_type}, url={url}")
+        raise StytchAPIError(
+            f"Stytch API error: status={response.status_code}, error_type={error_type}, url={url}",
+            status_code=response.status_code,
+            error_type=error_type,
+        )
 
     return response.json()
 
@@ -287,6 +302,31 @@ def _collect_organization_ids(
     return sorted(org_ids)
 
 
+def _remaining_member_search_chunks(
+    session: requests.Session,
+    base_url: str,
+    auth: tuple[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[StytchResumeConfig],
+) -> tuple[list[list[str]], str | None]:
+    """Chunk the sorted organization ids for the member search, and drop the chunks a resumed run
+    already finished. Returns the chunks left and the member-search cursor for the first of them."""
+    org_ids = _collect_organization_ids(session, base_url, auth, logger)
+    chunks = [
+        org_ids[i : i + MEMBER_SEARCH_ORG_CHUNK_SIZE] for i in range(0, len(org_ids), MEMBER_SEARCH_ORG_CHUNK_SIZE)
+    ]
+
+    # Resolve the saved chunk bookmark. If the bookmarked organization no longer exists (deleted
+    # between attempts), start over — merge dedupes re-pulled rows on the primary key.
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.org_bookmark is not None:
+        for index, chunk in enumerate(chunks):
+            if chunk and chunk[0] == resume.org_bookmark:
+                logger.debug(f"Stytch: resuming member fan-out from organization chunk starting {chunk[0]}")
+                return chunks[index:], resume.cursor
+    return chunks, None
+
+
 def _get_member_rows(
     session: requests.Session,
     base_url: str,
@@ -297,23 +337,9 @@ def _get_member_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Fan the member search out over chunks of organization_ids (the endpoint requires at least
     one organization_id, so members can't be listed project-wide in one call)."""
-    org_ids = _collect_organization_ids(session, base_url, auth, logger)
-    chunks = [
-        org_ids[i : i + MEMBER_SEARCH_ORG_CHUNK_SIZE] for i in range(0, len(org_ids), MEMBER_SEARCH_ORG_CHUNK_SIZE)
-    ]
-
-    # Resolve the saved chunk bookmark. If the bookmarked organization no longer exists (deleted
-    # between attempts), start over — merge dedupes re-pulled rows on member_id.
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = chunks
-    resume_cursor: str | None = None
-    if resume is not None and resume.org_bookmark is not None:
-        for index, chunk in enumerate(chunks):
-            if chunk and chunk[0] == resume.org_bookmark:
-                remaining = chunks[index:]
-                resume_cursor = resume.cursor
-                logger.debug(f"Stytch: resuming members fan-out from organization chunk starting {chunk[0]}")
-                break
+    remaining, resume_cursor = _remaining_member_search_chunks(
+        session, base_url, auth, logger, resumable_source_manager
+    )
 
     for index, chunk in enumerate(remaining):
         body = {"limit": PAGE_SIZE, "organization_ids": chunk}
@@ -332,6 +358,173 @@ def _get_member_rows(
             resumable_source_manager.save_state(StytchResumeConfig(cursor=None, org_bookmark=remaining[index + 1][0]))
 
 
+def _rbac_policy_rows(policy: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for entry_type, list_key, id_key in (
+        ("role", "roles", "role_id"),
+        ("resource", "resources", "resource_id"),
+        ("scope", "scopes", "scope"),
+    ):
+        for entry in policy.get(list_key) or []:
+            rows.append({"entry_type": entry_type, "entry_id": entry.get(id_key), **entry})
+    return rows
+
+
+def _get_rbac_policy_rows(
+    session: requests.Session,
+    base_url: str,
+    auth: tuple[str, str],
+    config: StytchEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Consumer and B2B projects keep their RBAC policy under different paths. Try the B2B one and
+    fall back to the consumer one when Stytch says this is not a B2B project."""
+    try:
+        payload = _request(session, "GET", f"{base_url}{config.path}", auth, logger)
+    except StytchAPIError as error:
+        if error.error_type != "invalid_b2b_endpoint":
+            raise
+        payload = _request(session, "GET", f"{base_url}{CONSUMER_RBAC_POLICY_PATH}", auth, logger)
+
+    rows = _rbac_policy_rows(payload.get("policy") or {})
+    if rows:
+        yield rows
+
+
+def _sso_connection_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for field_name, connection_type in SSO_CONNECTION_FIELDS.items():
+        for connection in payload.get(field_name) or []:
+            row = {**connection, "connection_type": connection_type}
+            # IdP credentials must never land in the warehouse.
+            row.pop("client_secret", None)
+            if row.get("encryption_private_keys"):
+                row["encryption_private_keys"] = [
+                    {key: value for key, value in private_key.items() if key != "private_key"}
+                    for private_key in row["encryption_private_keys"]
+                ]
+            rows.append(row)
+    return rows
+
+
+def _get_or_skip_deleted(
+    session: requests.Session, url: str, auth: tuple[str, str], logger: FilteringBoundLogger
+) -> dict[str, Any]:
+    # An organization or member deleted after it was enumerated answers 404; it has no rows left.
+    try:
+        return _request(session, "GET", url, auth, logger)
+    except StytchAPIError as error:
+        if error.status_code == 404:
+            return {}
+        raise
+
+
+def _get_organization_fan_out_rows(
+    session: requests.Session,
+    base_url: str,
+    auth: tuple[str, str],
+    config: StytchEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[StytchResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """One GET per organization. The bookmark is the next organization to fetch, staged before the
+    current organization's rows are yielded."""
+    org_ids = _collect_organization_ids(session, base_url, auth, logger)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    start = 0
+    if resume is not None and resume.org_bookmark is not None:
+        # Ids are sorted, so a bookmarked organization deleted since the last attempt resumes at the next one.
+        start = bisect.bisect_left(org_ids, resume.org_bookmark)
+        logger.debug(f"Stytch: resuming {config.name} fan-out from organization {resume.org_bookmark}")
+    remaining = org_ids[start:]
+
+    for index, org_id in enumerate(remaining):
+        payload = _get_or_skip_deleted(session, f"{base_url}{config.path.format(organization_id=org_id)}", auth, logger)
+        if config.name == "sso_connections":
+            rows = _sso_connection_rows(payload)
+        else:
+            rows = [{**item, "organization_id": org_id} for item in payload.get(config.data_key) or []]
+
+        if index + 1 < len(remaining):
+            resumable_source_manager.save_state(StytchResumeConfig(org_bookmark=remaining[index + 1]))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _get_member_fan_out_rows(
+    session: requests.Session,
+    base_url: str,
+    auth: tuple[str, str],
+    config: StytchEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[StytchResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """One GET per member, over the same chunked member search as the members table. The staged
+    state points at the next unread member, so a resume skips the members already written."""
+    remaining, cursor = _remaining_member_search_chunks(session, base_url, auth, logger, resumable_source_manager)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    skip_to_member = (
+        resume.member_bookmark if resume is not None and remaining and resume.org_bookmark == remaining[0][0] else None
+    )
+
+    for chunk_index, chunk in enumerate(remaining):
+        while True:
+            body: dict[str, Any] = {"limit": PAGE_SIZE, "organization_ids": chunk}
+            if cursor:
+                body["cursor"] = cursor
+            page = _request(
+                session, "POST", f"{base_url}/v1/b2b/organizations/members/search", auth, logger, json_body=body
+            )
+            members = page.get("members", []) or []
+            next_cursor = (page.get("results_metadata") or {}).get("next_cursor")
+
+            if skip_to_member is not None:
+                # A bookmarked member deleted since the last attempt is not on the page; re-read the whole page.
+                member_ids = [member["member_id"] for member in members]
+                if skip_to_member in member_ids:
+                    members = members[member_ids.index(skip_to_member) :]
+                skip_to_member = None
+
+            if next_cursor:
+                after_page: StytchResumeConfig | None = StytchResumeConfig(cursor=next_cursor, org_bookmark=chunk[0])
+            elif chunk_index + 1 < len(remaining):
+                after_page = StytchResumeConfig(org_bookmark=remaining[chunk_index + 1][0])
+            else:
+                after_page = None
+
+            if not members:
+                if after_page is not None:
+                    resumable_source_manager.save_state(after_page)
+                resumable_source_manager.safe_point()
+
+            for index, member in enumerate(members):
+                path = config.path.format(organization_id=member["organization_id"], member_id=member["member_id"])
+                payload = _get_or_skip_deleted(session, f"{base_url}{path}", auth, logger)
+                rows = [
+                    {**item, "organization_id": member["organization_id"], "member_id": member["member_id"]}
+                    for item in payload.get(config.data_key) or []
+                ]
+                if index + 1 < len(members):
+                    resumable_source_manager.save_state(
+                        StytchResumeConfig(
+                            cursor=cursor, org_bookmark=chunk[0], member_bookmark=members[index + 1]["member_id"]
+                        )
+                    )
+                elif after_page is not None:
+                    resumable_source_manager.save_state(after_page)
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+
+            cursor = next_cursor
+            if not cursor:
+                break
+
+
 def get_rows(
     project_id: str,
     secret: str,
@@ -347,10 +540,16 @@ def get_rows(
     # One session reused across every page so urllib3 keeps the connection alive.
     session = _make_stytch_session(secret)
 
-    if config.fan_out == "users":
+    if endpoint == "rbac_policy":
+        yield from _get_rbac_policy_rows(session, base_url, auth, config, logger)
+    elif config.fan_out == "users":
         yield from _get_session_rows(session, base_url, auth, config, logger, resumable_source_manager)
     elif config.fan_out == "organizations":
         yield from _get_member_rows(session, base_url, auth, config, logger, resumable_source_manager)
+    elif config.fan_out == "organization":
+        yield from _get_organization_fan_out_rows(session, base_url, auth, config, logger, resumable_source_manager)
+    elif config.fan_out == "member":
+        yield from _get_member_fan_out_rows(session, base_url, auth, config, logger, resumable_source_manager)
     else:
         body = (
             build_users_search_body(should_use_incremental_field, db_incremental_field_last_value)

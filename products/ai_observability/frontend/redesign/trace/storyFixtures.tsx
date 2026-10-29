@@ -10,6 +10,8 @@ import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTra
 import {
     ConversationTurn,
     EvalResult,
+    EvalRollupOutcome,
+    EvalsChipData,
     FeedbackModeState,
     MessagePart,
     NodeProperties,
@@ -353,6 +355,11 @@ export const FIXTURE_EVALS: EvalResult[] = [
         target: null,
     },
 ]
+
+/** The roll-up of `FIXTURE_EVALS`: three passes, one fail, and the unrated and skipped runs. */
+export const FIXTURE_EVALS_CHIP: EvalsChipData = { passed: 3, graded: 4, unrated: 2 }
+
+export const FIXTURE_EVAL_OUTCOMES: Record<string, EvalRollupOutcome> = { 'gen-answer': 'fail' }
 
 export const FIXTURE_TRACE_EVALS: EvalResult[] = FIXTURE_EVALS.map((result) => ({
     ...result,
