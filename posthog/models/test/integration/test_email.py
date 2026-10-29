@@ -31,6 +31,28 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration.config["verified"] is False
 
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_duplicate_sender_in_same_team_is_rejected(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
+        first = EmailIntegration.create_native_integration(
+            config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
+        first.config["verified"] = True
+        first.save()
+
+        with pytest.raises(ValidationError, match="already exists"):
+            EmailIntegration.create_native_integration(
+                {**config, "name": "Renamed"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+
+        first.refresh_from_db()
+        assert first.config["verified"] is True
+        assert first.config["name"] == "Test User"
+
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     def test_duplicate_domain_in_another_organization(self, mock_create_email_domain, mock_verify_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}

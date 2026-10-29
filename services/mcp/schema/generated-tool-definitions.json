@@ -8423,7 +8423,7 @@
         }
     },
     "integrations-email-create": {
-        "description": "Add an email sender for a domain the project owns, the first step before any workflow can send email. Pass config with email (the from address), name (the from name shown in the inbox), provider 'ses', and optionally mail_from_subdomain (defaults to a bounce-handling subdomain nobody sees) and reply_to. The domain is not verified yet: follow with integrations-email-status-retrieve for the DNS records to publish, then integrations-email-verify-create once they resolve. Use the domain people signed up at rather than a new one, so the mail comes from somewhere they recognise. Ask the user before adding a sender; it is a sending identity for a domain they control, and an address that cannot receive replies breaks any email that asks for one. An address that already has a sender is overwritten rather than rejected, and the rewritten sender starts unverified, so a workflow sending from it stops until the domain is verified again: check integrations-list for kind email first, and never call this to retry or amend an existing sender.",
+        "description": "Add an email sender for a domain the project owns, the first step before any workflow can send email. Pass config with email (the from address), name (the from name shown in the inbox), provider 'ses', and optionally mail_from_subdomain (defaults to a bounce-handling subdomain nobody sees) and reply_to. The domain is not verified yet: follow with integrations-email-status-retrieve for the DNS records to publish, then integrations-email-verify-create once they resolve. Use the domain people signed up at rather than a new one, so the mail comes from somewhere they recognise. Ask the user before adding a sender; it is a sending identity for a domain they control, and an address that cannot receive replies breaks any email that asks for one. An address that already has a sender is rejected, so this cannot overwrite or unverify one: edit the existing sender instead of adding it again.",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "Add an email sender",
@@ -8431,7 +8431,7 @@
         "required_scopes": ["integration:write"],
         "api_operations": ["POST /api/projects/{project_id}/integrations/"],
         "annotations": {
-            "destructiveHint": true,
+            "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false

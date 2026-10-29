@@ -61,6 +61,13 @@ class EmailIntegration:
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
+        # update_or_create would rewrite the existing row and reset its verified flag, which stops
+        # every workflow sending from that address until the domain is verified again.
+        if model.Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
+            raise ValidationError(
+                f"A sender for {email_address} already exists. Edit that sender instead of adding it again."
+            )
+
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
         same_domain_integrations = model.Integration.objects.filter(kind="email", config__domain=domain)
