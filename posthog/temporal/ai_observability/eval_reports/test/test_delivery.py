@@ -535,6 +535,13 @@ class TestDeliverReport(SimpleTestCase):
 class TestDeliverSlackReport(SimpleTestCase):
     """Tests for the Slack delivery path, with the Slack client mocked."""
 
+    def setUp(self):
+        team_patcher = patch("posthog.temporal.ai_observability.eval_reports.delivery.Team")
+        self.mock_team = team_patcher.start()
+        self.addCleanup(team_patcher.stop)
+        self.team_get = self.mock_team.objects.select_related.return_value.get
+        self.team_get.return_value.organization.is_ai_data_processing_approved = True
+
     def _make_report_run(self, sections=None):
         if sections is None:
             sections = [ReportSection(title="Summary", content="All good.")]
@@ -573,21 +580,51 @@ class TestDeliverSlackReport(SimpleTestCase):
         client.chat_postMessage.return_value = {"ts": "123.456"}
         mock_slack_integration.return_value.client = client
 
-        targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#tech-devops-cron"}]
+        targets = [{"type": "slack", "integration_id": 3, "channel": "C0B5CHB0JQH|#tech-devops-cron"}]
         errors = deliver_slack_report(
             self._make_report_run(sections=sections),
             targets,
             evaluation_name="Test Eval",
-            team_id=1,
+            team_id=7,
             project_id=1,
             period_start="2026-03-01T00:00:00+00:00",
             period_end="2026-03-02T00:00:00+00:00",
         )
 
         self.assertEqual(errors, [])
+        mock_integration.slack.oauth.get.assert_called_once_with(7, 3)
         self.assertEqual(client.chat_postMessage.call_count, expected_call_count)
         for call in client.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("products.integrations.backend.facade.api.IntegrationManager")
+    def test_several_targets_read_the_team_once(self, mock_integration, mock_slack_integration):
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "123.456"}
+        mock_slack_integration.return_value.client = client
+
+        targets = [
+            {"type": "slack", "integration_id": 3, "channel": "C0B5CHB0JQH|#evals"},
+            {"type": "slack", "integration_id": 4, "channel": "C0B5CHB0JQI|#evals-2"},
+        ]
+        errors = deliver_slack_report(
+            self._make_report_run(),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=7,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(errors, [])
+        self.team_get.assert_called_once_with(id=7)
+        self.assertEqual(
+            [call.args for call in mock_integration.slack.oauth.get.call_args_list],
+            [(7, 3), (7, 4)],
+        )
+        self.assertEqual(client.chat_postMessage.call_count, 2)
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("products.integrations.backend.facade.api.IntegrationManager")

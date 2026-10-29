@@ -98,8 +98,8 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             installation_id = authorize_state.installation_id
             if not installation_id:
                 return _error("missing_params")
-            if not IntegrationManager.github.oauth.list_by_external_id(
-                str(installation_id), team_ids=user.teams.values_list("id", flat=True)
+            if not IntegrationManager.github.oauth.exists(
+                team_ids=user.teams.values_list("id", flat=True), external_id=str(installation_id)
             ):
                 return _error("invalid_installation")
             installation_ids = [installation_id]

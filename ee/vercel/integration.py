@@ -39,6 +39,7 @@ from posthog.utils import absolute_uri
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationConflict
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
 from ee.api.authentication import VercelAuthentication
@@ -150,11 +151,11 @@ def get_or_create_connectable_resource(team: Team) -> tuple[IntegrationRecord, b
     if existing is not None:
         return existing, False
     try:
-        with transaction.atomic():
-            created = resources.create(team.pk, external_id=str(team.pk), config={"type": "connectable"})
+        created = resources.create(team.pk, external_id=str(team.pk), config={"type": "connectable"})
         return created, True
-    except IntegrityError:
-        # A concurrent request created the row between the read and the insert.
+    except IntegrationConflict:
+        # A concurrent request created the row between the read and the insert. The SDK creates in a
+        # savepoint, so the caller's transaction stays usable for the second read.
         existing = resources.find(team.pk, external_id=str(team.pk))
         if existing is None:
             raise

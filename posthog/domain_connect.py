@@ -259,18 +259,15 @@ def resolve_email_context(
 
     Triggers SES verification to get current tokens, then extracts the
     template variables needed for the email-verification template.
+
+    Raises `IntegrationNotFound` before any SES call when the team has no email
+    integration with this id.
     """
     from posthog.models.integration import EmailIntegration
 
     from products.integrations.backend.facade.api import IntegrationManager
-    from products.integrations.backend.facade.contracts import IntegrationNotFound
 
-    try:
-        instance = IntegrationManager.any.get(team_id, integration_id)
-    except IntegrationNotFound as error:
-        raise ValueError("Integration not found") from error
-    if instance.kind != "email":
-        raise ValueError("Integration must be of kind 'email'")
+    instance = IntegrationManager.email.credentials.get(team_id, integration_id)
 
     email_integration = EmailIntegration(instance)
     verification_result = email_integration.verify(

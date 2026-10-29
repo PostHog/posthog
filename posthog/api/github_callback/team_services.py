@@ -312,10 +312,9 @@ def execute_team_github_finish_setup(
     if is_already_installed:
         try:
             organization = team.organization
-            org_installs = IntegrationManager.github.oauth.list_by_external_id(
-                installation_id_str, team_ids=organization.teams.values_list("id", flat=True)
+            existing_install = IntegrationManager.github.oauth.find(
+                team_ids=organization.teams.values_list("id", flat=True), external_id=installation_id_str
             )
-            existing_install = org_installs[0] if org_installs else None
             if existing_install is None:
                 raise ValidationError(
                     "No team in your organization has this GitHub installation linked",
@@ -516,10 +515,7 @@ def link_existing_team_github_integration(
             raise ValidationError("Source team does not have a GitHub integration")
     elif installation_id_param:
         installation_id_str = str(installation_id_param)
-        accessible_installs = IntegrationManager.github.oauth.list_by_external_id(
-            installation_id_str, team_ids=accessible_team_ids
-        )
-        existing = accessible_installs[0] if accessible_installs else None
+        existing = IntegrationManager.github.oauth.find(team_ids=accessible_team_ids, external_id=installation_id_str)
         if existing is None:
             if installation_id_str in _org_linked_github_installation_ids(organization):
                 # Linked to a team elsewhere in the org that this user can't access — not an orphan,
@@ -788,11 +784,11 @@ def finish_team_setup(http_request) -> FinishResult:
 
     installation_id_str = str(installation_id)
     if setup_action == "update" and team_id is None and is_valid_github_installation_id(installation_id):
-        user_installs = IntegrationManager.github.oauth.list_by_external_id(
-            installation_id_str, team_ids=user.teams.values_list("id", flat=True)
+        user_install = IntegrationManager.github.oauth.find(
+            team_ids=user.teams.values_list("id", flat=True), external_id=installation_id_str
         )
-        if user_installs:
-            team_id = user_installs[0].team_id
+        if user_install is not None:
+            team_id = user_install.team_id
 
     if team_id is None:
         return FinishResult(

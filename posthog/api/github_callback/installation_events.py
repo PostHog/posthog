@@ -20,6 +20,7 @@ row for the installation mirrors so the UI can say "all repositories" instead of
 
 from typing import Any
 
+from django.db import transaction
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -30,7 +31,7 @@ from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
 from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationPatch
+from products.integrations.backend.facade.contracts import IntegrationNotFound, IntegrationPatch
 
 logger = structlog.get_logger(__name__)
 
@@ -57,19 +58,29 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 
     installation_id = str(installation_id)
 
-    integrations = IntegrationManager.github.oauth.list_by_external_id(installation_id)
+    github = IntegrationManager.github.oauth
+    integrations = github.list_by_external_id(installation_id)
 
     project_audits = [GitHubAudit.project(row) for row in integrations]
     personal_rows = list(UserIntegration.objects.filter(kind="github", integration_id=installation_id))
     personal_audits = [GitHubAudit.personal(row) for row in personal_rows]
+    deleted_audits: list[GitHubAudit] = []
     try:
-        # A verified installation webhook removes this installation across projects.
-        team_deleted = IntegrationManager.github.oauth.delete_by_external_id(installation_id)
+        # A verified installation webhook removes this installation across projects. Delete the listed
+        # rows by id, so the audit names exactly the rows that this request deleted, and all or none.
+        with transaction.atomic():
+            for row, audit in zip(integrations, project_audits):
+                try:
+                    github.delete(row.team_id, row.id, ignore_usages=True)
+                except IntegrationNotFound:
+                    continue
+                deleted_audits.append(audit)
     except Exception as exc:
         for audit in project_audits:
             audit.record("webhook_cleanup_failed", stage="project_deletion", failure_type=type(exc).__name__)
         raise
-    for audit in project_audits:
+    team_deleted = len(deleted_audits)
+    for audit in deleted_audits:
         audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")
         audit.record("webhook_cleanup", after_commit=True, outcome="already_absent", completed_deletion=True)
     try:
@@ -145,10 +156,9 @@ def handle_installation_repositories_event(payload: dict) -> HttpResponse:
     team_updated = IntegrationManager.github.oauth.update_by_external_id(
         installation_id, IntegrationPatch(config_patch={"repository_selection": repository_selection})
     )
-    # Load only the columns we touch. The unbounded repository_cache blob and the encrypted
-    # sensitive_config (decrypted eagerly on load) are skipped so a widely shared installation
-    # can't spike a web worker's memory here. The write goes out as one bulk_update instead
-    # of a save per row.
+    # For the personal rows, load only the columns we touch. The encrypted sensitive_config
+    # (decrypted eagerly on load) is skipped so a widely shared installation can't spike a web
+    # worker's memory here. Like the SDK call above, the write is one bulk_update of the changed rows.
     user_changed = [
         row
         for row in UserIntegration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")

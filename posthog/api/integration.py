@@ -148,6 +148,7 @@ from posthog.utils import absolute_uri, is_relative_url
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
@@ -2923,6 +2924,8 @@ class IntegrationViewSet(
                     self.team_id,
                     on_domain_verified=lambda instance: self._report_email_domain_verified(request, instance),
                 )
+            except IntegrationNotFound:
+                raise NotFound("Email integration not found.")
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(

@@ -14,6 +14,7 @@ import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
+from posthog.models.team import Team
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
@@ -370,6 +371,10 @@ def deliver_slack_report(
         f"*{evaluation_name}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
     )
 
+    team = Team.objects.select_related("organization").get(id=team_id)
+    # Read rather than assumed: nothing on this path enforces consent before generation.
+    ai_enabled = bool(team.organization.is_ai_data_processing_approved)
+
     for target in targets:
         if target.get("type") != "slack":
             continue
@@ -415,8 +420,6 @@ def deliver_slack_report(
                     }
                 )
 
-            # Read rather than assumed: nothing on this path enforces consent before generation.
-            ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
             if invite := slack_followup_invite(integration, utm_tags=_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
                 blocks.append(invite)
 
