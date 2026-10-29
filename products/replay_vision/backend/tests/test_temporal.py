@@ -40,6 +40,10 @@ from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    BumpStuckCounterInput,
+    bump_stuck_counter_activity,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
@@ -58,7 +62,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import QuotaSnapshot
-from products.replay_vision.backend.temporal import ApplyScannerWorkflow
+from products.replay_vision.backend.temporal import ACTIVITIES, ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
     _inject_known_freeform_tags,
@@ -2803,7 +2807,10 @@ class _WorkflowMocks:
         self.activity_calls: list[tuple[Any, Any]] = []
         self.child_calls: list[tuple[tuple, dict]] = []
 
-    async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
+    async def execute_activity(self, activity_fn: Any, activity_input: Any, **kwargs: Any) -> Any:
+        # Without a task_queue the call lands on the Replay Vision queue, so its worker must register the activity.
+        if kwargs.get("task_queue") is None:
+            assert activity_fn in ACTIVITIES, f"{activity_fn.__name__} is not registered on the Replay Vision worker"
         self.activity_calls.append((activity_fn, activity_input))
         if activity_fn in self.activity_errors:
             raise self.activity_errors[activity_fn]
@@ -3023,6 +3030,28 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
     # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
     assert upload_video_to_gemini_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_quarantines_a_render_that_times_out() -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(
+            TemporalTimeoutError("timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+        ),
+    )
+
+    with pytest.raises(Exception):
+        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks)
+
+    bumps = [arg for fn, arg in mocks.activity_calls if fn is bump_stuck_counter_activity]
+    assert bumps == [BumpStuckCounterInput(team_id=1, session_id="sess-raster")]
+    assert mocks.activity_calls[-1][1].error_reason.startswith("rasterization_failed:")
 
 
 @pytest.mark.asyncio
