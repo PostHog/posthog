@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER } fro
 
 import { expectLogic } from 'kea-test-utils'
 
+import { membersLogic } from 'scenes/organization/membersLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -51,10 +53,13 @@ describe('memberOffboardingLogic', () => {
         await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
         expect(logic.values.resources).toEqual(resources)
         expect(logic.values.keep).toEqual(resources.map((resource) => resource.id))
+        membersLogic.actions.loadAllMembersSuccess([MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_ORGANIZATION_MEMBER])
         logic.actions.setKeep(resources[0].id, false)
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
         expect(submitted).toEqual([{ keep: [resources[1].id] }])
         expect(logic.values.member).toBeNull()
+        expect(membersLogic.values.members).toEqual([MOCK_DEFAULT_ORGANIZATION_MEMBER])
+        expect(membersLogic.values.membersLoading).toBe(false)
     })
 
     it('disables only the selected public resources when removing the member', async () => {
