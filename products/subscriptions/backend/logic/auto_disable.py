@@ -112,10 +112,17 @@ _CREATOR_LOST_ACCESS_ERROR_NAMES = frozenset({TableAccessDeniedError.__name__, U
 
 
 def get_assets_owner_disable_reason(exception_types: Iterable[str | None]) -> DisableReason | None:
-    names = set(exception_types)
-    if names & _CREATOR_LEFT_ERROR_NAMES:
+    """The reason to disable a subscription after a delivery whose exports failed for its owner.
+
+    An owner who left fails every export, so one such failure is enough. Lost access is judged on the
+    whole delivery: a dashboard with one denied tile is still delivered, with that tile showing why.
+    """
+    names = list(exception_types)
+    if not names:
+        return None
+    if any(name in _CREATOR_LEFT_ERROR_NAMES for name in names):
         return CREATOR_LEFT_DISABLE_REASON
-    if names & _CREATOR_LOST_ACCESS_ERROR_NAMES:
+    if all(name in _CREATOR_LOST_ACCESS_ERROR_NAMES for name in names):
         return CREATOR_LOST_ACCESS_DISABLE_REASON
     return None
 

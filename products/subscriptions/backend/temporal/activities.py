@@ -507,6 +507,33 @@ async def _deliver_insight_dashboard_subscription(
         _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
+    # Decided before the send and applied after it, even when the send raises: otherwise a bounced
+    # delivery would leave the subscription enabled and retry the owner's failed exports every cycle.
+    # The failed tiles in this delivery already tell the recipients why, so nobody else gets an email.
+    owner_reason = get_assets_owner_disable_reason(asset.exception_type for asset in assets)
+    try:
+        result = await _send_to_target(subscription, inputs, assets, recipient_results, send_only_to_new_recipients)
+    finally:
+        if owner_reason is not None:
+            await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+                subscription, owner_reason, notify_owner=False
+            )
+
+    await LOGGER.ainfo(
+        "deliver_subscription.completed",
+        subscription_id=inputs.subscription_id,
+        target_type=subscription.target_type,
+    )
+    return result
+
+
+async def _send_to_target(
+    subscription: Subscription,
+    inputs: DeliverSubscriptionInputs,
+    assets: list[ExportedAsset],
+    recipient_results: list[RecipientResult],
+    send_only_to_new_recipients: bool,
+) -> DeliverSubscriptionResult:
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
 
         async def _send_email(email: str) -> None:
@@ -522,9 +549,9 @@ async def _deliver_insight_dashboard_subscription(
                 delivery_id=inputs.delivery_id,
             )
 
-        result = await deliver_email(subscription, inputs, recipient_results, _send_email)
-    elif subscription.target_type == Subscription.SubscriptionTarget.SLACK:
-        result = await deliver_slack(
+        return await deliver_email(subscription, inputs, recipient_results, _send_email)
+    if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
+        return await deliver_slack(
             subscription,
             recipient_results,
             lambda integration: send_slack_message_with_integration_async(
@@ -537,7 +564,7 @@ async def _deliver_insight_dashboard_subscription(
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
             ),
         )
-    elif subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
+    if subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
         card = build_teams_subscription_card(
             subscription,
             assets,
@@ -546,26 +573,11 @@ async def _deliver_insight_dashboard_subscription(
             change_summary=inputs.change_summary,
             summary_skipped_over_budget=inputs.summary_skipped_over_budget,
         )
-        result = await deliver_teams_webhook(subscription, recipient_results, body=card)
-    else:
-        raise ApplicationError(
-            f"Subscription delivery reached an unsupported target {subscription.target_type!r}",
-            non_retryable=True,
-        )
-
-    # The failed tiles in this delivery already tell the recipients why, so nobody else gets an email.
-    owner_reason = get_assets_owner_disable_reason(asset.exception_type for asset in assets)
-    if owner_reason is not None:
-        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
-            subscription, owner_reason, notify_owner=False
-        )
-
-    await LOGGER.ainfo(
-        "deliver_subscription.completed",
-        subscription_id=inputs.subscription_id,
-        target_type=subscription.target_type,
+        return await deliver_teams_webhook(subscription, recipient_results, body=card)
+    raise ApplicationError(
+        f"Subscription delivery reached an unsupported target {subscription.target_type!r}",
+        non_retryable=True,
     )
-    return result
 
 
 @temporalio.activity.defn

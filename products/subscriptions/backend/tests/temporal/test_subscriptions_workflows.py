@@ -799,14 +799,32 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("exception_type", ["CreatorLeftOrganizationError", "TableAccessDeniedError"])
+@pytest.mark.parametrize(
+    "label, exception_types, email_bounces, expected_enabled",
+    [
+        ("owner_left", ["CreatorLeftOrganizationError"], False, False),
+        ("owner_lost_access_to_every_tile", ["TableAccessDeniedError", "TableAccessDeniedError"], False, False),
+        # One denied tile still delivers the dashboard, with that tile showing why.
+        ("owner_lost_access_to_one_tile", ["TableAccessDeniedError", None], False, True),
+        # A permanent bounce raises out of the send, and the disable must still happen.
+        ("owner_left_and_email_bounces", ["CreatorLeftOrganizationError"], True, False),
+    ],
+)
 async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owner_cannot_run_it(
-    team, user, exception_type
+    team, user, label, exception_types, email_bounces, expected_enabled
 ):
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"own-{exception_type[:4]}", name="owner")
-    asset = await sync_to_async(ExportedAsset.objects.create)(
-        team=team, insight=insight, export_format="image/png", exception="denied", exception_type=exception_type
-    )
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"own-{label[:5]}", name="owner")
+    asset_ids = []
+    for index, exception_type in enumerate(exception_types):
+        asset = await sync_to_async(ExportedAsset.objects.create)(
+            team=team,
+            insight=insight,
+            export_format="image/png",
+            content_location=None if exception_type else f"s3://bucket/{label}-{index}.png",
+            exception="denied" if exception_type else None,
+            exception_type=exception_type,
+        )
+        asset_ids.append(asset.id)
     subscription = await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
@@ -817,25 +835,33 @@ async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owne
     )
 
     with (
-        patch("products.subscriptions.backend.temporal.activities.send_email_subscription_report") as send_report,
+        patch(
+            "products.subscriptions.backend.temporal.activities.send_email_subscription_report",
+            side_effect=EmailDeliveryError("permanent rejection") if email_bounces else None,
+        ) as send_report,
         patch(
             "products.subscriptions.backend.logic.auto_disable.send_notifications_for_disabled_subscription"
         ) as send_disabled_email,
         patch("products.subscriptions.backend.logic.auto_disable.create_notification") as create_notification,
     ):
-        result = await ActivityEnvironment().run(
+        run = ActivityEnvironment().run(
             deliver_subscription,
             DeliverSubscriptionInputs(
-                subscription_id=subscription.id, exported_asset_ids=[asset.id], total_insight_count=1
+                subscription_id=subscription.id, exported_asset_ids=asset_ids, total_insight_count=len(asset_ids)
             ),
         )
+        if email_bounces:
+            with pytest.raises(ApplicationError):
+                await run
+        else:
+            result = await run
+            assert result.recipient_results[0].status == "success"
 
     send_report.assert_called_once()
-    assert result.recipient_results[0].status == "success"
     send_disabled_email.assert_not_called()
     create_notification.assert_not_called()
     await sync_to_async(subscription.refresh_from_db)()
-    assert subscription.enabled is False
+    assert subscription.enabled is expected_enabled
 
 
 @pytest.mark.asyncio
