@@ -380,6 +380,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
     # (e.g. BadConfig) to surface.
     "could not get connection from the pool - allserversdown",
+    # PgBouncer's own pool-checkout timeout: a client already holds its PgBouncer-facing socket but
+    # waits past `query_wait_timeout` for a backend to free up in transaction/statement-pooling mode.
+    # PgBouncer reports this as a bare, SQLSTATE-less "query_wait_timeout" over a raw error packet
+    # that doesn't follow the normal error-message framing, which psycopg surfaces as ProtocolViolation
+    # rather than OperationalError. Same transient pool-capacity class as pgcat's AllServersDown and
+    # Supavisor's ECHECKOUT* above — a slot frees the moment another transaction returns its backend —
+    # so a fresh reconnect recovers.
+    "query_wait_timeout",
     # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
     # ever begins and libpq has no server-reported error text to attach (see
     # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
@@ -1587,6 +1595,9 @@ def _rls_active_from_conn(
         # Temporal cancelling the activity mid-probe (user cancelled the sync, or the activity hit
         # its `start_to_close_timeout`) is the same shape too: the sync is ending regardless of
         # what this best-effort lookup returns, so there's nothing to fix here.
+        # A hot-standby recovery conflict (`_is_recovery_conflict_error`) cancelling this catalog
+        # query is the same transient condition `get_rows` already retries on the main read path —
+        # this lookup just has no retry loop of its own, so degrade quietly instead of capturing it.
         # Still capture genuinely unexpected failures.
         if (
             not connection.closed
@@ -1597,6 +1608,7 @@ def _rls_active_from_conn(
             and not _is_statement_timeout_error(e)
             and not _is_pooler_login_cooldown_error(e)
             and not _is_activity_cancelled(e)
+            and not _is_recovery_conflict_error(e)
         ):
             capture_exception(e)
         return {}

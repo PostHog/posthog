@@ -30,7 +30,6 @@ export const INBOX_CLIENT = 'cloud' as const
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',
-    WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
@@ -231,7 +230,7 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  * `config` is the Settings tab; the value predates the rename and stays so the panel breakdown
  * reads continuously. The onboarding panel can appear alongside the report list.
  */
-export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
+export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
@@ -377,9 +376,6 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
     }
 }
 
-/** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
-export type InboxWelcomeCopySurface = 'takeover' | 'banner'
-
 /**
  * The self-driving welcome takeover rendered. `Inbox viewed` never fires for un-set-up teams (the
  * takeover replaces the report list), so this is the top-of-funnel event for setup conversion.
@@ -389,22 +385,9 @@ export function captureInboxWelcomeViewed(): void {
 }
 
 /**
- * The wizard setup command was copied. Previously only recoverable from autocapture (and
- * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
- * conversion step gets its own event.
- */
-export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcomeCopySurface }): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
-        surface: params.surface,
-    })
-}
-
-/**
- * The takeover's "Set up manually" escape hatch was pressed. Sits next to
- * {@link captureInboxWelcomeCommandCopied} as the other exit from the welcome page, so the two
- * together say how a team chose to set self-driving up. Without it a manual setup is invisible:
- * the wizard copy never fires, and the sources and scouts that follow look like they came from
- * nowhere.
+ * The welcome page's "Start manually" link was pressed, the exit from the welcome page that bypasses
+ * quick activation. Without it a manual setup is invisible: the sources and scouts that follow look
+ * like they came from nowhere.
  */
 export function captureInboxWelcomeManualSetupClicked(): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
@@ -856,12 +839,13 @@ export function captureSignalSourceInterest(source: string): void {
 
 export type SignalSourceCatalogOrigin = 'catalog' | 'recommendation'
 
-/** The add-source catalog opened. Pairs with {@link captureSignalSourceConnected} to show how many opens end in a connection. */
+/** Pairs catalog visits with source connections; the event name stays fixed for existing funnels. */
 export function captureSignalSourceCatalogOpened(params: {
     recommendationCount: number
     connectedCount: number
 }): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, {
+        surface: 'sources_tab',
         recommendation_count: params.recommendationCount,
         connected_count: params.connectedCount,
     })

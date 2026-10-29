@@ -12,6 +12,7 @@ import type {
     AttentionPullRequestListApi,
     AuthorFrictionDetailApi,
     AuthorFrictionListApi,
+    AuthorLLMSpendListApi,
     BranchPRMatchApi,
     BrokenTestsResultApi,
     CICardSummaryApi,
@@ -27,6 +28,7 @@ import type {
     EngineeringAnalyticsAttentionPullRequestsParams,
     EngineeringAnalyticsAuthorFrictionDetailParams,
     EngineeringAnalyticsAuthorFrictionParams,
+    EngineeringAnalyticsAuthorLlmSpendParams,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
@@ -40,6 +42,7 @@ import type {
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
     EngineeringAnalyticsJobLogInsightsParams,
+    EngineeringAnalyticsLlmSpendCoverageParams,
     EngineeringAnalyticsMasterFailuresParams,
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
@@ -65,6 +68,7 @@ import type {
     FlakyTestListApi,
     GitHubSourceApi,
     JobLogInsightsApi,
+    LLMSpendCoverageApi,
     MasterFailureGroupApi,
     PRCostSummaryApi,
     PRLifecycleApi,
@@ -183,6 +187,39 @@ export const engineeringAnalyticsAuthorFrictionDetail = async (
     options?: RequestInit
 ): Promise<AuthorFrictionDetailApi> => {
     return apiMutator<AuthorFrictionDetailApi>(getEngineeringAnalyticsAuthorFrictionDetailUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsAuthorLlmSpendUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorLlmSpendParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_llm_spend/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_llm_spend/`
+}
+
+/**
+ * One author's pull requests active in a window (date_from default -30d), newest first, each with the agent LLM token spend attributed to it by git branch and AI session, the same rule as `pr_cost`.
+ */
+export const engineeringAnalyticsAuthorLlmSpend = async (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorLlmSpendParams,
+    options?: RequestInit
+): Promise<AuthorLLMSpendListApi> => {
+    return apiMutator<AuthorLLMSpendListApi>(getEngineeringAnalyticsAuthorLlmSpendUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -652,6 +689,39 @@ export const engineeringAnalyticsJobLogInsights = async (
     options?: RequestInit
 ): Promise<JobLogInsightsApi> => {
     return apiMutator<JobLogInsightsApi>(getEngineeringAnalyticsJobLogInsightsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsLlmSpendCoverageUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsLlmSpendCoverageParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/llm_spend_coverage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/llm_spend_coverage/`
+}
+
+/**
+ * How much of a repository's agent LLM spend in a window (date_from default -30d) the pull request attribution reaches: the cost and count of $ai_generation events stamped with the repository, and the part credited to any pull request.
+ */
+export const engineeringAnalyticsLlmSpendCoverage = async (
+    projectId: string,
+    params?: EngineeringAnalyticsLlmSpendCoverageParams,
+    options?: RequestInit
+): Promise<LLMSpendCoverageApi> => {
+    return apiMutator<LLMSpendCoverageApi>(getEngineeringAnalyticsLlmSpendCoverageUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
