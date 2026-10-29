@@ -1,6 +1,6 @@
 import type { TraceFeedbackApi, TraceFeedbackSummaryApi, TraceNodeApi } from '../../../generated/api.schemas'
 import { FeedbackChipData, FeedbackModeState, FeedbackPlacement, StepFeedback } from '../types'
-import { nodeLabels } from './toEvalResults'
+import { nodeLabels } from './toTraceTree'
 
 export function toFeedbackChip(summary: TraceFeedbackSummaryApi): FeedbackChipData | null {
     return summary.total > 0 ? { total: summary.total } : null
