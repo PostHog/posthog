@@ -40,6 +40,7 @@ export type ShedReason =
     | 'registrable_domain_map_full'
 export const HOPS_EXHAUSTED = 'hops_exhausted'
 export const DELAY_TOO_LONG = 'delay_too_long'
+export const URL_TOO_OLD = 'url_too_old'
 export type AttemptOutcome =
     | FetchOutcome
     | FetchRefusalReason
@@ -47,6 +48,7 @@ export type AttemptOutcome =
     | 'publish_failed'
     | typeof HOPS_EXHAUSTED
     | typeof DELAY_TOO_LONG
+    | typeof URL_TOO_OLD
 
 export interface FetchAttempt {
     candidate: FetchCandidate
@@ -876,6 +878,9 @@ export class FetchRunner implements FetchPass {
         const result: RepublishResult = await republishBatch.republish(republishedCandidate, target, reason, waitMs)
         if (result === 'refused_delay') {
             return this.terminal(candidate, DELAY_TOO_LONG, undefined, configurationUpdates)
+        }
+        if (result === 'refused_age') {
+            return this.terminal(candidate, URL_TOO_OLD, undefined, configurationUpdates)
         }
         return {
             candidate: republishedCandidate,
