@@ -83837,6 +83837,20 @@ export namespace Schemas {
       Savings: 'savings',
     } as const;
 
+    /**
+     * * `waiting` - Waiting
+     * * `background` - Background
+     * * `scanned` - Scanned
+     */
+    export type WarehouseSuggestionMainSavingEnum = typeof WarehouseSuggestionMainSavingEnum[keyof typeof WarehouseSuggestionMainSavingEnum];
+
+
+    export const WarehouseSuggestionMainSavingEnum = {
+      Waiting: 'waiting',
+      Background: 'background',
+      Scanned: 'scanned',
+    } as const;
+
     export interface WarehouseSuggestionMaterializePayload {
       /** Sources that are always current, such as PostHog tables and direct connections. */
       live_sources: WarehouseSuggestionVisibleSources;
@@ -83855,6 +83869,12 @@ export namespace Schemas {
        * * `consumer_refresh` - Consumer refresh
        * * `savings` - Savings */
       refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
+      /** The saving that earned the suggestion. waiting: people, agents and API callers wait less on reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before this was recorded.
+       *
+       * * `waiting` - Waiting
+       * * `background` - Background
+       * * `scanned` - Scanned */
+      main_saving: WarehouseSuggestionMainSavingEnum | null;
       /** Name of the view to materialize. */
       subject_name: string;
       /** Proposed refresh interval, in seconds. */
@@ -83881,6 +83901,21 @@ export namespace Schemas {
       lookback_seconds?: number;
       /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
       recomputed_by_views?: number;
+      /**
+         * Part of saves_seconds_per_month that people, agents and API callers spend waiting on reads of this view, in seconds. Null on suggestions made before this was recorded.
+         * @nullable
+         */
+      waiting_seconds_saved_per_month?: number | null;
+      /**
+         * Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative when refreshing the stored copy costs more background time than it saves. Null on suggestions made before this was recorded.
+         * @nullable
+         */
+      background_seconds_saved_per_month?: number | null;
+      /**
+         * How long one read of the view takes today, in seconds. Null when no read was measured on its own.
+         * @nullable
+         */
+      read_seconds?: number | null;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {

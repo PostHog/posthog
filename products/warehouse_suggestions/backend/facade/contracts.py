@@ -10,6 +10,7 @@ from .enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
@@ -66,6 +67,10 @@ class MaterializePayload:
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
     recomputed_by_views: int = 0
+    waiting_seconds_saved_per_month: float | None = None
+    background_seconds_saved_per_month: float | None = None
+    main_saving: WarehouseSuggestionMainSaving | None = None
+    read_seconds: float | None = None
 
 
 @frozen
@@ -106,6 +111,10 @@ class MaterializeSuggestionPayload:
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
     recomputed_by_views: int = 0
+    waiting_seconds_saved_per_month: float | None = None
+    background_seconds_saved_per_month: float | None = None
+    main_saving: WarehouseSuggestionMainSaving | None = None
+    read_seconds: float | None = None
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload

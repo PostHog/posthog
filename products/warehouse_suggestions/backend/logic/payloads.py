@@ -19,6 +19,7 @@ from ..facade.contracts import (
 )
 from ..facade.enums import (
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
 )
@@ -82,8 +83,10 @@ def _source_ref(source: Mapping[str, Any]) -> SourceRef:
 
 def _refresh_fields(data: Mapping[str, Any]) -> dict[str, Any]:
     basis = data.get("refresh_interval_basis")
+    main_saving = data.get("main_saving")
     return {
         "refresh_mode": WarehouseSuggestionRefreshMode(data.get("refresh_mode", WarehouseSuggestionRefreshMode.FULL)),
         "unique_key": tuple(data.get("unique_key", ())),
         "refresh_interval_basis": WarehouseSuggestionRefreshIntervalBasis(basis) if basis else None,
+        "main_saving": WarehouseSuggestionMainSaving(main_saving) if main_saving else None,
     }

@@ -1,3 +1,4 @@
+import { isNotNil } from 'lib/utils/guards'
 import { humanizeBytes } from 'lib/utils/numbers'
 
 import type {
@@ -30,12 +31,19 @@ const SURFACE_LABELS: Record<string, string> = {
     app: 'Other pages',
     unknown: 'Other',
 }
+export const MAIN_SAVING_KINDS: MainSavingKind[] = ['waiting', 'background', 'scanned']
+const MAIN_SAVING_LABELS: Record<MainSavingKind, string> = {
+    waiting: 'less waiting',
+    background: 'less background work',
+    scanned: 'less scanned',
+}
 export const UNKNOWN_SOURCES_CAVEAT = 'Some sources have no sync schedule, so their age is unknown.'
 
 export interface SavingHighlight {
     amount: string
     detail: string | null
     narrowLabel: string
+    tooltip?: string[]
 }
 
 export interface SurfaceSegment {
@@ -47,6 +55,25 @@ export interface SurfaceSegment {
 export interface SavingsSummary {
     views: number
     saving: MonthlySaving
+    waitingSeconds: number | null
+}
+
+export interface BannerSaving {
+    amount: string
+    label: string
+}
+
+export interface SummarySavings {
+    waiting: string | null
+    headline: string | null
+    detail: string
+}
+
+export type MainSavingKind = NonNullable<WarehouseSuggestionMaterializePayloadApi['main_saving']>
+
+export interface MainSaving {
+    kind: MainSavingKind
+    amount: number
 }
 
 export interface MonthlySaving {
@@ -84,6 +111,10 @@ export function isDeprecatePayload(
 
 export function materializeSaving(payload: WarehouseSuggestionMaterializePayloadApi): MonthlySaving {
     return { seconds: payload.saves_seconds_per_month, bytes: payload.saves_bytes_per_month }
+}
+
+export function waitingSaving(payload: WarehouseSuggestionApi['payload']): number | null {
+    return isMaterializePayload(payload) ? (payload.waiting_seconds_saved_per_month ?? null) : 0
 }
 
 export function unmaterializeSaving(payload: WarehouseSuggestionUnmaterializePayloadApi): MonthlySaving {
@@ -164,6 +195,122 @@ export function savingHighlight(saving: MonthlySaving): SavingHighlight {
         detail: scanned,
         narrowLabel: scanned ? `saved a month, ${scanned}` : 'saved a month',
     }
+}
+
+export function mainSaving(payload: WarehouseSuggestionApi['payload']): MainSaving | null {
+    if (isMaterializePayload(payload)) {
+        return materializeMainSaving(payload)
+    }
+    return isUnmaterializePayload(payload) ? timeOrBytes(unmaterializeSaving(payload), 'background') : null
+}
+
+export function materializeHighlight(payload: WarehouseSuggestionMaterializePayloadApi): SavingHighlight {
+    if (!payload.main_saving) {
+        return savingHighlight(materializeSaving(payload))
+    }
+    const main = materializeMainSaving(payload)
+    const notes: Record<MainSavingKind, string | null> = {
+        waiting: waitingText(payload.waiting_seconds_saved_per_month ?? 0),
+        background: backgroundText(payload.background_seconds_saved_per_month ?? 0),
+        scanned: scannedText(payload.saves_bytes_per_month),
+    }
+    return headlineHighlight(
+        main,
+        MAIN_SAVING_KINDS.filter((kind) => kind !== main.kind).map((kind) => notes[kind])
+    )
+}
+
+export function unmaterializeHighlight(payload: WarehouseSuggestionUnmaterializePayloadApi): SavingHighlight {
+    const saving = unmaterializeSaving(payload)
+    const main = timeOrBytes(saving, 'background')
+    return headlineHighlight(main, [
+        main.kind === 'scanned' ? backgroundText(saving.seconds) : scannedText(saving.bytes),
+        payload.live_seconds_per_month >= MIN_SECONDS_WORTH_NAMING
+            ? `Reads would take ~${spokenDuration(payload.live_seconds_per_month, 1)} without the stored copy`
+            : null,
+    ])
+}
+
+export function materializeSavingLines(payload: WarehouseSuggestionMaterializePayloadApi): string[] {
+    const highlight = materializeHighlight(payload)
+    return [`${highlight.amount} ${highlight.narrowLabel}`, ...(highlight.tooltip ?? [])]
+}
+
+export function summarySavings(summary: SavingsSummary): SummarySavings | null {
+    if (summary.waitingSeconds === null) {
+        return null
+    }
+    const waiting = waitingText(summary.waitingSeconds) ? `~${spokenDuration(summary.waitingSeconds, 1)}` : null
+    const others = [
+        backgroundText(Math.max(0, summary.saving.seconds - summary.waitingSeconds)),
+        scannedText(summary.saving.bytes),
+    ].filter(isNotNil)
+    if (!waiting && others.length === 0) {
+        return null
+    }
+    const views = countOf(summary.views, 'view', 'views')
+    if (!waiting) {
+        return { waiting: null, headline: `${others.join(' and ')} a month`, detail: `Across ${views}` }
+    }
+    return {
+        waiting,
+        headline: null,
+        detail: others.length > 0 ? `Also ${others.join(' and ')}, across ${views}` : `Across ${views}`,
+    }
+}
+
+export function bannerSavings(summary: SavingsSummary): BannerSaving[] {
+    const { time, bytes } = namedSaving(summary.saving, 1)
+    return [
+        time ? { amount: `~${time}`, label: 'of query time' } : null,
+        bytes ? { amount: bytes, label: 'of scanning' } : null,
+    ].filter(isNotNil)
+}
+
+function materializeMainSaving(payload: WarehouseSuggestionMaterializePayloadApi): MainSaving {
+    switch (payload.main_saving) {
+        case 'waiting':
+            return { kind: 'waiting', amount: payload.waiting_seconds_saved_per_month ?? 0 }
+        case 'background':
+            return { kind: 'background', amount: payload.background_seconds_saved_per_month ?? 0 }
+        case 'scanned':
+            return { kind: 'scanned', amount: payload.saves_bytes_per_month }
+        default:
+            return timeOrBytes(materializeSaving(payload), 'waiting')
+    }
+}
+
+function timeOrBytes(saving: MonthlySaving, timeKind: MainSavingKind): MainSaving {
+    return savesTime(saving) ? { kind: timeKind, amount: saving.seconds } : { kind: 'scanned', amount: saving.bytes }
+}
+
+function headlineHighlight(main: MainSaving, notes: (string | null)[]): SavingHighlight {
+    const amount = main.kind === 'scanned' ? humanizeBytes(main.amount) : spokenDuration(main.amount, 1)
+    const label = MAIN_SAVING_LABELS[main.kind]
+    return {
+        amount: `~${amount}`,
+        detail: label,
+        narrowLabel: `${label} a month`,
+        tooltip: notes.filter(isNotNil).map((note) => `${note} a month`),
+    }
+}
+
+function waitingText(seconds: number): string | null {
+    return seconds >= MIN_SECONDS_WORTH_NAMING ? `~${spokenDuration(seconds, 1)} less waiting` : null
+}
+
+function backgroundText(seconds: number): string | null {
+    if (seconds >= MIN_SECONDS_WORTH_NAMING) {
+        return `~${spokenDuration(seconds, 1)} less background work`
+    }
+    if (seconds <= -MIN_SECONDS_WORTH_NAMING) {
+        return `Refreshing costs ~${spokenDuration(-seconds, 1)} of background work`
+    }
+    return null
+}
+
+function scannedText(bytes: number): string | null {
+    return bytes >= MIN_BYTES_WORTH_NAMING ? `~${humanizeBytes(bytes)} less scanned` : null
 }
 
 export function savingSentence(saving: MonthlySaving): string {

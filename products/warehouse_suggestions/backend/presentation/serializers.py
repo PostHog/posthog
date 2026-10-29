@@ -25,6 +25,7 @@ from ..facade.enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
@@ -101,6 +102,13 @@ class MaterializePayloadSerializer(DataclassSerializer):
         "savings: a shorter interval would cost more than it saves. Null on suggestions made before this was "
         "recorded.",
     )
+    main_saving = serializers.ChoiceField(
+        choices=WarehouseSuggestionMainSaving.choices,
+        allow_null=True,
+        help_text="The saving that earned the suggestion. waiting: people, agents and API callers wait less on "
+        "reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before "
+        "this was recorded.",
+    )
 
     class Meta:
         dataclass = MaterializeSuggestionPayload
@@ -129,6 +137,19 @@ class MaterializePayloadSerializer(DataclassSerializer):
             "recomputed_by_views": {
                 "help_text": "How many materialized views compute this view again on every refresh, because it "
                 "is not stored. 0 when the saving comes only from people's reads."
+            },
+            "waiting_seconds_saved_per_month": {
+                "help_text": "Part of saves_seconds_per_month that people, agents and API callers spend waiting on "
+                "reads of this view, in seconds. Null on suggestions made before this was recorded."
+            },
+            "background_seconds_saved_per_month": {
+                "help_text": "Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative "
+                "when refreshing the stored copy costs more background time than it saves. Null on suggestions made "
+                "before this was recorded."
+            },
+            "read_seconds": {
+                "help_text": "How long one read of the view takes today, in seconds. Null when no read was "
+                "measured on its own."
             },
         }
 

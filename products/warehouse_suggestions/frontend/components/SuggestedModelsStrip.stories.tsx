@@ -6,6 +6,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { DataModelingSyncInterval } from '~/types'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
+import type { MainSavingKind } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { SuggestedModelsStrip } from './SuggestedModelsStrip'
 
@@ -27,13 +28,25 @@ interface MaterializeOptions {
     canAct?: boolean
     unknownSources?: boolean
     incremental?: boolean
+    backgroundSeconds?: number
+    readSeconds?: number
+    main?: MainSavingKind
+    savedBytes?: number
 }
 
 function materialize(
     id: string,
     name: string,
     savedSeconds: number,
-    { canAct = true, unknownSources = false, incremental = false }: MaterializeOptions = {}
+    {
+        canAct = true,
+        unknownSources = false,
+        incremental = false,
+        backgroundSeconds = 0,
+        readSeconds = 12,
+        main = 'waiting',
+        savedBytes = 3 * 10 ** 12,
+    }: MaterializeOptions = {}
 ): WarehouseSuggestionApi {
     return {
         id,
@@ -44,7 +57,11 @@ function materialize(
             subject_name: name,
             refresh_interval_seconds: 86400,
             saves_seconds_per_month: savedSeconds,
-            saves_bytes_per_month: 3 * 10 ** 12,
+            saves_bytes_per_month: savedBytes,
+            waiting_seconds_saved_per_month: savedSeconds - backgroundSeconds,
+            background_seconds_saved_per_month: backgroundSeconds,
+            main_saving: main,
+            read_seconds: readSeconds,
             freshness_today_seconds: 3600,
             freshness_after_seconds: 90000,
             live_sources: { names: ['events'], hidden_count: 0 },
@@ -102,9 +119,13 @@ function unmaterialize(id: string, name: string): WarehouseSuggestionApi {
 }
 
 const suggestions = [
-    materialize('1', 'customer_monthly_revenue', 1080),
-    materialize('2', 'sessions_by_plan_daily', 2400),
-    materialize('3', 'stripe_invoices_enriched', 0, { unknownSources: true }),
+    materialize('1', 'customer_monthly_revenue', 1080, { backgroundSeconds: -720, readSeconds: 45 }),
+    materialize('2', 'team_usage_rollup', 32400, { backgroundSeconds: 32400, main: 'background' }),
+    materialize('3', 'stripe_invoices_enriched', 600, {
+        unknownSources: true,
+        main: 'scanned',
+        savedBytes: 100 * 10 ** 12,
+    }),
     unmaterialize('4', 'legacy_signup_funnel'),
 ]
 

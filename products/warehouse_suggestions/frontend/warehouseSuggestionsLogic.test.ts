@@ -73,6 +73,7 @@ const MATERIALIZE: WarehouseSuggestionApi = {
         unknown_sources: { names: [], hidden_count: 0 },
         refresh_mode: 'full',
         refresh_interval_basis: 'savings',
+        main_saving: null,
     },
     payload_version: 1,
     evidence: { human_requests: 200, human_users: 6, human_days: 25 },
@@ -99,6 +100,19 @@ function materialize(id: string, savesSeconds: number, savesBytes = 0): Warehous
         id,
         subject_id: `view-${id}`,
         payload: { ...MATERIALIZE.payload, saves_seconds_per_month: savesSeconds, saves_bytes_per_month: savesBytes },
+    }
+}
+
+function ledBy(id: string, main: 'waiting' | 'scanned', amount: number): WarehouseSuggestionApi {
+    const suggestion = materialize(id, main === 'waiting' ? amount : 0, main === 'scanned' ? amount : 0)
+    return {
+        ...suggestion,
+        payload: {
+            ...suggestion.payload,
+            main_saving: main,
+            waiting_seconds_saved_per_month: main === 'waiting' ? amount : 0,
+            background_seconds_saved_per_month: 0,
+        },
     }
 }
 
@@ -526,7 +540,29 @@ describe('warehouseSuggestionsLogic', () => {
 
         await mountLogic()
 
-        expect(logic.values.savingsSummary).toEqual({ views: 3, saving: { seconds: 3000, bytes: 5e12 } })
+        expect(logic.values.savingsSummary).toEqual({
+            views: 3,
+            saving: { seconds: 3000, bytes: 5e12 },
+            waitingSeconds: null,
+        })
+    })
+
+    it('lists rows by the saving they lead with, so equal units sit together and larger comes first', async () => {
+        mockList.mockResolvedValue(
+            page([
+                ledBy('scanned', 'scanned', 100e12),
+                ledBy('ten-minutes', 'waiting', 600),
+                ledBy('half-hour', 'waiting', 1800),
+            ])
+        )
+
+        await mountLogic()
+
+        expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual([
+            'half-hour',
+            'ten-minutes',
+            'scanned',
+        ])
     })
 
     it('drops an accepted row from the counts at once and from the list after it leaves', async () => {

@@ -1,5 +1,7 @@
 import { ReactNode } from 'react'
 
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { cn } from 'lib/utils/css-classes'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
@@ -56,9 +58,7 @@ export function SuggestionRow({
                             <div className="flex min-w-0">{title}</div>
                             {highlight && (
                                 <div className="flex flex-wrap items-baseline gap-x-1.5 @min-[36rem]/suggestions:hidden">
-                                    <span translate="no" className={AMOUNT_CLASS}>
-                                        {highlight.amount}
-                                    </span>
+                                    <HighlightAmount highlight={highlight} />
                                     <span className="text-xs text-secondary">{highlight.narrowLabel}</span>
                                 </div>
                             )}
@@ -84,9 +84,7 @@ export function SuggestionRow({
                     </div>
                     {highlight && (
                         <div className="hidden min-w-0 flex-col items-end @min-[36rem]/suggestions:flex">
-                            <span translate="no" className={AMOUNT_CLASS}>
-                                {highlight.amount}
-                            </span>
+                            <HighlightAmount highlight={highlight} />
                             {highlight.detail && (
                                 <span translate="no" className="text-xs tabular-nums text-secondary">
                                     {highlight.detail}
@@ -103,5 +101,31 @@ export function SuggestionRow({
                 </div>
             </div>
         </div>
+    )
+}
+
+function HighlightAmount({ highlight }: { highlight: SavingHighlight }): JSX.Element {
+    const amount = (
+        <span translate="no" className={AMOUNT_CLASS}>
+            {highlight.amount}
+        </span>
+    )
+    if (!highlight.tooltip?.length) {
+        return amount
+    }
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-0.5">
+                    {highlight.tooltip.map((line) => (
+                        <span key={line}>{line}</span>
+                    ))}
+                </div>
+            }
+        >
+            <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2">
+                {amount}
+            </span>
+        </Tooltip>
     )
 }
