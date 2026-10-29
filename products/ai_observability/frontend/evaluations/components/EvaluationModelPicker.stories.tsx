@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
@@ -106,3 +108,7 @@ export const DecisionNarrow: Story = { args: { method: 'decision', narrow: true 
 export const NoDecisionModels: Story = { args: { method: 'decision', empty: true } }
 export const NativeOpenAI: Story = { args: { method: 'decision', nativeOpenAI: true } }
 export const NativeOpenAINarrow: Story = { args: { method: 'decision', nativeOpenAI: true, narrow: true } }
+export const WithAttachments: Story = {
+    args: { method: 'llm' },
+    parameters: { featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_JUDGE_IMAGES], testOptions: { snapshotBrowsers: [] } },
+}

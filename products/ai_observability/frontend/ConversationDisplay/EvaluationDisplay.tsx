@@ -19,6 +19,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     const probability = normalizeOptionalNumber(eventProperties.$ai_evaluation_probability)
     const evaluationName = eventProperties.$ai_evaluation_name
     const model = eventProperties.$ai_model ?? eventProperties.$ai_evaluation_model
+    const attachments = normalizeOptionalNumber(eventProperties.$ai_evaluation_attachments)
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
     const evaluationId = eventProperties.$ai_evaluation_id
@@ -58,6 +59,9 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
                     <MetadataTag label="Judge model" textToCopy={lowercaseFirstLetter(model)}>
                         {lowercaseFirstLetter(model)}
                     </MetadataTag>
+                )}
+                {attachments !== null && attachments > 0 && (
+                    <MetadataTag label="Attachments">{attachments}</MetadataTag>
                 )}
                 {traceId && targetEventId && (
                     <MetadataTag label="Target event">

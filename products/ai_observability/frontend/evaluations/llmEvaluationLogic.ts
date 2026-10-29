@@ -342,6 +342,7 @@ export interface llmEvaluationLogicValues {
     hogTestMessage: string | null
     hogTestResults: TestHogResultItemApi[] | null
     hogTestResultsLoading: boolean
+    includeMedia: boolean
     isForceRefresh: boolean
     isNewEvaluation: boolean
     isReportableEvaluation: boolean
@@ -532,6 +533,9 @@ export interface llmEvaluationLogicActions {
     setHogTestMessage: (message: string | null) => {
         message: string | null
     }
+    setIncludeMedia: (includeMedia: boolean) => {
+        includeMedia: boolean
+    }
     setJudgeMethod: (judgeMethod: JudgeMethod) => {
         judgeMethod: JudgeMethod
     }
@@ -598,6 +602,7 @@ export interface llmEvaluationLogicMeta {
             evaluationId: string
         ) => boolean
         judgeMethod: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => JudgeMethod
+        includeMedia: (evaluation: EvaluationConfig | null) => boolean
         usesDecisionModel: (judgeMethod: JudgeMethod) => boolean
         selectedModelName: (
             byokModels: ModelOption[],
@@ -694,6 +699,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setJudgeMethod: (judgeMethod: JudgeMethod) => ({ judgeMethod }),
+        setIncludeMedia: (includeMedia: boolean) => ({ includeMedia }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
         setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
         setSettleStrategy: (strategy: EvaluationSettleStrategy) => ({ strategy }),
@@ -1024,6 +1030,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                       : state.output_config,
                           }
                         : state,
+                setIncludeMedia: (state, { includeMedia }) => {
+                    if (!state || !isLLMJudgeEvaluation(state)) {
+                        return state
+                    }
+                    // Only an opt-out is stored: a missing field means attachments are on.
+                    const { include_media: _, ...evaluationConfig } = state.evaluation_config
+                    return {
+                        ...state,
+                        evaluation_config: includeMedia
+                            ? evaluationConfig
+                            : { ...evaluationConfig, include_media: false },
+                    }
+                },
                 setEvaluationType: (state, { evaluationType }) => {
                     if (!state) {
                         return null
@@ -1174,6 +1193,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setJudgeMethod: () => true,
+                setIncludeMedia: () => true,
                 setEvaluationType: () => true,
                 setEvaluationTarget: () => true,
                 setSettleStrategy: () => true,
@@ -1745,6 +1765,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
         usesDecisionModel: [(s) => [s.judgeMethod], (judgeMethod: JudgeMethod): boolean => judgeMethod === 'decision'],
+        includeMedia: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): boolean =>
+                !isLLMJudgeEvaluation(evaluation) || evaluation.evaluation_config?.include_media !== false,
+        ],
         // Evals always run on the team's own provider key, so only BYOK models can be the selected one.
         selectedModelName: [
             (s) => [s.byokModels, s.selectedModel, s.selectedPickerProviderKeyId],
