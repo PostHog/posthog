@@ -1,8 +1,10 @@
 import time
 import dataclasses
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -18,10 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OffsetPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
-    IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -34,15 +36,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.se
 PINGDOM_BASE_URL = "https://api.pingdom.com/api/3.1"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PingdomResumeConfig:
     # Pingdom paginates with limit/offset; the static query params (limit,
     # incremental `from` filter) are deterministically rebuilt from the endpoint
     # config and job inputs on resume.
     offset: int = 0
-    # Per-check tables checkpoint the shape `build_dependent_resource` emits, plus the window end
-    # of the interrupted run, so checks finished before the interruption and the rest share one `to`.
+    # Per-check tables checkpoint the shape `build_dependent_resource` emits for the current time
+    # window, plus the window bounds, so a resumed run keeps the interrupted run's windows.
     fanout_state: Optional[dict[str, Any]] = None
+    window_start: Optional[int] = None
     window_end: Optional[int] = None
 
 
@@ -96,18 +99,23 @@ def _build_endpoint(config: PingdomEndpointConfig, should_use_incremental_field:
     }
 
 
-def _window_start_convert(
-    config: PingdomEndpointConfig, window_start: Optional[int], window_end: int
-) -> Callable[[Any], Optional[int]]:
-    floor = window_end - config.max_window_seconds if config.max_window_seconds else None
+@frozen
+class TimeWindow:
+    start: Optional[int]
+    end: int
 
-    def convert(value: Any) -> Optional[int]:
-        epoch = _to_epoch(value)
-        if epoch is None:
-            return window_start
-        return max(epoch, floor) if floor is not None else epoch
 
-    return convert
+def _windows(window_start: Optional[int], window_end: int, max_window_seconds: Optional[int]) -> list[TimeWindow]:
+    if window_start is None or not max_window_seconds:
+        return [TimeWindow(start=window_start, end=window_end)]
+    windows = []
+    start = window_start
+    while True:
+        end = min(start + max_window_seconds, window_end)
+        windows.append(TimeWindow(start=start, end=end))
+        if end >= window_end:
+            return windows
+        start = end
 
 
 def _fanout_resource(
@@ -119,49 +127,60 @@ def _fanout_resource(
     resumable_source_manager: ResumableSourceManager[PingdomResumeConfig],
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool,
-    incremental_field: Optional[str],
-) -> Iterable[Any]:
+) -> Resource:
     parent_config = PINGDOM_ENDPOINTS[fanout.parent_name]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    window_end = resume.window_end if resume and resume.window_end is not None else int(time.time())
-    window_start = window_end - config.lookback_seconds if config.lookback_seconds else None
+    if resume is not None and resume.window_end is not None:
+        window_end = resume.window_end
+        window_start = resume.window_start
+    else:
+        window_end = int(time.time())
+        window_start = window_end - config.lookback_seconds if config.lookback_seconds else None
+        is_incremental = should_use_incremental_field and bool(config.incremental_fields)
+        watermark = _to_epoch(db_incremental_field_last_value) if is_incremental else None
+        if watermark is not None:
+            # A catch-up after a long pause walks every window from the watermark, so no rows are skipped.
+            window_start = min(watermark, window_end)
 
-    is_incremental = should_use_incremental_field and bool(config.incremental_fields)
-    child_params: dict[str, Any] = {**config.params, "to": window_end}
-    if window_start is not None and not is_incremental:
-        child_params["from"] = window_start
+    def build_window(window: TimeWindow, fanout_state: Optional[dict[str, Any]]) -> Iterable[Any]:
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(
+                    PingdomResumeConfig(fanout_state=state, window_start=window.start, window_end=window_end)
+                )
 
-    def incremental_window(cursor_path: str) -> IncrementalConfig:
-        return {
-            "cursor_path": cursor_path,
-            "start_param": "from",
-            "convert": _window_start_convert(config, window_start, window_end),
-        }
+        child_params: dict[str, Any] = {**config.params, "to": window.end}
+        if window.start is not None:
+            child_params["from"] = window.start
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state:
-            resumable_source_manager.save_state(PingdomResumeConfig(fanout_state=state, window_end=window_end))
+        return build_dependent_resource(
+            endpoint_configs=PINGDOM_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": parent_config.data_key, "paginator": _paginator(parent_config)},
+            child_endpoint_extra={"data_selector": config.data_key, "paginator": _paginator(config)},
+            child_params_extra=child_params,
+            page_size_param=None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=fanout_state,
+        )
 
-    return build_dependent_resource(
-        endpoint_configs=PINGDOM_ENDPOINTS,
-        child_endpoint=config.name,
-        fanout=fanout,
-        client_config=client_config,
-        path_format_values={},
-        team_id=team_id,
-        job_id=job_id,
-        db_incremental_field_last_value=db_incremental_field_last_value if is_incremental else None,
-        should_use_incremental_field=is_incremental,
-        incremental_field=incremental_field,
-        incremental_config_factory=incremental_window,
-        parent_endpoint_extra={"data_selector": parent_config.data_key, "paginator": _paginator(parent_config)},
-        child_endpoint_extra={"data_selector": config.data_key, "paginator": _paginator(config)},
-        child_params_extra=child_params,
-        page_size_param=None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=resume.fanout_state if resume else None,
-    )
+    windows = _windows(window_start, window_end, config.max_window_seconds)
+    first = build_window(windows[0], resume.fanout_state if resume else None)
+
+    def walk_windows() -> Iterator[Any]:
+        # Each window's resource hands its pages on unchanged and holds no rows.
+        yield from first
+        for window in windows[1:]:
+            yield from build_window(window, None)
+
+    return Resource(walk_windows, name=config.name, hints=getattr(first, "_hints", {}))
 
 
 def pingdom_source(
@@ -172,7 +191,6 @@ def pingdom_source(
     resumable_source_manager: ResumableSourceManager[PingdomResumeConfig],
     db_incremental_field_last_value: Optional[Any] = None,
     should_use_incremental_field: bool = False,
-    incremental_field: Optional[str] = None,
 ) -> SourceResponse:
     config = PINGDOM_ENDPOINTS[endpoint]
 
@@ -193,7 +211,6 @@ def pingdom_source(
             resumable_source_manager,
             db_incremental_field_last_value,
             should_use_incremental_field,
-            incremental_field,
         )
     else:
         rest_config: RESTAPIConfig = {

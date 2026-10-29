@@ -20,7 +20,7 @@ CHECK_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PingdomEndpointConfig:
     name: str
     path: str
@@ -37,11 +37,11 @@ class PingdomEndpointConfig:
     # Per-check endpoints only take a `from`/`to` time window and are fanned out over /checks.
     fanout: Optional[DependentEndpointConfig] = None
     paginated: bool = True
-    # Max offset the endpoint accepts (/results caps it at 43200).
+    # Pagination stops before an offset the endpoint rejects (/results caps it at 43200).
     maximum_offset: Optional[int] = None
     params: dict[str, Any] = field(default_factory=dict)
     # Windowed endpoints: how far back a full refresh or a first incremental sync reads, and the
-    # widest `from`/`to` span one request may ask for.
+    # widest `from`/`to` span one request may ask for. Longer ranges are split into windows.
     lookback_seconds: Optional[int] = None
     max_window_seconds: Optional[int] = None
 
@@ -104,10 +104,10 @@ PINGDOM_ENDPOINTS: dict[str, PingdomEndpointConfig] = {
         primary_keys=["checkid", "probeid", "time"],
         partition_key="time",
         page_size=1000,
-        maximum_offset=43200 + 1000,
-        # A one-minute check writes ~1440 raw results a day, so 30 days stays under the offset cap.
+        maximum_offset=43200,
+        # A one-minute check writes ~1440 raw results a day, so a 7-day window stays under the offset cap.
         lookback_seconds=7 * DAY_SECONDS,
-        max_window_seconds=30 * DAY_SECONDS,
+        max_window_seconds=7 * DAY_SECONDS,
         incremental_fields=[
             {
                 "label": "time",

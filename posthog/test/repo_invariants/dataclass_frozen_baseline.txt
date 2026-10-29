@@ -851,8 +851,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/personio/personio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pganalyze/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/phyllo/phyllo.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pingdom/pingdom.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pingdom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pinterest_ads/pinterest_ads.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pinterest_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pipedrive/pipedrive.py

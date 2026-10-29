@@ -127,31 +127,56 @@ class TestPerCheckFanout:
         assert result.saved_states and all(state.window_end == NOW for state in result.saved_states)
 
     @pytest.mark.parametrize(
-        "endpoint, watermark, expected_from",
+        "endpoint, watermark, expected_windows",
         [
-            ("results", NOW - DAY_SECONDS, NOW - DAY_SECONDS),
-            ("results", NOW - 90 * DAY_SECONDS, NOW - 30 * DAY_SECONDS),
-            ("results", None, NOW - 7 * DAY_SECONDS),
-            ("performance", NOW - 3600, NOW - 3600),
-            ("performance", NOW - 30 * DAY_SECONDS, NOW - 7 * DAY_SECONDS),
+            ("results", NOW - DAY_SECONDS, [(NOW - DAY_SECONDS, NOW)]),
+            ("results", None, [(NOW - 7 * DAY_SECONDS, NOW)]),
+            (
+                "results",
+                NOW - 10 * DAY_SECONDS,
+                [(NOW - 10 * DAY_SECONDS, NOW - 3 * DAY_SECONDS), (NOW - 3 * DAY_SECONDS, NOW)],
+            ),
+            ("performance", NOW - 3600, [(NOW - 3600, NOW)]),
+            (
+                "performance",
+                NOW - 15 * DAY_SECONDS,
+                [
+                    (NOW - 15 * DAY_SECONDS, NOW - 8 * DAY_SECONDS),
+                    (NOW - 8 * DAY_SECONDS, NOW - DAY_SECONDS),
+                    (NOW - DAY_SECONDS, NOW),
+                ],
+            ),
         ],
     )
     @time_machine.travel(NOW, tick=False)
-    def test_incremental_window_starts_at_watermark_within_the_max_window(
-        self, endpoint: str, watermark: int | None, expected_from: int
+    def test_incremental_sync_walks_bounded_windows_from_the_watermark(
+        self, endpoint: str, watermark: int | None, expected_windows: list[tuple[int, int]]
     ) -> None:
         path = PINGDOM_ENDPOINTS[endpoint].path.replace("{checkid}", "1")
         result = _driver().run(
             endpoint,
-            route({"/checks": [_checks(1)], path: [_response(endpoint, [])]}),
+            route(
+                {
+                    "/checks": [_checks(1)] * len(expected_windows),
+                    path: [_response(endpoint, [])] * len(expected_windows),
+                }
+            ),
             should_use_incremental_field=True,
-            incremental_field=PINGDOM_ENDPOINTS[endpoint].default_incremental_field,
             db_incremental_field_last_value=watermark,
         )
 
         assert result.raised is None
-        assert result.params("from") == [None, str(expected_from)]
-        assert result.params("to") == [None, str(NOW)]
+        child_requests = [request for request in result.requests if request.path.endswith(path)]
+        assert [(r.param("from"), r.param("to")) for r in child_requests] == [
+            (str(start), str(end)) for start, end in expected_windows
+        ]
+
+    def test_results_pagination_stops_within_the_offset_cap(self) -> None:
+        full_page = _response("results", [{"probeid": 1, "time": i} for i in range(1000)])
+        result = _driver().run("results", route({"/checks": [_checks(1)], "/results/1": [full_page] * 50}))
+
+        assert result.raised is None
+        assert max(int(offset) for offset in result.params("offset") if offset is not None) <= 43200
 
     def test_performance_and_outages_request_one_page_per_check(self) -> None:
         result = _driver().run(
@@ -175,13 +200,14 @@ class TestPerCheckFanout:
         )
         assert result.rows == [{"starttime": 100, "avgresponse": 200, "uptime": 3600, "checkid": 1}]
 
-    def test_resume_skips_finished_checks_and_reuses_the_window_end(self) -> None:
+    def test_resume_skips_finished_checks_and_reuses_the_window(self) -> None:
         window_end = NOW - 600
         result = _driver().run(
             "outages",
             route({"/checks": [_checks(1, 2)], "/summary.outage/2": [_response("outages", [])]}),
             resume_state=PingdomResumeConfig(
                 fanout_state={"completed": ["/summary.outage/1"], "current": None, "child_state": None},
+                window_start=window_end - 365 * DAY_SECONDS,
                 window_end=window_end,
             ),
         )
