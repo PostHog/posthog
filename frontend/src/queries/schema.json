@@ -10230,6 +10230,13 @@
         "CachedLifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -14720,6 +14727,13 @@
         "CachedStickinessQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -15863,6 +15877,13 @@
         "CachedTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "boxplot_data": {
                     "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
@@ -31551,6 +31572,13 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -46802,6 +46830,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "boxplot_data": {
                             "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                             "items": {
@@ -47134,6 +47169,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -47199,6 +47241,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "action_names": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                            "type": "object"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -53744,6 +53793,13 @@
         "StickinessQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -56398,6 +56454,13 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "action_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.",
+                    "type": "object"
+                },
                 "boxplot_data": {
                     "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
@@ -59275,9 +59338,13 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "order": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The index of the row's series in the query."
                 }
             },
-            "required": ["data", "days", "action"],
+            "required": ["data", "days", "order", "action"],
             "type": "object"
         },
         "WebVitalsItemAction": {

@@ -6207,17 +6207,17 @@ snapshots:
     mcp-apps-error-tracking--active--light:
         hash: v1.k794b7964.3c4efa7c47d8f2863f3cec2c180dbf617b7a9b4253892f83900241929ab831b4.PQds2YnDLqkVbifI_HkTi1Uh7fkqL_P_ptcsfpXAwdA
     mcp-apps-error-tracking--chained-exceptions--light:
-        hash: v1.k794b7964.096d69f4fde77a9ac89511ae7ba93221e85536b87841b7e7159697b9f4395bb7.TVR1hiWBaf1fPox0u2aUFciJi7w44OhC0-_WEFjGVS0
+        hash: v1.k794b7964.0a93d5af685fdf77c1ed0baec222a80990482e69717d6e9e15e234c44013cca3.CwqM851HR-Wtj1C3qOgYPlgAHQBcNJ8hbwxR3tTzPYI
     mcp-apps-error-tracking--error-details--light:
-        hash: v1.k794b7964.115fc29fefb183de94ac95a3e950aeb03077f023b1784847ab65685fda533d35.Qr-CBJXrSn2ime3BNJ-Xk0rvryl7mDgRARc-nOdzusM
+        hash: v1.k794b7964.5f963c5c2d51cc3472a82305ad69cfeb55c5afa31808b570322a7beea9291fc1.fXaVdJlPcGcFgzcrpBoqg4oNw6bgj5EOdRlIyzrdMDo
     mcp-apps-error-tracking--list--light:
         hash: v1.k794b7964.5d0f644498e4d7f6b6ae68e20bbdc3b6558328fed023324847e3f1c16a170a04.2PkrcHUH-sxszQi7U9Ae3VmIHrschF7tCsDN4SwdI3o
     mcp-apps-error-tracking--python-stack-trace--light:
-        hash: v1.k794b7964.d80733b9a543cc59a61a99b8515eaf35fa17b95a4d7d282c469c5ddf49be5cb5.2hXi52twI4RVs4FegK34kQf5bGN26uKyur7GeBeXuRE
+        hash: v1.k794b7964.635dac25c78113a56fb07f1ce7dd4d7f836f0653043bafe5e4cd3fbd9ffca8e5.Ezf9xqpg_Q332zQn8jNrqhq4n0jdWOE6T2Gg0TC-sko
     mcp-apps-error-tracking--resolved--light:
         hash: v1.k794b7964.fde427a04a5be7d7bd22031125188c719c92e3cec3040de64e833259496836a4.tr8wf9B0D2VjRFAGVH8LpfHNiLuXIUBQkPcsRigf1MQ
     mcp-apps-error-tracking--stack-trace--light:
-        hash: v1.k794b7964.ad8da946c8891849416cc66d17c77e44dc83e62d5b71cb2eb433779d1ddc0cb3.s-3zNqXOIZXWGTq1Ts0ETT809GtSjhzHcG4PbGrfgDo
+        hash: v1.k794b7964.2627aef797c4b97e7dbe53d02b2eca403405a5b56bf4914fcebc20ed1768422d.yjrCveWD68MhxkwAtcP_FEiA90SkfM_wDCQ5J6cRhbs
     mcp-apps-error-tracking--with-breakdown--light:
         hash: v1.k794b7964.1dd412a9421bb62e86ff964b3a0449375c9429b972a66fe3074db04bc7d7dd97.qWnA19cd9of2KGwgsVLoFh0yzOSwj8lWaSr2cDaW4_0
     mcp-apps-error-tracking--with-external-links--light:

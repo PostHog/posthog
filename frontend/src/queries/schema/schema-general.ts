@@ -2005,6 +2005,11 @@ export interface BoxPlotDatum {
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
     /** Wether more breakdown values are available. */
     hasMore?: boolean
     /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
@@ -2616,6 +2621,11 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
 
 export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
 }
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
@@ -2971,6 +2981,11 @@ export type QueryStatus = {
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
+    /**
+     * The name of each action the query's series reference, keyed by action id. A series saved without a `name`
+     * displays this name, because the query holds only the action's id.
+     */
+    action_names?: Record<string, string>
 }
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
@@ -4363,6 +4378,8 @@ export interface WebVitalsItemAction {
 export interface WebVitalsItem {
     data: number[]
     days: string[]
+    /** The index of the row's series in the query. */
+    order: integer
     action: WebVitalsItemAction
 }
 
