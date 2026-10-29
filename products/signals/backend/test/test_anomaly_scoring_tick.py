@@ -82,7 +82,7 @@ from products.signals.backend.anomaly_scores.tick import (
     plan_tick,
     run_insight,
 )
-from products.signals.backend.models import AnomalyScoringState
+from products.signals.backend.models import AnomalyScoringState, SignalTeamConfig
 from products.subscriptions.backend.facade.testing import create_subscription
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -656,16 +656,27 @@ _SPLIT_PAYLOAD = {"enabled": True, "organization_ids": [ORGANIZATION_ID], "train
 class TestEligibleTeams(BaseTest):
     @parameterized.expand(
         [
-            ("every_team_of_the_organization", [], [], False, {"main", "second"}),
-            ("allowlist", ["main"], [], False, {"main"}),
-            ("skip_list", [], ["main"], False, {"second"}),
-            ("quota_limited", [], [], True, {"main"}),
+            ("every_team_of_the_organization", [], [], False, None, {"main", "second"}),
+            ("allowlist", ["main"], [], False, None, {"main"}),
+            ("skip_list", [], ["main"], False, None, {"second"}),
+            ("quota_limited", [], [], True, None, {"main"}),
+            ("turned_off_in_settings", [], [], False, False, {"main"}),
+            ("left_on_in_settings", [], [], False, True, {"main", "second"}),
+            ("settings_cannot_enroll_a_skipped_team", [], ["second"], False, True, {"main"}),
         ]
     )
     def test_only_allowed_teams_under_their_event_quota_are_scored(
-        self, _name: str, allow: list[str], skip: list[str], second_limited: bool, expected: set[str]
+        self,
+        _name: str,
+        allow: list[str],
+        skip: list[str],
+        second_limited: bool,
+        second_setting: bool | None,
+        expected: set[str],
     ) -> None:
         teams = {"main": self.team, "second": Team.objects.create(organization=self.organization, name="second")}
+        if second_setting is not None:
+            SignalTeamConfig.objects.create(team=teams["second"], anomaly_scoring_enabled=second_setting)
         other = Organization.objects.create(name="other")
         Team.objects.create(organization=other, name="other")
         config = AnomalyScoringConfig(

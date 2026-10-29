@@ -51,8 +51,10 @@ tools:
             flags on the same day) from a segment cause (one series flags alone). Pass `series_key` from an
             anomaly-search row to narrow to one series, and `include_buckets: false` for the per-series summary only.
             Values are as they were at scoring time, so they can differ from the live chart after late data arrives. The
-            keys of `details` depend on the detector. A 404 means the insight does not exist, you cannot read it, or
-            anomaly search is not available for this project.
+            keys of `details` depend on the detector. `scoring_enabled: false` means the project is not scored now:
+            scoring does not cover it, or the project turned scoring off in its self-driving settings. `message` says
+            which when no bucket is returned. A 404 means the insight does not exist, you cannot read it, or anomaly
+            search is not available for this project.
         feature_flag: anomalies-search
     anomaly-search:
         operation: signals_anomalies_search_retrieve
@@ -75,7 +77,8 @@ tools:
             the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored
             history of every series of that insight, and the insight's own query (for example query-trends on the
             insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the
-            range, or that scoring is not enabled for the project (`scoring_enabled: false`); `message` says which. Use
+            range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the
+            project turned scoring off in its self-driving settings; `message` says which. Use
             `group_by: insight` for one row per insight. A 404 means anomaly search is not available for this project.
         feature_flag: anomalies-search
     inbox-ranking-outcomes-list:

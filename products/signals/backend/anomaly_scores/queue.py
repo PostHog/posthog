@@ -63,6 +63,7 @@ from products.signals.backend.anomaly_scores.selection import (
     score_order,
 )
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
+from products.signals.backend.models import SignalTeamConfig
 from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
@@ -189,12 +190,21 @@ class QueryBudget:
 def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
     if not config.enabled or not config.organization_ids:
         return []
-    teams = Team.objects.filter(organization_id__in=config.organization_ids).exclude(id__in=config.skip_team_ids)
+    teams = (
+        Team.objects.filter(organization_id__in=config.organization_ids)
+        .exclude(id__in=config.skip_team_ids)
+        .exclude(id__in=SignalTeamConfig.objects.filter(anomaly_scoring_enabled=False).values("team_id"))
+    )
     if config.allow_team_ids:
         teams = teams.filter(id__in=config.allow_team_ids)
     # Capture drops every event of a project over its event quota, so scoring it wastes the query.
     limited = set(list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY))
     return [team for team in teams if team.api_token not in limited]
+
+
+def turned_off_in_settings(team: Team) -> bool:
+    """Whether the project turned anomaly scoring off in its self-driving settings. A team without a config row is on."""
+    return SignalTeamConfig.objects.filter(team_id=team.id, anomaly_scoring_enabled=False).exists()
 
 
 def active_insights(

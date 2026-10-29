@@ -409,6 +409,10 @@ export interface SignalTeamConfig {
     pull_request_label_enabled?: boolean
     /** The label name to apply, at most 50 characters. Null or blank means the default label. */
     pull_request_label?: string | null
+    /** Whether anomaly scoring writes $anomaly_score events for this project. True by default; false opts out. */
+    anomaly_scoring_enabled?: boolean
+    /** Read-only: whether anomaly scoring covers this project, so the switch above has an effect. Never send in a patch. */
+    anomaly_scoring_available?: boolean
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
