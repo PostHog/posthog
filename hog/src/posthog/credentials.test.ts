@@ -52,8 +52,8 @@ describe('resolveCredentials', () => {
             'https://stored.example.com',
         ],
         [
-            'POSTHOG_HOME moves the credentials file',
-            { POSTHOG_HOME: '/custom' },
+            'HOG_HOME moves the credentials file',
+            { HOG_HOME: '/custom' },
             { '/custom/credentials.json': STORED },
             undefined,
             undefined,

@@ -32,6 +32,11 @@
                     },
                     "additionalProperties": false
                 },
+                "releaseMode": {
+                    "description": "JavaScript only: put the release in the bundle (event, the default) or in the symbol set. --release-mode and HOG_RELEASE_MODE override it.",
+                    "type": "string",
+                    "enum": ["event", "symbol-set"]
+                },
                 "sources": {
                     "description": "What `hog error-tracking inject`, `upload` and `process` scan when no path is passed.",
                     "type": "array",

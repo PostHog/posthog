@@ -89,6 +89,27 @@ describe('hog error-tracking upload', () => {
         expect(readFileSync(join(folder, 'dist/a.js.map'), 'utf8')).toBe(map)
     })
 
+    test.each([
+        ['HOG_RELEASE_MODE', { HOG_RELEASE_MODE: 'symbol-set' }, {}],
+        ['errorTracking.releaseMode in posthog.json', {}, { releaseMode: 'symbol-set' }],
+    ])('%s picks symbol-set mode, which mints random chunk IDs', async (_name, env, errorTracking) => {
+        const folder = project({
+            'posthog.json': JSON.stringify({
+                errorTracking: { release: { name: 'app', version: '1' }, ...errorTracking },
+            }),
+            'dist/a.js': 'a();\n//# sourceMappingURL=a.js.map\n',
+            'dist/a.js.map': JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' }),
+        })
+        const result = await runHog(['et', 'process', 'dist', '--dry-run'], {
+            env: { CLAUDECODE: '1', ...env },
+            cwd: folder,
+            useDisk: true,
+        })
+        expect(result.json().symbolSets).toEqual([
+            expect.objectContaining({ chunkId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7/) }),
+        ])
+    })
+
     const MAP = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
     test.each([
         [

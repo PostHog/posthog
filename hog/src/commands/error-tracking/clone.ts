@@ -20,8 +20,8 @@ export default defineCommand({
         'hog et clone main.jsbundle.map main.jsbundle.hbc.composed.map --release-mode symbol-set',
     ],
 
-    run({ args, options, ctx }) {
-        return cloneMaps(ctx, args.packagerMap, args.composedMap, readOptions(options, ctx.runtime.env))
+    async run({ args, options, ctx }) {
+        return cloneMaps(ctx, args.packagerMap, args.composedMap, await readOptions(options, ctx))
     },
 
     human({ result, out }) {

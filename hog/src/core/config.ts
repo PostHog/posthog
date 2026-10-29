@@ -41,6 +41,12 @@ const ErrorTracking = z
             })
             .optional()
             .describe('The release every uploaded symbol set belongs to.'),
+        releaseMode: z
+            .enum(['event', 'symbol-set'])
+            .optional()
+            .describe(
+                'JavaScript only: put the release in the bundle (event, the default) or in the symbol set. --release-mode and HOG_RELEASE_MODE override it.'
+            ),
         sources: z
             .array(Source)
             .optional()

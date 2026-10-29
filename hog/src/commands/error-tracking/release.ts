@@ -39,7 +39,7 @@ export default defineCommand({
     ],
 
     async run({ options, ctx }): Promise<(Omit<Release, 'id'> & { id: string | null }) | null> {
-        const settings = readOptions(options, ctx.runtime.env)
+        const settings = await readOptions(options, ctx)
         const fields = await releaseFields(ctx, settings)
         const resolved = resolveJsRelease(fields, ctx.runtime.env, ctx.runtime.cwd(), [])
         if (!resolved) {

@@ -23,6 +23,7 @@ function environment(serverUrl: string, home: string): Record<string, string> {
     return {
         HOME: home,
         POSTHOG_HOME: home,
+        HOG_HOME: home,
         POSTHOG_CLI_API_KEY: 'phx_parity',
         POSTHOG_CLI_PROJECT_ID: '1',
         POSTHOG_CLI_HOST: serverUrl,
