@@ -11,6 +11,7 @@ const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
 }
 
 const COLLAPSED_NODE_SIZE = { width: 40, height: 24 }
+const ARROW_MARKER = { type: MarkerType.ArrowClosed, width: 20, height: 20 }
 
 const NODE_GAP = 60
 
@@ -68,13 +69,14 @@ export function initialLineageGraphLayout(
         },
     }))
 
+    const collapsedNodeIds = new Set(nodes.filter((node) => node.collapsed).map((node) => node.id))
     const rfEdges: ReactFlowEdge[] = edges.map((edge) => ({
         id: edge.id,
         source: edge.source_id,
         target: edge.target_id,
         sourceHandle: `source_${edge.source_id}`,
         targetHandle: `target_${edge.target_id}`,
-        markerEnd: { type: MarkerType.ArrowClosed, width: 20, height: 20 },
+        markerEnd: collapsedNodeIds.has(edge.target_id) ? undefined : ARROW_MARKER,
         ...(edge.throughHiddenNodes && THROUGH_HIDDEN_NODES_EDGE),
     }))
 
