@@ -16,6 +16,9 @@ import {
     makeEvaluationResult,
     makeEvaluationResults,
     makeEvent,
+    makeFeedback,
+    makeFeedbackScore,
+    makeFeedbackText,
     makeNodeDetail,
     makeTrace,
     makeTraceResource,
@@ -33,7 +36,9 @@ jest.mock('../../../utils', () => ({
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
+const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -43,15 +48,22 @@ const answeredGeneration = makeNodeDetail({
     },
     ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
 })
+const askedGeneration = makeNodeDetail({
+    id: 'gen-1',
+    properties: { $ai_input: [{ role: 'user', content: 'Is my invoice right?' }] },
+    ioKeys: { input: '$ai_input' },
+})
+const nodeDetails: Record<string, typeof answeredGeneration> = { 'gen-1': askedGeneration, 'gen-2': answeredGeneration }
 let nodeRequests: string[] = []
 const nodeMock = {
     [NODE_URL]: ({ params }: { params: Record<string, unknown> }) => {
         const nodeId = decodeIdSegment(String(params.node_id))
         nodeRequests.push(nodeId)
-        return [200, nodeId === 'gen-2' ? answeredGeneration : makeNodeDetail({ id: nodeId })]
+        return [200, nodeDetails[nodeId] ?? makeNodeDetail({ id: nodeId })]
     },
 }
 const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
+const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
 
 const generation = makeEvent({
     id: 'gen-1',
@@ -89,8 +101,10 @@ describe('TraceScene', () => {
                 get: {
                     [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })],
                     [DATASETS_URL]: () => [200, { count: 0, results: [] }],
+                    [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
                     ...evaluationsMock,
+                    ...feedbackMock,
                 },
             })
         })
@@ -114,6 +128,43 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('searches from the header, fades the steps without a match and steps to the match in view', async () => {
+            const { container, findAllByText, findByText } = renderNewView()
+            const treeRow = async (name: string): Promise<Element> => {
+                const row = (await findAllByText(name))
+                    .map((element) => element.closest('[data-attr="trace-view-tree-node"]'))
+                    .find((element) => element !== null)
+                if (!row) {
+                    throw new Error(`expected ${name} to render as a tree row`)
+                }
+                return row
+            }
+            await treeRow('gen-1')
+            const input = container.querySelector('input[data-attr="trace-view-search-input"]')
+            if (!input) {
+                throw new Error('expected the header to render the search input')
+            }
+            expect(input.getAttribute('maxlength')).toBe('200')
+
+            fireEvent.change(input, { target: { value: 'invoice' } })
+
+            expect(await findByText('1 match')).toBeTruthy()
+            expect((await treeRow('gen-2')).className).toContain('opacity-50')
+            expect((await treeRow('gen-1')).className).not.toContain('opacity-50')
+
+            const scrollIntoView = jest.spyOn(Element.prototype, 'scrollIntoView')
+
+            fireEvent.keyDown(input, { key: 'Enter' })
+
+            const matchedRow = await treeRow('gen-1')
+            await waitFor(() => expect(matchedRow.getAttribute('aria-current')).toBe('true'))
+            const firstHighlight = await findByText('Is my invoice right?')
+            await waitFor(() =>
+                expect(scrollIntoView.mock.contexts).toEqual(expect.arrayContaining([matchedRow, firstHighlight]))
+            )
+            scrollIntoView.mockRestore()
         })
 
         it('the Summary tab shows a stored summary whose step link opens that step in spans', async () => {
@@ -202,11 +253,46 @@ describe('TraceScene', () => {
             expect(await findByText('Two seats were added.')).toBeTruthy()
             expect(queryByText('Add to dataset') !== null).toBe(enabled)
         })
+
+        it('opens the feedback from the header chip and the step chips, and links each entry to its step', async () => {
+            useMocks({
+                get: {
+                    [FEEDBACK_URL]: () => [
+                        200,
+                        makeFeedback({
+                            scores: [makeFeedbackScore({ name: 'helpfulness', value: '0', nodeId: 'gen-1' })],
+                            responses: [makeFeedbackText({ text: 'Too long, but correct.', nodeId: 'trace-1' })],
+                        }),
+                    ],
+                },
+            })
+            const { container, findByText, getByText } = renderNewView()
+
+            fireEvent.click(await findByText('Feedback 2', { selector: 'button *' }))
+            expect(await findByText('Too long, but correct.')).toBeTruthy()
+
+            fireEvent.click(getByText('gen-1', { selector: '[data-attr="trace-view-feedback-step-link"]' }))
+            await waitFor(() =>
+                expect(
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                ).toContain('gen-1')
+            )
+
+            fireEvent.click(await findByText('helpfulness 0'))
+            expect(await findByText('What users said')).toBeTruthy()
+        })
     })
 
     describe('behind the flag gate', () => {
         beforeEach(() => {
-            useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource()], ...nodeMock, ...evaluationsMock } })
+            useMocks({
+                get: {
+                    [TRACE_URL]: () => [200, makeTraceResource()],
+                    ...nodeMock,
+                    ...evaluationsMock,
+                    ...feedbackMock,
+                },
+            })
         })
 
         async function renderTraceRoute(flagEnabled: boolean): Promise<ReturnType<typeof render>> {

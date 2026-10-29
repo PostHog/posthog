@@ -155,6 +155,7 @@ class TestInsights:
     @parameterized.expand(
         [
             ("recent_watermark", datetime(2026, 7, 1, tzinfo=UTC), "2026-07-01"),
+            ("watermark_today", datetime(2026, 7, 21, tzinfo=UTC), "2026-07-20"),
             ("first_sync", None, "2025-07-22"),
             ("watermark_older_than_reporting_history", datetime(2024, 3, 1, tzinfo=UTC), "2025-07-22"),
         ]
@@ -175,7 +176,7 @@ class TestInsights:
         )
 
         assert result.raised is None
-        assert result.saved_states == [OpenAIAdsResumeConfig(cursor="b1", since=expected_since, until="2026-07-21")]
+        assert result.saved_states == [OpenAIAdsResumeConfig(cursor="b1", since=expected_since, until="2026-07-20")]
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_resume_reuses_the_pinned_window_with_the_saved_cursor(self) -> None:

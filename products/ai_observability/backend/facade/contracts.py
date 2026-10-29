@@ -169,6 +169,52 @@ class TraceEvaluationResults(Contract):
     summary: TraceEvaluationSummary
 
 
+class TraceFeedbackScore(Contract):
+    id: str
+    name: str | None
+    value: str = Field(
+        description="The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5."
+    )
+    node_id: str = Field(
+        description="The tree node the score targets: the step's event uuid, or the trace id for a trace-level score."
+    )
+    timestamp: datetime
+
+
+class TraceFeedbackText(Contract):
+    kind: Literal["text"]
+    id: str
+    text: str
+    node_id: str = Field(
+        description="The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback."
+    )
+    timestamp: datetime
+
+
+class TraceFeedbackSummary(Contract):
+    total: int = Field(description="Scores plus responses.")
+
+
+class TraceFeedback(Contract):
+    scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
+    responses: list[TraceFeedbackText] = Field(description="What users said, oldest first.")
+    summary: TraceFeedbackSummary
+
+
+class TraceSearchMatch(Contract):
+    node_id: str = Field(description="A step whose stored data contains the query. The root's id is the trace id.")
+    count: int = Field(
+        description="How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too."
+    )
+
+
+class TraceSearchResults(Contract):
+    total: int = Field(description="Occurrences of the query across every matching step.")
+    matches: list[TraceSearchMatch] = Field(
+        description="Matching steps in tree order, the root first. Steps without a match are left out."
+    )
+
+
 TraceSummaryStatus = Literal["pending", "ready", "failed"]
 TraceSummaryFailureReason = Literal[
     "trace_not_found", "too_large", "timeout", "provider_error", "not_approved", "access_changed", "error"

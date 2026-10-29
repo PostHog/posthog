@@ -16,8 +16,10 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesRetrieveParams,
+    AiObservabilityTracesSearchRetrieveParams,
     AiObservabilityTracesSummaryCreateParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
@@ -151,9 +153,11 @@ import type {
     TextReprResponseApi,
     TraceApi,
     TraceEvaluationResultsApi,
+    TraceFeedbackApi,
     TraceNodeDetailApi,
     TraceReviewApi,
     TraceReviewCreateApi,
+    TraceSearchResultsApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
     TranslateRequestApi,
@@ -704,6 +708,41 @@ export const aiObservabilityTracesEvaluationsRetrieve = async (
     })
 }
 
+export const getAiObservabilityTracesFeedbackRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesFeedbackRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/feedback/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/feedback/`
+}
+
+/**
+ * End-user feedback on a trace: the scores and the comments its feedback events carry, each with the step it targets.
+ */
+export const aiObservabilityTracesFeedbackRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesFeedbackRetrieveParams,
+    options?: RequestInit
+): Promise<TraceFeedbackApi> => {
+    return apiMutator<TraceFeedbackApi>(getAiObservabilityTracesFeedbackRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAiObservabilityTracesNodesRetrieveUrl = (
     projectId: string,
     id: string,
@@ -736,6 +775,41 @@ export const aiObservabilityTracesNodesRetrieve = async (
     options?: RequestInit
 ): Promise<TraceNodeDetailApi> => {
     return apiMutator<TraceNodeDetailApi>(getAiObservabilityTracesNodesRetrieveUrl(projectId, id, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesSearchRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesSearchRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/search/`
+}
+
+/**
+ * Find text in a trace's steps: each matching step in tree order with its number of occurrences.
+ */
+export const aiObservabilityTracesSearchRetrieve = async (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesSearchRetrieveParams,
+    options?: RequestInit
+): Promise<TraceSearchResultsApi> => {
+    return apiMutator<TraceSearchResultsApi>(getAiObservabilityTracesSearchRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
