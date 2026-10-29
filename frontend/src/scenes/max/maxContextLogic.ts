@@ -8,7 +8,7 @@ import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
-import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import type { RefreshStatus } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookListItemType } from 'scenes/notebooks/types'
@@ -497,6 +497,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             let dashboard = data.preloaded
 
             if (!dashboard || !dashboard.tiles) {
+                const { DashboardLoadAction, dashboardLogic } = await import('scenes/dashboard/dashboardLogic')
                 const dashboardLogicInstance = dashboardLogic.build({ id: data.id })
                 dashboardLogicInstance.mount()
 
