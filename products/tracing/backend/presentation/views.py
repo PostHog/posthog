@@ -21,7 +21,11 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.exceptions import (
+    ParseError,
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -1226,6 +1230,16 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return default
         return max(minimum, parsed)
 
+    @staticmethod
+    def _parse_bool(value: object) -> bool:
+        """Parse an untrusted JSON flag the way the declared BooleanField would, so `"false"` stays false."""
+        if value is None:
+            return False
+        try:
+            return serializers.BooleanField().run_validation(value)
+        except DRFValidationError as e:
+            raise ParseError(f"Expected a boolean, got {value!r}.") from e
+
     def _report_usage(self, request: Request, event: str, properties: dict) -> None:
         # Usage telemetry must never turn a successful read into a 5xx, so swallow and record any failure.
         try:
@@ -1720,7 +1734,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             limit=min(limit + 1, _ROW_LIMIT),
             offset=offset,
             include_impact=bool(query_data.get("includeImpact")),
-            group_by_endpoint=bool(query_data.get("groupByEndpoint")),
+            group_by_endpoint=self._parse_bool(query_data.get("groupByEndpoint")),
         )
 
         results = list(response.results)

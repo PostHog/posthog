@@ -68,8 +68,16 @@ class TestTraceSpansAggregationEndpoint(_TraceSpansTestBase):
         self.assertEqual(data["has_more"], expected_more)
         self.assertEqual(data["next_offset"], offset + page_size if expected_more else None)
 
-    def test_group_by_endpoint_reaches_the_query(self):
+    @parameterized.expand([("bool_true", True, True), ("string_true", "true", True), ("string_false", "false", False)])
+    def test_group_by_endpoint_reaches_the_query(self, _name, value, grouped):
         # The fixture spans carry no HTTP method, so endpoint grouping scopes every one of them out.
-        data = self._aggregate(groupByEndpoint=True)
-        self.assertEqual(data["results"], [])
-        self.assertFalse(data["has_more"])
+        data = self._aggregate(groupByEndpoint=value)
+        self.assertEqual(data["results"] == [], grouped)
+
+    def test_group_by_endpoint_rejects_a_non_boolean(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/aggregate/",
+            {"query": {"dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}, "groupByEndpoint": "maybe"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
