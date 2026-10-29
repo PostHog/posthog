@@ -25,6 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.tasks.email import (
     MAX_VIEWS_PER_DIGEST_EMAIL,
+    EventsDeletionNoticeNotSent,
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
     send_async_migration_complete_email,
@@ -35,6 +36,7 @@ from posthog.tasks.email import (
     send_email_change_emails,
     send_email_sending_reputation_finding,
     send_email_verification_code,
+    send_events_deletion_notice,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
     send_hog_function_disabled,
@@ -174,6 +176,38 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_events_deletion_notice_lists_the_projects_to_org_admins(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, _owner = create_org_team_and_user("2022-01-02 00:00:00", "owner@posthog.com")
+        User.objects.create_and_join(
+            organization=org, email="admin@posthog.com", password=None, level=OrganizationMembership.Level.ADMIN
+        )
+        User.objects.create_and_join(
+            organization=org, email="member@posthog.com", password=None, level=OrganizationMembership.Level.MEMBER
+        )
+        web = Team.objects.create(organization=org, name="Web app", event_retention_months=12)
+        mobile = Team.objects.create(organization=org, name="Mobile app", event_retention_months=12)
+
+        send_events_deletion_notice(str(org.id), [web.id, mobile.id], dt.date(2027, 2, 3))
+
+        [message] = mocked_email_messages
+        assert message.campaign_key == f"events_deletion_scheduled_{org.id}_2027-02-03"
+        assert sorted(recipient["raw_email"] for recipient in message.to) == ["admin@posthog.com", "owner@posthog.com"]
+        assert "Web app" in message.html_body
+        assert "Mobile app" in message.html_body
+        assert "Default Project" not in message.html_body
+
+    @parameterized.expand([("email_disabled", False), ("provider_accepts_nothing", True)])
+    def test_events_deletion_notice_raises_when_nothing_is_sent(
+        self, MockEmailMessage: MagicMock, _name: str, email_enabled: bool
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        set_instance_setting("EMAIL_ENABLED", email_enabled)
+
+        with self.assertRaises(EventsDeletionNoticeNotSent):
+            send_events_deletion_notice(str(self.organization.id), [self.team.id], dt.date(2027, 2, 3))
 
     def test_workflow_email_subjects_survive_a_newline_in_the_name(self, MockEmailMessage: MagicMock) -> None:
         # A CR or LF in the workflow name would make Django reject the whole email as a multiline

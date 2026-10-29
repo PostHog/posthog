@@ -1,0 +1,33 @@
+{% extends "email/base.html" %}
+{% block heading %}Events older than {{ window }} will be deleted{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        The plan for <b>{{ organization.name }}</b> keeps events for {{ window }}. Older events are already hidden in these projects:
+    </p>
+    <ul>
+        {% for project in projects %}
+            <li><a href="{{ project.settings_url }}">{{ project.name }}</a></li>
+        {% endfor %}
+    </ul>
+    <p>
+        From <b>{{ deletion_on|date:"F j, Y" }}</b>, PostHog deletes events older than {{ window }} in these projects. The deletion then runs again every 3 months. Deleted events can't be restored.
+    </p>
+    <p>To keep these events, upgrade to a plan with a longer retention before {{ deletion_on|date:"F j, Y" }}.</p>
+    <div class="mb mt text-center">
+        <a class="button" href="{{ billing_url }}">Review your plan</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ billing_url }}">{{ billing_url }}</a>
+        </p>
+    </div>
+{% endblock %}
+{% block footer %}
+    Questions about events retention?
+    <a href="{{ docs_url }}?{{ utm_tags }}" target="_blank"><b>Read our documentation</b></a>
+    or
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>contact support</b></a>.
+{% endblock %}

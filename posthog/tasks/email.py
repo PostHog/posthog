@@ -27,6 +27,7 @@ from posthog.email import (
     get_email_team_and_org_context,
     is_email_available,
     single_line,
+    was_email_delivered,
 )
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
@@ -56,6 +57,7 @@ from posthog.models.scoping import with_team_scope
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
+from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.batch_exports.backend.facade import api as batch_exports_api
@@ -3117,3 +3119,70 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
     for user in recipients:
         message.add_user_recipient(user)
     message.send()
+
+
+EVENTS_RETENTION_DOCS_URL = "https://posthog.com/docs/data/events-retention"
+
+
+class EventsDeletionNoticeNotSent(Exception):
+    """No organization admin received the notice, so the deletion it announces must not be scheduled."""
+
+
+def _retention_window_label(months: int) -> str:
+    if months % 12 == 0:
+        years = months // 12
+        return f"{years} year" if years == 1 else f"{years} years"
+    return f"{months} months"
+
+
+def send_events_deletion_notice(organization_id: str, team_ids: list[int], deletion_on: datetime.date) -> None:
+    """Tell an organization's admins that the events cleanup starts deleting events past the plan's window.
+
+    Sends inline, because the cleanup must know whether the notice went out before it schedules the deletion.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        raise EventsDeletionNoticeNotSent("email is not available on this instance")
+    organization = Organization.objects.get(id=organization_id)
+    teams = list(Team.objects.filter(organization_id=organization_id, id__in=team_ids).order_by("name", "id"))
+    recipients = [
+        membership.user
+        for membership in OrganizationMembership.objects.select_related("user").filter(
+            organization_id=organization_id, level__gte=OrganizationMembership.Level.ADMIN
+        )
+        if membership.user.email
+    ]
+    if not teams or not recipients:
+        raise EventsDeletionNoticeNotSent(f"no projects or admins to notify in organization {organization_id}")
+
+    window = _retention_window_label(min(team.event_retention_months for team in teams))
+    campaign_key = f"events_deletion_scheduled_{organization_id}_{deletion_on:%Y-%m-%d}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=(
+            f"Events older than {window} in '{single_line(organization.name)}' will be deleted from "
+            f"{deletion_on:%B} {deletion_on.day}, {deletion_on.year}"
+        ),
+        template_name="events_deletion_scheduled",
+        template_context={
+            "organization": organization,
+            "window": window,
+            "deletion_on": deletion_on,
+            "projects": [
+                {
+                    "name": team.name,
+                    "settings_url": absolute_uri(
+                        f"/project/{team.id}/settings/environment-product-analytics#project-events-retention"
+                    ),
+                }
+                for team in teams
+            ],
+            "billing_url": absolute_uri("/organization/billing"),
+            "docs_url": EVENTS_RETENTION_DOCS_URL,
+        },
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send(send_async=False)
+
+    if not any(was_email_delivered(campaign_key, user.email) for user in recipients):
+        raise EventsDeletionNoticeNotSent(f"the email provider accepted no notice for organization {organization_id}")
