@@ -30,6 +30,18 @@ Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baseli
 - `xAxis.tickLabelRotation` (`-45` tilts left) fixes the rotation, clamped to `-90..90`. Omit it to keep horizontal labels and the collision behavior.
 - `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. On horizontal charts the cap grows to 30% of the chart width when that is wider, so a wider chart shows more of each label. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
 
+### Time scale
+
+The x-axis spaces points evenly by index by default, so a stretch of time with no labels collapses to nothing.
+`TimeSeriesLineChart` with `xScale: 'time'` places each point at its time instead: labels parse in `xAxis.timezone` (UTC when unset), uneven spacing stays uneven, and a missing stretch keeps its width.
+`xDomain: [from, to]` in epoch milliseconds spans the axis beyond the data, for example to a dashboard's time range; points outside it are not drawn.
+The ticks fall on a regular grid at `xAxis.interval` across the domain, inferred from the labels when unset, so they cover stretches without data.
+On the base `LineChart` the same option is `timeScale: { parse, domain }`, and `xTickLabels` places the ticks on labels of your own.
+
+A missing (non-finite) value breaks the line and the area.
+`connectNulls: true` bridges every gap instead.
+On a time scale, `connectNulls` also takes a number of milliseconds: it bridges gaps up to that length and breaks the line across longer ones, including a stretch with no labels in it, so pass about one and a half sample intervals to show missing samples as gaps.
+
 ## Y-axis format
 
 `format`: `numeric | short | percentage | percentage_scaled | currency | duration | duration_ms | duration_ns`, plus `prefix` and `suffix`.

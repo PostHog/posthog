@@ -15,6 +15,8 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
+import { buildTimeTickLabels, inferTimeInterval } from '../../utils/dates'
+import { parseDateInTimezone } from '../../utils/dayjs'
 import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart/LineChart'
@@ -62,6 +64,17 @@ export interface TimeSeriesLineChartConfig {
     showTickMarks?: boolean
     /** Line interpolation: `linear` (default) or `monotone` (smooth curve through every point). */
     curve?: 'linear' | 'monotone'
+    /** `time` places each point at its time instead of evenly by index, so uneven spacing and gaps
+     *  in time show. Labels parse in `xAxis.timezone` (UTC when unset), and the ticks fall on a
+     *  regular grid at `xAxis.interval`, inferred from the labels when unset. Defaults to `index`. */
+    xScale?: 'index' | 'time'
+    /** Time scale only: the x-axis span as `[from, to]` epoch milliseconds, for example a dashboard
+     *  time range wider than the data. Defaults to the first and last label. */
+    xDomain?: readonly [number, number]
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. With
+     *  `xScale: 'time'`, a number bridges only gaps up to that many milliseconds and breaks the line
+     *  across longer ones, even where no label falls. See {@link LineChartConfig.connectNulls}. */
+    connectNulls?: boolean | number
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -121,9 +134,13 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showAxisLines,
         showTickMarks,
         curve,
+        xScale,
+        xDomain,
+        connectNulls,
         tooltip: tooltipConfig,
         legend,
     } = config ?? {}
+    const time = useTimeScale(xScale === 'time', labels, xAxis, xDomain)
     const {
         xTickFormatter,
         yTickFormatter,
@@ -133,7 +150,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, { xAxis: time?.xAxis ?? xAxis, yAxis, valueLabels, legend })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
     const finalSeries = useDerivedSeries(chartSeries, {
@@ -171,6 +188,9 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showAxisLines,
         showTickMarks,
         curve,
+        timeScale: time?.timeScale,
+        xTickLabels: time?.xAxis.allDays,
+        connectNulls,
         percentStackView,
         stacked,
         showCrosshair,
@@ -202,5 +222,48 @@ export function TimeSeriesLineChart<Meta = unknown>({
                 {children}
             </LineChart>
         </ChartLegend>
+    )
+}
+
+/** For `xScale: 'time'`: a cached label parser and domain for `LineChart.timeScale`, plus the x-axis
+ *  config with a regular tick grid across the domain as its labels. */
+function useTimeScale(
+    enabled: boolean,
+    labels: string[],
+    xAxis: XAxisConfig | undefined,
+    xDomain: readonly [number, number] | undefined
+): { timeScale: NonNullable<LineChartConfig['timeScale']>; xAxis: XAxisConfig & { allDays: string[] } } | null {
+    const timezone = xAxis?.timezone ?? 'UTC'
+    const parse = useMemo(() => {
+        // Every series' points and every redraw parse the same labels, so parse each once.
+        const cache = new Map<string, number>()
+        return (label: string): number => {
+            let t = cache.get(label)
+            if (t === undefined) {
+                t = parseDateInTimezone(label, timezone).valueOf()
+                cache.set(label, t)
+            }
+            return t
+        }
+    }, [timezone])
+    const [from, to] = xDomain ?? [parse(labels[0] ?? ''), parse(labels[labels.length - 1] ?? '')]
+    const configInterval = xAxis?.interval
+    const interval = useMemo(
+        () => (enabled ? (configInterval ?? inferTimeInterval(labels, timezone) ?? 'day') : 'day'),
+        [enabled, configInterval, labels, timezone]
+    )
+    const tickLabels = useMemo(
+        () => (enabled ? buildTimeTickLabels(from, to, interval, timezone) : []),
+        [enabled, from, to, interval, timezone]
+    )
+    return useMemo(
+        () =>
+            enabled
+                ? {
+                      timeScale: { parse, domain: [from, to] as const },
+                      xAxis: { ...xAxis, timezone, interval, allDays: tickLabels },
+                  }
+                : null,
+        [enabled, parse, from, to, xAxis, timezone, interval, tickLabels]
     )
 }

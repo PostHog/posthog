@@ -23,7 +23,7 @@ import {
     PERCENTAGE_SERIES,
     SERIES,
 } from '../time-series-fixtures'
-import { TimeSeriesLineChart } from './TimeSeriesLineChart'
+import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from './TimeSeriesLineChart'
 
 const meta: Meta = {
     title: 'Components/HogCharts/TimeSeriesLineChart',
@@ -515,4 +515,56 @@ export const SyncedHover: Story = {
             </ChartHoverSync>
         )
     },
+}
+
+// Hourly samples with hours 06-11 absent and a missing value at 15:00.
+const SPARSE_HOURS = [0, 1, 2, 3, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+const SPARSE_LABELS = SPARSE_HOURS.map((h) => `2026-03-01T${String(h).padStart(2, '0')}:00:00Z`)
+const SPARSE_SERIES: Series[] = [
+    {
+        key: 'rps',
+        label: 'Requests',
+        data: SPARSE_HOURS.map((h) => (h === 15 ? NaN : 200 + 60 * Math.sin(h / 3))),
+        fill: { opacity: 0.2 },
+    },
+]
+
+function TimeScaleCell({ title, config }: { title: string; config: TimeSeriesLineChartConfig }): JSX.Element {
+    const theme = useReactiveTheme()
+    return (
+        <div>
+            <div>{title}</div>
+            <Stage width={420} height={200}>
+                <TimeSeriesLineChart
+                    series={SPARSE_SERIES}
+                    labels={SPARSE_LABELS}
+                    theme={theme}
+                    config={{ xAxis: { timezone: 'UTC', interval: 'hour' }, yAxis: { showGrid: true }, ...config }}
+                />
+            </Stage>
+        </div>
+    )
+}
+
+/** `xScale: 'time'` places points by time, so the missing morning keeps its width instead of being
+ *  squeezed out. `xDomain` spans a range wider than the data. `connectNulls: true` bridges every
+ *  gap; a number of milliseconds bridges only gaps that short, so the 2-hour hole at 15:00 joins
+ *  while the 7-hour morning gap stays open. */
+export const TimeScale: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+            <TimeScaleCell title="default (index)" config={{}} />
+            <TimeScaleCell title="xScale: 'time'" config={{ xScale: 'time' }} />
+            <TimeScaleCell
+                title="xScale: 'time', xDomain: whole day, connectNulls: 2h"
+                config={{
+                    xScale: 'time',
+                    xDomain: [Date.parse('2026-03-01T00:00:00Z'), Date.parse('2026-03-02T00:00:00Z')],
+                    connectNulls: 2 * 60 * 60 * 1000,
+                }}
+            />
+            <TimeScaleCell title="xScale: 'time', connectNulls: true" config={{ xScale: 'time', connectNulls: true }} />
+        </div>
+    ),
 }
