@@ -201,6 +201,20 @@ class TraceFeedback(Contract):
     summary: TraceFeedbackSummary
 
 
+class TraceSearchMatch(Contract):
+    node_id: str = Field(description="A step whose stored data contains the query. The root's id is the trace id.")
+    count: int = Field(
+        description="How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too."
+    )
+
+
+class TraceSearchResults(Contract):
+    total: int = Field(description="Occurrences of the query across every matching step.")
+    matches: list[TraceSearchMatch] = Field(
+        description="Matching steps in tree order, the root first. Steps without a match are left out."
+    )
+
+
 TraceSummaryStatus = Literal["pending", "ready", "failed"]
 TraceSummaryFailureReason = Literal[
     "trace_not_found", "too_large", "timeout", "provider_error", "not_approved", "access_changed", "error"

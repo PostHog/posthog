@@ -1,10 +1,17 @@
 from posthog.test.base import BaseTest
 
+from django.contrib.admin import AdminSite
 from django.forms import ModelForm, modelform_factory
+from django.test import RequestFactory, SimpleTestCase
 
-from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInlineForm
+from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.models import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.experiments.backend.admin.team_experiments_config_inline import (
+    TeamExperimentsConfigInline,
+    TeamExperimentsConfigInlineForm,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
@@ -29,3 +36,9 @@ class TestTeamExperimentsConfigInlineForm(BaseTest):
         self.assertTrue(form.is_valid(), form.errors)
         config = form.save()
         self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+
+
+class TestTeamExperimentsConfigInlineRegistration(SimpleTestCase):
+    def test_inline_attaches_to_team_admin(self):
+        team_admin = TeamAdmin(Team, AdminSite())
+        self.assertIn(TeamExperimentsConfigInline, team_admin.get_inlines(RequestFactory().get("/")))
