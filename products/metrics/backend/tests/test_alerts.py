@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -14,6 +14,7 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from rest_framework import status
 
+from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
@@ -36,8 +37,9 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.metrics.backend.alerts.evaluation import INFLIGHT_KEY, evaluate_metrics_alert_batch
-from products.metrics.backend.alerts.freshness import evaluation_time
+from products.metrics.backend.alerts.freshness import evaluation_time, fetch_metrics_freshness
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'
 
@@ -124,6 +126,21 @@ def _response(status_code: int, body: dict[str, Any]) -> requests.Response:
     response.status_code = status_code
     response._content = json.dumps(body).encode()
     return response
+
+
+class TestMetricsFreshnessRead(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        truncate_metrics_tables()
+
+    def test_reads_only_the_teams_own_newest_point(self) -> None:
+        # The query compares with ClickHouse's now(), so the points sit just behind the real clock.
+        now = datetime.now(UTC).replace(microsecond=0)
+        other_team = Team.objects.create(organization=self.organization)
+        seed_metric(team_id=self.team.id, metric_name="lag", points=[(now - timedelta(minutes=2), 1.0)])
+        seed_metric(team_id=other_team.id, metric_name="lag", points=[(now - timedelta(seconds=30), 1.0)])
+
+        assert fetch_metrics_freshness(self.team, max_execution_time=5) == now - timedelta(minutes=2)
 
 
 class TestMetricsAlertEvaluation(APIBaseTest):
