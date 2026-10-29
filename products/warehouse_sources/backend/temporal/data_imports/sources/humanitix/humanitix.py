@@ -172,7 +172,7 @@ def _check_in_count_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1
     # Full refresh appends without dedupe, so skip exactly the dates already fetched, even if the page changed.
-    done = set(resume.completed or []) if resume else set()
+    done = list(resume.completed or []) if resume else []
 
     for events in client.paginate(
         path="/events",
@@ -181,21 +181,26 @@ def _check_in_count_rows(
         data_selector="events",
         data_selector_required=True,
     ):
-        completed: list[str] = []
+        completed = done
+        skip = set(done)
         for key in _event_date_keys(events):
             event_id, date_id, marker = key.event_id, key.date_id, key.marker
-            if marker in done:
-                completed.append(marker)
+            if marker in skip:
                 continue
             body: Optional[dict[str, Any]] = None
+            responded = False
             for result in client.paginate(
                 path=config.path.format(eventId=event_id),
                 params={"eventDateId": date_id},
                 paginator=SinglePagePaginator(),
                 hooks=_IGNORE_NOT_FOUND,
             ):
+                responded = True
                 if result and isinstance(result[0], dict):
                     body = result[0]
+            # Only a 404 (no response) means the date is gone; any other non-object body is a shape change.
+            if responded and body is None:
+                raise ValueError(f"Humanitix check-in count for {marker} returned a non-object body")
             completed.append(marker)
             resumable_source_manager.save_state(HumanitixResumeConfig(next_page=page, completed=list(completed)))
             if body is None:
@@ -203,7 +208,7 @@ def _check_in_count_rows(
                 continue
             yield {**body, "eventId": event_id, "eventDateId": date_id}
 
-        done = set()
+        done = []
         page += 1
         resumable_source_manager.safe_point()
 

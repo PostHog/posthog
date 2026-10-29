@@ -184,6 +184,18 @@ class TestCheckInCounts:
         assert result.params("page")[0] == "2"
         assert result.params("eventDateId")[1:] == expected_dates
         assert [row["eventDateId"] for row in result.rows] == expected_dates
+        # Every checkpoint keeps the dates finished before the restart, so a second restart skips them too.
+        for state in result.saved_states:
+            assert set(resume_state.completed or []) <= set(state.completed or [])
+
+    @parameterized.expand([("null", b"null"), ("empty_list", b"[]"), ("scalar", b"5")])
+    def test_non_object_count_body_fails_without_checkpoint(self, _name: str, body: bytes) -> None:
+        events = [{"_id": "e1", "dates": [{"_id": "d1"}]}]
+        result = _driver().run("check_in_counts", [_page(events, total=1), ScriptedResponse(body=body)])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []
+        assert result.saved_states == []
 
 
 class TestRetryAndErrors:
