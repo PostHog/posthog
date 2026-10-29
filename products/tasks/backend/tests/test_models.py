@@ -1,6 +1,7 @@
 import json
 import uuid
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any, ClassVar
@@ -26,9 +27,12 @@ from products.tasks.backend.facade.profiles import (
     GithubAccess,
     PrAuthorship,
     Repository,
+    SourceKind,
     TaskProfileError,
     TaskRunOptions,
     TaskRunOptionsError,
+    TaskSource,
+    TaskSourceError,
     get_task_profile,
 )
 from products.tasks.backend.models import (
@@ -47,6 +51,9 @@ from products.tasks.backend.models import (
 from products.tasks.backend.run_options import run_options_record
 
 BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
+SOURCE_ID = uuid.UUID("5ab01f4d-5b1e-4990-9802-4f8792a76759")
+FLOW_SOURCE = TaskSource(kind=SourceKind.HOG_FLOW, id=str(SOURCE_ID))
+REPORT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
 
 # Far enough back that any bump is unambiguously forward, and stable so a test can assert the
 # clock did *not* move.
@@ -366,6 +373,49 @@ class TestTask(TestCase):
                 origin_product=Task.OriginProduct.USER_CREATED,
                 options=options,
             )
+
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    @parameterized.expand([(SourceKind.SIGNAL_REPORT,), (SourceKind.HOG_FLOW,)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_task_creation_stores_its_source(self, kind: SourceKind, _mock_execute_workflow) -> None:
+        from products.signals.backend.models import SignalReport
+
+        user = User.objects.create(email=f"{kind}@test.com")
+        source_id = SignalReport.objects.create(team=self.team).id if kind == SourceKind.SIGNAL_REPORT else SOURCE_ID
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=user.id,
+            origin_product=Task.OriginProduct.USER_CREATED,
+            source=TaskSource(kind=kind, id=str(source_id)),
+        )
+
+        task.refresh_from_db()
+        expected = (source_id, None) if kind == SourceKind.SIGNAL_REPORT else (None, source_id)
+        self.assertEqual((task.signal_report_id, task.hog_flow_id), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "source_and_column",
+                {"origin_product": Task.OriginProduct.USER_CREATED, "hog_flow_id": SOURCE_ID, "source": FLOW_SOURCE},
+            ),
+            ("profile_takes_no_source", {"profile": BUSINESS_KNOWLEDGE, "source": FLOW_SOURCE}),
+            ("profile_takes_no_legacy_source", {"profile": BUSINESS_KNOWLEDGE, "hog_flow_id": SOURCE_ID}),
+            (
+                "profile_given_both_columns",
+                {"profile": REPORT_PROFILE, "signal_report_id": str(SOURCE_ID), "hog_flow_id": SOURCE_ID},
+            ),
+        ]
+    )
+    def test_task_creation_refuses_a_source_it_cannot_take(self, name: str, kwargs: dict) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+
+        with self.assertRaises(TaskSourceError):
+            Task.create_and_run(team=self.team, title="t", description="d", user_id=user.id, **kwargs)
 
         self.assertFalse(Task.objects.filter(team=self.team).exists())
 
