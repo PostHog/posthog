@@ -127,8 +127,9 @@ const PieChartSettings = z.object({
 
 const AssistantDataVisualizationAxisDisplaySettings = z.object({
     color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
     displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
-    label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
+    label: z.string().describe('Label that replaces the column name.').optional(),
     trendLine: z.coerce
         .boolean()
         .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
@@ -145,7 +146,7 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     style: z
         .enum(['none', 'number', 'short', 'percent'])
         .describe(
-            '`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.'
+            '`none`: raw. `number`: thousands separators. `short`: 1.2k. `percent`: 0–1 ratio × 100 with `%`. Omit a `%` suffix.'
         )
         .optional(),
     suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),

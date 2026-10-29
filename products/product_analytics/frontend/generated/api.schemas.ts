@@ -8066,6 +8066,7 @@ export const YAxisPositionApi = {
 
 export interface ChartSettingsDisplayApi {
     color?: string | null
+    description?: string | null
     displayType?: DisplayTypeApi | null
     label?: string | null
     trendLine?: boolean | null

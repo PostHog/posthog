@@ -2068,6 +2068,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             props.setQuery?.(() => node)
         },
         setTransposeResults: ({ transpose }) => {
+            posthog.capture('sql table transposed', { transpose, query_kind: values.query.kind })
             actions.setQuery((query) => ({
                 ...query,
                 tableSettings: {
@@ -2096,7 +2097,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateSeries: [sharedListeners.axesChanged],
         deleteYSeries: [sharedListeners.axesChanged],
         updateConditionalFormattingRule: [sharedListeners.conditionalFormattingRules],
-        toggleColumnPin: [sharedListeners.pinnedColumnsChanged],
+        toggleColumnPin: [
+            ({ columnName }) => {
+                posthog.capture('sql table column pin toggled', {
+                    pinned: values.isColumnPinned(columnName),
+                    query_kind: values.query.kind,
+                })
+            },
+            sharedListeners.pinnedColumnsChanged,
+        ],
     })),
     subscriptions(({ actions, values }) => ({
         needsHogVm: (needsHogVm: boolean) => {

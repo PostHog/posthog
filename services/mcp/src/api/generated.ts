@@ -10686,6 +10686,7 @@ export namespace Schemas {
 
     export interface ChartSettingsDisplay {
       color?: string | null;
+      description?: string | null;
       displayType?: DisplayType | null;
       label?: string | null;
       trendLine?: boolean | null;
