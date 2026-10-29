@@ -2552,6 +2552,9 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
         assert self.user_access_control.get_user_access_level(self.team) == "none"
         assert self.user_access_control.access_level_for_ref(ref) == "none"
         assert self.user_access_control.check_access_level_for_ref(ref, "member") is False
+        assert self.user_access_control.check_can_modify_access_levels_for_ref(
+            ref
+        ) == self.user_access_control.check_can_modify_access_levels_for_object(self.team)
 
     @parameterized.expand(
         [

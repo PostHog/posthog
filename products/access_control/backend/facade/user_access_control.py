@@ -1042,8 +1042,10 @@ class UserAccessControl:
         return project_admin_check
 
     def check_can_modify_access_levels_for_ref(self, ref: ObjectAccessRef) -> bool:
-        """`check_can_modify_access_levels_for_object` for an object held only as a reference. Not for projects."""
+        """`check_can_modify_access_levels_for_object` for an object held only as a reference."""
         self._target_for_ref(ref)  # validates the team and parent before the creator shortcut
+        if ref.resource == "project":
+            return self.check_can_modify_access_levels_for_object(cast(Team, self._team))
         return (
             self._is_creator_id(ref.created_by_id)
             or self.check_access_level_for_object(cast(Team, self._team), required_level="admin", explicit=True)
