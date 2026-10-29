@@ -121,12 +121,17 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         create_issue_fingerprint(
             team_id=self.team.pk, issue_id=issue_id, fingerprint="old", first_seen=EDITED_AT - timedelta(days=3)
         )
+        # An old issue can gain a fingerprint after the edit, for example by a merge.
+        create_issue_fingerprint(
+            team_id=self.team.pk, issue_id=issue_id, fingerprint="added", first_seen=EDITED_AT + timedelta(minutes=1)
+        )
         sync_issue_to_clickhouse(team_id=self.team.pk, issue_id=issue_id)
         self._send(
             [
                 ("person-1", "$exception", 1, {"$exception_fingerprint": "old"}),
+                ("person-2", "$exception", 2, {"$exception_fingerprint": "added"}),
                 # A fingerprint that error tracking hasn't synced yet is new.
-                ("person-2", "$exception", 2, {"$exception_fingerprint": "unsynced"}),
+                ("person-3", "$exception", 3, {"$exception_fingerprint": "unsynced"}),
             ]
         )
 

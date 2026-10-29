@@ -71,10 +71,17 @@ def errors_by_bucket(
 def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
     return [
         ast.Constant(value=True),
-        # Error tracking stores the first seen time per fingerprint. A fingerprint that isn't synced to ClickHouse yet
-        # is new, so its own event time stands in, as in the error tracking issue list.
+        # Error tracking stores the first seen time per fingerprint, and a merged issue has many fingerprints. Compare
+        # the earliest one, so a new fingerprint does not make an old issue look new. A fingerprint that isn't synced
+        # to ClickHouse yet has no issue, and counts as new.
         parse_expr(
-            "ifNull(issue_first_seen, timestamp) >= {edited_at}",
+            """
+            issue_id IN (
+                SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state
+                GROUP BY issue_id
+                HAVING min(first_seen) >= {edited_at}
+            ) OR isNull(issue_id)
+            """,
             placeholders={"edited_at": ast.Constant(value=edit.edited_at)},
         ),
         read.exposed,
