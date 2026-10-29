@@ -59,32 +59,12 @@ class _GroupFieldFinder(TraversingVisitor):
             self.bound -= added
 
     def visit_field(self, node: ast.Field) -> None:
-        if self.found is None and self._reads_group_property(node):
-            self.found = str(node.chain[0])
+        # Any unbound group root is group data the matcher cannot observe: a property, the key, or
+        # the whole group passed into another expression. Bracket access wraps the same bare field.
+        root = str(node.chain[0])
+        if self.found is None and root not in self.bound and GROUP_FIELD_RE.match(root):
+            self.found = root
         super().visit_field(node)
-
-    def visit_array_access(self, node: ast.ArrayAccess) -> None:
-        # Bracket notation reaches the same fields as the dotted form: group_0['key'] parses as an
-        # ArrayAccess around a bare group_0 field, which visit_field alone would let through.
-        if (
-            self.found is None
-            and isinstance(node.array, ast.Field)
-            and len(node.array.chain) == 1
-            and isinstance(node.property, ast.Constant)
-            and self._is_group_root(str(node.array.chain[0]))
-        ):
-            self.found = str(node.array.chain[0])
-        super().visit_array_access(node)
-
-    def _is_group_root(self, root: str) -> bool:
-        return root not in self.bound and bool(GROUP_FIELD_RE.match(root))
-
-    def _reads_group_property(self, node: ast.Field) -> bool:
-        # Any field under a group root is group data the matcher cannot observe, key as much as
-        # properties. A bare name is a local or an unrelated identifier, so it needs a chain.
-        if len(node.chain) < 2:
-            return False
-        return self._is_group_root(str(node.chain[0]))
 
 
 def find_group_field(condition_expr: ast.Expr) -> Optional[str]:

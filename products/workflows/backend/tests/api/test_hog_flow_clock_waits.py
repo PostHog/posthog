@@ -47,6 +47,7 @@ class TestUnwakeableWaitRejection(APIBaseTest):
             ("bracket_key", "group_0['key'] == 'acme'"),
             # One group term is enough, so an AND with a person property must not launder it past.
             ("anded_with_a_person_property", "person.properties.plan == 'pro' and group_0.properties.seats > 5"),
+            ("passed_into_a_lambda", "arrayExists(g -> g.properties.plan == 'pro', [group_0])"),
         ]
     )
     def test_rejects_a_wait_that_reads_a_group_property(self, _name: str, hogql: str):
