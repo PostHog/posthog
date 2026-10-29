@@ -69,6 +69,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
     api_docs_url = "https://docs.aws.amazon.com/AmazonCloudWatch/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "amazon-cloud-watch"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

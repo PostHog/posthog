@@ -54,6 +54,7 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
         return _ATHENA_IMPLEMENTATION
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-athena"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
