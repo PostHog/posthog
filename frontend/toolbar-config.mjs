@@ -264,6 +264,7 @@ const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
 const TOOLBAR_EXTENSION_ICONS = {
     16: 'icons/favicon-16x16.png',
     32: 'icons/favicon-32x32.png',
+    128: 'icons/posthog-128x128.png',
     192: 'icons/android-chrome-192x192.png',
 }
 
@@ -363,9 +364,19 @@ function buildToolbarExtensionManifest(browser) {
             default_icon: TOOLBAR_EXTENSION_ICONS,
             open_at_install: false,
         }
-        // Firefox needs an add-on ID for MV3 storage, and 128 is the first release that grants Manifest V3 host
-        // permissions at install.
-        manifest.browser_specific_settings = { gecko: { id: 'toolbar@posthog.com', strict_min_version: '128.0' } }
+        // Firefox needs an add-on ID for MV3 storage, and addons.mozilla.org never lets the ID change after the first
+        // upload. 140 is the first release that asks the user at install for the data collection declared here.
+        manifest.browser_specific_settings = {
+            gecko: {
+                id: 'toolbar@posthog.com',
+                strict_min_version: '140.0',
+                // Keep in sync with the "Data collection" section of src/toolbar/extension/README.md.
+                data_collection_permissions: {
+                    required: ['authenticationInfo', 'browsingActivity', 'websiteContent'],
+                    optional: ['technicalAndInteraction'],
+                },
+            },
+        }
         // Firefox runs Manifest V3 background code as an event page, not as a service worker.
         manifest.background = { scripts: ['background.js'] }
     } else {
