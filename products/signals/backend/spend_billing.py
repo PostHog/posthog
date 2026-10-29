@@ -34,6 +34,13 @@ def scout_spend_exempt(scout: SignalScoutRun) -> bool:
 
 
 def trial_spend_exempt(team_id: int) -> bool:
+    from products.signals.backend.trial.models import (
+        SignalTrialGrant,  # noqa: PLC0415 -- avoids model registration cycles
+    )
+
+    team = Team.objects.only("parent_team_id").get(id=team_id)
+    if SignalTrialGrant.objects.for_team(team.parent_team_id or team_id, canonical=True).exists():
+        return False
     org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
     return (
         posthoganalytics.feature_enabled(

@@ -90,6 +90,7 @@ from products.signals.backend.support_writeback import (
     task_can_write_support_ticket_update,
 )
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
+from products.signals.backend.trial.tasks import cancel_trial_grant as cancel_trial_grant
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)

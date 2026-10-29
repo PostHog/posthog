@@ -61,6 +61,8 @@ def _bridges_with_pr_run(
         eligible &= ~Q(team__organization_id=org_id) | Q(task__runs__created_at__lt=cutoff)
     return SignalReportTask.objects.filter(
         eligible,
+        Q(task__runs__state__self_driving_funding__funding__isnull=True)
+        | ~Q(task__runs__state__self_driving_funding__funding="trial"),
         **({} if include_manual else {"task__runs__state__billing_product__isnull": True}),
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,

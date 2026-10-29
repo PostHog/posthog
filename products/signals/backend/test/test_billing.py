@@ -473,7 +473,7 @@ class TestSignalsBilling(BaseTest):
         index_sql, index_params = run_model.objects.filter(index.condition).order_by().query.sql_with_params()
         query_sql, query_params = _bridges_with_pr_run().query.sql_with_params()
         self.assertIn(index_sql.split(" WHERE ", 1)[1], query_sql)
-        self.assertTrue(set(index_params).issubset(query_params))
+        self.assertTrue(all(parameter in query_params for parameter in index_params))
 
 
 class TestBillingExemptions(BaseTest):
