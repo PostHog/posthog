@@ -19,16 +19,17 @@ const template = (id: string, name: string, tags: string[], createdBy: number, t
 
 describe('transactionalEmailsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailsLogic.build>
-    let savedTags: string[][]
+    let writes: { id: string; tags: string[] }[]
 
     beforeEach(async () => {
-        savedTags = []
+        writes = []
         useMocks({
             patch: {
-                '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                '/api/projects/:team_id/messaging_templates/:id/': async ({ request, params }) => {
                     const { tags } = (await request.json()) as { tags: string[] }
-                    savedTags.push(tags)
-                    return [200, { ...template('a', 'Password reset', [], 1), tags }]
+                    const id = String(params.id)
+                    writes.push({ id, tags })
+                    return [200, { ...template(id, 'Password reset', [], 1), tags }]
                 },
             },
             get: {
@@ -80,6 +81,21 @@ describe('transactionalEmailsLogic', () => {
         logic.actions.saveTransactionalTags(shown, [...shown.tags!, 'urgent'])
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(savedTags).toEqual([['auth', 'security', 'urgent']])
+        expect(writes).toEqual([{ id: 'a', tags: ['auth', 'security', 'urgent'] }])
+    })
+
+    it('saves tag edits made on two rows within the same pause', async () => {
+        const [reset, receipt] = ['Password reset', 'Receipt'].map(
+            (name) => logic.values.transactionalTemplates.find((t) => t.name === name)!
+        )
+
+        logic.actions.saveTransactionalTags(reset, ['auth', 'security'])
+        logic.actions.saveTransactionalTags(receipt, ['billing', 'urgent'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(writes).toEqual([
+            { id: 'a', tags: ['auth', 'security'] },
+            { id: 'b', tags: ['billing', 'urgent'] },
+        ])
     })
 })

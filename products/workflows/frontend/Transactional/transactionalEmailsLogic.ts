@@ -56,8 +56,8 @@ export interface transactionalEmailsLogicActions {
     setFiltersFromUrl: (filters: TransactionalEmailsFilters) => {
         filters: TransactionalEmailsFilters
     }
-    transactionalTagsSaved: () => {
-        value: true
+    transactionalTagsSaved: (templateId: string) => {
+        templateId: string
     }
 }
 
@@ -89,7 +89,7 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
         setFilters: (filters: Partial<TransactionalEmailsFilters>) => ({ filters }),
         setFiltersFromUrl: (filters: TransactionalEmailsFilters) => ({ filters }),
         saveTransactionalTags: (template: MessageTemplate, tags: string[]) => ({ template, tags }),
-        transactionalTagsSaved: true,
+        transactionalTagsSaved: (templateId: string) => ({ templateId }),
     }),
     reducers(() => ({
         filters: [
@@ -107,7 +107,7 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
             null as string | null,
             {
                 saveTransactionalTags: (_, { template }) => template.id,
-                transactionalTagsSaved: () => null,
+                transactionalTagsSaved: (state, { templateId }) => (state === templateId ? null : state),
             },
         ],
     })),
@@ -123,21 +123,21 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        saveTransactionalTags: async ({ template, tags }, breakpoint) => {
+        saveTransactionalTags: async ({ template, tags }) => {
             // The editor builds each payload from the row's tags, so a second edit made while the first
             // is in flight would be built from the stored list and drop the first one. Showing the new
             // tags at once gives that second edit the right starting point.
             actions.templateTagsSaved({ ...template, tags })
-            // One save per tag added or removed, so a burst of clicks is collapsed into a single write.
-            await breakpoint(300)
             try {
-                await saveTemplateTags(template, tags)
+                await saveTagsAfterPause(template, tags)
             } catch (error: any) {
                 lemonToast.error(`Couldn't save tags: ${error?.detail || error?.message || 'unknown error'}`)
                 // The row is showing tags that were never stored, so the stored ones are read back.
                 actions.loadTemplates()
             } finally {
-                actions.transactionalTagsSaved()
+                if (!pendingTagSaves.has(template.id)) {
+                    actions.transactionalTagsSaved(template.id)
+                }
             }
         },
     })),
@@ -185,3 +185,22 @@ export const transactionalEmailsLogic = kea<transactionalEmailsLogicType>([
         actions.loadTagsIfNeeded()
     }),
 ])
+
+// Tag writes waiting out their pause, keyed by template. They are held here rather than behind a
+// listener breakpoint, which would also cancel them when another row is edited or the list unmounts.
+const pendingTagSaves = new Map<string, () => void>()
+
+// One write per burst of clicks on a row, so two quick edits become a single save that keeps both tags.
+function saveTagsAfterPause(template: MessageTemplate, tags: string[]): Promise<void> {
+    pendingTagSaves.get(template.id)?.()
+    return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+            pendingTagSaves.delete(template.id)
+            saveTemplateTags(template, tags).then(resolve, reject)
+        }, 300)
+        pendingTagSaves.set(template.id, () => {
+            clearTimeout(timer)
+            resolve()
+        })
+    })
+}
