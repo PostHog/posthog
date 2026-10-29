@@ -16,7 +16,7 @@ export function InboxSetupActions(): JSX.Element {
 
     return (
         <div className="flex w-full min-w-0 flex-col gap-4">
-            {!isTreatment && (
+            {!isTreatment && !isQuickSetup && (
                 <div className="flex min-w-0 flex-col gap-2">
                     <p className="m-0 text-sm text-secondary">
                         Install with Wizard. Run the setup agent in your repository to connect GitHub and choose your

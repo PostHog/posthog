@@ -151,7 +151,6 @@ TemporalIO not-checkable:driver:temporalio.client
 TerraformCloud fail:safe-point
 TikTokAds not-checkable:database
 Trino not-checkable:schemas
-TrunkIo fail:safe-point
 TwitterAds not-checkable:database
 Ubidots fail:safe-point
 Unleash fail:safe-point

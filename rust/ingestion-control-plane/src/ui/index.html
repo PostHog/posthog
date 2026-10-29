@@ -1418,7 +1418,7 @@
             this.ui.changelogError.replaceChildren();
             this.ui.changelogForm.replaceChildren(...(view.config
               ? [this.migrationForm(view), this.retireGroupForm()]
-              : [this.seedForm()]));
+              : [this.seedForm(), this.restoreForm()]));
           }
           if (!view.config) {
             this.ui.changelogStatus.replaceChildren(
@@ -1523,6 +1523,48 @@
           };
           return el("div", { style: "padding: 0 14px 6px" },
             el("div", { class: "row" }, topicInput, groupInput, button),
+            error);
+        },
+
+        restoreForm() {
+          const versions = el("select", { disabled: true }, el("option", {}, "loading backups…"));
+          const error = el("div");
+          const button = el("button", { disabled: true }, "Restore from backup");
+          fetchJSON("api/personhog/changelog/backups")
+            .then((list) => {
+              if (!list.length) {
+                versions.replaceChildren(el("option", {}, "no backups yet"));
+                return;
+              }
+              versions.replaceChildren(...list.map((v) => el("option", { value: v.version_id },
+                `${v.is_latest ? "current" : "earlier"}: ${v.last_modified || v.version_id}`)));
+              versions.disabled = false;
+              button.disabled = false;
+            })
+            .catch((e) => {
+              versions.replaceChildren(el("option", {}, "backups unavailable"));
+              error.replaceChildren(el("div", { class: "muted" }, String(e)));
+            });
+          button.onclick = async () => {
+            const version_id = versions.value;
+            const label = versions.selectedOptions[0] ? versions.selectedOptions[0].textContent : version_id;
+            if (!window.confirm(`Restore config/changelog from the backup ${label}?\n\nThe config is written exactly as it was backed up, epoch and draining generations included. Restore only works while etcd holds no config. Running services ignore a config with an older epoch than they adopted, so scale personhog to zero first when rebuilding etcd.`)) return;
+            button.disabled = true;
+            try {
+              await fetchJSON("api/personhog/changelog/restore", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ version_id }),
+              });
+              this.refresh();
+            } catch (e) {
+              error.replaceChildren(el("div", { class: "error-box" }, String(e)));
+            } finally {
+              button.disabled = false;
+            }
+          };
+          return el("div", { style: "padding: 0 14px 6px" },
+            el("div", { class: "row" }, versions, button),
             error);
         },
 

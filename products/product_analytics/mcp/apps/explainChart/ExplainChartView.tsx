@@ -25,11 +25,11 @@ export interface StoryPageChange {
 }
 
 export interface StoryEvidenceCharts {
-    canShow: (query: Record<string, unknown>) => boolean
-    prefetch: (queries: Record<string, unknown>[]) => void
+    canShow: (item: StoryEvidence) => boolean
+    prefetch: (items: StoryEvidence[]) => void
     /** Draws the chart, fading every series that the evidence's text does not name. */
-    render: (query: Record<string, unknown>, text: string) => ReactNode
-    onShow?: (query: Record<string, unknown>) => void
+    render: (item: StoryEvidence) => ReactNode
+    onShow?: (item: StoryEvidence) => void
 }
 
 export interface ExplainChartViewProps {
@@ -72,7 +72,7 @@ export function ExplainChartView({
     evidenceCharts,
 }: ExplainChartViewProps): ReactElement {
     const pages = useMemo(() => buildStoryPages(data, formatValue), [data, formatValue])
-    // With one chapter, a summary page and steps add nothing, so the walkthrough is that chapter alone.
+    // With one chapter, a summary page and steps add nothing, so the explanation is that chapter alone.
     const singleChapter = pages.length === 2
     const [activeIndex, setActiveIndex] = useState(singleChapter ? 1 : 0)
     const [previewIndex, setPreviewIndex] = useState<number | null>(null)
@@ -81,27 +81,25 @@ export function ExplainChartView({
     const hasNext = activeIndex + 1 < pages.length
     const shownEvidence: StoryEvidence | null =
         shownEvidenceIndex === null ? null : (active.chapter?.evidence[shownEvidenceIndex] ?? null)
-    const evidenceView =
-        evidenceCharts && shownEvidence?.query ? { text: shownEvidence.text, query: shownEvidence.query } : null
+    const evidenceView = shownEvidence && evidenceCharts?.canShow(shownEvidence) ? shownEvidence : null
 
     const prefetch = evidenceCharts?.prefetch
     useEffect(() => {
-        const queries = active.chapter?.evidence.flatMap((item) => (item.query ? [item.query] : [])) ?? []
-        if (queries.length) {
-            prefetch?.(queries)
+        if (active.chapter?.evidence.length) {
+            prefetch?.(active.chapter.evidence)
         }
     }, [active, prefetch])
 
-    const canShowChart = (item: StoryEvidence): boolean => !!item.query && !!evidenceCharts?.canShow(item.query)
+    const canShowChart = (item: StoryEvidence): boolean => !!evidenceCharts?.canShow(item)
 
     const toggleEvidenceChart = (index: number): void => {
-        const query = active.chapter?.evidence[index]?.query
-        if (index === shownEvidenceIndex || !query) {
+        const item = active.chapter?.evidence[index]
+        if (index === shownEvidenceIndex || !item) {
             setShownEvidenceIndex(null)
             return
         }
         setShownEvidenceIndex(index)
-        evidenceCharts?.onShow?.(query)
+        evidenceCharts?.onShow?.(item)
     }
 
     const select = (index: number, source: StoryNavigationSource): void => {
@@ -140,10 +138,10 @@ export function ExplainChartView({
                                     data-attr="explain-chart-evidence-back"
                                 >
                                     <ArrowLeft className="size-3" />
-                                    Back to the walkthrough
+                                    Back to the explanation
                                 </Button>
                             </div>
-                            {evidenceCharts.render(evidenceView.query, evidenceView.text)}
+                            {evidenceCharts.render(evidenceView)}
                         </>
                     ) : (
                         <>
@@ -158,7 +156,7 @@ export function ExplainChartView({
                 </div>
                 <aside
                     className="relative shrink-0 border-t border-border @3xl/story:w-80 @3xl/story:border-t-0 @3xl/story:border-l"
-                    aria-label="Walkthrough of this chart"
+                    aria-label="Explanation of this chart"
                 >
                     {/* Beside the chart, the panel takes the chart's height and the page scrolls inside it. */}
                     <div className="flex flex-col @3xl/story:absolute @3xl/story:inset-0">

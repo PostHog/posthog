@@ -76,10 +76,10 @@ export interface SlopeChartProps<Meta = SlopeSeriesMeta> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-export function SlopeChart<Meta = SlopeSeriesMeta>({ onError, ...rest }: SlopeChartProps<Meta>): React.ReactElement {
+export function SlopeChart<Meta = SlopeSeriesMeta>(props: SlopeChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
-            <SlopeChartInner {...rest} />
+        <ChartErrorBoundary onError={props.onError}>
+            <SlopeChartInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -98,6 +98,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
     className,
     dataAttr,
     children,
+    onError,
 }: SlopeChartProps<Meta>): React.ReactElement {
     const {
         showSeriesLabels = true,
@@ -233,6 +234,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                 onPointClick={onPointClick}
                 className={className}
                 dataAttr={dataAttr}
+                onError={onError}
             >
                 <SlopeValueLabels
                     valueFormatter={valueFormatter}
