@@ -33,6 +33,8 @@ export function openTakeOwnershipDialog({
         LemonDialog.open({
             title: `Take ownership of this ${resourceLabel}?`,
             description: `This ${resourceLabel} runs with its owner's access, and the owner can no longer run it. Taking ownership makes you the owner and enables it, so it runs with your access from now on.`,
+            // Two sentences of copy; the default dialog width spans the screen.
+            maxWidth: '30rem',
             shouldAwaitSubmit: true,
             primaryButton: {
                 children: 'Take ownership and enable',
