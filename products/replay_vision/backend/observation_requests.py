@@ -706,8 +706,8 @@ def _unanswered_reason(session: RequestSession) -> list[str]:
     return []
 
 
-# The answer a workflow step gets, per scanner type. Internal fields (citation segments, idle periods,
-# notability) would push a long session's answer over the step result budget and cut the chapters.
+# The answer a workflow step gets, per scanner type. Internal fields (citation segments, idle periods)
+# would push a long session's answer over the step result budget and cut the chapters.
 # Short fields come first: the size cap fills fields in order, so a long summary can't crowd them out.
 _STEP_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
     ScannerType.MONITOR: ("confidence", "verdict", "reasoning"),
