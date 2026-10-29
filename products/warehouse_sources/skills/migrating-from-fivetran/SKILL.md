@@ -77,8 +77,9 @@ project yet. Tell the user that and stop.
    before you apply that item. Recommend writing to the same destination type as Fivetran, into the schema
    `posthog_<prefix>` (the item's `proposal.prefix`), so the two tools never write into the same tables while both
    run. Wait for the answer. If the user agrees, share `external-data-destinations-connect-link` with
-   `migration_item_id` set to the item, so the page fills in the host, port, database and user from Fivetran. Then
-   create the destination with `external-data-destinations-create`, and pass its id as `destination_ids` to apply.
+   `migration_item_id` set to the item, so the page fills in the connection settings from Fivetran and the user
+   types only the secret. Then create the destination with `external-data-destinations-create`, with the target
+   config the link's `instructions` suggest, and pass its id as `destination_ids` to apply.
    Attached at creation, the destination gets the full history in the first sync. If those tools are not available,
    the data lands in the PostHog warehouse only.
 5. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user
