@@ -272,6 +272,10 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
     pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
     pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
+    # Lowercased "organization/repository" names that implementation tasks may also read and write,
+    # for example an assets repository a PR uploads screenshots to. They widen the run's GitHub token
+    # only. The run never clones them, and the PR target stays the selected repository.
+    implementation_repositories = models.JSONField(default=list, db_default=[], blank=True)
     # Opt-out of anomaly scoring (see anomaly_scores/queue.py). The `anomaly-scoring` flag payload
     # still decides which projects are enrolled, so turning this on cannot enroll a project.
     anomaly_scoring_enabled = models.BooleanField(default=True, db_default=True)

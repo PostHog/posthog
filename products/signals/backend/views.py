@@ -669,16 +669,20 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
 
+# A task agent that could edit this list would widen the GitHub token of every later implementation run.
+_SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
+
+
 class SignalSteeringPermission(TeamMemberStrictManagementPermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if (
             request.method in ("GET", "HEAD", "OPTIONS")
             or not isinstance(request.data, dict)
-            or not any(field in request.data for field in STEERING_FIELDS.values())
+            or not any(field in request.data for field in _SANDBOX_PROTECTED_CONFIG_FIELDS)
         ):
             return True
         if is_sandbox_oauth_request(request):
-            self.message = "Task agents cannot modify steering instructions."
+            self.message = "Task agents cannot modify steering instructions or implementation repositories."
             return False
         return super().has_permission(request, view)
 
