@@ -27,7 +27,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.temporal.ai_observability.judge_images import JudgeImages
+from posthog.temporal.ai_observability.judge_images import ImagePrompt, JudgeImages
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from posthog.temporal.common.errors import NonReportableError
@@ -35,6 +35,7 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
+    RESPONSE_LIMIT_MESSAGE,
     AuthenticationError,
     ClaudeDeploymentOnAzureOpenAIError,
     ContentFilteredError,
@@ -1139,20 +1140,41 @@ def _openai_status_error(status: int, message: str) -> openai.APIStatusError:
     return openai.APIStatusError(f"Error code: {status}", response=response, body={"error": {"message": message}})
 
 
+def _adapter_rejection(cause: Exception | None) -> ProviderRequestRejectedError:
+    error = ProviderRequestRejectedError(RESPONSE_LIMIT_MESSAGE if cause is None else "The provider rejected it.")
+    error.__cause__ = cause
+    return error
+
+
 @pytest.mark.parametrize(
-    "error",
+    ("error", "presigned_url", "retries"),
     [
-        pytest.param(ProviderRequestRejectedError("The model does not accept image input."), id="mapped_rejection"),
-        pytest.param(_openai_status_error(400, "Error while downloading the image."), id="unmapped_400"),
+        pytest.param(
+            _adapter_rejection(_openai_status_error(400, "Image input is not supported.")),
+            "https://signed",
+            True,
+            id="adapter_wrapped_400",
+        ),
+        pytest.param(
+            _openai_status_error(400, "Error while downloading the image."), "https://signed", True, id="raw_400"
+        ),
+        pytest.param(_adapter_rejection(None), "https://signed", False, id="unreadable_response"),
+        pytest.param(_openai_status_error(400, "Bad request."), None, False, id="no_image_attached"),
     ],
 )
-def test_judge_retries_with_text_only_when_the_provider_rejects_images(error: Exception) -> None:
+def test_judge_falls_back_to_the_plain_prompt_only_when_an_attached_image_is_rejected(
+    error: Exception, presigned_url: str | None, retries: bool
+) -> None:
     images = JudgeImages(team_id=1)
-    user_prompt = f"user: {images.marker(MediaBlock(modality='image', mime_type='image/png', base64_data='aGk='))}"
+    pointer = MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1")
+    image_prompt = ImagePrompt(text=f"user: {images.marker(pointer)} Polite?", images=images)
 
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client_class,
+        patch(
+            "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url", return_value=presigned_url
+        ),
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider="openai", model="gpt-5.5", provider_key=MagicMock(), is_byok=True
@@ -1165,14 +1187,16 @@ def test_judge_retries_with_text_only_when_the_provider_rejects_images(error: Ex
         result = call_llm_judge(
             evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
             system_prompt="",
-            user_prompt=user_prompt,
+            user_prompt="user: Polite?",
             allows_na=False,
-            images=images,
+            image_prompt=image_prompt,
         )
 
-    assert result["verdict"] is True
-    assert isinstance(client.complete.call_args_list[0].args[0].messages[0]["content"], list)
-    assert client.complete.call_args_list[1].args[0].messages == [{"role": "user", "content": user_prompt}]
+    if retries:
+        assert result["verdict"] is True
+        assert client.complete.call_args_list[1].args[0].messages == [{"role": "user", "content": "user: Polite?"}]
+    else:
+        assert client.complete.call_count == 1
 
 
 @pytest.mark.parametrize(

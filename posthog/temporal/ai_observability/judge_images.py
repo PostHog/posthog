@@ -32,6 +32,14 @@ _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
 
 
 @frozen
+class ImagePrompt:
+    """The judge transcript with `[image N]` markers, and the images those markers refer to."""
+
+    text: str
+    images: "JudgeImages"
+
+
+@frozen
 class _Image:
     number: int
     mime_type: str
@@ -69,17 +77,24 @@ class JudgeImages:
         if not images:
             return user_prompt
 
-        # Numbers follow the transcript, input before output, so the last ones are the newest and the graded output.
-        attachable = {image.number for image in images[-MAX_IMAGES:]}
+        # Keep the images referenced last: the newest input and the graded output, even when it repeats an old image.
+        ranked = sorted(images, key=lambda image: user_prompt.rfind(f"[image {image.number}]"))
+        attachable = {image.number for image in ranked[-MAX_IMAGES:]}
         parts: list[Any] = [{"type": "text", "text": "The transcript refers to these images as [image N]."}]
         outcomes: Counter[str] = Counter()
         inline_bytes = 0
         for image in images:
-            part = self._image_part(image, provider, model) if image.number in attachable else None
+            transport = image_transport(provider, model, image.mime_type)
+            declared = (image.pointer.size or 0) if image.pointer else 0
+            # Skip the download when the pointer already says the image does not fit.
+            fits = transport != "inline" or inline_bytes + declared <= MAX_INLINE_BYTES
+            part = self._image_part(image, transport) if image.number in attachable and fits else None
             size = len(part.base64_data) * 3 // 4 if part is not None and part.base64_data is not None else 0
             outcome: Outcome
             if image.number not in attachable:
                 outcome = "over_limit"
+            elif not fits:
+                outcome = "too_large"
             elif part is None:
                 outcome = "unavailable"
             elif inline_bytes + size > MAX_INLINE_BYTES:
@@ -97,8 +112,7 @@ class JudgeImages:
         logger.info("judge_images_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
-    def _image_part(self, image: _Image, provider: str, model: str) -> ImagePart | None:
-        transport = image_transport(provider, model, image.mime_type)
+    def _image_part(self, image: _Image, transport: Literal["url", "inline"] | None) -> ImagePart | None:
         if transport is None:
             return None
         if image.pointer is None:

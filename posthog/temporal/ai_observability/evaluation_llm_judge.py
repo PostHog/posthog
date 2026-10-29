@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one import (
     MAX_SCORE_LEVELS,
     ChoiceAnswer,
@@ -40,7 +41,7 @@ from posthog.temporal.ai_observability.evaluation_types import (
     build_generation_not_found_result,
     build_skipped_evaluation_result,
 )
-from posthog.temporal.ai_observability.judge_images import JudgeImages
+from posthog.temporal.ai_observability.judge_images import ImagePrompt, JudgeImages
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -79,6 +80,7 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
+from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL
@@ -444,6 +446,14 @@ def _build_unparsable_response_skip_result(
     return result
 
 
+def _provider_rejected(error: Exception) -> bool:
+    """A 4xx from the provider, raw or wrapped by an adapter. A response we could not read does not count."""
+    cause = error.__cause__
+    return _rejected_request_status(error) is not None or (
+        isinstance(cause, Exception) and _rejected_request_status(cause) is not None
+    )
+
+
 def _rejected_request_status(error: Exception) -> int | None:
     """The 4xx status of a provider rejection that no retry can fix, or None.
 
@@ -560,18 +570,11 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         return _build_errored_trace_result(allows_na, output_type=output_type)
 
     io = extract_event_io(event_type, properties)
-    tools_raw = extract_event_tools(properties)
-
-    images = JudgeImages(evaluation["team_id"]) if _judge_sees_images(evaluation) else None
-    input_data = extract_text_from_messages(io.input_raw, images)
-    output_data = extract_text_from_messages(io.output_raw, images)
-    tools_data = format_tool_definitions(tools_raw)
-
+    tools_data = format_tool_definitions(extract_event_tools(properties))
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    output_section = f"\n\nOutput: {output_data}"
-    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
-    if context_budget < 0:
+    user_prompt = _build_user_prompt(io.input_raw, io.output_raw, tools_data, images=None)
+    if user_prompt is None:
         return build_skipped_evaluation_result(
             output_type=output_type,
             allows_na=allows_na,
@@ -579,12 +582,13 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
             skip_reason="generation_output_too_long",
         )
 
-    sections = [input_data]
-    if tools_data:
-        sections.append(f"Tools available:\n{tools_data}")
-    # Keep the full answer being graded outside the sampled context.
-    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
-    user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
+    # The plain prompt stays the text-only fallback, for decision models and for a provider that rejects images.
+    image_prompt = None
+    if _judge_sees_images(evaluation):
+        images = JudgeImages(evaluation["team_id"])
+        marked = _build_user_prompt(io.input_raw, io.output_raw, tools_data, images=images)
+        if marked is not None and marked != user_prompt:
+            image_prompt = ImagePrompt(text=marked, images=images)
 
     return call_llm_judge(
         evaluation=evaluation,
@@ -592,14 +596,26 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         user_prompt=user_prompt,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
-        images=images,
+        image_prompt=image_prompt,
     )
 
 
+def _build_user_prompt(input_raw: Any, output_raw: Any, tools_data: str, *, images: JudgeImages | None) -> str | None:
+    """The judge's user prompt, or None when the output alone exceeds the judge's text limit."""
+    output_section = f"\n\nOutput: {extract_text_from_messages(output_raw, images)}"
+    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
+    if context_budget < 0:
+        return None
+    sections = [extract_text_from_messages(input_raw, images)]
+    if tools_data:
+        sections.append(f"Tools available:\n{tools_data}")
+    # Keep the full answer being graded outside the sampled context.
+    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
+    return sanitize_surrogates(f"Input: {context}{output_section}")
+
+
 def _judge_sees_images(evaluation: dict[str, Any]) -> bool:
-    config = evaluation["evaluation_config"]
-    # Decision models take the transcript as text only.
-    if config.get("include_media") is False or config.get("judge_method") == "decision":
+    if evaluation["evaluation_config"].get("include_media") is False:
         return False
     team_id = str(evaluation["team_id"])
     # Local evaluation keeps the check off the network. An inconclusive result means off.
@@ -639,7 +655,7 @@ def call_llm_judge(
     user_prompt: str,
     allows_na: bool,
     backfill: bool = False,
-    images: JudgeImages | None = None,
+    image_prompt: ImagePrompt | None = None,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -854,7 +870,11 @@ def call_llm_judge(
                 messages=[
                     {
                         "role": "user",
-                        "content": images.content(user_prompt, provider, model) if images else user_prompt,
+                        "content": (
+                            image_prompt.images.content(image_prompt.text, provider, model)
+                            if image_prompt
+                            else user_prompt
+                        ),
                     }
                 ],
                 provider=provider,
@@ -863,12 +883,16 @@ def call_llm_judge(
             try:
                 response = client.complete(request)
             except Exception as e:
-                rejected = isinstance(e, ProviderRequestRejectedError) or _rejected_request_status(e) is not None
-                if not rejected or isinstance(request.messages[0]["content"], str):
+                content = request.messages[0]["content"]
+                sent_images = isinstance(content, list) and any(isinstance(part, ImagePart) for part in content)
+                if not sent_images or not _provider_rejected(e):
                     raise
                 # A model without image input, or an image link the provider could not download.
-                # Grade the transcript alone rather than skip the run.
+                # Grade the plain transcript rather than skip the run.
                 logger.warning("judge_images_rejected", evaluation_id=evaluation["id"], provider=provider, model=model)
+                if not is_byok:
+                    # On a PostHog key this can mean broken presigned links, so keep it visible.
+                    capture_exception(e)
                 response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)

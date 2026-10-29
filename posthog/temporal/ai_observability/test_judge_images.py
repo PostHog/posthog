@@ -48,6 +48,29 @@ class TestJudgeImagesMarkers:
 
 
 class TestJudgeImagesContent:
+    def test_an_image_referenced_again_at_the_end_stays_attached(self):
+        images = JudgeImages(team_id=7)
+        markers = [images.marker(_inline(f"{i:02}")) for i in range(MAX_IMAGES + 1)]
+        # The output repeats the first input image after every newer one.
+        content = images.content(" ".join([*markers, markers[0]]), "openai", "gpt-5.5")
+
+        assert {"type": "text", "text": "Image 1:"} in content
+        assert {"type": "text", "text": "Image 2: not attached, over the judge's image limit."} in content
+
+    def test_skips_the_download_when_the_declared_size_does_not_fit(self):
+        images = JudgeImages(team_id=7)
+        big = [
+            MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{digit * 64}?mime=image%2Fpng&size=10000000")
+            for digit in "ab"
+        ]
+        prompt = " ".join(images.marker(media) for media in big)
+
+        with patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"x" * 10_000_000) as read:
+            content = images.content(prompt, "together_ai", "any")
+
+        assert read.call_count == 1
+        assert {"type": "text", "text": "Image 2: not attached, too large."} in content
+
     def test_attaches_the_newest_images_when_over_the_limit(self):
         images = JudgeImages(team_id=7)
         prompt = " ".join(images.marker(_inline(f"{i:02}")) for i in range(MAX_IMAGES + 1))
