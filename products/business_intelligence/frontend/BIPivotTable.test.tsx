@@ -29,6 +29,61 @@ describe('BIPivotTable', () => {
         jest.restoreAllMocks()
     })
 
+    it.each(['rows', 'columns'] as const)(
+        'places measures on %s without row dimensions and preserves drill-down',
+        (shelf) => {
+            jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(400)
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+            const config: BIConfig = {
+                ...DEFAULT_BI_CONFIG,
+                chartType: ChartDisplayType.ActionsTable,
+                rows: [],
+                columns: [field('channel')],
+                values: [
+                    {
+                        field: field('amount'),
+                        aggregation: 'sum',
+                        shelf,
+                        display: { label: 'Revenue' },
+                        formatting: { prefix: '$' },
+                    },
+                    { field: field('orders'), aggregation: 'count', shelf, display: { label: 'Orders' } },
+                ],
+            }
+            const onInspect = jest.fn()
+            const { container } = render(
+                <BIPivotTable
+                    config={config}
+                    columns={['bi_column_channel', 'sum_amount', 'count_orders_2']}
+                    results={[
+                        [null, 12, 3],
+                        ['Search', 8, 2],
+                    ]}
+                    onInspect={onInspect}
+                    cellBackground={(_, column) => (column === 'sum_amount' ? '#FFADAD' : undefined)}
+                />
+            )
+            const body = container.querySelector('tbody')!
+            expect(
+                Array.from(body.querySelectorAll('tr')).map((row) =>
+                    Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent)
+                )
+            ).toEqual(
+                shelf === 'rows'
+                    ? [
+                          ['Revenue', '$12', '$8'],
+                          ['Orders', '3', '2'],
+                      ]
+                    : [['', '$12', '3', '$8', '2']]
+            )
+            expect(
+                Array.from(body.querySelectorAll<HTMLElement>('td')).filter((cell) => cell.style.backgroundColor)
+            ).toHaveLength(2)
+            fireEvent.click(screen.getByText('$12'))
+            expect(onInspect).toHaveBeenCalledWith({ bi_column_channel: null, sum_amount: 12, count_orders_2: 3 })
+        }
+    )
+
     it.each<[boolean, string | number, string | number, ColumnScalar]>([
         [false, 10, 20, 'INTEGER'],
         [true, 10, 20, 'INTEGER'],
@@ -88,60 +143,73 @@ describe('BIPivotTable', () => {
         }
     )
 
-    it('windows a large sparse pivot on both axes and inspects the last cell', () => {
-        jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(
-            function (this: HTMLElement): number {
-                return this.tagName === 'TR' ? 36 : 180
+    it.each(['rows', 'columns'] as const)(
+        'windows a sparse pivot with measures on %s and inspects the last cell',
+        (shelf) => {
+            jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(
+                function (this: HTMLElement): number {
+                    return this.tagName === 'TR' ? 36 : 180
+                }
+            )
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+            const config = {
+                ...DEFAULT_BI_CONFIG,
+                chartType: ChartDisplayType.ActionsTable,
+                rows: [field('region')],
+                columns: [field('channel')],
+                values: [
+                    { field: field('amount'), aggregation: 'sum' as const, shelf },
+                    {
+                        field: field('event'),
+                        aggregation: 'custom' as const,
+                        shelf,
+                        customExpression: 'argMax(event, timestamp)',
+                    },
+                ],
             }
-        )
-        jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
-        const config = {
-            ...DEFAULT_BI_CONFIG,
-            chartType: ChartDisplayType.ActionsTable,
-            rows: [field('region')],
-            columns: [field('channel')],
-            values: [
-                { field: field('amount'), aggregation: 'sum' as const },
-                { field: field('event'), aggregation: 'custom' as const, customExpression: 'argMax(event, timestamp)' },
-            ],
+            const results = [
+                ...Array.from({ length: 600 }, (_, index) => [`Region ${index}`, 'Channel 0', index, 'view']),
+                ...Array.from({ length: 89 }, (_, index) => ['Region 0', `Channel ${index + 1}`, index + 1, 'view']),
+                ['Region 599', 'Channel 89', 59989, 'purchase'],
+            ]
+            const onInspect = jest.fn()
+            const { container } = render(
+                <div style={{ height: 180 }}>
+                    <BIPivotTable
+                        config={config}
+                        columns={['bi_row_region', 'bi_column_channel', 'sum_amount', 'custom_event_2']}
+                        results={results}
+                        onInspect={onInspect}
+                        embedded
+                    />
+                </div>
+            )
+            const scroll = container.querySelector('.ScrollableShadows__inner')!
+            expect(screen.getAllByText('Region 0')[0]).toBeVisible()
+            expect(screen.queryByText('Region 599')).not.toBeInTheDocument()
+            expect(container.querySelectorAll('tbody td').length).toBeLessThan(250)
+
+            fireEvent.scroll(scroll, {
+                target: {
+                    scrollLeft: (shelf === 'rows' ? 91 : 181) * 192 - 800,
+                    scrollTop: 600 * (shelf === 'rows' ? 2 : 1) * 36,
+                },
+            })
+
+            expect(screen.getAllByText('Region 599')[0]).toBeVisible()
+            expect(screen.queryByText('Region 0')).not.toBeInTheDocument()
+            expect(screen.getByText('59989')).toBeVisible()
+            const lastCell = screen.getByText('purchase')
+            fireEvent.click(lastCell)
+            expect(onInspect).toHaveBeenCalledWith({
+                bi_row_region: 'Region 599',
+                bi_column_channel: 'Channel 89',
+                sum_amount: 59989,
+                custom_event_2: 'purchase',
+            })
+            expect(container.querySelectorAll('tbody td').length).toBeLessThan(250)
         }
-        const results = [
-            ...Array.from({ length: 600 }, (_, index) => [`Region ${index}`, 'Channel 0', index, 'view']),
-            ...Array.from({ length: 89 }, (_, index) => ['Region 0', `Channel ${index + 1}`, index + 1, 'view']),
-            ['Region 599', 'Channel 89', 59989, 'purchase'],
-        ]
-        const onInspect = jest.fn()
-        const { container } = render(
-            <div style={{ height: 180 }}>
-                <BIPivotTable
-                    config={config}
-                    columns={['bi_row_region', 'bi_column_channel', 'sum_amount', 'custom_event_2']}
-                    results={results}
-                    onInspect={onInspect}
-                    embedded
-                />
-            </div>
-        )
-        const scroll = container.querySelector('.ScrollableShadows__inner')!
-        expect(screen.getByText('Region 0')).toBeVisible()
-        expect(screen.queryByText('Region 599')).not.toBeInTheDocument()
-        expect(container.querySelectorAll('tbody td').length).toBeLessThan(250)
-
-        fireEvent.scroll(scroll, { target: { scrollLeft: 181 * 192 - 800, scrollTop: 600 * 36 } })
-
-        expect(screen.getByText('Region 599')).toBeVisible()
-        expect(screen.queryByText('Region 0')).not.toBeInTheDocument()
-        expect(screen.getByText('59989')).toBeVisible()
-        const lastCell = screen.getByText('purchase')
-        fireEvent.click(lastCell)
-        expect(onInspect).toHaveBeenCalledWith({
-            bi_row_region: 'Region 599',
-            bi_column_channel: 'Channel 89',
-            sum_amount: 59989,
-            custom_event_2: 'purchase',
-        })
-        expect(container.querySelectorAll('tbody td').length).toBeLessThan(250)
-    })
+    )
     it('keeps the last column reachable at the width limit and rejects wider pivots', () => {
         jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(180)
         jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
@@ -151,8 +219,8 @@ describe('BIPivotTable', () => {
             rows: [field('region')],
             columns: [field('channel')],
             values: [
-                { field: field('amount'), aggregation: 'sum' },
-                { field: field('cost'), aggregation: 'sum' },
+                { field: field('amount'), aggregation: 'sum', shelf: 'columns' },
+                { field: field('cost'), aggregation: 'sum', shelf: 'columns' },
             ],
         }
         const results = Array.from({ length: 5001 }, (_, index) => ['East', `Channel ${index}`, index, index + 10000])
