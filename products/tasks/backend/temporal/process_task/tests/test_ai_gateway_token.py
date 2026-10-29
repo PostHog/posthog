@@ -306,7 +306,9 @@ class TestMintScopedToken:
         assert body["product"] == "review_hog"
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "account_audit", "review_hog", "slack_app", "workflows"])
+    @pytest.mark.parametrize(
+        "product", ["posthog_ai", "account_audit", "background_agents", "review_hog", "slack_app", "workflows"]
+    )
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
         from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
@@ -558,13 +560,29 @@ class TestMintableGate:
     """Mint scope needs server-side provenance: `internal` and some origin_product
     values are API-settable, so a routed-but-unmintable product must never mint."""
 
-    @pytest.mark.parametrize("origin_product", ["image_builder", "business_knowledge"])
-    def test_caller_internal_flag_cannot_mint_for_background_agents(self, mint_settings, origin_product):
+    @pytest.mark.parametrize(
+        "origin_product,mints",
+        [
+            ("autoresearch", True),
+            ("business_knowledge", True),
+            ("task_analysis", True),
+            ("image_builder", False),
+            ("user_created", False),
+            (None, False),
+        ],
+    )
+    def test_background_agents_mints_only_for_reserved_origins(self, mint_settings, origin_product, mints):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "background_agents"
-        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
+        ) as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, internal=True)
-        assert "AI_GATEWAY_TOKEN" not in env
-        mint.assert_not_called()
+        assert ("AI_GATEWAY_TOKEN" in env) is mints
+        if mints:
+            assert env["AI_GATEWAY_PRODUCT"] == "background_agents"
+            mint.assert_called_once_with(ai_product="background_agents", team_id=123, user=None)
+        else:
+            mint.assert_not_called()
 
     def test_routed_review_hog_mints(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
