@@ -77,9 +77,9 @@ tools:
             the value at each flagged bucket, anomaly-insight-get with the row's `insight_id` gives the full scored
             history of every series of that insight, and the insight's own query (for example query-trends on the
             insight) shows the live chart. An empty result means nothing was flagged among the insights scored in the
-            range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or the
-            project turned scoring off in its self-driving settings; `message` says which. Use
-            `group_by: insight` for one row per insight. A 404 means anomaly search is not available for this project.
+            range, or that the project is not scored (`scoring_enabled: false`), because scoring does not cover it or
+            the project turned scoring off in its self-driving settings; `message` says which. Use `group_by: insight`
+            for one row per insight. A 404 means anomaly search is not available for this project.
         feature_flag: anomalies-search
     inbox-ranking-outcomes-list:
         operation: signals_reports_ranking_outcomes_list
