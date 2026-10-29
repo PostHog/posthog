@@ -1,93 +1,55 @@
-"""Replay Vision's Gemini client: the AI gateway when enabled for the team, else Google directly with our key."""
+"""Replay Vision's Gemini client. Every call goes through the AI gateway; there is no direct route to Google."""
 
 from collections.abc import Mapping
 from typing import Any
 
-from django.conf import settings
-
-import posthoganalytics
 from google.genai import (
     Client as RawGenAIClient,
     errors,
     types,
 )
-from posthoganalytics.ai.gemini import genai
 
-from posthog.llm.gateway_client import (
-    ai_gateway_headers,
-    build_gemini_client,
-    resolve_ai_gateway_config,
-    team_distinct_id,
-)
-from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
+from posthog.llm.gateway_client import ai_gateway_headers, build_gemini_client
 
 AI_PRODUCT = "replay_vision"
-GATEWAY_FLAG = "replay-vision-ai-gateway"
 
 
-def gemini_api_key() -> str:
-    """Replay Vision's dedicated key (own GCP project), falling back to the shared key where unset."""
-    return settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
+class GatewayNotConfiguredError(RuntimeError):
+    """`AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` are unset or invalid, so Replay Vision cannot reach Gemini."""
 
 
-async def replay_gemini_client(team_id: int, *, properties: Mapping[str, Any] | None = None) -> "ReplayGemini":
+def replay_gemini_client(*, properties: Mapping[str, Any] | None = None) -> "ReplayGemini":
     base_properties = dict(properties or {})
-    if await _gateway_enabled(team_id) and (
-        client := build_gemini_client(
-            ai_product=AI_PRODUCT, properties=_gateway_labels(base_properties), privacy_mode=True
-        )
-    ):
-        return ReplayGemini(client, _AsyncGatewayModels(client.aio.models, base_properties))
-    # Privacy mode keeps recording content out of the internal project, where it can't be deleted with the recording.
-    direct = genai.AsyncClient(api_key=gemini_api_key(), posthog_privacy_mode=True, posthog_properties=base_properties)
-    return ReplayGemini(RawGenAIClient(api_key=gemini_api_key()), direct.models)
+    client = _gateway_client(properties=_gateway_labels(base_properties), privacy_mode=True)
+    return ReplayGemini(client, _AsyncGatewayModels(client.aio.models, base_properties))
 
 
-def gemini_text_models(team_id: int, *, timeout_ms: int) -> Any:
-    """Sync `models` for text-only calls; takes the analytics wrapper's `posthog_*` kwargs on both routes."""
-    # Text calls upload no files, so unlike `replay_gemini_client` the gateway does not need Replay Vision's own key.
-    if (
-        resolve_ai_gateway_config() is not None
-        and _flag_enabled(team_id, str(Team.objects.values_list("organization_id", flat=True).get(id=team_id)))
-        and (client := build_gemini_client(ai_product=AI_PRODUCT, privacy_mode=True, timeout_ms=timeout_ms))
-    ):
-        return _SyncGatewayModels(client.models)
+def gemini_text_models(*, timeout_ms: int) -> "_SyncGatewayModels":
+    """Sync `models` for text-only calls; takes the analytics wrapper's `posthog_*` kwargs as gateway headers."""
+    return _SyncGatewayModels(_gateway_client(privacy_mode=True, timeout_ms=timeout_ms).models)
+
+
+def gemini_files_client() -> RawGenAIClient:
+    """Deletes uploaded files, which carry no content, so it needs no privacy mode or labels."""
+    return _gateway_client()
+
+
+def _gateway_client(
+    *, properties: Mapping[str, str] | None = None, privacy_mode: bool = False, timeout_ms: int | None = None
+) -> RawGenAIClient:
     # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-    return genai.Client(
-        api_key=gemini_api_key(),
-        posthog_privacy_mode=True,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": timeout_ms},
-    ).models
-
-
-async def _gateway_enabled(team_id: int) -> bool:
-    # Cleanup and the sweep delete files with the direct key, so gateway mode also needs Replay Vision's own key.
-    if not settings.REPLAY_VISION_GEMINI_API_KEY or resolve_ai_gateway_config() is None:
-        return False
-    organization_id = str(await Team.objects.values_list("organization_id", flat=True).aget(id=team_id))
-    return _flag_enabled(team_id, organization_id)
-
-
-def _flag_enabled(team_id: int, organization_id: str) -> bool:
-    # Local evaluation only, so a flag outage leaves a scan's many calls direct and fast; conditions must use the
-    # org or project id.
-    return feature_enabled_or_false(
-        GATEWAY_FLAG,
-        team_distinct_id(team_id),
-        groups={"organization": organization_id, "project": str(team_id)},
-        group_properties={"organization": {"id": organization_id}, "project": {"id": str(team_id)}},
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
+    client = build_gemini_client(
+        ai_product=AI_PRODUCT, properties=properties, privacy_mode=privacy_mode, timeout_ms=timeout_ms
     )
+    if client is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    return client
 
 
 class ReplayGemini:
-    """One client for both routes: `models` takes the analytics wrapper's `posthog_*` kwargs; `raw` serves files and
-    caches."""
+    """`models` takes the analytics wrapper's `posthog_*` kwargs; `raw` serves files and caches."""
 
-    def __init__(self, raw: RawGenAIClient, models: Any) -> None:
+    def __init__(self, raw: RawGenAIClient, models: "_AsyncGatewayModels") -> None:
         self.raw = raw
         self.models = models
 

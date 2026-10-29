@@ -137,9 +137,9 @@ def _generate(
         response_mime_type="application/json",
         response_json_schema=_LlmQuestion.model_json_schema(),
     )
-    # Client setup is inside the guard too: a missing key or a failed flag lookup must fall back, not fail the save.
+    # Client setup is inside the guard too: a missing gateway config must fall back, not fail the save.
     try:
-        response = gemini_text_models(team_id, timeout_ms=_MODEL_CALL_TIMEOUT_MS).generate_content(
+        response = gemini_text_models(timeout_ms=_MODEL_CALL_TIMEOUT_MS).generate_content(
             model=_QUESTION_MODEL,
             contents=f"Scanner type: {scanner_type}{scale_line}\n\nInstructions:\n{prompt}"
             + (f"\n\nQuestion already written:\n{question}" if question else ""),

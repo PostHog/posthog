@@ -276,9 +276,7 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
     scanner, samples = context
     prompt = (scanner.scanner_config or {}).get("prompt") if isinstance(scanner.scanner_config, dict) else None
     try:
-        client = await replay_gemini_client(
-            team_id, properties={"ai_product": AI_PRODUCT, "feature": "name_search_theme"}
-        )
+        client = replay_gemini_client(properties={"ai_product": AI_PRODUCT, "feature": "name_search_theme"})
         try:
             response = await client.models.generate_content(
                 model=_THEME_MODEL,

@@ -641,7 +641,7 @@ async def _run_mission(
             )
         steps.append(step)
 
-    gemini = await replay_gemini_client(team_id, properties=properties)
+    gemini = replay_gemini_client(properties=properties)
     run = functools.partial(
         _run_steps,
         client=gemini,

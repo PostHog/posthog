@@ -1535,9 +1535,9 @@ def _generate(
 ) -> _LlmDraft:
     # Runs inline on the interactive request path, so a hung provider call must time out.
     try:
-        models = gemini_text_models(team_id, timeout_ms=_MODEL_CALL_TIMEOUT_MS)
+        models = gemini_text_models(timeout_ms=_MODEL_CALL_TIMEOUT_MS)
     except Exception as e:
-        # A missing or malformed API key raises at construction. Wrap it so the API returns
+        # A missing gateway config raises at construction. Wrap it so the API returns
         # the friendly 503 instead of a 500.
         raise DraftError("model_client_unavailable") from e
     config = GenerateContentConfig(

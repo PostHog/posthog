@@ -754,7 +754,7 @@ def _build_user_content(
 
 def _generate(*, user_content: str, team_id: int, trace_id: str) -> _LlmRules:
     try:
-        models = gemini_text_models(team_id, timeout_ms=_MODEL_CALL_TIMEOUT_MS)
+        models = gemini_text_models(timeout_ms=_MODEL_CALL_TIMEOUT_MS)
     except Exception as e:
         raise LearnedRulesError("model client unavailable") from e
     config = GenerateContentConfig(
