@@ -11,6 +11,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.check import run_merge_check
@@ -78,7 +79,8 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
 @close_db_connections
 async def run_merge_check_activity(inputs: MergeCheckInputs) -> None:
     is_final_attempt = activity.info().attempt >= MERGE_CHECK_ATTEMPTS
-    await database_sync_to_async(check_merge, thread_sensitive=False)(inputs, is_final_attempt=is_final_attempt)
+    async with Heartbeater():
+        await database_sync_to_async(check_merge, thread_sensitive=False)(inputs, is_final_attempt=is_final_attempt)
 
 
 @workflow.defn(name="knowledge-writer-merge-check")
@@ -88,7 +90,8 @@ class MergeCheckWorkflow:
         await workflow.execute_activity(
             run_merge_check_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=timedelta(minutes=5),
+            heartbeat_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(
                 initial_interval=MERGE_CHECK_RETRY_INTERVAL, maximum_attempts=MERGE_CHECK_ATTEMPTS
             ),
