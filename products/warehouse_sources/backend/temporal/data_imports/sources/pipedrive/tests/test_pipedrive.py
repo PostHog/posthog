@@ -412,8 +412,8 @@ class TestDealFanOut:
         params = _wire(
             session,
             [
-                _response([{"id": 5}, {"id": 6}, {"id": 7}], {"next_cursor": None}),
                 _response([{"field_key": "status", "time": "2024-05-02 09:00:00"}], {"next_cursor": None}),
+                _response([{"id": 5}, {"id": 6}, {"id": 7}], {"next_cursor": None}),
                 _response([{"field_key": "value", "time": "2024-05-03 09:00:00"}], {"next_cursor": None}),
             ],
             urls=urls,
@@ -434,15 +434,53 @@ class TestDealFanOut:
 
         assert [row["deal_id"] for row in rows] == [6, 7]
         assert urls == [
-            f"{BASE}/api/v2/deals/archived",
             f"{BASE}/api/v1/deals/6/changelog",
+            f"{BASE}/api/v2/deals/archived",
             f"{BASE}/api/v1/deals/7/changelog",
         ]
         assert params == [
-            {**DEAL_LIST_PARAMS, "cursor": "p2"},
             {"limit": PAGE_SIZE, "cursor": "c9"},
+            {**DEAL_LIST_PARAMS, "cursor": "p2"},
             {"limit": PAGE_SIZE},
         ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_finishes_the_saved_batch_when_its_deals_changed(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        params = _wire(
+            session,
+            [
+                _response([{"id": 31, "deal_id": 2}], {"next_cursor": None}),
+                # Deal 2 was deleted and deal 4 added since the crash, so a rebuilt batch would differ.
+                _response([{"id": 1}, {"id": 3}, {"id": 4}], {"next_cursor": None}),
+                _response([{"id": 41, "deal_id": 4}], {"next_cursor": None}),
+                _response([], {"next_cursor": None}),
+            ],
+            urls=urls,
+        )
+        manager = _make_manager(
+            PipedriveResumeConfig(
+                paginator_state={
+                    "parent_index": 0,
+                    "parent_page": None,
+                    "done_through": None,
+                    "group": [1, 2, 3],
+                    "child": {"cursor": "c2"},
+                }
+            )
+        )
+
+        rows = _rows(_source("deal_products", manager))
+
+        assert [row["id"] for row in rows] == [31, 41]
+        assert urls[:3] == [
+            f"{BASE}/api/v2/deals/products",
+            f"{BASE}/api/v2/deals",
+            f"{BASE}/api/v2/deals/products",
+        ]
+        assert params[0] == {"deal_ids": "1,2,3", "limit": PAGE_SIZE, "cursor": "c2"}
+        assert params[2] == {"deal_ids": "4", "limit": PAGE_SIZE}
 
 
 class TestPipedriveSourcePartitioning:

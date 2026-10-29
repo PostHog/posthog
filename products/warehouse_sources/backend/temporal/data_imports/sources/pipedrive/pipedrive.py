@@ -410,6 +410,53 @@ def _deal_fan_out_rows(
         ) -> None:
             _next["state"] = paginator_state if has_next else None
 
+        def read_group(
+            group: list[int], child_initial: Optional[dict[str, Any]], _progress: dict[str, Any] = progress
+        ) -> Iterator[list[dict[str, Any]]]:
+            if config.deal_fan_out == "batched":
+                path = config.path
+                params: dict[str, Any] = {"deal_ids": ",".join(str(deal_id) for deal_id in group)}
+            else:
+                path = config.path.format(id=group[0])
+                params = {}
+            params["limit"] = PAGE_SIZE
+
+            def on_child_page(
+                paginator_state: Optional[dict[str, Any]],
+                has_next: bool,
+                _group: list[int] = group,
+            ) -> None:
+                # Staged before the page is yielded, so the cursor commits with the rows it covers.
+                if has_next:
+                    stage(_group, paginator_state)
+                else:
+                    _progress["done_through"] = _group[-1]
+                    stage(None, None)
+
+            for rows in client.paginate(
+                path=path,
+                params=params,
+                paginator=_cursor_paginator(),
+                data_selector="data",
+                hooks=hooks,
+                initial_paginator_state=child_initial,
+                page_state_hook=on_child_page,
+            ):
+                if config.deal_fan_out == "per_deal":
+                    for row in rows:
+                        row["deal_id"] = group[0]
+                yield rows
+
+            # A group with no rows stages nothing. Resuming from the last staged state reads such
+            # groups again, which costs requests but yields no duplicate rows.
+            _progress["done_through"] = group[-1]
+            resumable_source_manager.safe_point()
+
+        # Finish the saved group with its cursor before regrouping: deals added or deleted since the
+        # crash would change the rebuilt groups, and restarting a half-read batch duplicates rows.
+        if resume_group:
+            yield from read_group(resume_group, resume_child)
+
         for deals in client.paginate(
             path=parent_path,
             params={"limit": PAGE_SIZE, "sort_by": "id", "sort_direction": "asc"},
@@ -421,49 +468,7 @@ def _deal_fan_out_rows(
             done_through = progress["done_through"]
             deal_ids = [deal["id"] for deal in deals if done_through is None or deal["id"] > done_through]
             for start in range(0, len(deal_ids), group_size):
-                group = deal_ids[start : start + group_size]
-                child_initial = resume_child if group == resume_group else None
-                resume_group = resume_child = None
-
-                if config.deal_fan_out == "batched":
-                    path = config.path
-                    params: dict[str, Any] = {"deal_ids": ",".join(str(deal_id) for deal_id in group)}
-                else:
-                    path = config.path.format(id=group[0])
-                    params = {}
-                params["limit"] = PAGE_SIZE
-
-                def on_child_page(
-                    paginator_state: Optional[dict[str, Any]],
-                    has_next: bool,
-                    _group: list[int] = group,
-                    _progress: dict[str, Any] = progress,
-                ) -> None:
-                    # Staged before the page is yielded, so the cursor commits with the rows it covers.
-                    if has_next:
-                        stage(_group, paginator_state)
-                    else:
-                        _progress["done_through"] = _group[-1]
-                        stage(None, None)
-
-                for rows in client.paginate(
-                    path=path,
-                    params=params,
-                    paginator=_cursor_paginator(),
-                    data_selector="data",
-                    hooks=hooks,
-                    initial_paginator_state=child_initial,
-                    page_state_hook=on_child_page,
-                ):
-                    if config.deal_fan_out == "per_deal":
-                        for row in rows:
-                            row["deal_id"] = group[0]
-                    yield rows
-
-                # A group with no rows stages nothing. Resuming from the last staged state reads such
-                # groups again, which costs requests but yields no duplicate rows.
-                progress["done_through"] = group[-1]
-                resumable_source_manager.safe_point()
+                yield from read_group(deal_ids[start : start + group_size], None)
 
             progress["parent_page"] = next_parent_page.get("state")
 
