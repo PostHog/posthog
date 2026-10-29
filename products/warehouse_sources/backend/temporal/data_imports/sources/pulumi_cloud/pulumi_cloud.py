@@ -42,7 +42,7 @@ class PulumiCloudRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PulumiCloudResumeConfig:
     # Opaque pagination token to resume from: the `continuationToken` for stacks/audit logs, or the
     # resource-search `cursor`. None means "start from the first page".
@@ -606,7 +606,13 @@ def _get_stack_tag_rows(
             continue
 
         url = f"{PULUMI_CLOUD_BASE_URL}{_format_path(config.path, org, project, stack)}"
-        data = _fetch(session, url, headers, logger)
+        try:
+            data = _fetch(session, url, headers, logger)
+        except requests.HTTPError as e:
+            # A stack deleted after the listing 404s; treat it as tagless instead of failing the sync.
+            if e.response is None or e.response.status_code != 404:
+                raise
+            data = {}
         tags = data.get("tags") or {}
         rows = [
             {"orgName": org, "projectName": project, "stackName": stack, "name": name, "value": value}

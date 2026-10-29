@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PaginationStyle = Literal["continuation_token", "page", "cursor", "offset", "single_page"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class PulumiCloudEndpointConfig:
     name: str
     path: str

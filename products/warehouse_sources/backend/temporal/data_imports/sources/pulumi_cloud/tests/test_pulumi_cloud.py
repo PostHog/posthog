@@ -577,3 +577,14 @@ class TestStackTags:
 
         assert [r.path for r in result.requests] == [STACKS_PATH, "/api/stacks/my-org/proj/prod%2Feu"]
         assert result.rows == []
+
+    def test_stack_deleted_after_listing_is_skipped(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/stacks/my-org/proj/dev":
+                return ScriptedResponse(status=404, json={"code": 404})
+            return self._respond(request)
+
+        result = _run_rows("stack_tags", respond)
+
+        assert result.rows == []
+        assert result.saved_states[-1].completed_stack_keys == ["my-org/proj/dev", "my-org/proj/prod/eu"]
