@@ -6,7 +6,6 @@ import {
   filterReportsBySearch,
   INBOX_PIPELINE_STATUS_FILTER,
   INBOX_PULL_REQUEST_STATUS_FILTER,
-  INBOX_REPORTS_TAB_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import {
   INBOX_SCOPE_FOR_YOU,
@@ -15,10 +14,8 @@ import {
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
-import {
-  useInboxReports,
-  useInboxReportsInfinite,
-} from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { useMemo } from "react";
@@ -37,9 +34,9 @@ const EMPTY_FILTER_ARRAY: never[] = [];
  * When `ignoreFilters` is set, the filter-store selectors return constant
  * values so unrelated filter changes don't re-render the consumer.
  *
- * `withReportsCount` opts into the extra count query behind `counts.reports`;
- * without it that count stays 0. Only surfaces that render that count should
- * pay for its request.
+ * `withPullRequestCount` and `withReportsCount` choose which totals `counts`
+ * carries; one backend count request serves both, and it is skipped when
+ * neither is set.
  */
 export function useInboxAllReports(options?: {
   enabled?: boolean;
@@ -146,18 +143,13 @@ export function useInboxAllReports(options?: {
     },
   );
 
-  // True count of pull-request reports for the active scope. The infinite list
-  // only holds the first page(s), so deriving pulls from loaded reports caps at
-  // the page size and depends on ordering (a PR can sit past page 1). A cheap
-  // count-only query with the server-side `has_implementation_pr` filter returns
-  // the real total without fetching or enriching a report row.
-  const pullRequestCountQuery = useInboxReports(
+  // The badges need true totals, but the list only holds the first page(s), so
+  // deriving them from loaded reports caps at the page size and depends on
+  // ordering. One backend count returns both totals under the list's scope and
+  // filters without fetching or enriching a report row.
+  const withCounts = withPullRequestCount || withReportsCount;
+  const sectionCountsQuery = useInboxSectionCounts(
     {
-      status: INBOX_PULL_REQUEST_STATUS_FILTER,
-      has_implementation_pr: true,
-      // Mirror the list query's active filters so the badge matches the tab
-      // body. These are empty when `ignoreFilters` is set (sidebar usage), so
-      // the count stays scope-only there.
       source_product:
         sourceProductFilter.length > 0
           ? sourceProductFilter.join(",")
@@ -166,44 +158,18 @@ export function useInboxAllReports(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      count_only: true,
     },
     {
-      enabled:
-        enabled && withPullRequestCount && (!isForYou || reviewerUuid != null),
+      enabled: enabled && withCounts && (!isForYou || reviewerUuid != null),
       refetchInterval: refetchIntervalMs,
-      refetchIntervalInBackground: false,
     },
   );
-  const pullRequestTotal = pullRequestCountQuery.data?.count ?? 0;
-
-  // True count of Reports-tab reports for the active scope, on the same
-  // count-only pattern as the pull-request count above. Deriving it instead by
-  // subtracting from the pipeline total only works if every non-report item is
-  // visible in the loaded pages, and the list is ordered `ready` first, so the
-  // queued, live and failed runs sit past page 1 and never get subtracted.
-  const reportsCountQuery = useInboxReports(
-    {
-      status: INBOX_REPORTS_TAB_STATUS_FILTER,
-      has_implementation_pr: false,
-      source_product:
-        sourceProductFilter.length > 0
-          ? sourceProductFilter.join(",")
-          : undefined,
-      priority: buildPriorityFilterParam(priorityFilter),
-      suggested_reviewers: reviewerUuid
-        ? buildSuggestedReviewerFilterParam([reviewerUuid])
-        : undefined,
-      count_only: true,
-    },
-    {
-      enabled:
-        enabled && withReportsCount && (!isForYou || reviewerUuid != null),
-      refetchInterval: refetchIntervalMs,
-      refetchIntervalInBackground: false,
-    },
-  );
-  const reportsTotal = reportsCountQuery.data?.count ?? 0;
+  const pullRequestTotal = withPullRequestCount
+    ? (sectionCountsQuery.data?.pull_requests ?? 0)
+    : 0;
+  const reportsTotal = withReportsCount
+    ? (sectionCountsQuery.data?.reports ?? 0)
+    : 0;
 
   const scopedReports = useMemo(() => {
     // Reviewer scope is already applied server-side via `suggested_reviewers`.
@@ -222,12 +188,10 @@ export function useInboxAllReports(options?: {
     [pullRequestTotal, reportsTotal],
   );
 
-  // Each count is its own request, so the list can succeed while they are still
-  // in flight and `counts` still reads 0. Anything that records the counts once
-  // and never revises them has to wait for this rather than for the list.
-  const countsReady =
-    (!withPullRequestCount || pullRequestCountQuery.isSuccess) &&
-    (!withReportsCount || reportsCountQuery.isSuccess);
+  // The counts are their own request, so the list can succeed while they are
+  // still in flight and `counts` still reads 0. Anything that records the counts
+  // once and never revises them has to wait for this rather than for the list.
+  const countsReady = !withCounts || sectionCountsQuery.isSuccess;
 
   return {
     ...query,
