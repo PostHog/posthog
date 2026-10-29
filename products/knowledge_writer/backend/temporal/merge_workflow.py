@@ -8,6 +8,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
@@ -54,7 +55,7 @@ def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
 
 
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
-    github = docs_github(inputs.team_id, POSTHOG_REPOSITORY.split("/", 1)[0])
+    github = docs_github(inputs.team_id, POSTHOG_REPOSITORY.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         record_merge_check_failed(inputs)
         return
