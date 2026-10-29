@@ -16,7 +16,7 @@ export function CustomHarnessIcon({
     className?: string
 }): JSX.Element {
     const { customHarnessIcons } = useValues(mcpCustomHarnessesLogic)
-    const icon = customHarnessIcons[harness]
+    const icon = customHarnessIcons.get(harness)
     if (!icon) {
         return <BrandMark name="Other harnesses" label={label} className={className} />
     }
