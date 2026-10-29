@@ -507,25 +507,21 @@ async def _deliver_insight_dashboard_subscription(
         _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
-    # Decided before the send and applied once the send is over: after a success, or after a failure
-    # Temporal will not retry, such as every recipient bouncing. A transient failure keeps the row
-    # enabled so the retry can still deliver the reason. The failed tiles in this delivery already
-    # tell the recipients why, so nobody else gets an email.
-    owner_reason = get_assets_owner_disable_reason(asset.exception_type for asset in assets)
-
-    async def _disable_for_owner() -> None:
-        if owner_reason is not None:
-            await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
-                subscription, owner_reason, notify_owner=False
-            )
+    # The failed tiles in this delivery already tell the recipients why, so nobody else gets an email.
+    disable_reason = get_assets_owner_disable_reason(asset.exception_type for asset in assets)
 
     try:
         result = await _send_to_target(subscription, inputs, assets, recipient_results, send_only_to_new_recipients)
     except ApplicationError as error:
-        if error.non_retryable:
-            await _disable_for_owner()
+        # Temporal retries this activity, so the retry delivers the reason and the row stays enabled.
+        if not error.non_retryable:
+            disable_reason = None
         raise
-    await _disable_for_owner()
+    finally:
+        if disable_reason is not None:
+            await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+                subscription, disable_reason, notify_owner=False
+            )
 
     await LOGGER.ainfo(
         "deliver_subscription.completed",
@@ -542,7 +538,7 @@ async def _send_to_target(
     recipient_results: list[RecipientResult],
     send_only_to_new_recipients: bool,
 ) -> DeliverSubscriptionResult:
-    """Send the assets over the subscription's channel. Split out so the caller can wrap the one send in a `finally`."""
+    """Send the assets over the subscription's channel. Split out so the caller can wrap the one send."""
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
 
         async def _send_email(email: str) -> None:
