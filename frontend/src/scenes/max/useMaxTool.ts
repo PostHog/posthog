@@ -86,7 +86,7 @@ export function useMaxTool({
         location: { pathname },
     } = useValues(router)
     const { activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
-    const openChatStreamKey = activeCreation?.streamKey ?? null
+    const openChat = activeCreation ? (activeCreation.taskId ? 'task' : 'draft') : null
 
     const definition = getToolDefinition(identifier)
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
@@ -138,8 +138,12 @@ export function useMaxTool({
         if (toolPageContextOwner !== hookIdRef.current) {
             return
         }
-        if (!active || openChatStreamKey !== null) {
+        if (!active || openChat === 'task') {
             toolPageContextOwner = null
+            deregisterContext(TOOL_PAGE_CONTEXT_PROVIDER_ID)
+            return
+        }
+        if (openChat === 'draft') {
             deregisterContext(TOOL_PAGE_CONTEXT_PROVIDER_ID)
             return
         }
@@ -148,7 +152,7 @@ export function useMaxTool({
             toolPageContextItems(identifier, context, TOOL_PAGE_CONTEXT_PROVIDER_ID)
         )
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- context is tracked via contextKey (serialized)
-    }, [active, identifier, contextKey, pathname, openChatStreamKey, registerContext, deregisterContext])
+    }, [active, identifier, contextKey, pathname, openChat, registerContext, deregisterContext])
 
     useEffect(() => {
         const hookId = hookIdRef.current
