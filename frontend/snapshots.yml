@@ -3708,30 +3708,10 @@ snapshots:
         hash: v1.k794b7964.75780bca10fdc8c61cb0d0383ac6495ddaafdd30baf6f566cf6b38e8fa0f2d90.A257X7pt9K40kv8qTFkP0u04LCWEnzEh2Sy7qv11t2w
     filters-taxonomic-filter--email-search-query-hint--light:
         hash: v1.k794b7964.26263d464e79d354fa4a88430db602672c6ec400d23b25e635f39c78f8021c50.oKLH9VgDruDZli-BetTKm3qWMDc2f96jp30LFwHEG9Y
-    filters-taxonomic-filter--empty-all-tab-with-event-match--dark:
-        hash: v1.k794b7964.58e7c99b2c92f0300216c4047c2d5ea1745dfa1a606a00270b0ebc779bed3cd5.1h_7F-InpV4zcCU2i8sGo8D9GpR-M9SK0ykFwUh1DDc
-    filters-taxonomic-filter--empty-all-tab-with-event-match--light:
-        hash: v1.k794b7964.d6233206def8eefa24c433869ed21a94e9aecb397191a29c9e61295e161c594e.Ov1Fg1yGqOdhCRLXbyljE-x8teQSz_x7DBTcCiPAfXw
-    filters-taxonomic-filter--empty-events-with-event-match--dark:
-        hash: v1.k794b7964.30d20341622aff37c27fca8216269d839cc72aafd5a9cfb3a195cdde5ba414ed.ioGVHMVBgkAMr11FVdKj-pgx05LSlkwl-vuXRF-t6sw
-    filters-taxonomic-filter--empty-events-with-event-match--light:
-        hash: v1.k794b7964.d07e5394b85d6064eb2e0e92a43e138b71b4248a015af59d6a901874a6c0acca.ViBqvpCMYJ44bOijsqT7TfxMKsAFBtBUnHmRT17SQG4
-    filters-taxonomic-filter--empty-events-with-event-match-loading--dark:
-        hash: v1.k794b7964.24731467b4e99a1205df0640091c2f333b1d276df97c510a3929bf9cf342c0ee.Nd_kUIeGDDTduX8hJoZx_QCHBEqzBTKHvWdTCVQvv3g
-    filters-taxonomic-filter--empty-events-with-event-match-loading--light:
-        hash: v1.k794b7964.b3739c41d624c8631591ea6d5c9b0e1035031597bc57c0cf0cc3d90271a9afa7.TAZSeJKZZHZ8UxY3u9yNqOWKF0uYgjX74V6AnP6zqTE
     filters-taxonomic-filter--empty-events-with-stale-toggle--dark:
         hash: v1.k794b7964.c9c8b86f1f196faf8bb7ff2fa3a8b662b5da749e9d740979253eefd3caef6d83.Vi2aZn3Sv-3nBjiCPo9tkuX4Dj5bZSq-4KMFkSMAKps
     filters-taxonomic-filter--empty-events-with-stale-toggle--light:
         hash: v1.k794b7964.06c743209b67d84e2d6403f78e9a8dbb412f4d552936335f6380b841ab20ea05.RJKRGsdtc3psVWSHimWW-MDLaXIyUbQj2dU33xEIYC0
-    filters-taxonomic-filter--empty-events-with-unsent-event-hint--dark:
-        hash: v1.k794b7964.36dcc5f7829de403957bb284997042af8755fb33347ec245644328201b96a6be.WR_e3wcaujsOyjKVUAzJKopna3G4E9WWFjGLZzRXbgY
-    filters-taxonomic-filter--empty-events-with-unsent-event-hint--light:
-        hash: v1.k794b7964.3726716eae08f672c2d989ad565e947f5a2c2a9b3339cac58672cf2ff506579a.rzmd0zlST6aJiPXxMNXFZe4lwLeS07kxpVspx9so32A
-    filters-taxonomic-filter--empty-events-with-value-hint--dark:
-        hash: v1.k794b7964.56b8792ce05a2bd6639b561f1330df09e67cf01fa9307301aa91560ff69442dd.mnfSSv24JeDgvtTRf6YX_-olqjQUQIzvd7GVi6CFMNU
-    filters-taxonomic-filter--empty-events-with-value-hint--light:
-        hash: v1.k794b7964.97ddd61650806011675ac41c4ca31e0409b894993096eaa1e645e5748502be1a.NtvmxNSJzpPc-osNFNOzk85H2kVtbmQKDUClTvwYPfA
     filters-taxonomic-filter--empty-tab-searching-a-category-name--dark:
         hash: v1.k794b7964.fd4d6a0fa9ff79e0b7835a577e9fca1b5ebaea73cbce2e8fbe22b7f81d74a430.ygr-MRffkSBDiRqiPa3uZLZ3mKodH39bbm5jzD0dOSE
     filters-taxonomic-filter--empty-tab-searching-a-category-name--light:
@@ -15871,9 +15851,9 @@ snapshots:
     scenes-app-tasks--new-task-with-repository--light:
         hash: v1.k794b7964.9d642604e30074883b4ed69e9c5965fd12780d9d481a97363f15a46af0d54b38.e_DQSN2xqXAPcmJeyrASvlyjQp5FcLAVFXha99Fe6Qo
     scenes-app-tasks--pi-task-selected--dark:
-        hash: v1.k794b7964.af9b88ddbc10b17dc0ccda95758fbf1ae9d103bcd0e511ec0352f76a1d0c2b80.kCLLV2HlqIkS_cCK8f1QsGpT7aNOgRJ6i7SRLgSzRv8
+        hash: v1.k794b7964.8ce7c9a702d22a9348263ff924b26cdde84d0f8bbd4f1b62f72146828805fc4c.1YBH4GTr4e2CX7QUd8IdmzWCPQEa2OUestD4BTEmVGw
     scenes-app-tasks--pi-task-selected--light:
-        hash: v1.k794b7964.dc94140b8460e76c6e8b81adb9c46997c89a5634f20fac20ddada1f1ffd12223.4KOsU0tDj1zB26GFLV3daFR9ypOtXtETf08ZsGEMZt4
+        hash: v1.k794b7964.2f858d3c0b563a56499b06f81d517a5db0d2d4b5e37d3ac2fbe59830f8348e0e.K_NazwRlvi_f1XYrlWJmHomMsM4bX7A6m608HD45fKA
     scenes-app-tasks--task-detail-loading--dark:
         hash: v1.k794b7964.a34fe05f1131d0368d2d803f27320c93f7a9bd5bcebc31d2459be0ed16e059c5.uSNsO42bTdJ1tYa-Bmz4uTocYRX1SIbo2vaa9IKq1AM
     scenes-app-tasks--task-detail-loading--light:
