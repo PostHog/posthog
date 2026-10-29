@@ -84,27 +84,13 @@ class JudgeImages:
         outcomes: Counter[str] = Counter()
         inline_bytes = 0
         for image in images:
-            transport = image_transport(provider, model, image.mime_type)
-            declared = (image.pointer.size or 0) if image.pointer else 0
-            # Skip the download when the pointer already says the image does not fit.
-            fits = transport != "inline" or inline_bytes + declared <= MAX_INLINE_BYTES
-            part = self._image_part(image, transport) if image.number in attachable and fits else None
-            size = len(part.base64_data) * 3 // 4 if part is not None and part.base64_data is not None else 0
-            outcome: Outcome
-            if image.number not in attachable:
-                outcome = "over_limit"
-            elif not fits:
-                outcome = "too_large"
-            elif part is None:
-                outcome = "unavailable"
-            elif inline_bytes + size > MAX_INLINE_BYTES:
-                # Counts the bytes actually read: the size in the pointer comes from the event.
-                outcome = "too_large"
+            if image.number in attachable:
+                outcome, part, size = self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
             else:
-                outcome = "link" if part.url else "inline"
-                inline_bytes += size
+                outcome, part, size = "over_limit", None, 0
+            inline_bytes += size
             outcomes[outcome] += 1
-            if outcome in _NOT_ATTACHED_LABELS:
+            if part is None:
                 parts.append({"type": "text", "text": f"Image {image.number}: {_NOT_ATTACHED_LABELS[outcome]}."})
             else:
                 parts.extend([{"type": "text", "text": f"Image {image.number}:"}, part])
@@ -112,14 +98,29 @@ class JudgeImages:
         logger.info("judge_images_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
-    def _image_part(self, image: _Image, transport: Literal["url", "inline"] | None) -> ImagePart | None:
+    def _attach(
+        self, image: _Image, provider: str, model: str, inline_budget: int
+    ) -> tuple[Outcome, ImagePart | None, int]:
+        """How one image travels, its part when attached, and the inline bytes it uses."""
+        transport = image_transport(provider, model, image.mime_type)
         if transport is None:
-            return None
+            return "unavailable", None, 0
         if image.pointer is None:
-            return ImagePart(mime_type=image.mime_type, base64_data=image.base64_data)
+            size = len(image.base64_data or "") * 3 // 4
+            if size > inline_budget:
+                return "too_large", None, 0
+            return "inline", ImagePart(mime_type=image.mime_type, base64_data=image.base64_data), size
         if transport == "url":
             url = image.pointer.presigned_url(self._team_id, PRESIGNED_URL_SECONDS)
-            return ImagePart(mime_type=image.mime_type, url=url) if url else None
+            return ("link", ImagePart(mime_type=image.mime_type, url=url), 0) if url else ("unavailable", None, 0)
+        # Check the stored size before downloading, so an oversized blob never reaches worker memory.
+        stored_size = image.pointer.stored_size(self._team_id)
+        if stored_size is None:
+            return "unavailable", None, 0
+        if stored_size > inline_budget:
+            return "too_large", None, 0
         # ponytail: sequential reads, a thread pool if traces with many images get slow
         data = image.pointer.read(self._team_id)
-        return ImagePart(mime_type=image.mime_type, base64_data=base64.b64encode(data).decode()) if data else None
+        if data is None:
+            return "unavailable", None, 0
+        return "inline", ImagePart(mime_type=image.mime_type, base64_data=base64.b64encode(data).decode()), stored_size
