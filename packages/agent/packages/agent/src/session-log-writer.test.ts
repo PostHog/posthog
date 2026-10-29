@@ -521,12 +521,26 @@ describe("SessionLogWriter", () => {
     });
 
     it.each([
-      ["without a leading empty chunk", false, false, "boot-3"],
-      ["with a leading empty chunk", true, false, "boot-2"],
-      ["with a control response after the empty chunk", true, true, "boot-2"],
+      ["without a leading empty chunk", false, [], "boot-3"],
+      ["with a leading empty chunk", true, [], "boot-2"],
+      [
+        "with a control response after the empty chunk",
+        true,
+        [
+          { jsonrpc: "2.0", id: 9, method: "_posthog/ping" },
+          { jsonrpc: "2.0", id: 9, result: {} },
+        ],
+        "boot-2",
+      ],
+      [
+        "when a turn ends after the empty chunk",
+        true,
+        [{ jsonrpc: "2.0", method: "_posthog/turn_complete", params: {} }],
+        "boot-3",
+      ],
     ])(
       "stamps the coalesced entry with the covered chunk id range %s",
-      async (_case, leadingEmpty, controlResponse, firstEventId) => {
+      async (_case, leadingEmpty, between, firstEventId) => {
         const sessionId = "s1";
         logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
@@ -539,15 +553,8 @@ describe("SessionLogWriter", () => {
             "boot-2",
           );
         }
-        if (controlResponse) {
-          logWriter.appendRawLine(
-            sessionId,
-            JSON.stringify({ jsonrpc: "2.0", id: 9, method: "_posthog/ping" }),
-          );
-          logWriter.appendRawLine(
-            sessionId,
-            JSON.stringify({ jsonrpc: "2.0", id: 9, result: {} }),
-          );
+        for (const line of between) {
+          logWriter.appendRawLine(sessionId, JSON.stringify(line));
         }
         logWriter.appendRawLine(
           sessionId,
