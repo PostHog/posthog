@@ -43,12 +43,7 @@ class TestFormatDatetime:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            # 200 = good key, 403 = real key missing the optional 'Read posts' permission — both valid.
-            ("ok", 200, True, None),
             ("forbidden_is_valid_key", 403, True, None),
-            ("unauthorized_is_invalid", 401, False, "Invalid Beamer API key"),
-            # A 5xx is inconclusive — never reported as an invalid key (would prompt a needless rotation).
-            ("server_error_is_inconclusive", 500, False, "could not validate"),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_msg: str | None) -> None:

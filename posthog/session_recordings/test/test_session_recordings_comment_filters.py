@@ -27,6 +27,7 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
         session_with_bug = "session_with_bug"
         session_with_emoji = "session_with_emoji"
         session_with_need = "session_with_need"
+        session_with_rich_content = "session_with_rich_content"
 
         base_time = now() - timedelta(hours=2)
 
@@ -37,50 +38,68 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
                 timestamp=base_time + timedelta(minutes=i * 10),
             )
             for i, x in enumerate(
-                [session_no_comment, session_with_needle, session_with_bug, session_with_emoji, session_with_need]
+                [
+                    session_no_comment,
+                    session_with_needle,
+                    session_with_bug,
+                    session_with_emoji,
+                    session_with_need,
+                    session_with_rich_content,
+                ]
             )
         ]
 
         Comment.objects.create(
             team=self.team,
             content="This comment contains the word needle for searching",
-            scope="recording",
+            scope="Replay",
             item_id=session_with_needle,
             created_by=self.user,
         )
         Comment.objects.create(
             team=self.team,
             content="This recording has two comments",
-            scope="recording",
+            scope="Replay",
             item_id=session_with_needle,
             created_by=self.user,
         )
         Comment.objects.create(
             team=self.team,
             content="This comment contains the word need for searching",
-            scope="recording",
+            scope="Replay",
             item_id=session_with_need,
             created_by=self.user,
         )
         Comment.objects.create(
             team=self.team,
             content="Fixed the bug fix issue in the login form",
-            scope="recording",
+            scope="Replay",
             item_id=session_with_bug,
             created_by=self.user,
         )
         Comment.objects.create(
             team=self.team,
             content="Some unrelated content here",
-            scope="recording",
+            scope="Replay",
             item_id=str(uuid7()),
             created_by=self.user,
         )
         Comment.objects.create(
             team=self.team,
             content="heart eyes 💖",
-            scope="recording",
+            scope="Replay",
             item_id=session_with_emoji,
+            created_by=self.user,
+        )
+        Comment.objects.create(
+            team=self.team,
+            content="",
+            rich_content={
+                "type": "doc",
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "hi"}]}],
+            },
+            scope="Replay",
+            item_id=session_with_rich_content,
             created_by=self.user,
         )
 
@@ -127,7 +146,13 @@ class TestSessionRecordingsCommentFiltering(APIBaseTest, ClickhouseTestMixin, Qu
                 "comments is set",
                 "",
                 PropertyOperator.IS_SET,
-                ["session_with_needle", "session_with_bug", "session_with_emoji", "session_with_need"],
+                [
+                    "session_with_needle",
+                    "session_with_bug",
+                    "session_with_emoji",
+                    "session_with_need",
+                    "session_with_rich_content",
+                ],
             ),
         ]
     )

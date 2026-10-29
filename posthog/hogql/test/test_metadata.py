@@ -294,6 +294,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_metadata_expr_resolve_error(self):
         metadata = self._expr("1 + no_field")
+        message = metadata.errors[0].message
+        self.assertTrue(message.startswith("Unable to resolve field: no_field. Available fields: "), message)
         self.assertEqual(
             metadata.dict(),
             metadata.dict()
@@ -302,7 +304,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "1 + no_field",
                 "errors": [
                     {
-                        "message": "Unable to resolve field: no_field",
+                        "message": message,
                         "start": 4,
                         "end": 12,
                         "fix": None,

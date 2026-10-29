@@ -131,6 +131,7 @@ class ClipSource(ResumableSource[ClipSourceConfig, ClipResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -139,5 +140,5 @@ class ClipSource(ResumableSource[ClipSourceConfig, ClipResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

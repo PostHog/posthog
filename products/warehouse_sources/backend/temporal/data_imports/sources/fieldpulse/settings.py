@@ -16,10 +16,16 @@ ENDPOINTS = {
     "job_status_workflow_statuses": "jobs/status-workflow-statuses",
     "pipeline_statuses": "pipeline-status",
     "lead_sources": "lead-source",
+    "tags": "tags",
+    "timesheets": "timesheets",
+    "teams": "teams",
+    "items": "items",
 }
 INCREMENTAL_ENDPOINTS = ("customers", "jobs", "estimates", "invoices", "payments", "projects")
 INCREMENTAL_FIELDS = {name: [incremental_field("updated_at")] for name in INCREMENTAL_ENDPOINTS}
 # The API reference lists no `page` parameter for these endpoints.
-ENDPOINTS_WITHOUT_DOCUMENTED_PAGING = frozenset({"users", "job_status_workflows", "job_status_workflow_statuses"})
+ENDPOINTS_WITHOUT_DOCUMENTED_PAGING = frozenset(
+    {"users", "job_status_workflows", "job_status_workflow_statuses", "timesheets"}
+)
 PRIMARY_KEYS = ["id"]
 AUTH_ERROR = "FieldPulse rejected the API key. Contact support@fieldpulse.com to check that your key is active."

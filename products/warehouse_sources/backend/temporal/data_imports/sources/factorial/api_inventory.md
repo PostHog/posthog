@@ -54,34 +54,39 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 
 ## Synced endpoints (`settings.py`)
 
-| Table                 | Path                                                  | Partition key |
-| --------------------- | ----------------------------------------------------- | ------------- |
-| employees             | `/resources/employees/employees`                      | created_at    |
-| terminations          | `/resources/employee_updates/terminations`            | —             |
-| teams                 | `/resources/teams/teams`                              | —             |
-| team_memberships      | `/resources/teams/memberships`                        | —             |
-| locations             | `/resources/locations/locations`                      | —             |
-| legal_entities        | `/resources/companies/legal_entities`                 | —             |
-| contract_versions     | `/resources/contracts/contract_versions`              | created_at    |
-| compensations         | `/resources/contracts/compensations`                  | —             |
-| leaves                | `/resources/timeoff/leaves`                           | created_at    |
-| leave_types           | `/resources/timeoff/leave_types`                      | —             |
-| allowances            | `/resources/timeoff/allowances`                       | —             |
-| allowance_stats       | `/resources/timeoff/allowance_stats`                  | —             |
-| attendance_shifts     | `/resources/attendance/shifts`                        | created_at    |
-| worked_times          | `/resources/attendance/worked_times`                  | —             |
-| expenses              | `/resources/expenses/expenses`                        | created_at    |
-| cost_centers          | `/resources/finance/cost_centers`                     | —             |
-| payroll_supplements   | `/resources/payroll/supplements`                      | created_at    |
-| flexible_time_records | `/resources/project_management/flexible_time_records` | created_at    |
-| time_records          | `/resources/project_management/time_records`          | —             |
-| projects              | `/resources/project_management/projects`              | —             |
-| candidates            | `/resources/ats/candidates`                           | created_at    |
-| job_postings          | `/resources/ats/job_postings`                         | —             |
-| applications          | `/resources/ats/applications`                         | created_at    |
-| application_phases    | `/resources/ats/application_phases`                   | —             |
-| hiring_stages         | `/resources/ats/hiring_stages`                        | —             |
-| candidate_sources     | `/resources/ats/candidate_sources`                    | —             |
+| Table                   | Path                                                  | Partition key |
+| ----------------------- | ----------------------------------------------------- | ------------- |
+| employees               | `/resources/employees/employees`                      | created_at    |
+| terminations            | `/resources/employee_updates/terminations`            | —             |
+| new_hires               | `/resources/employee_updates/new_hires`               | —             |
+| teams                   | `/resources/teams/teams`                              | —             |
+| team_memberships        | `/resources/teams/memberships`                        | —             |
+| locations               | `/resources/locations/locations`                      | —             |
+| legal_entities          | `/resources/companies/legal_entities`                 | —             |
+| contract_versions       | `/resources/contracts/contract_versions`              | created_at    |
+| compensations           | `/resources/contracts/compensations`                  | —             |
+| leaves                  | `/resources/timeoff/leaves`                           | created_at    |
+| leave_types             | `/resources/timeoff/leave_types`                      | —             |
+| allowances              | `/resources/timeoff/allowances`                       | —             |
+| allowance_stats         | `/resources/timeoff/allowance_stats`                  | —             |
+| attendance_shifts       | `/resources/attendance/shifts`                        | created_at    |
+| worked_times            | `/resources/attendance/worked_times`                  | —             |
+| overtime_requests       | `/resources/attendance/overtime_requests`             | —             |
+| expenses                | `/resources/expenses/expenses`                        | created_at    |
+| cost_centers            | `/resources/finance/cost_centers`                     | —             |
+| cost_center_memberships | `/resources/finance/cost_center_memberships`          | —             |
+| payroll_supplements     | `/resources/payroll/supplements`                      | created_at    |
+| flexible_time_records   | `/resources/project_management/flexible_time_records` | created_at    |
+| time_records            | `/resources/project_management/time_records`          | —             |
+| projects                | `/resources/project_management/projects`              | —             |
+| job_catalog_roles       | `/resources/job_catalog/roles`                        | —             |
+| job_catalog_levels      | `/resources/job_catalog/levels`                       | —             |
+| candidates              | `/resources/ats/candidates`                           | created_at    |
+| job_postings            | `/resources/ats/job_postings`                         | —             |
+| applications            | `/resources/ats/applications`                         | created_at    |
+| application_phases      | `/resources/ats/application_phases`                   | —             |
+| hiring_stages           | `/resources/ats/hiring_stages`                        | —             |
+| candidate_sources       | `/resources/ats/candidate_sources`                    | —             |
 
 Primary key is the `id` column on every list resource. It is serialized as an integer on `2025-04-01` and
 `2026-04-01`, and as an opaque string on `2026-07-01` (see Identifier serialization above), so the column type is
@@ -114,7 +119,7 @@ and `time_records` on its own record id. Partition keys are `created_at` where t
   (`job_board`, `agency_or_external_recruiter`, `event`, `social_media`, `referral`, …), which is what
   source-of-hire reporting breaks down by.
 - **`finance/cost_centers`** is the cost allocation lookup. It carries counts of assigned employees but not the
-  assignments themselves — those live in `finance/cost_center_memberships`, which is not synced yet.
+  assignments themselves — those live in `finance/cost_center_memberships`.
 - **`employee_updates/terminations`** is the attrition feed: one row per leaver with `terminated_on`,
   `contract_end_date` and the termination reason. The `employees` snapshot carries only the current state of
   each person, so headcount churn over time is not derivable from it.
@@ -123,6 +128,15 @@ and `time_records` on its own record id. Partition keys are `created_at` where t
   of that run. Its `id` embeds the reference date and the docs state it cannot be used to re-fetch the row.
   The source pins one `reference_date` for the whole walk and carries it in the resume state, so a run that
   crosses midnight or resumes the next day cannot write two as-of dates into the same table.
+- **`finance/cost_center_memberships`** returns only active memberships unless `only_active=false` is sent. The
+  source sends it on every page, so ended allocations (with their `end_date`) stay in the table for cost
+  attribution over time.
+- **`attendance/overtime_requests`** marks `include_approval_flow` required, so the source sends it as `"false"`
+  on every page. `created_at` is optional in the spec, so the table is not partitioned.
+- **`employee_updates/new_hires`** is the hire feed that pairs with `terminations`. It carries no
+  `created_at`; `start_date` gives the hire date.
+- **`job_catalog/roles`** and **`job_catalog/levels`** are lookups for the role and level ids. Each level
+  carries its `role_id`.
 
 ## Verification status
 
@@ -136,3 +150,7 @@ lookup/change-feed resources take only optional id filters, so they need no stat
 carries a `created_at` column, so none is partitioned. They were **not** curl-verified against a live account (no
 API key available). The connection (host, version path, `x-api-key`, 401-on-bad-key) was confirmed with an
 unauthenticated curl returning `401`.
+
+`new_hires`, `overtime_requests`, `cost_center_memberships`, `job_catalog_roles` and `job_catalog_levels` were
+checked the same way, against the OpenAPI documents for `2026-04-01` and `2026-07-01` (and the newer `2026-10-01`).
+Each is a GET list route with the same paged envelope. They were also **not** curl-verified against a live account.

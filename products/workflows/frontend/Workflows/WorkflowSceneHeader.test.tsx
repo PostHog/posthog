@@ -5,6 +5,7 @@ import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
@@ -46,6 +47,7 @@ const ACTIVE_WITH_DRAFT: HogFlow = {
     updated_at: '2026-05-01T00:00:00.000Z',
     draft: { name: 'Header test', actions: [], edges: [] },
     draft_updated_at: '2026-05-01T00:01:00.000Z',
+    user_access_level: AccessControlLevel.Editor,
 }
 
 // The label and order of the buttons a person points at, as rendered.
@@ -97,5 +99,23 @@ describe('WorkflowSceneHeader', () => {
 
         // The pointer has not moved, so neither has the button under it.
         expect(toolbar()).toEqual(clean)
+    })
+
+    it('keeps Disable clickable on an active workflow while the form is dirty', () => {
+        render(
+            <Provider>
+                <BindLogic logic={workflowLogic} props={{ id: WORKFLOW_ID }}>
+                    <WorkflowSceneHeader id={WORKFLOW_ID} />
+                </BindLogic>
+            </Provider>
+        )
+
+        act(() => {
+            logic.actions.setWorkflowValue('name', 'Still typing')
+        })
+
+        const launch = document.querySelector('[data-attr="workflow-launch"]')
+        expect(launch).toHaveTextContent('Disable')
+        expect(launch).not.toHaveAttribute('aria-disabled', 'true')
     })
 })

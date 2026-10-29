@@ -98,17 +98,23 @@ class GenesysCloudSource(ResumableSource[GenesysCloudSourceConfig, GenesysCloudR
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             keywords=["genesys", "purecloud", "contact center"],
             label="Genesys Cloud",
-            caption="""Connect your Genesys Cloud organization to import calls, conversations, participants, users, and queues.
+            caption="""Connect your Genesys Cloud organization to import calls, conversations, participants, users, user status history, queues, wrap-up codes, skills, divisions, teams, groups, external contacts, and external organizations.
 
 In Genesys Cloud, go to **Admin > Integrations > OAuth** and add a client with the **Client Credentials** grant type. Assign it a role with these permissions:
 
 - `analytics:conversationDetail:view` for calls, conversations, and participants
+- `analytics:userDetail:view` for user status history
 - `routing:queue:view` for queues
+- `routing:wrapupCode:view` for wrap-up codes
+- `routing:skill:view` for skills
+- `groups:team:view` for teams
+- `externalContacts:contact:view` for external contacts
+- `externalContacts:externalOrganization:view` for external organizations
 
 Then select the region your organization is hosted in.""",
             iconPath="/static/services/genesys_cloud.png",
             docsUrl="https://posthog.com/docs/cdp/sources/genesys-cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

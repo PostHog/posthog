@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+from django.db import transaction
 from django.db.models import Model
 
 from rest_framework import exceptions, serializers, status
@@ -32,6 +33,7 @@ from products.access_control.backend.facade.subject_access_control import Subjec
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
+    DASHBOARD_EDIT_LIMIT_RESOURCE,
     AccessSource,
     ResolvedAccess,
     UserAccessControl,
@@ -286,30 +288,54 @@ def apply_access_control_rule(
     if not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
         raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
-    instance = AccessControl.objects.filter(
-        team=team,
-        resource=params["resource"],
-        resource_id=params.get("resource_id"),
-        organization_member=params.get("organization_member"),
-        role=params.get("role"),
-    ).first()
+    with transaction.atomic():
+        instance = AccessControl.objects.filter(
+            team=team,
+            resource=params["resource"],
+            resource_id=params.get("resource_id"),
+            organization_member=params.get("organization_member"),
+            role=params.get("role"),
+        ).first()
 
-    if params["access_level"] is None:
-        if instance is None:
-            return None
-        instance.delete()
-        # Drop the preloaded access-control snapshot so later reads this request are fresh.
-        user_access_control._clear_cache()
-        return None
+        if params["access_level"] is None:
+            if instance is not None:
+                instance.delete()
+            rule = None
+        else:
+            if instance:
+                serializer = build_serializer(instance)
+                serializer.is_valid(raise_exception=True)
+            serializer.validated_data["team"] = team
+            rule = serializer.save()
 
-    if instance:
-        serializer = build_serializer(instance)
-        serializer.is_valid(raise_exception=True)
-    serializer.validated_data["team"] = team
-    rule = serializer.save()
+        if params["resource"] == "dashboard" and params.get("resource_id") is not None:
+            limits = AccessControl.objects.filter(
+                team=team, resource=DASHBOARD_EDIT_LIMIT_RESOURCE, resource_id=params["resource_id"]
+            )
+            if params.get("organization_member") is None and params.get("role") is None:
+                limits_deleted, _ = limits.delete()
+                if limits_deleted:
+                    # Keep migration retries from restoring a limit the admin explicitly removed.
+                    AccessControl.objects.create(
+                        team=team,
+                        resource=DASHBOARD_EDIT_LIMIT_RESOURCE,
+                        resource_id=params["resource_id"],
+                        access_level="editor",
+                    )
+            elif limits.filter(organization_member__isnull=True, role__isnull=True, access_level="viewer").exists():
+                limits.filter(organization_member=params.get("organization_member"), role=params.get("role")).delete()
+                if params["access_level"] in ("editor", "manager"):
+                    AccessControl.objects.create(
+                        team=team,
+                        resource=DASHBOARD_EDIT_LIMIT_RESOURCE,
+                        resource_id=params["resource_id"],
+                        organization_member=params.get("organization_member"),
+                        role=params.get("role"),
+                        access_level="editor",
+                    )
+
     # Drop the preloaded access-control snapshot so later reads this request are fresh.
     user_access_control._clear_cache()
-
     return rule
 
 

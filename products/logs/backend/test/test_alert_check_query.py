@@ -1076,6 +1076,8 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
                 group_by=("service_name",),
                 open_groups=open_groups,
                 worst_is_highest=True,
+                threshold_count=10,
+                datapoints_to_alarm=1,
                 limit=limit,
                 max_execution_time=30,
                 ch_user=ClickHouseUser.DEFAULT,
@@ -1089,7 +1091,39 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
 
         assert grouped([], limit=2) == [self.SERVICE_B, self.SERVICE_A]
         # The quieter group still comes back when it is open, ahead of a worse one the limit cuts.
-        assert grouped([{"service_name": self.SERVICE_A}], limit=1) == [self.SERVICE_A]
+        assert grouped([{"service_name": self.SERVICE_A}], limit=1) == [self.SERVICE_A, self.SERVICE_B]
+
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
+    def test_a_limit_keeps_the_groups_that_breach_n_of_m_over_a_worse_latest_period(self):
+        steady, spike, smaller_spike = "rolling_grouped_steady", "rolling_grouped_spike", "rolling_grouped_spike_2"
+        # Periods are 12:15-12:20, 12:20-12:25 and 12:25-12:30.
+        self._seed(steady, datetime(2025, 12, 16, 12, 15, tzinfo=UTC), [2] * 15)
+        self._seed(spike, datetime(2025, 12, 16, 12, 25, tzinfo=UTC), [20] * 5)
+        self._seed(smaller_spike, datetime(2025, 12, 16, 12, 25, tzinfo=UTC), [12] * 5)
+        alert = self._make_alert(filters={"serviceNames": [steady, spike, smaller_spike]}, window_minutes=5)
+        nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
+
+        result = GroupedAlertCheckQuery(
+            team=self.team,
+            alert=alert,
+            date_from=nca - dt.timedelta(minutes=15),
+            date_to=nca,
+            group_by=("service_name",),
+            open_groups=[],
+            worst_is_highest=True,
+            threshold_count=5,
+            datapoints_to_alarm=2,
+            limit=1,
+            max_execution_time=30,
+            ch_user=ClickHouseUser.DEFAULT,
+        ).execute_rolling_checks(nca=nca, window_minutes=5, cadence_minutes=5, period_count=3)
+
+        # The row past the limit is the worst group cut.
+        assert [(g.labels["service_name"], [c.count for c in g.counts]) for g in result.groups] == [
+            (steady, [10, 10, 10]),
+            (spike, [0, 0, 100]),
+        ]
+        assert result.truncated
 
     @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_single_alert_cohort_matches_per_alert_path(self):

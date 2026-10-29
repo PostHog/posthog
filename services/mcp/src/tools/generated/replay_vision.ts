@@ -391,6 +391,8 @@ const visionObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1023,6 +1025,12 @@ const visionScannersDraft = (): ToolBase<
         if (params.monthly_credit_budget !== undefined) {
             body['monthly_credit_budget'] = params.monthly_credit_budget
         }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
+        }
+        if (params.experiment_id !== undefined) {
+            body['experiment_id'] = params.experiment_id
+        }
         const result = await context.api.request<Schemas.DraftScannerResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/draft/`,
@@ -1115,6 +1123,49 @@ const visionScannersGet = (): ToolBase<ReturnType<typeof VisionScannersGetSchema
     },
 })
 
+const VisionScannersHighlightFeedSchema = () => {
+    const VisionScannersHighlightFeedRetrieveQueryParams = orvalSchemas.VisionScannersHighlightFeedRetrieveQueryParams()
+    return VisionScannersHighlightFeedRetrieveQueryParams
+}
+
+const visionScannersHighlightFeed = (): ToolBase<
+    ReturnType<typeof VisionScannersHighlightFeedSchema>,
+    WithAgentNote<Schemas.HighlightFeedResponse>
+> => ({
+    name: 'vision-scanners-highlight-feed',
+    schema: VisionScannersHighlightFeedSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersHighlightFeedSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HighlightFeedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/highlight_feed/`,
+            query: {
+                as_of: params.as_of,
+                categories: params.categories,
+                created_by: params.created_by,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                scanner_ids: params.scanner_ids,
+                scanner_type: params.scanner_type,
+                tags: params.tags,
+            },
+        })
+        const filtered = stripNullFields(
+            omitResponseFields(result, [
+                'results.*.observation.scanner_snapshot',
+                'results.*.observation.workflow_id',
+                'results.*.observation.triggered_by_user',
+            ])
+        ) as typeof result
+        return withAgentNote(
+            filtered,
+            'Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n'
+        )
+    },
+})
+
 const VisionScannersImpactGetSchema = () => {
     const VisionScannersImpactRetrieveParams = orvalSchemas.VisionScannersImpactRetrieveParams()
     const VisionScannersImpactRetrieveQueryParams = orvalSchemas.VisionScannersImpactRetrieveQueryParams()
@@ -1158,6 +1209,9 @@ const visionScannersInlineScan = (): ToolBase<ReturnType<typeof VisionScannersIn
         handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersInlineScanSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
+            if (params.built_in !== undefined) {
+                body['built_in'] = params.built_in
+            }
             if (params.prompt !== undefined) {
                 body['prompt'] = params.prompt
             }
@@ -1258,6 +1312,8 @@ const visionScannersObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1304,6 +1360,8 @@ const visionScannersObservationsList = (): ToolBase<
                     triggered_by: params.triggered_by,
                     variant: params.variant,
                     verdict: params.verdict,
+                    watch_category: params.watch_category,
+                    watch_group: params.watch_group,
                 },
             })
             return withTextProjection(
@@ -1362,6 +1420,8 @@ const visionScannersObservationsStats = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
+                watch_group: params.watch_group,
             },
         })
         return withAgentNote(
@@ -1530,44 +1590,6 @@ const visionScannersSelfDrivingStats = (): ToolBase<
     },
 })
 
-const VisionScannersSuggestTagsSchema = () => {
-    const VisionScannersSuggestTagsCreateBody = orvalSchemas.VisionScannersSuggestTagsCreateBody()
-    return VisionScannersSuggestTagsCreateBody
-}
-
-const visionScannersSuggestTags = (): ToolBase<
-    ReturnType<typeof VisionScannersSuggestTagsSchema>,
-    Schemas.SuggestTagsResponse
-> => ({
-    name: 'vision-scanners-suggest-tags',
-    schema: VisionScannersSuggestTagsSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersSuggestTagsSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.multi_label !== undefined) {
-            body['multi_label'] = params.multi_label
-        }
-        if (params.allow_freeform_tags !== undefined) {
-            body['allow_freeform_tags'] = params.allow_freeform_tags
-        }
-        if (params.scanner_id !== undefined) {
-            body['scanner_id'] = params.scanner_id
-        }
-        const result = await context.api.request<Schemas.SuggestTagsResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/suggest_tags/`,
-            body,
-        })
-        return result
-    },
-})
-
 const VisionScannersUpdateSchema = () => {
     const VisionScannersPartialUpdateBody = orvalSchemas.VisionScannersPartialUpdateBody()
     const VisionScannersPartialUpdateParams = orvalSchemas.VisionScannersPartialUpdateParams()
@@ -1664,47 +1686,6 @@ const visionScannersVariantsList = (): ToolBase<
     },
 })
 
-const VisionScannersWatchFeedSchema = () => {
-    const VisionScannersWatchFeedRetrieveQueryParams = orvalSchemas.VisionScannersWatchFeedRetrieveQueryParams()
-    return VisionScannersWatchFeedRetrieveQueryParams
-}
-
-const visionScannersWatchFeed = (): ToolBase<
-    ReturnType<typeof VisionScannersWatchFeedSchema>,
-    WithAgentNote<Schemas.WatchFeedResponse>
-> => ({
-    name: 'vision-scanners-watch-feed',
-    schema: VisionScannersWatchFeedSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersWatchFeedSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WatchFeedResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/watch_feed/`,
-            query: {
-                created_by: params.created_by,
-                date_from: params.date_from,
-                date_to: params.date_to,
-                limit: params.limit,
-                scanner_ids: params.scanner_ids,
-                scanner_type: params.scanner_type,
-                search: params.search,
-                tags: params.tags,
-            },
-        })
-        const filtered = stripNullFields(
-            omitResponseFields(result, [
-                'results.*.observation.scanner_snapshot',
-                'results.*.observation.workflow_id',
-                'results.*.observation.triggered_by_user',
-            ])
-        ) as typeof result
-        return withAgentNote(
-            filtered,
-            'Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n'
-        )
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-alerts-create': visionAlertsCreate,
     'vision-alerts-delete': visionAlertsDelete,
@@ -1742,6 +1723,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-duplicate': visionScannersDuplicate,
     'vision-scanners-estimate': visionScannersEstimate,
     'vision-scanners-get': visionScannersGet,
+    'vision-scanners-highlight-feed': visionScannersHighlightFeed,
     'vision-scanners-impact-get': visionScannersImpactGet,
     'vision-scanners-inline-scan': visionScannersInlineScan,
     'vision-scanners-list': visionScannersList,
@@ -1754,8 +1736,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-scout-reports-list': visionScannersScoutReportsList,
     'vision-scanners-scouts-create': visionScannersScoutsCreate,
     'vision-scanners-self-driving-stats': visionScannersSelfDrivingStats,
-    'vision-scanners-suggest-tags': visionScannersSuggestTags,
     'vision-scanners-update': visionScannersUpdate,
     'vision-scanners-variants-list': visionScannersVariantsList,
-    'vision-scanners-watch-feed': visionScannersWatchFeed,
 }

@@ -17,6 +17,8 @@ import type {
     PatchedTeamTracingConfigApi,
     PatchedTracesRetentionRuleApi,
     PatchedTracingViewApi,
+    ServiceHealthRequestApi,
+    ServiceHealthResponseApi,
     TeamTracingConfigApi,
     TracesRetentionRuleApi,
     TracingRetentionRulesListParams,
@@ -536,6 +538,23 @@ export const tracingSpansServiceNamesRetrieve = async (
     return apiMutator<_TracingServiceNamesResponseApi>(getTracingSpansServiceNamesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingSpansServiceHealthCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/service_health/`
+}
+
+export const tracingSpansServiceHealthCreate = async (
+    projectId: string,
+    serviceHealthRequestApi: ServiceHealthRequestApi,
+    options?: RequestInit
+): Promise<ServiceHealthResponseApi> => {
+    return apiMutator<ServiceHealthResponseApi>(getTracingSpansServiceHealthCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(serviceHealthRequestApi),
     })
 }
 

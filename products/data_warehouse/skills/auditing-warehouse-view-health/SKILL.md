@@ -99,11 +99,10 @@ Both are HogQL issues in the view definitions — independent of your sources. W
   data catalog. The view keeps refreshing, so it still costs compute. To stop that cost, unmaterialize the view with
   `view-unmaterialize`, after the user confirms.
 - A `materialize` suggestion names a view that is read often enough that materializing it saves compute. Accepting it
-  turns on materialization with the proposed refresh interval.
+  turns on materialization with the proposed refresh mode and interval.
 
-Present them before any hand audit. Accept one with `warehouse-suggestions-accept-prepare` / `-execute` after the user
-types `confirm`, or dismiss it with `warehouse-suggestions-dismiss`. If the list is empty, `warehouse-suggestions-status`
-tells you whether suggestions are still warming up, not eligible, or turned off.
+Present them before any hand audit. Follow the `reviewing-warehouse-suggestions` skill to explain, change, accept or
+dismiss them.
 
 **Unused materialized views:**
 Call `view-list`. Materialized views cost storage and compute every run. If any are marked materialized but haven't

@@ -2,13 +2,17 @@
 
 Inline metrics (on the experiment) and saved/shared metrics (ExperimentSavedMetric.query) are the same
 metric types, so both write paths parse and validate through `parse_and_validate_metric` and check
-referenced actions through `validate_metric_action_ids`. Checks that need a user or that the caller can
-waive (team ownership, permissions, whether a referenced event exists) stay with the callers.
+referenced actions, including the caller's access to them, through `validate_metric_action_ids`. Other
+checks that need a user or that the caller can waive (team ownership, permissions, whether a referenced
+event exists) stay with the callers.
 """
+
+from collections.abc import Collection
+from typing import Any
 
 import pydantic
 import structlog
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
     Breakdown,
@@ -19,11 +23,20 @@ from posthog.schema import (
     ExperimentRetentionMetric,
 )
 
+from posthog.models.team.team import Team
+from posthog.models.user import User
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
-from products.experiments.backend.metric_resolution import METRIC_BUILDERS, ExperimentMetric
+from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
+    ExperimentMetric,
+    metric_uses_warehouse_native_source,
+)
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
 
 logger = structlog.get_logger(__name__)
@@ -135,6 +148,9 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
     error = _semantic_error(parsed)
+    if error is None and metric_uses_warehouse_native_source(parsed):
+        # The source kind exists so the rest of the product can be built against it; nothing can run it yet.
+        error = "warehouse-native sources are not supported yet."
     if error:
         raise ValidationError(f"{error_prefix}{error}")
     return parsed
@@ -215,10 +231,40 @@ def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]
     return event_names, action_ids
 
 
+def defined_event_names(project_id: int, event_names: Collection[str], *, seen_only: bool = False) -> set[str]:
+    """The names in `event_names` that the project has an event definition for.
+
+    Ingestion writes a definition when it first sees an event, and Wizard writes one for each event it plans, so the
+    picker lists planned events before the code that sends them ships. `seen_only` leaves out a definition that
+    ingestion has not seen yet, which has no `last_seen_at`.
+
+    The scope is the project, as in the event picker: the EventDefinition list endpoint is project-scoped (see
+    posthog/api/event_definition.py), so a user in a multi-team project can pick an event ingested by a sibling team.
+    """
+    if not event_names:
+        return set()
+    # `COALESCE(project_id, team_id)` falls back to `team_id` (not the caller's team id) on purpose: legacy
+    # EventDefinitions (project_id IS NULL) belong to the *primary* team, and primary_team.id == project.id by
+    # convention. This mirrors the picker SQL in posthog/api/event_definition.py so sibling teams can validate
+    # against legacy primary-team events the picker shows.
+    definitions = EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+        effective_project_id=project_id, name__in=event_names
+    )
+    if seen_only:
+        definitions = definitions.filter(last_seen_at__isnull=False)
+    return set(definitions.values_list("name", flat=True))
+
+
 def validate_metric_action_ids(
-    metrics: list[dict] | None, team_id: int, *, known_action_ids: set[int] | None = None
+    metrics: list[dict] | None,
+    team: Team,
+    *,
+    user: Any,
+    known_action_ids: set[int] | None = None,
+    require_existing: bool = True,
 ) -> None:
-    """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team.
+    """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team,
+    and that ``user`` has viewer access to each of them.
 
     Actions are explicitly created entities with stable IDs, so a reference to a
     nonexistent action is almost certainly a mistake, so we raise a hard validation error.
@@ -227,6 +273,9 @@ def validate_metric_action_ids(
     metric, so an update is checked for what it introduces rather than for everything it
     resends. Without it, deleting a referenced action makes every later metric
     edit fail on the resent arrays. See ``update_experiment``.
+
+    ``require_existing=False`` checks access only. Attached saved metrics use it, because a saved
+    metric keeps working after one of its actions is deleted.
     """
     _, action_ids = extract_entity_nodes(metrics)
     if known_action_ids:
@@ -234,17 +283,24 @@ def validate_metric_action_ids(
     if not action_ids:
         return
 
-    existing_ids = set(
-        Action.objects.filter(
-            id__in=action_ids,
-            team_id=team_id,
-            deleted=False,
-        ).values_list("id", flat=True)
-    )
-    missing = action_ids - existing_ids
-    if missing:
+    referenced = Action.objects.filter(id__in=action_ids, team_id=team.id)
+    actions = list(referenced.filter(deleted=False) if require_existing else referenced)
+    missing = action_ids - {action.id for action in actions}
+    if require_existing and missing:
         missing_str = ", ".join(str(aid) for aid in sorted(missing))
         raise ValidationError(
             f"Action(s) with ID {missing_str} not found or deleted. "
             "Each ActionsNode must reference an existing action belonging to this project."
+        )
+
+    # Synthetic principals (project secret API keys) and userless system writes bypass access control.
+    if not isinstance(user, User):
+        return
+    denied = UserAccessControl(user=user, team=team).denied_object_ids(
+        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    )
+    if denied:
+        raise PermissionDenied(
+            f"You don't have viewer access to action(s) {', '.join(denied)}. "
+            "Remove them from the metric, or ask for access."
         )

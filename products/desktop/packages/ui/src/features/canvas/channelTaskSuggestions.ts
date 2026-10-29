@@ -10,7 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import type { SuggestedPrompt } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 
-// Starter prompts shown as cards on the channels (project-bluebird) new-task
+// Starter prompts shown as cards on the channels new-task
 // screen. Clicking a card drops its `prompt` into the composer, ready to
 // edit/send. Each prompt ends with a "User input:" block of fill-in lines the
 // user completes before sending. Channels-only — the /code new-task screen

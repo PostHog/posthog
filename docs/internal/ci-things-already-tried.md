@@ -209,7 +209,7 @@ Two things make this look inactive:
 The selection was also active for draft PRs only for some time. The team wanted a stable merge queue first.
 
 [#85530](https://github.com/PostHog/posthog/pull/85530) then extended the selection to PRs that are ready for review. [#88265](https://github.com/PostHog/posthog/pull/88265) put the Django selection and the product selection in one job.
-Read the comment at the top of `.github/workflows/ci-backend.yml` for the current rules.
+The comment under `pull_request:` in `.depot/workflows/ci-backend.yml` explains which tests run on each type of pull request.
 
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
@@ -495,6 +495,31 @@ The difference is in the `git fetch --depth=1`, and on master pushes the same Dj
 A checkout of `pull_request.head.sha` also took 21 to 22 s, so the refspec is not the cause. The cause is not known.
 
 _Also asked as:_ slow checkout in the Django shards, head.ref or head.sha, why is the Django checkout slower than the product checkout
+
+### Keep the pre-built wheels in the uv cache with `prune-cache: false`
+
+**Verdict: rejected** · Oct 2026 · [Depot run](https://depot.dev/orgs/ntsdt08fpt/workflows/4qpth2kdws), [#121208](https://github.com/PostHog/posthog/pull/121208)
+
+`setup-uv` prunes the cache, so each backend shard downloads its wheels from PyPI in `uv sync`.
+Between 00:14 and 03:07 UTC on 27 Oct 2026, PyPI downloads from the Depot CI sandboxes were very slow.
+The `Install Python dependencies` step has `timeout-minutes: 5` and `retry: 1`.
+Both attempts stalled, and Depot killed the step with `exec-step child exited with signal SIGTERM and produced no result`.
+Each shard failed about 10.5 minutes after it started. About 25 Backend CI runs failed. From 22:00 UTC the evening before to 12:00 UTC that day, no other run failed this way.
+
+The proposal was to stop the pruning, so that the shards get the wheels from Depot Cache and not from PyPI.
+The cost was estimated, not measured, because no job runs with an unpruned cache:
+
+- The unpruned cache is about 1 GB. Depot Cache storage costs $0.20 per GB-month, so the storage cost is small.
+- Each shard restores the 1 GB in about 20 s (from #121208). `uv sync` from PyPI takes 11 to 23 s in a healthy shard. The estimated net cost is 5 to 20 s for each shard, on every run.
+- At $0.006 per minute for a 2 vCPU sandbox, the compute of the whole outage, with the killed shards and the full reruns, is equal to about 2 to 8 days of that extra restore time.
+
+The pruning stays because one outage at night costs less than the restore time.
+Try this again if PyPI outages occur during working hours or more than a few times each month. Then the developer time and the merge queue kicks change the result.
+A longer step timeout does not help: the 5-minute bound and the retry let the shard fail fast, and this outage was 3 hours long.
+
+`setup-uv` v9 changed the `prune-cache` default to `false`. Each cache-enabled call sets `prune-cache: true` so that the cache stays at about 3 MB.
+
+_Also asked as:_ uv sync timeout, uv sync SIGTERM, PyPI is slow in CI, cache the Python wheels, why is prune-cache true, exec-step child exited with signal SIGTERM
 
 ### Jest reports the Rust snapshots as obsolete
 

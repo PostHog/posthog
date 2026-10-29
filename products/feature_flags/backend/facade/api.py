@@ -38,12 +38,16 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.approvals.backend.policies import PolicyEngine
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.approvals.backend.coverage import write_needs_approval
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagSerializer,
+    validate_stored_cohort_references as _validate_stored_cohort_references,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import flag_owner_kind
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
@@ -211,9 +215,22 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     """Unarchive a flag through the gated serializer path.
 
     The flag stays disabled; re-enabling it is a separate, explicit write
-    (``set_flag_active``).
+    (``set_flag_active``). Raises ``ValidationError`` when a release condition targets a
+    deleted cohort.
     """
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
+
+
+def validate_flag_restorable(flag_id: int, *, team_id: int) -> None:
+    """Raise ``ValidationError`` when a release condition targets a missing or deleted cohort.
+
+    A restored flag with such a condition fails every evaluation that reaches it. ``update_flag`` runs this
+    check on a restore. A caller that restores a flag another way must run it first. A
+    hard-deleted id or another team's flag has nothing to check.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).first()
+    if flag is not None:
+        _validate_stored_cohort_references(flag)
 
 
 def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:
@@ -372,10 +389,14 @@ def user_can_create_flags(*, team: Team, user: User) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
-def flag_disable_requires_approval(team: Team) -> bool:
-    """Whether an enabled approval policy gates disabling a flag for this team/org."""
-    policy = PolicyEngine().get_policy(action_key="feature_flag.disable", team=team, organization=team.organization)
-    return policy is not None
+def flag_disable_requires_approval(flag_id: int, *, team: Team) -> bool:
+    """Whether an enabled approval policy gates disabling this flag.
+
+    Reads the policy of the family that governs the flag, which follows its owner once the
+    organization scopes policies by flag owner.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag_id, team=team)
+    return write_needs_approval(flag_owner_kind(flag), "disable", team, team.organization)
 
 
 def serialize_flags(flags: Any, *, context: dict) -> Any:

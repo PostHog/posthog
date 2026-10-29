@@ -67,6 +67,7 @@
                                                             "in",
                                                             "not_in",
                                                             "is_cleaned_path_exact",
+                                                            "is_cleaned_path_not_exact",
                                                             "flag_evaluates_to",
                                                             "semver_eq",
                                                             "semver_neq",
@@ -164,6 +165,7 @@
                                                             "in",
                                                             "not_in",
                                                             "is_cleaned_path_exact",
+                                                            "is_cleaned_path_not_exact",
                                                             "flag_evaluates_to",
                                                             "semver_eq",
                                                             "semver_neq",
@@ -261,6 +263,7 @@
                                                             "in",
                                                             "not_in",
                                                             "is_cleaned_path_exact",
+                                                            "is_cleaned_path_not_exact",
                                                             "flag_evaluates_to",
                                                             "semver_eq",
                                                             "semver_neq",
@@ -323,6 +326,14 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "cohort_deleted": {
+                                                        "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                                                        "type": "boolean"
+                                                    },
+                                                    "cohort_missing": {
+                                                        "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored.",
+                                                        "type": "boolean"
+                                                    },
                                                     "cohort_name": {
                                                         "type": "string"
                                                     },
@@ -363,6 +374,7 @@
                                                             "in",
                                                             "not_in",
                                                             "is_cleaned_path_exact",
+                                                            "is_cleaned_path_not_exact",
                                                             "flag_evaluates_to",
                                                             "semver_eq",
                                                             "semver_neq",
@@ -445,6 +457,7 @@
                                                             "in",
                                                             "not_in",
                                                             "is_cleaned_path_exact",
+                                                            "is_cleaned_path_not_exact",
                                                             "flag_evaluates_to",
                                                             "semver_eq",
                                                             "semver_neq",
@@ -542,6 +555,7 @@
                                                             "in",
                                                             "not_in",
                                                             "is_cleaned_path_exact",
+                                                            "is_cleaned_path_not_exact",
                                                             "flag_evaluates_to",
                                                             "semver_eq",
                                                             "semver_neq",
@@ -639,6 +653,7 @@
                                                             "in",
                                                             "not_in",
                                                             "is_cleaned_path_exact",
+                                                            "is_cleaned_path_not_exact",
                                                             "flag_evaluates_to",
                                                             "semver_eq",
                                                             "semver_neq",
@@ -701,6 +716,14 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "cohort_deleted": {
+                                                        "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                                                        "type": "boolean"
+                                                    },
+                                                    "cohort_missing": {
+                                                        "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored.",
+                                                        "type": "boolean"
+                                                    },
                                                     "cohort_name": {
                                                         "type": "string"
                                                     },
@@ -741,6 +764,7 @@
                                                             "in",
                                                             "not_in",
                                                             "is_cleaned_path_exact",
+                                                            "is_cleaned_path_not_exact",
                                                             "flag_evaluates_to",
                                                             "semver_eq",
                                                             "semver_neq",
@@ -878,6 +902,7 @@
                                     "in",
                                     "not_in",
                                     "is_cleaned_path_exact",
+                                    "is_cleaned_path_not_exact",
                                     "flag_evaluates_to",
                                     "semver_eq",
                                     "semver_neq",
@@ -975,6 +1000,7 @@
                                     "in",
                                     "not_in",
                                     "is_cleaned_path_exact",
+                                    "is_cleaned_path_not_exact",
                                     "flag_evaluates_to",
                                     "semver_eq",
                                     "semver_neq",
@@ -1072,6 +1098,7 @@
                                     "in",
                                     "not_in",
                                     "is_cleaned_path_exact",
+                                    "is_cleaned_path_not_exact",
                                     "flag_evaluates_to",
                                     "semver_eq",
                                     "semver_neq",
@@ -1134,6 +1161,14 @@
                     },
                     {
                         "properties": {
+                            "cohort_deleted": {
+                                "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                                "type": "boolean"
+                            },
+                            "cohort_missing": {
+                                "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored.",
+                                "type": "boolean"
+                            },
                             "cohort_name": {
                                 "type": "string"
                             },
@@ -1174,6 +1209,7 @@
                                     "in",
                                     "not_in",
                                     "is_cleaned_path_exact",
+                                    "is_cleaned_path_not_exact",
                                     "flag_evaluates_to",
                                     "semver_eq",
                                     "semver_neq",

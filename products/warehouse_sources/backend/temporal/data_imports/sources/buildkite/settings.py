@@ -34,8 +34,8 @@ class BuildkiteEndpointConfig:
 
 # Buildkite v2 REST API endpoints. Most resources are nested under an organization slug, and the
 # Test Engine resources live under the /v2/analytics prefix. Only the builds endpoint exposes a
-# server-side timestamp filter (created_from); jobs inherit it through their parent build fan-out,
-# and the rest are full refresh.
+# server-side timestamp filter (created_from); jobs, artifacts and annotations inherit it through
+# their parent build fan-out, and the rest are full refresh.
 BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
     "organizations": BuildkiteEndpointConfig(
         name="organizations",
@@ -115,9 +115,64 @@ BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
             "Disabled by default because of the API cost"
         ),
     ),
+    "artifacts": BuildkiteEndpointConfig(
+        name="artifacts",
+        path="/v2/organizations/{organization}/pipelines/{pipeline_slug}/builds/{build_number}/artifacts",
+        # Buildkite only addresses an artifact through its build and job, so the build is keyed on.
+        primary_keys=["build_id", "id"],
+        # Artifacts have no time filter or timestamp of their own, so they share the jobs window.
+        partition_key="build_created_at",
+        incremental_fields=[
+            {
+                "label": "build_created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "build_created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        sort_mode="desc",
+        probe_path="/v2/organizations/{organization}/builds",
+        # An artifact's state moves from new to finished, and later to expired or deleted.
+        merge_only=True,
+        should_sync_default=False,
+        description=(
+            "Fetches the artifacts of every build, at least one request per build. "
+            "Disabled by default because of the API cost"
+        ),
+    ),
+    "annotations": BuildkiteEndpointConfig(
+        name="annotations",
+        path="/v2/organizations/{organization}/pipelines/{pipeline_slug}/builds/{build_number}/annotations",
+        primary_keys=["build_id", "id"],
+        # `created_at` is the annotation's own, but the server-side window applies to the parent build.
+        partition_key="build_created_at",
+        incremental_fields=[
+            {
+                "label": "build_created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "build_created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        sort_mode="desc",
+        probe_path="/v2/organizations/{organization}/builds",
+        # A step can append to or replace an annotation after it is created.
+        merge_only=True,
+        should_sync_default=False,
+        description=(
+            "Fetches the annotations of every build, at least one request per build. "
+            "Disabled by default because of the API cost"
+        ),
+    ),
     "agents": BuildkiteEndpointConfig(
         name="agents",
         path="/v2/organizations/{organization}/agents",
+        partition_key="created_at",
+        incremental_fields=[],
+    ),
+    "clusters": BuildkiteEndpointConfig(
+        name="clusters",
+        path="/v2/organizations/{organization}/clusters",
         partition_key="created_at",
         incremental_fields=[],
     ),
@@ -144,6 +199,16 @@ BUILDKITE_ENDPOINTS: dict[str, BuildkiteEndpointConfig] = {
         # The pair of endpoints they join is the key.
         primary_keys=["team_id", "pipeline_id"],
         # `created_at` is when the pipeline was added to the team, which is set once.
+        partition_key="created_at",
+        incremental_fields=[],
+        probe_path="/v2/organizations/{organization}/teams",
+    ),
+    "team_members": BuildkiteEndpointConfig(
+        name="team_members",
+        path="/v2/organizations/{organization}/teams/{team_id}/members",
+        # The rows are team-to-user links with no id of their own, so the pair they join is the key.
+        primary_keys=["team_id", "user_id"],
+        # `created_at` is when the user joined the team, which is set once.
         partition_key="created_at",
         incremental_fields=[],
         probe_path="/v2/organizations/{organization}/teams",

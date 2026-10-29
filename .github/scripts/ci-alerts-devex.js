@@ -99,37 +99,6 @@ function buildLanes(env) {
         countNeedsActivity: false,
     }))
     const scheduled = list(env.SCHEDULED_GATING_WORKFLOWS).map((workflowFile) => ({ workflowFile }))
-    // The workflow whose cron runs on Depot CI has no GitHub runs to list. Its lane reads the file
-    // that .github/scripts/depot_scheduled_runs.py wrote, which holds the runs in GitHub's shape.
-    // A missing or unparseable file throws, so the lane reads as unreadable, never green.
-    if (env.DEPOT_SCHEDULED_GATING_WORKFLOW) {
-        scheduled.push({
-            workflowFile: env.DEPOT_SCHEDULED_GATING_WORKFLOW,
-            listRuns: (page) => {
-                if (page !== 1) {
-                    return []
-                }
-                const runs = JSON.parse(fs.readFileSync(env.DEPOT_SCHEDULED_RUNS_FILE, 'utf8'))
-                if (
-                    !Array.isArray(runs) ||
-                    runs.length === 0 ||
-                    runs.some(
-                        (run) =>
-                            !run ||
-                            !['completed', 'in_progress'].includes(run.status) ||
-                            !Number.isFinite(Date.parse(run.created_at)) ||
-                            (run.status === 'completed' &&
-                                !['success', 'failure', 'cancelled'].includes(run.conclusion))
-                    )
-                ) {
-                    throw new Error('Depot scheduled runs file contains invalid run data')
-                }
-                return runs
-            },
-            // GitHub has no run history for this lane, so the alert links its failing run.
-            linkFailingRun: true,
-        })
-    }
     for (const source of scheduled) {
         lanes.push({
             ...source,
@@ -146,7 +115,43 @@ function buildLanes(env) {
             countNeedsActivity: true,
         })
     }
-    return lanes
+    // A workflow that runs on Depot CI has no GitHub runs to list. Each of its lanes reads the
+    // file that .github/scripts/depot_backend_runs.py wrote for that trigger, which holds the runs
+    // in GitHub's shape. A missing or unparseable file throws, so the lane reads as unreadable,
+    // never green.
+    const depotWorkflows = new Set(list(env.DEPOT_WORKFLOWS))
+    return lanes.map((lane) =>
+        depotWorkflows.has(lane.workflowFile)
+            ? { ...lane, ...depotRunSource(`${env.DEPOT_RUNS_DIR}/${lane.workflowFile}-${lane.event}.json`) }
+            : lane
+    )
+}
+
+function depotRunSource(file) {
+    return {
+        listRuns: (page) => {
+            if (page !== 1) {
+                return []
+            }
+            const runs = JSON.parse(fs.readFileSync(file, 'utf8'))
+            if (
+                !Array.isArray(runs) ||
+                runs.length === 0 ||
+                runs.some(
+                    (run) =>
+                        !run ||
+                        !['completed', 'in_progress'].includes(run.status) ||
+                        !Number.isFinite(Date.parse(run.created_at)) ||
+                        (run.status === 'completed' && !['success', 'failure', 'cancelled'].includes(run.conclusion))
+                )
+            ) {
+                throw new Error('Depot runs file contains invalid run data')
+            }
+            return runs
+        },
+        // GitHub has no run history for this lane, so the alert links its failing run.
+        linkFailingRun: true,
+    }
 }
 
 // ---------------------------------------------------------------------------

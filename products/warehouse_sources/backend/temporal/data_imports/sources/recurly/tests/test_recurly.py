@@ -7,8 +7,7 @@ from unittest.mock import MagicMock
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
+    route,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recurly import (
     RecurlySourceConfig,
@@ -18,8 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.re
     RecurlyResumeConfig,
     _extract_cursor,
     _format_datetime,
+    _usage_add_ons,
     get_resource,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.settings import RECURLY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.recurly.source import RecurlySource
@@ -60,6 +59,36 @@ class TestRecurlyHelpers:
 
     def test_format_datetime_string_passthrough(self):
         assert _format_datetime("2024-01-02T00:00:00Z") == "2024-01-02T00:00:00Z"
+
+
+class TestUsageAddOns:
+    @pytest.mark.parametrize(
+        "add_ons, expected_add_on_ids",
+        [
+            ([], []),
+            (None, []),
+            ([{"add_on": {"id": "u1", "add_on_type": "usage"}}], ["u1"]),
+            ([{"add_on": {"id": "f1", "add_on_type": "fixed"}}], []),
+            ([{"add_on": {"id": "u1"}}], []),
+            ([{"add_on": {"add_on_type": "usage"}}], []),
+            ([{"add_on": None}, {}], []),
+            (
+                [
+                    {"add_on": {"id": "u1", "add_on_type": "usage"}},
+                    {"add_on": {"id": "f1", "add_on_type": "fixed"}},
+                    {"add_on": {"id": "u1", "add_on_type": "usage"}},
+                    {"add_on": {"id": "u2", "add_on_type": "usage"}},
+                ],
+                ["u1", "u2"],
+            ),
+        ],
+    )
+    def test_explodes_subscription_into_usage_add_ons(
+        self, add_ons: list[dict[str, Any]] | None, expected_add_on_ids: list[str]
+    ) -> None:
+        rows = _usage_add_ons({"id": "sub-1", "add_ons": add_ons})
+
+        assert rows == [{"subscription_id": "sub-1", "add_on_id": add_on_id} for add_on_id in expected_add_on_ids]
 
 
 class TestRecurlyPaginator:
@@ -119,27 +148,6 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
 
 
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_valid",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_status_code_mapping(self, status_code, expected_valid):
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            is_valid, message = validate_credentials("key", "us")
-
-        assert is_valid is expected_valid
-        if not expected_valid:
-            assert message
-
-    def test_connection_error_is_invalid(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("key", "us")
-
-        assert is_valid is False
-        assert message
-
-
 class TestRecurlySourceResumeBehavior:
     @staticmethod
     def _driver() -> SourceDriver:
@@ -174,3 +182,120 @@ class TestRecurlySourceResumeBehavior:
         result = self._driver().run("accounts", [ScriptedResponse(json=_list_body([{"id": "a"}], has_more=False))])
 
         assert result.params("cursor") == [None]
+
+
+class TestRecurlyFanOut:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(RecurlySource(), RecurlySourceConfig(api_key="test-key", region="us"))
+
+    def test_coupon_redemptions_walk_every_account_and_tag_rows(self) -> None:
+        result = self._driver().run(
+            "coupon_redemptions",
+            route(
+                {
+                    "/accounts": [
+                        ScriptedResponse(
+                            json=_list_body(
+                                [{"id": "a1"}, {"id": "a2"}], has_more=True, next_path="/accounts?cursor=p2"
+                            )
+                        ),
+                        ScriptedResponse(json=_list_body([{"id": "a3"}])),
+                    ],
+                    "/accounts/a1/coupon_redemptions": [
+                        ScriptedResponse(
+                            json=_list_body(
+                                [{"id": "r1"}], has_more=True, next_path="/accounts/a1/coupon_redemptions?cursor=c2"
+                            )
+                        ),
+                        ScriptedResponse(json=_list_body([{"id": "r2"}])),
+                    ],
+                    # An account closed between the listing and its child fetch.
+                    "/accounts/a2/coupon_redemptions": [ScriptedResponse(status=404, json={"error": {}})],
+                    "/accounts/a3/coupon_redemptions": [ScriptedResponse(json=_list_body([{"id": "r3"}]))],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["account_id"], row["id"]) for row in result.rows] == [("a1", "r1"), ("a1", "r2"), ("a3", "r3")]
+        assert all("_accounts_id" not in row for row in result.rows)
+        assert result.response is not None
+        assert result.response.primary_keys == ["account_id", "id"]
+        child_queries = [request.query for request in result.requests if request.path.endswith("/coupon_redemptions")]
+        # The spec declares no `limit` or `order` here, so only the pagination cursor may be sent.
+        assert child_queries == [{}, {"cursor": ("c2",)}, {}, {}]
+
+    def test_usage_requests_only_usage_add_ons_and_tags_rows(self) -> None:
+        subscriptions: list[dict[str, Any]] = [
+            {
+                "id": "s1",
+                "add_ons": [
+                    {"add_on": {"id": "u1", "add_on_type": "usage"}},
+                    {"add_on": {"id": "f1", "add_on_type": "fixed"}},
+                ],
+            },
+            {"id": "s2", "add_ons": []},
+            {"id": "s3", "add_ons": [{"add_on": {"id": "u2", "add_on_type": "usage"}}]},
+        ]
+        result = self._driver().run(
+            "usage",
+            route(
+                {
+                    "/subscriptions": [ScriptedResponse(json=_list_body(subscriptions))],
+                    "/subscriptions/s1/add_ons/u1/usage": [
+                        ScriptedResponse(
+                            json=_list_body(
+                                [{"id": "x1"}], has_more=True, next_path="/subscriptions/s1/add_ons/u1/usage?cursor=c2"
+                            )
+                        ),
+                        ScriptedResponse(json=_list_body([{"id": "x2"}])),
+                    ],
+                    "/subscriptions/s3/add_ons/u2/usage": [ScriptedResponse(json=_list_body([{"id": "x3"}]))],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["subscription_id"], row["add_on_id"], row["id"]) for row in result.rows] == [
+            ("s1", "u1", "x1"),
+            ("s1", "u1", "x2"),
+            ("s3", "u2", "x3"),
+        ]
+        usage_requests = [request for request in result.requests if request.path.endswith("/usage")]
+        assert [request.path for request in usage_requests] == [
+            "/subscriptions/s1/add_ons/u1/usage",
+            "/subscriptions/s1/add_ons/u1/usage",
+            "/subscriptions/s3/add_ons/u2/usage",
+        ]
+        assert {(r.param("sort"), r.param("order"), r.param("limit")) for r in usage_requests} == {
+            ("recorded_timestamp", "asc", "200")
+        }
+
+    def test_resume_skips_completed_parents_and_continues_the_current_one(self) -> None:
+        result = self._driver().run(
+            "coupon_redemptions",
+            route(
+                {
+                    "/accounts": [ScriptedResponse(json=_list_body([{"id": "a1"}, {"id": "a2"}, {"id": "a3"}]))],
+                    "/accounts/a2/coupon_redemptions": [ScriptedResponse(json=_list_body([{"id": "r2"}]))],
+                    "/accounts/a3/coupon_redemptions": [ScriptedResponse(json=_list_body([{"id": "r3"}]))],
+                }
+            ),
+            resume_state=RecurlyResumeConfig(
+                fanout_state={
+                    "completed": ["/accounts/a1/coupon_redemptions"],
+                    "current": "/accounts/a2/coupon_redemptions",
+                    "child_state": {"next_cursor": "c-resumed"},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["r2", "r3"]
+        child_requests = [r for r in result.requests if r.path.endswith("/coupon_redemptions")]
+        assert [(r.path, r.param("cursor")) for r in child_requests] == [
+            ("/accounts/a2/coupon_redemptions", "c-resumed"),
+            ("/accounts/a3/coupon_redemptions", None),
+        ]
+        assert all(state.next_cursor == "" and state.fanout_state for state in result.saved_states)

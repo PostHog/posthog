@@ -192,6 +192,51 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "retry_count": "Number of times the job was retried.",
         },
     },
+    "agent_deployments": {
+        "description": "Traffic split history of each Conversational AI agent across its branches. One row per traffic split, including the live one.",
+        "docs_url": "https://elevenlabs.io/docs/api-reference/agents/deployments/list",
+        "columns": {
+            "id": "Identifier of the deployment.",
+            "agent_id": "Identifier of the agent the deployment belongs to.",
+            "traffic_percentage_branch_id_map": "Map of branch IDs to the percentage of traffic each branch receives.",
+            "deployed_at_unix_secs": "Time the traffic split was applied, in Unix seconds.",
+            "is_active": "Whether this is the live traffic split.",
+            "source": "What caused the traffic split change (manual or branch_merge). Null for older deployments.",
+            "access_info": "Access metadata for the deployment, including who created it.",
+        },
+    },
+    "flow_templates": {
+        "description": "Published Flows templates in your workspace, with their runnable versions. One row per template.",
+        "docs_url": "https://elevenlabs.io/docs/api-reference/flows/templates/list",
+        "columns": {
+            "id": "Unique identifier for the template.",
+            "name": "Name of the template.",
+            "description": "Description of the template, if it has one.",
+            "versions": "Up to three of the most recent published versions you can run, with their inputs and outputs.",
+            "has_more_versions": "Whether the template has more published versions than the ones returned.",
+        },
+    },
+    "flow_template_runs": {
+        "description": "Runs of Flows templates that were created through the API. One row per run.",
+        "docs_url": "https://elevenlabs.io/docs/api-reference/flows/templates/runs/list",
+        "columns": {
+            "id": "Unique identifier for the run.",
+            "template_id": "Identifier of the template the run executed.",
+            "version_id": "Identifier of the template version the run executed.",
+            "status": "Status of the run (pending, generating, completed, or failed).",
+            "outputs": "Outputs of the run, keyed by output port ID.",
+        },
+    },
+    "voice_collections": {
+        "description": "Voice collections you can access. One row per collection.",
+        "docs_url": "https://elevenlabs.io/docs/api-reference/voices/collections/list",
+        "columns": {
+            "collection_id": "Unique identifier for the voice collection.",
+            "title": "Title of the voice collection.",
+            "icon": "Icon of the voice collection.",
+            "permission_on_resource": "Your access role on the voice collection.",
+        },
+    },
     "subscription": {
         "description": "Subscription plan, quota, and current billing period usage. A single row that each sync replaces.",
         "docs_url": "https://elevenlabs.io/docs/api-reference/user/subscription/get",

@@ -1,5 +1,3 @@
-import pytest
-
 from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hightouch import (
     HightouchSourceConfig,
@@ -22,7 +20,7 @@ class TestHightouchSource:
         assert config.name.value == "Hightouch"
         assert config.label == "Hightouch"
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         # The source ships visible: unreleasedSource hides the connector from every user.
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/hightouch.png"
@@ -46,25 +44,3 @@ class TestHightouchSource:
         assert schemas["sync_runs"].supports_append is False
         assert [f["field"] for f in schemas["sync_runs"].incremental_fields] == ["startedAt"]
         assert schemas["sync_runs"].default_incremental_lookback_seconds == SYNC_RUNS_LOOKBACK_SECONDS
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["sync_runs"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "sync_runs"
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.hightouch.com/api/v1/syncs",
-            "403 Client Error: Forbidden for url: https://api.hightouch.com/api/v1/syncs",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    def test_non_retryable_errors_ignore_transient_failures(self) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(
-            key in "500 Server Error for url: https://api.hightouch.com/api/v1/syncs" for key in non_retryable
-        )

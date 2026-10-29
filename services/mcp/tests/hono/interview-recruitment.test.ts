@@ -38,6 +38,7 @@ import { McpDispatcher } from '@/hono/dispatcher'
 import { resolveInterviewRecruitmentConfig } from '@/hono/interview-recruitment'
 import { registerPublicRoutes } from '@/hono/public-routes'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { authenticateAndParse } from '@/hono/request-utils'
 import type { ToolCatalog } from '@/hono/tool-catalog'
 import type { ToolCallHooks } from '@/hono/tool-executor'
 import type { RequestProperties } from '@/lib/request-properties'
@@ -176,6 +177,41 @@ async function call(
     return (await dispatcher.handleRequest(request(params, id ?? nextRequestId++), requestProps)).json()
 }
 
+type LegacyMessage = {
+    id: string | number
+    method?: string
+    params?: Record<string, unknown>
+    result?: Record<string, unknown>
+}
+
+function legacyRequest(body: unknown, accept = 'application/json, text/event-stream'): Request {
+    return new Request('https://mcp.test/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: accept, 'MCP-Protocol-Version': '2025-06-18' },
+        body: JSON.stringify(body),
+    })
+}
+
+async function legacyCall(
+    dispatcher: McpDispatcher,
+    accept?: string
+): Promise<{ response: Response; messages: LegacyMessage[] }> {
+    const params = { name: 'exec', arguments: { command: 'call project-get {}' } }
+    const response = await dispatcher.handleRequest(
+        legacyRequest({ jsonrpc: '2.0', id: nextRequestId++, method: 'tools/call', params }, accept),
+        props
+    )
+    const body = await response.text()
+    const messages =
+        response.headers.get('Content-Type') === 'text/event-stream'
+            ? body
+                  .split('\n\n')
+                  .filter(Boolean)
+                  .map((event) => JSON.parse(event.split('data: ')[1]!))
+            : [JSON.parse(body)]
+    return { response, messages }
+}
+
 function continuation(requestState: unknown, response: unknown): Record<string, unknown> {
     return { ...callParams(), requestState, inputResponses: { 'mcp-interview': response } }
 }
@@ -221,6 +257,8 @@ describe('MCP interview recruitment', () => {
                     distinctId: 'test-person',
                     properties: expect.objectContaining({
                         invitation_id: String(invitation.result?.requestState).slice('mcp-interview:'.length),
+                        interview_recruitment_reason: 'invited',
+                        interview_recruitment_url_supported: true,
                     }),
                 })
             )
@@ -257,6 +295,7 @@ describe('MCP interview recruitment', () => {
             )
             expect(storage.redis.set).not.toHaveBeenCalled()
             expect(storage.redis.eval).not.toHaveBeenCalled()
+            expect(state.interviewRecruitmentDiagnostics?.reason).toBe('suppressed')
             storage.entries.delete(key)
             expect((await call(reconnected)).result?.resultType).toBe('input_required')
         }
@@ -283,13 +322,20 @@ describe('MCP interview recruitment', () => {
         expect((await call(dispatcher)).result?.resultType).toBe('input_required')
     })
 
-    it.each([{}, { elicitation: {} }, { elicitation: { form: {} } }, { elicitation: false }])(
-        'skips clients without URL support: %j',
-        async (capabilities) => {
-            expect((await call(dispatcher, callParams(capabilities))).result).toMatchObject(toolResult)
-            expect(storage.entries.size).toBe(0)
-        }
-    )
+    it.each([
+        [{}, false],
+        [{ elicitation: {} }, true],
+        [{ elicitation: { form: {} } }, true],
+        [{ elicitation: false }, false],
+    ] as const)('skips clients without URL support: %j', async (capabilities, formSupported) => {
+        expect((await call(dispatcher, callParams(capabilities))).result).toMatchObject(toolResult)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'url_unsupported',
+            urlSupported: false,
+            formSupported,
+        })
+        expect(storage.entries.size).toBe(0)
+    })
 
     it.each(['disabled', 'missing', 'impersonated', 'suppressed', 'invalid-payload'])(
         'skips recruitment when %s',
@@ -336,11 +382,27 @@ describe('MCP interview recruitment', () => {
             booking_url: 'https://example.com/book',
         })
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'insufficient_tool_calls',
+            completedCalls: 0,
+            sessionAgeSeconds: 0,
+        })
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'session_too_young',
+            completedCalls: 3,
+            sessionAgeSeconds: 0,
+        })
         vi.advanceTimersByTime(120_000)
-        expect((await call(dispatcher)).result).toMatchObject(toolResult)
         expect((await call(dispatcher)).result?.resultType).toBe('input_required')
-        expect(executeTool).toHaveBeenCalledTimes(3)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'invited',
+            completedCalls: 4,
+            sessionAgeSeconds: 120,
+        })
+        expect(executeTool).toHaveBeenCalledTimes(4)
     })
 
     it.each(['failed', 'search', 'learn', 'skill', 'docs'])(
@@ -447,6 +509,11 @@ describe('MCP interview recruitment', () => {
         const result = (await (await dispatcher.handleRequest(legacy, props)).json()) as { result: unknown }
         expect(result.result).toEqual(toolResult)
         expect(storage.entries.size).toBe(0)
+        expect(state.interviewRecruitmentDiagnostics).toMatchObject({
+            reason: 'legacy_protocol',
+            urlSupported: null,
+            formSupported: null,
+        })
     })
 
     it.each(['token', 'person', 'arguments', 'project', 'organization', 'expired', 'replayed', 'invalid-answer'])(
@@ -502,6 +569,7 @@ describe('MCP interview recruitment', () => {
     it('skips the invitation if Redis fails, but retries a response write before executing the tool', async () => {
         vi.mocked(storage.redis.eval).mockRejectedValueOnce(new Error('unavailable'))
         expect((await call(dispatcher)).result).toMatchObject(toolResult)
+        expect(state.interviewRecruitmentDiagnostics?.reason).toBe('redis_error')
         executeTool.mockClear()
         const invitation = await call(dispatcher)
         const resumed = continuation(invitation.result?.requestState, { action: 'decline' })
@@ -578,24 +646,192 @@ describe('MCP interview recruitment', () => {
         }
     })
 
-    it('completes the URL round trip with the official MCP client', async () => {
-        const client = new Client(
-            { name: 'recruitment-test', version: '1.0.0' },
-            { capabilities: { elicitation: { url: {} } }, versionNegotiation: { mode: { pin: '2026-07-28' } } }
-        )
-        const onInvitation = vi.fn(async () => ({ action: 'accept' as const }))
-        client.setRequestHandler('elicitation/create', onInvitation)
-        const transport = new StreamableHTTPClientTransport(new URL('https://mcp.test/mcp'), {
-            fetch: async (input, init) => dispatcher.handleRequest(new Request(input, init), props),
-        })
-        try {
-            await client.connect(transport)
-            const result = await client.callTool({ name: 'exec', arguments: { command: 'call project-get {}' } })
-            expect(result).toMatchObject(toolResult)
-            expect(onInvitation).toHaveBeenCalledTimes(1)
+    it.each(['accept', 'decline', 'cancel'] as const)(
+        'saves a legacy %s without executing the tool again',
+        async (action) => {
+            state.sessionContext = { mcpElicitationUrlSupported: true }
+            executeTool.mockImplementationOnce(async (_params, callState: ResolvedState) => {
+                expect(callState.interviewRecruitmentDiagnostics).toMatchObject({
+                    reason: 'eligible',
+                    urlSupported: true,
+                    formSupported: null,
+                })
+                expect(captureRecruitment).not.toHaveBeenCalled()
+                return toolResult
+            })
+            const { response, messages } = await legacyCall(dispatcher)
+            expect(response.headers.get('Content-Type')).toBe('text/event-stream')
+            expect(messages).toHaveLength(2)
+            const invitation = messages[0]!
+            expect(invitation).toMatchObject({
+                method: 'elicitation/create',
+                params: {
+                    mode: 'url',
+                    elicitationId: expect.any(String),
+                    url: expect.stringContaining('https://mcp.test/interview/'),
+                },
+            })
+            expect(messages[1]?.result).toMatchObject(toolResult)
             expect(executeTool).toHaveBeenCalledTimes(1)
-        } finally {
-            await client.close()
+            state.interviewRecruitmentConfig = undefined
+            vi.mocked(state.context.stateManager.getProjectId).mockResolvedValue('another-project')
+            const reply = { jsonrpc: '2.0', id: invitation.id, result: { action } }
+            expect((await dispatcher.handleRequest(legacyRequest(reply), props)).status).toBe(202)
+            expect((await dispatcher.handleRequest(legacyRequest(reply), props)).status).toBe(202)
+            const saved = [...storage.entries].find(([key]) => key.endsWith(':response'))![1]
+            expect(JSON.parse(saved.value).response).toBe(
+                action === 'accept' ? 'booking_link_accepted' : action === 'decline' ? 'do_not_ask_again' : 'not_now'
+            )
+            expect(saved.expires === undefined).toBe(action !== 'cancel')
+            expect(
+                captureRecruitment.mock.calls.filter(([event]) => event.event === 'mcp interview invitation responded')
+            ).toHaveLength(1)
+            expect(executeTool).toHaveBeenCalledTimes(1)
+            state.interviewRecruitmentConfig = makeState().interviewRecruitmentConfig
+            expect((await legacyCall(dispatcher)).messages).toHaveLength(1)
         }
-    })
+    )
+
+    it.each(['token', 'person', 'expired', 'modern-invitation'])(
+        'ignores a legacy response for a different %s',
+        async (condition) => {
+            vi.useFakeTimers()
+            state.sessionContext = { mcpElicitationUrlSupported: true }
+            const invitation =
+                condition === 'modern-invitation'
+                    ? { id: (await call(dispatcher)).result?.requestState }
+                    : (await legacyCall(dispatcher)).messages[0]!
+            const before = captureRecruitment.mock.calls.length
+            if (condition === 'person') {
+                state.distinctId = 'another-test-person'
+            }
+            if (condition === 'expired') {
+                vi.setSystemTime(Date.now() + 11 * 60 * 1000)
+            }
+            await dispatcher.handleRequest(
+                legacyRequest({ jsonrpc: '2.0', id: invitation.id, result: { action: 'decline' } }),
+                condition === 'token' ? { ...props, userHash: 'another-token-hash' } : props
+            )
+            expect(captureRecruitment).toHaveBeenCalledTimes(before)
+            expect(
+                [...storage.entries.values()].some((record) => JSON.parse(record.value).response === 'do_not_ask_again')
+            ).toBe(false)
+        }
+    )
+
+    it.each(['no-url', 'json-only', 'failed-tool', 'suppressed', 'impersonated', 'redis-error', 'warmup'])(
+        'preserves the legacy tool result when %s prevents recruitment',
+        async (condition) => {
+            state.sessionContext = { mcpElicitationUrlSupported: condition !== 'no-url' }
+            if (condition === 'failed-tool') {
+                executeTool.mockResolvedValue({ ...toolResult, isError: true })
+            }
+            if (condition === 'suppressed' || condition === 'impersonated') {
+                executeTool.mockImplementation(async () => {
+                    if (condition === 'suppressed') {
+                        state.suppressAnalytics = true
+                    } else {
+                        state.isImpersonated = true
+                    }
+                    return toolResult
+                })
+            }
+            if (condition === 'redis-error') {
+                vi.mocked(storage.redis.get).mockRejectedValue(new Error('Redis unavailable'))
+            }
+            if (condition === 'warmup') {
+                state.interviewRecruitmentConfig!.min_completed_tool_calls = 2
+            }
+            const { response, messages } = await legacyCall(
+                dispatcher,
+                condition === 'json-only' ? 'application/json' : undefined
+            )
+            expect(response.headers.get('Content-Type')).toBe('application/json')
+            expect(messages).toHaveLength(1)
+            expect(messages[0]?.result).toMatchObject({
+                ...toolResult,
+                ...(condition === 'failed-tool' ? { isError: true } : {}),
+            })
+            expect(executeTool).toHaveBeenCalledTimes(1)
+            expect(captureRecruitment).not.toHaveBeenCalled()
+            expect([...storage.entries.keys()].every((key) => key.includes(':conversation:'))).toBe(true)
+            if (condition === 'failed-tool') {
+                expect([...storage.entries.values()].every((record) => JSON.parse(record.value).completed === 0)).toBe(
+                    true
+                )
+            }
+            if (condition === 'warmup') {
+                expect((await legacyCall(dispatcher)).messages).toHaveLength(1)
+                expect((await legacyCall(dispatcher)).messages).toHaveLength(2)
+            }
+        }
+    )
+
+    it.each(['2026-07-28', '2025-11-25'])(
+        'completes the URL round trip with the official MCP client on %s',
+        async (version) => {
+            let receiveReply!: () => void
+            const replyHandled = new Promise<void>((resolve) => {
+                receiveReply = resolve
+            })
+            resolveState.mockImplementation(async (requestProps: RequestProperties) => {
+                if (requestProps.mcpElicitationUrlSupported !== undefined) {
+                    state.sessionContext = { mcpElicitationUrlSupported: requestProps.mcpElicitationUrlSupported }
+                }
+                return state
+            })
+            const app = new Hono()
+            app.post('/mcp', async (c) => {
+                const auth = await authenticateAndParse(c, 'streamable-http')
+                if ('error' in auth) {
+                    return auth.error
+                }
+                const message = (await c.req.raw.clone().json()) as { method?: string; id?: string }
+                const response = await dispatcher.handleRequest(c.req.raw, auth.props)
+                if (!message.method && message.id?.startsWith('mcp-interview:')) {
+                    receiveReply()
+                }
+                return response
+            })
+            const client = new Client(
+                { name: 'recruitment-test', version: '1.0.0' },
+                {
+                    capabilities: { elicitation: { url: {} } },
+                    versionNegotiation: { mode: version === '2026-07-28' ? { pin: version } : 'legacy' },
+                }
+            )
+            const onInvitation = vi.fn(async () => ({ action: 'accept' as const }))
+            client.setRequestHandler('elicitation/create', onInvitation)
+            const transport = new StreamableHTTPClientTransport(new URL('https://mcp.test/mcp'), {
+                fetch: async (input, init) =>
+                    app.fetch(
+                        new Request(input, {
+                            ...init,
+                            headers: {
+                                ...Object.fromEntries(new Headers(init?.headers)),
+                                Authorization: 'Bearer phx_synthetic',
+                            },
+                        })
+                    ),
+            })
+            try {
+                await client.connect(transport)
+                const result = await client.callTool({ name: 'exec', arguments: { command: 'call project-get {}' } })
+                expect(result).toMatchObject(toolResult)
+                if (version !== '2026-07-28') {
+                    await replyHandled
+                }
+                expect(captureRecruitment).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        event: 'mcp interview invitation responded',
+                        properties: expect.objectContaining({ response: 'accept' }),
+                    })
+                )
+                expect(onInvitation).toHaveBeenCalledTimes(1)
+                expect(executeTool).toHaveBeenCalledTimes(1)
+            } finally {
+                await client.close()
+            }
+        }
+    )
 })

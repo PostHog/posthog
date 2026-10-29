@@ -1,13 +1,20 @@
 import json
-from collections.abc import Mapping
+import time
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 import requests
 import structlog
 
+from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import WORKFLOWS_STEP_RESUME_JWT_PURPOSE, resume_workflow_step
 
-from products.cdp.backend.internal_events import WORKFLOW_STEP_RESUME_EVENT, InternalEventEvent, produce_internal_event
+from products.cdp.backend.internal_events import (
+    WORKFLOW_STEP_RESUME_EVENT,
+    InternalEventEvent,
+    flush_internal_events_producer,
+    produce_internal_event,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -15,6 +22,9 @@ RESULT_STRING_CAP = 1500
 RESULT_BYTE_CAP = 4096
 
 WorkflowStepResumeStatus = Literal["completed", "failed", "cancelled"]
+
+RESUME_RETRY_DELAYS_SECONDS = (1, 2, 4)
+RESUME_EVENT_DELIVERY_TIMEOUT_SECONDS = 10
 
 
 def _json_size(value: Any) -> int:
@@ -37,6 +47,11 @@ def cap_value(value: Any, budget: int) -> Any:
             available = budget - _json_size({**result, key: None}) + 4
             if available <= 0:
                 break
+            # An explicit null stays, so every answer reaches the step with the same keys.
+            if item is None:
+                if available >= len("null"):
+                    result[key] = None
+                continue
             capped = cap_value(item, available)
             if capped is not None and _json_size(capped) <= available:
                 result[key] = capped
@@ -53,8 +68,14 @@ def cap_value(value: Any, budget: int) -> Any:
     return value if value is not None and _json_size(value) <= budget else None
 
 
-def produce_step_resume_event(*, team_id: int, origin_key: str, status: str, result: Mapping[str, Any]) -> None:
-    produce_internal_event(
+class WorkflowStepResumeNotTaken(Exception):
+    """The engine still held the step after every retry, or the internal event was not delivered."""
+
+
+def produce_step_resume_event(
+    *, team_id: int, origin_key: str, status: str, result: Mapping[str, Any]
+) -> ProduceResult:
+    return produce_internal_event(
         team_id=team_id,
         event=InternalEventEvent(
             event=WORKFLOW_STEP_RESUME_EVENT,
@@ -64,6 +85,30 @@ def produce_step_resume_event(*, team_id: int, origin_key: str, status: str, res
     )
 
 
+def _post_resume(
+    *,
+    team_id: int,
+    origin_key: str,
+    status: WorkflowStepResumeStatus,
+    result: dict[str, Any],
+    retry_delays: Sequence[float],
+) -> bool:
+    """POST the wake. False when the worker still held the step on every attempt.
+
+    Only a 409 is retried: the worker holds the job until the step parks. A 200 is final, including
+    `stale_key`, which means the step has already moved past this wake.
+    """
+    for delay in (0, *retry_delays):
+        if delay:
+            time.sleep(delay)
+        response = resume_workflow_step(team_id=team_id, origin_key=origin_key, status=status, result=result)
+        if response.status_code != 409:
+            response.raise_for_status()
+            return True
+    logger.info("workflow_step_resume_not_parked", team_id=team_id, origin_key=origin_key)
+    return False
+
+
 def emit_workflow_step_resume(
     *,
     team_id: int,
@@ -71,23 +116,33 @@ def emit_workflow_step_resume(
     status: WorkflowStepResumeStatus,
     result: Mapping[str, Any] | None = None,
     raise_on_error: bool = False,
+    retry_delays: Sequence[float] | None = None,
 ) -> None:
-    """Wake the step which dispatched `origin_key`: one POST to the engine's API with the key
-    provisioned, else the `$workflow_step_resume` internal event. A 409 is a duplicate of a wake
-    already taken, so it is final; `raise_on_error` lets a Temporal activity retry a lost wake."""
+    """Wake the step which dispatched `origin_key`: a POST to the engine's API with the key
+    provisioned, else the `$workflow_step_resume` internal event. A step that has not parked yet
+    gets a few short retries. With `raise_on_error` a wake that is not acknowledged raises instead,
+    and the caller retries it on its own schedule, so by default it gets no retries in place."""
+    if retry_delays is None:
+        retry_delays = () if raise_on_error else RESUME_RETRY_DELAYS_SECONDS
     capped = cap_value(result or {}, RESULT_BYTE_CAP)
     try:
         if WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():
             try:
-                response = resume_workflow_step(team_id=team_id, origin_key=origin_key, status=status, result=capped)
-                if response.status_code == 409:
-                    logger.info("workflow_step_resume_not_parked", team_id=team_id, origin_key=origin_key)
+                if _post_resume(
+                    team_id=team_id, origin_key=origin_key, status=status, result=capped, retry_delays=retry_delays
+                ):
                     return
-                response.raise_for_status()
+                if raise_on_error:
+                    raise WorkflowStepResumeNotTaken(origin_key)
                 return
             except requests.RequestException:
                 logger.exception("workflow_step_resume_post_failed", team_id=team_id, origin_key=origin_key)
-        produce_step_resume_event(team_id=team_id, origin_key=origin_key, status=status, result=capped)
+        produced = produce_step_resume_event(team_id=team_id, origin_key=origin_key, status=status, result=capped)
+        if raise_on_error:
+            flush_internal_events_producer(RESUME_EVENT_DELIVERY_TIMEOUT_SECONDS)
+            if not produced.done():
+                raise WorkflowStepResumeNotTaken(origin_key)
+            produced.get(timeout=0)
     except Exception:
         logger.exception("workflow_step_resume_emit_failed", team_id=team_id, origin_key=origin_key, status=status)
         if raise_on_error:

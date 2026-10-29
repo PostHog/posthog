@@ -10,6 +10,8 @@ They compose as children of a chart:
 </TimeSeriesLineChart>
 ```
 
+`StackedBarList` also accepts overlay children. It places them in the chart area, which excludes the label and value cells.
+
 Trend lines, moving averages, and confidence bands are not overlays.
 They are derived `Series` entries (`overlay: true` for the first two), so the legend, the tooltip, and the axis already know about them.
 
@@ -19,7 +21,7 @@ Prop docs live on each component's props interface under `overlays/`.
 
 ### `ReferenceLine` / `ReferenceLines`
 
-Variants: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin).
+Variants: `goal` (dashed grey), `alert` (dashed red), `marker` (thin dashed, in the axis label color so it follows light and dark).
 A numeric line reveals its value on hover of the line itself (via a wider invisible hit area) or of its label, appended as `label: value` when it has a label and shown alone when it does not.
 `showValueOnHover: false` turns that off and removes the hit area, for a line whose caption already states the number or that should not react to the pointer.
 A vertical line resolves x through `scales.x(label)`, so it can only sit on a label.
@@ -37,6 +39,9 @@ In percent layouts `value` is a 0..1 fraction; `context.rawValue` holds the orig
 `mode="stack-total"` labels only the stack top.
 For per-segment bar labels, `position="center"` places each label inside its segment, including in horizontal percent stacks.
 The default `position="end"` preserves labels at bar ends.
+Use `background={false}` for unboxed text, `fontSize` (8–32 pixels, default 12), and `rotation` (−90° to 90°, default 0).
+Collision detection accounts for the rotated text bounds; centered text uses the bar color to choose readable contrast.
+These options also work in `config.valueLabels` on time-series charts.
 `series.visibility.valueLabel: false` skips a series.
 On the time-series charts, prefer `config.valueLabels` so the chart sizes its margins for the labels.
 
@@ -57,6 +62,7 @@ Use it to mirror an external selection (the rows visible in a paired virtualized
 On band (bar) charts the box covers the endpoints' full bands; on point (line) charts it runs point to point.
 `color`, `fillOpacity`, and `borderOpacity` tune the look (`borderOpacity: 0` drops the edge border).
 It clamps to the plot area and renders null when an endpoint does not resolve.
+It draws no label. To name the range, such as an incident window, add a vertical `ReferenceLine` whose `value` is the range's start label, and give it a `label`.
 
 ### `AnomalyPointsLayer`
 

@@ -42,7 +42,7 @@ jobs:
         if: |
             github.repository_owner == 'PostHog' &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read
@@ -52,6 +52,7 @@ jobs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image == 'true' || steps.drift.outputs.drift == 'true' }}
             skills_source: ${{ steps.filter.outputs.skills_source }}
             agent_version: ${{ steps.desired.outputs.agent_version }}
+            nodejs_version: ${{ steps.desired.outputs.nodejs_version }}
             inputs_digest: ${{ steps.desired.outputs.inputs_digest }}
             drift_reason: ${{ steps.filter.outputs.sandbox_image != 'true' && steps.drift.outputs.drift_reason || '' }}
         steps:
@@ -64,7 +65,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -107,6 +108,26 @@ jobs:
                     echo "::error::no ARG AGENT_VERSION line in $DOCKERFILE"
                     exit 1
                   fi
+                  # A Node release changes no file in the repo, so the newest nodesource nodejs
+                  # package is an input too. A new release then fails the drift check below, and the
+                  # NODEJS_VERSION build-arg makes the build miss the cached Node layer. Only a version
+                  # that nodesource serves for both architectures counts, because the images build for both.
+                  node_major=$(sed -n 's|.*deb\.nodesource\.com/setup_\([0-9]*\)\.x.*|\1|p' "$DOCKERFILE" | head -n1)
+                  if [ -z "$node_major" ]; then
+                    echo "::error::no nodesource setup_<major>.x line in $DOCKERFILE"
+                    exit 1
+                  fi
+                  nodejs_versions() {
+                    curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                      "https://deb.nodesource.com/node_${node_major}.x/dists/nodistro/main/binary-$1/Packages" \
+                      | awk '$1 == "Package:" { pkg = $2 } $1 == "Version:" && pkg == "nodejs" { print $2 }' \
+                      | LC_ALL=C sort -u
+                  }
+                  nodejs_version=$(LC_ALL=C comm -12 <(nodejs_versions amd64) <(nodejs_versions arm64) | sort -V | tail -n1)
+                  if [[ ! "$nodejs_version" =~ ^${node_major}\.[0-9]+\.[0-9]+-[0-9]+nodesource[0-9]+$ ]]; then
+                    echo "::error::nodesource serves no nodejs ${node_major}.x package for both amd64 and arm64 (got '${nodejs_version}')"
+                    exit 1
+                  fi
                   inputs=(
                     .github/workflows/cd-sandbox-base-image.yml
                     .github/actions/setup-uv
@@ -121,15 +142,19 @@ jobs:
                     inputs+=("$product/skills")
                   done < <(git ls-tree -d --name-only HEAD products/)
                   inputs_digest=$(
-                    for path in "${inputs[@]}"; do
-                      if object=$(git rev-parse --verify -q "HEAD:$path"); then
-                        printf '%s\t%s\n' "$path" "$object"
-                      fi
-                    done | LC_ALL=C sort | sha256sum | cut -d' ' -f1
+                    {
+                      for path in "${inputs[@]}"; do
+                        if object=$(git rev-parse --verify -q "HEAD:$path"); then
+                          printf '%s\t%s\n' "$path" "$object"
+                        fi
+                      done
+                      printf 'nodesource nodejs\t%s\n' "$nodejs_version"
+                    } | LC_ALL=C sort | sha256sum | cut -d' ' -f1
                   )
-                  echo "HEAD wants @posthog/agent $agent_version from inputs $inputs_digest"
+                  echo "HEAD wants @posthog/agent $agent_version and nodejs $nodejs_version from inputs $inputs_digest"
                   {
                     echo "agent_version=$agent_version"
+                    echo "nodejs_version=$nodejs_version"
                     echo "inputs_digest=$inputs_digest"
                   } >> "$GITHUB_OUTPUT"
 
@@ -210,7 +235,7 @@ jobs:
         name: Wait for the pinned agent to be published
         if: |
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -255,7 +280,7 @@ jobs:
         name: Build agent skills from source
         if: |
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog') &&
             (github.event_name != 'pull_request' || needs.changes.outputs.skills_source == 'true') && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
@@ -294,8 +319,8 @@ jobs:
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
                   IS_PR: ${{ github.event_name == 'pull_request' }}
-                  # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in
-                  # ci-backend.yml, which saves these caches on master pushes.
+                  # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml
+                  # so both workflows use the same schema cache keys.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
                   if [ "$IS_PR" != "true" ]; then
@@ -333,7 +358,7 @@ jobs:
                   if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
@@ -401,9 +426,9 @@ jobs:
                       ${{ steps.schema-key.outputs.prefix_key }}
 
             - name: Prime posthog from cached schema
-              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
-              # schema-only dump lacks; the migrate step below layers anything newer on
-              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
+              # db:restore-schema-fresh restores the dump. The migrate step below layers
+              # anything newer on top and seeds the RunPython data a schema-only dump
+              # lacks. On failure it leaves a fresh empty db, so migrate runs the full history.
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -467,7 +492,7 @@ jobs:
         if: |
             github.repository_owner == 'PostHog' &&
             github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             needs.changes.outputs.skills_source != 'true' && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -519,7 +544,7 @@ jobs:
         if: |
             !cancelled() &&
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog') &&
             (needs.build_skills.result == 'success' || needs.fetch_skills.result == 'success') &&
             needs.wait_for_agent.result == 'success' && (
                 needs.changes.outputs.sandbox_image == 'true' ||
@@ -578,6 +603,7 @@ jobs:
                         # pinned, reviewed version. Bump it there, not by resolving npm "latest".
                         build-args: |
                             COMMIT_HASH=${{ github.sha }}
+                            NODEJS_VERSION=${{ needs.changes.outputs.nodejs_version }}
                         labels: |
                             org.opencontainers.image.revision=${{ github.sha }}
                             com.posthog.sandbox.agent-version=${{ needs.changes.outputs.agent_version }}
@@ -594,7 +620,9 @@ jobs:
                         push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                         tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
                         platforms: linux/arm64,linux/amd64
-                        build-args: COMMIT_HASH=${{ github.sha }}
+                        build-args: |
+                            COMMIT_HASH=${{ github.sha }}
+                            NODEJS_VERSION=${{ needs.changes.outputs.nodejs_version }}
                         labels: |
                             org.opencontainers.image.revision=${{ github.sha }}
                             com.posthog.sandbox.agent-version=${{ needs.changes.outputs.agent_version }}
@@ -676,7 +704,7 @@ jobs:
         if: |
             !cancelled() &&
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog') &&
             needs.sandbox_base_build.result == 'success' &&
             (github.ref != 'refs/heads/master' || needs.sandbox_base_build.outputs.promoted == 'success') && (
                 needs.changes.outputs.sandbox_image == 'true' ||

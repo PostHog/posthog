@@ -4,7 +4,17 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
+import {
+    dropHandledAuthGateExceptions,
+    dropInjectedScriptReferenceErrors,
+    dropScopeNotFoundExceptions,
+    dropUnactionableNetworkExceptions,
+} from 'lib/utils/exceptionFilters'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
+import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
+import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
+
+import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -65,13 +75,32 @@ function writeLastSeenFeatureFlags(lastSeen: LastSeenFeatureFlags): void {
     }
 }
 
+/**
+ * The server bootstrap evaluates flags locally with only a few properties, so it can be wrong for a flag
+ * that uses a cohort or a group. This sends every flag input the page knows, then loads flags once.
+ * userLogic and preflightLogic send the same identities again, and they reload flags only when one changed.
+ */
+function loadFeatureFlagsForPage(): void {
+    const appContext = getAppContext()
+    if (appContext?.current_user) {
+        identifyUserInPostHog(posthog, appContext.current_user)
+    }
+    if (appContext?.preflight?.site_url) {
+        identifyInstanceInPostHog(posthog, appContext.preflight.site_url)
+    }
+    posthog.reloadFeatureFlags()
+}
+
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
-            defaults: SDK_DEFAULTS_DATE,
+            defaults: 'latest',
+            disable_capture_url_hashes: false,
+            // Cookie reconciliation breaks the anonymous flag handoff and group persistence in this startup flow.
+            cookieWinsOnConflict: false,
             // Hobby static files use /static/<asset>.js, without a version directory.
             ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
                 ? { strict_script_versioning: false as const }
@@ -87,6 +116,11 @@ export function loadPostHogJS(): void {
                       getAppContext()?.current_user?.distinct_id
                   )
                 : {},
+            // The first flags request must wait until the user and groups from the page are set.
+            advanced_disable_feature_flags_on_first_load: true,
+            // Flags tagged only with other contexts stay out of the app. The server bootstrap
+            // applies the same rule in `flags_for_app_evaluation_context` (posthog/utils.py).
+            evaluation_contexts: ['posthog-web-app'],
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
@@ -97,9 +131,17 @@ export function loadPostHogJS(): void {
                 __capturePostHogExceptions: true,
             },
             metrics: { network: true, serviceName: 'posthog-app' },
-            // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
-            // `register` would persist the property in storage the main window shares, so it is stamped per event.
-            before_send: isEmbeddedPageFrame() ? stampEmbeddedPageFrame : undefined,
+            before_send: [
+                dropScopeNotFoundExceptions,
+                dropHandledAuthGateExceptions,
+                dropUnactionableNetworkExceptions,
+                dropInjectedScriptReferenceErrors,
+                dropWebMCPToolErrors,
+                redactMetricVariableUrls,
+                // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
+                // `register` would persist the property in storage the main window shares, so it is stamped per event.
+                ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : []),
+            ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -198,6 +240,7 @@ export function loadPostHogJS(): void {
             session_recording: {
                 blockSelector: '.ph-replay-block',
                 streamNetworkBody: true,
+                captureJsonLd: false,
             },
             person_profiles: 'always',
             // posthog-js patches fetch to add X-POSTHOG-* tracing headers to these hosts. In OAuth
@@ -229,6 +272,8 @@ export function loadPostHogJS(): void {
             window.POSTHOG_GLOBAL_ERRORS ||= {}
             window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] = true
         })
+
+        loadFeatureFlagsForPage()
     } else {
         posthog.init('fake_token', {
             autocapture: false,

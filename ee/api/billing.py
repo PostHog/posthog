@@ -21,11 +21,10 @@ from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PARENT_LOOKUP_KWARG_PREFIX, TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
@@ -122,6 +121,14 @@ class BillingServiceError(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_code = "billing_service_error"
     default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+class PaymentAuthorizationRejected(APIException):
+    """Billing refused to start the payment authorization."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "payment_authorization_rejected"
+    default_detail = "We could not start the payment setup. Close this window and try again."
 
 
 class BillingManagedByProviderError(APIException):
@@ -350,7 +357,6 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
     billing_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     subscription_level = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     has_active_subscription = serializers.BooleanField(required=False)
-    deactivated = serializers.BooleanField(required=False)
     is_annual_plan_customer = serializers.BooleanField(required=False)
     free_trial_until = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     current_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -664,8 +670,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Configure normal organization scope before shared permissions resolve any cached
             # routing properties. The user's current project can change in another browser tab.
             self.param_derived_from_user_current_team = None
-            parent_prefix = extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX
-            self.kwargs[f"{parent_prefix}organization_id"] = str(serializer.validated_data["organization_id"])
+            self.kwargs[f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id"] = str(
+                serializer.validated_data["organization_id"]
+            )
         super().initial(request, *args, **kwargs)
 
     def get_billing_manager(self) -> BillingManager:
@@ -998,8 +1005,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        with translate_managed_by_provider_refusal():
-            res = billing_manager.authorize(organization)
+        try:
+            with translate_managed_by_provider_refusal():
+                res = billing_manager.authorize(organization)
+        except BillingServiceResponseError as e:
+            # The billing body can hold database error text, so the caller gets a controlled message.
+            logger.warning(
+                "billing_authorize_error",
+                organization_id=str(organization.id),
+                upstream_status=e.status_code,
+                body=str(e.body)[:500],
+            )
+            if 400 <= e.status_code < 500:
+                raise PaymentAuthorizationRejected() from e
+            raise BillingServiceError() from e
         return Response(res, status=status.HTTP_200_OK)
 
     @extend_schema(

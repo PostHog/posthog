@@ -13,6 +13,7 @@ import {
     LifecycleDataWarehouseNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { isAnyDataWarehouseNode } from '~/queries/utils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     AnyPropertyFilter,
@@ -41,8 +42,9 @@ export const FLAG_EVALUATIONS_SERIES_FIELDS: Required<
     distinct_id_field: 'distinct_id',
     // person_id is the merge-corrected person. A flag calls step counts the same person as an events step.
     aggregation_target_field: 'person_id',
-    // The table stores no person creation time. Lifecycle takes the earliest flag call it reads instead.
-    created_at_field: 'timestamp',
+    // Lifecycle calls a person new in the period the person was created, as it does on events.
+    // withFlagCallsAggregationTarget swaps in the group's creation time when the query counts groups.
+    created_at_field: 'person.created_at',
 }
 
 /** Trends computes these maths from events for every series. On a flag calls series they would count events, not flag calls. */
@@ -55,29 +57,63 @@ export const FLAG_CALLS_UNSUPPORTED_MATH_TYPES: ReadonlySet<string> = new Set<st
     GroupMathType.FirstMatchingEventForGroup,
 ])
 
-export function readsFlagCalls(query: InsightQueryNode): boolean {
-    const nodes: unknown[] =
-        query.kind === NodeKind.RetentionQuery
-            ? [query.retentionFilter?.targetEntity, query.retentionFilter?.returningEntity]
-            : 'series' in query
-              ? (query.series ?? [])
-              : []
-    return nodes.some((node) => (node as { table_name?: string } | undefined)?.table_name === FLAG_EVALUATIONS_TABLE)
+type SeriesOrRetentionEntity = { kind?: string; type?: string; table_name?: string } | null | undefined
+
+function seriesNodes(query: InsightQueryNode): SeriesOrRetentionEntity[] {
+    return query.kind === NodeKind.RetentionQuery
+        ? [query.retentionFilter?.targetEntity, query.retentionFilter?.returningEntity]
+        : 'series' in query
+          ? (query.series ?? [])
+          : []
 }
 
-/** Sets the actor column of each flag calls series to the query's aggregation: a group key, the funnel's SQL expression, or the person. */
+function readsFlagCallsTable(node: SeriesOrRetentionEntity): boolean {
+    return node?.table_name === FLAG_EVALUATIONS_TABLE
+}
+
+export function readsFlagCalls(query: InsightQueryNode): boolean {
+    return seriesNodes(query).some(readsFlagCallsTable)
+}
+
+export function dataWarehouseSeriesNodes(query: InsightQueryNode): SeriesOrRetentionEntity[] {
+    return seriesNodes(query).filter((node) => isAnyDataWarehouseNode(node) || node?.type === 'data_warehouse')
+}
+
+/**
+ * Whether each data warehouse series in the query reads flag calls. True when there is none.
+ * Mirrors every_warehouse_series_reads_flag_calls in posthog/hogql_queries/utils/entities.py.
+ */
+export function everyWarehouseSeriesReadsFlagCalls(query: InsightQueryNode): boolean {
+    return dataWarehouseSeriesNodes(query).every(readsFlagCallsTable)
+}
+
+/** Sets the actor columns of each flag calls series to the query's aggregation.
+ * The actor is a group key, the funnel's SQL expression, or the person.
+ * A lifecycle series also gets the creation time of that group or person. */
 export function withFlagCallsAggregationTarget<Q extends InsightQueryNode>(query: Q): Q {
     const groupTypeIndex = 'aggregation_group_type_index' in query ? query.aggregation_group_type_index : null
     // The flag_evaluations row carries the event's properties.
     // An expression such as properties.$session_id reads the same value there as on events.
     const aggregateByHogQL = query.kind === NodeKind.FunnelsQuery ? query.funnelsFilter?.funnelAggregateByHogQL : null
     const target = getHogQLValue(groupTypeIndex, aggregateByHogQL)
+    const createdAtField =
+        groupTypeIndex != null ? `group_${groupTypeIndex}.created_at` : FLAG_EVALUATIONS_SERIES_FIELDS.created_at_field
     const retarget = <T>(node: T): T => {
-        const fields = node as { table_name?: string; aggregation_target_field?: string } | null | undefined
-        return fields?.table_name === FLAG_EVALUATIONS_TABLE &&
-            fields.aggregation_target_field != null &&
-            fields.aggregation_target_field !== target
-            ? { ...node, aggregation_target_field: target }
+        const fields = node as
+            | { table_name?: string; aggregation_target_field?: string; created_at_field?: string }
+            | null
+            | undefined
+        if (fields?.table_name !== FLAG_EVALUATIONS_TABLE) {
+            return node
+        }
+        const retargetsActor = fields.aggregation_target_field != null && fields.aggregation_target_field !== target
+        const retargetsCreatedAt = fields.created_at_field != null && fields.created_at_field !== createdAtField
+        return retargetsActor || retargetsCreatedAt
+            ? {
+                  ...node,
+                  ...(retargetsActor ? { aggregation_target_field: target } : {}),
+                  ...(retargetsCreatedAt ? { created_at_field: createdAtField } : {}),
+              }
             : node
     }
 
@@ -108,12 +144,6 @@ const FLAG_CALLS_COLUMN_BY_EVENT_PROPERTY: Record<string, string> = {
     $feature_flag_response: 'response',
 }
 
-// An event read turns a missing property into NULL. The table stores a missing flag key as '' and a missing response as '' or 'null'.
-const FLAG_CALLS_UNSET_VALUES_BY_COLUMN: Record<string, string[]> = {
-    flag_key: [''],
-    response: ['', 'null'],
-}
-
 /** Rewrites an event series' flag filters onto the flag_evaluations columns and keeps its SQL filters. */
 export function flagCallsFiltersFromEventFilters(properties: AnyPropertyFilter[] | undefined): AnyPropertyFilter[] {
     return (properties ?? []).flatMap((property): AnyPropertyFilter[] => {
@@ -127,12 +157,16 @@ export function flagCallsFiltersFromEventFilters(properties: AnyPropertyFilter[]
         if (!column) {
             return []
         }
-        const checksSet = property.operator === PropertyOperator.IsSet
-        const checksNotSet = property.operator === PropertyOperator.IsNotSet
+        // `flag_key` stores a missing key as '' rather than NULL, so its set checks compare against ''.
+        let { value, operator } = property
+        if (column === 'flag_key' && (operator === PropertyOperator.IsSet || operator === PropertyOperator.IsNotSet)) {
+            value = ['']
+            operator = operator === PropertyOperator.IsSet ? PropertyOperator.NotIn : PropertyOperator.In
+        }
         const filter: DataWarehousePropertyFilter = {
             key: column,
-            value: checksSet || checksNotSet ? FLAG_CALLS_UNSET_VALUES_BY_COLUMN[column] : property.value,
-            operator: checksSet ? PropertyOperator.NotIn : checksNotSet ? PropertyOperator.In : property.operator,
+            value,
+            operator,
             type: PropertyFilterType.DataWarehouse,
         }
         return [filter]

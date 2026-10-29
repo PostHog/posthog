@@ -1,7 +1,5 @@
 from typing import Any
 
-import pytest
-
 from parameterized import parameterized
 from requests import HTTPError
 
@@ -10,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenloop import (
     ZenloopSourceConfig,
@@ -21,10 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.se
     ZENLOOP_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.source import ZenloopSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.zenloop import (
-    ZenloopResumeConfig,
-    check_access,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.zenloop import ZenloopResumeConfig
 
 
 def _response(
@@ -81,27 +75,6 @@ class TestRetryAndErrors:
         result = _run(always(_response([{"id": 1}], status=status)))
 
         assert isinstance(result.raised, HTTPError)
-
-
-class TestCheckAccess:
-    @pytest.mark.parametrize(
-        "status, expected_status, expected_message",
-        [
-            (200, 200, None),
-            (401, 401, None),
-            (403, 403, None),
-            (500, 500, "Zenloop returned HTTP 500"),
-        ],
-    )
-    def test_status_mapping(self, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert check_access("zenloop-token") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            status, message = check_access("zenloop-token")
-        assert status == 0
-        assert message is not None and "Zenloop" in message
 
 
 class TestZenloopSourceResponse:

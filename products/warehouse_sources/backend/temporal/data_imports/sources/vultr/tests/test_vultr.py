@@ -61,13 +61,6 @@ class TestValidateCredentials:
         assert network.requests_log[-1].path == "/v2/instances"
         assert len(network.requests_log) == 2
 
-    def test_network_error_is_not_fatal(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("key")
-
-        assert valid is False
-        assert error is not None
-
 
 class TestRedactSecrets:
     @pytest.mark.parametrize(

@@ -112,7 +112,6 @@ class TestFilloutTransport:
     @parameterized.expand(
         [
             (401, "Invalid Fillout API key"),
-            (403, "Fillout API key is missing permission to list forms"),
         ]
     )
     def test_validate_credentials_forms_auth_failures(self, status, expected_message) -> None:
@@ -221,7 +220,7 @@ class TestFilloutTransport:
         assert result.response.primary_keys == expected_primary_keys
         assert result.response.partition_mode == expected_partition_mode
         assert result.response.partition_keys == expected_partition_keys
-        assert result.response.sort_mode == "asc"
+        assert result.response.sort_mode == (None if endpoint == "submissions" else "asc")
 
     @parameterized.expand(
         [

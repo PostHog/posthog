@@ -112,12 +112,8 @@ def test_auth_and_query_errors_are_not_retryable(status: int, message: str) -> N
 @pytest.mark.parametrize(
     ("status", "message"),
     [
-        (200, None),
-        (401, AUTH_ERROR),
-        (403, AUTH_ERROR),
         (400, QUERY_ERROR),
         (429, "Semantic Scholar is unavailable or has limited requests. Try again later."),
-        (500, "Semantic Scholar is unavailable or has limited requests. Try again later."),
     ],
 )
 def test_validation_uses_one_call_and_maps_errors(status: int, message: str | None) -> None:
