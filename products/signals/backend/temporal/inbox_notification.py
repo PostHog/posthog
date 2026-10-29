@@ -146,9 +146,8 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         logger.info("inbox notification skipped: team gone", report_id=report_id, team_id=team_id)
         return 0
 
-    # Re-derive source products at send time so a deferred notification reflects the current signals.
+    # Re-fetched at send time so a deferred notification reflects the current signals.
     signals = _fetch_signals_for_notification(team, report_id)
-    source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
 
     # Point any support ticket that raised this report at it. Shares this function's READY guard.
     # This runs above the claim, so it also runs on a settle that sends no card. A note is per ticket
@@ -174,7 +173,6 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         sent = dispatch_inbox_item_notifications(
             report_id=report_id,
             team_id=team_id,
-            source_products=source_products,
             signals=signals,
         )
     except Exception:

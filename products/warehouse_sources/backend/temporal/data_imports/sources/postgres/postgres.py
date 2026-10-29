@@ -1587,6 +1587,9 @@ def _rls_active_from_conn(
         # Temporal cancelling the activity mid-probe (user cancelled the sync, or the activity hit
         # its `start_to_close_timeout`) is the same shape too: the sync is ending regardless of
         # what this best-effort lookup returns, so there's nothing to fix here.
+        # A hot-standby recovery conflict (`_is_recovery_conflict_error`) cancelling this catalog
+        # query is the same transient condition `get_rows` already retries on the main read path —
+        # this lookup just has no retry loop of its own, so degrade quietly instead of capturing it.
         # Still capture genuinely unexpected failures.
         if (
             not connection.closed
@@ -1597,6 +1600,7 @@ def _rls_active_from_conn(
             and not _is_statement_timeout_error(e)
             and not _is_pooler_login_cooldown_error(e)
             and not _is_activity_cancelled(e)
+            and not _is_recovery_conflict_error(e)
         ):
             capture_exception(e)
         return {}

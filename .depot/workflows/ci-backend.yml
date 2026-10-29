@@ -1213,6 +1213,8 @@ jobs:
                   bin/wait-for-docker temporal
                   PYTHONFAULTHANDLER=1 timeout --signal=ABRT --kill-after=30s 3m python manage.py register_temporal_search_attributes
             - name: Restore test durations from cache
+              timeout-minutes: 7
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -1395,6 +1397,7 @@ jobs:
                   done
 
             - name: Upload product test results
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() }}
               with:
@@ -2198,6 +2201,8 @@ jobs:
 
             - name: Upload migration analysis artifact
               if: ${{ always() && github.event_name == 'pull_request' }}
+              timeout-minutes: 7
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
@@ -2264,6 +2269,8 @@ jobs:
                   printf '%s' "$KEY" > schema-cache-key
             - name: Upload migrated schema artifact
               if: ${{ github.event_name == 'push' }}
+              timeout-minutes: 7
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migrated-schema
@@ -3755,6 +3762,8 @@ jobs:
               run: docker compose -f docker-compose.dev.yml logs
 
             - name: Upload test results
+              timeout-minutes: 7
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() }}
               with:
@@ -3786,6 +3795,7 @@ jobs:
                   retention-days: 1
 
             - name: Upload core coverage
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' && !matrix.json-targets }}
               with:

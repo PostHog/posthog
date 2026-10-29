@@ -46,6 +46,10 @@ class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TMDB
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "tmdb"
+
     def resume_covers_run(
         self,
         *,

@@ -22,12 +22,12 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(RUNS_AFTER_LAUNCH)
     if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS:
         return not_applicable(f"Runs {ZERO_EXPOSURES_GRACE_HOURS} hours after launch")
+    if sum(exposures.total_exposures.values()) > 0:
+        return None
     # Criteria that no event can match leave nobody exposed, and the exposure criteria check names that cause. This
     # check calls it rather than repeating its rules, so exactly one of the two reports the experiment.
     if isinstance(exposure_criteria_cannot_match(ctx), ExperimentHealthFinding):
         return not_applicable("The exposure criteria check reports why no users are exposed")
-    if sum(exposures.total_exposures.values()) > 0:
-        return None
     evidence = {"hours_since_launch": int(exposures.hours_since_launch)}
     # A group experiment counts groups, by the rule the exposure query uses.
     unit = "group" if exposures.counts_groups else "user"

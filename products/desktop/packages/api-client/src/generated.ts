@@ -4537,12 +4537,21 @@ export namespace Schemas {
         | "minimum"
         | "maximum"
         | "custom";
+    export type BICatalogMetricStatus = "approved" | "proposed";
     export type BICategoryGroup = { name: string; values: Array<string> };
     export type Operator1 = "AND" | "OR";
     export type BIConditionGroup = {
         filters: Array<string>;
         groups: Array<BIConditionGroup>;
         operator: Operator1;
+    };
+    export type CatalogMetricContext = {
+        id: string;
+        isDrifted: boolean;
+        owner?: (string | null) | undefined;
+        status: BICatalogMetricStatus;
+        unit: string;
+        updatedAt?: (string | null) | undefined;
     };
     export type BIDateBucket =
         | "minute"
@@ -4735,6 +4744,7 @@ export namespace Schemas {
     };
     export type BIConfig = {
         catalogMetric?: (string | null) | undefined;
+        catalogMetricContext?: (CatalogMetricContext | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
@@ -9869,6 +9879,8 @@ export namespace Schemas {
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9891,6 +9903,8 @@ export namespace Schemas {
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
+        | "exposure_filter_on_dynamic_cohort"
+        | "exposure_filter_excludes_events"
         | "srm"
         | "zero_exposures"
         | "forced_variant_release_condition"
@@ -9943,6 +9957,8 @@ export namespace Schemas {
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+         * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -10001,6 +10017,7 @@ export namespace Schemas {
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
@@ -10021,6 +10038,7 @@ export namespace Schemas {
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
+        | "exposure_filters"
         | "early_significance"
         | "zero_exposures"
         | "srm"
@@ -10054,6 +10072,7 @@ export namespace Schemas {
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
@@ -10062,7 +10081,7 @@ export namespace Schemas {
          */
         key: ExperimentHealthCheckKeyEnum;
         /**
-         * What the check looks at, for example 'Feature flag variants'.
+         * The problem the check looks for, for example 'Metrics not set up'.
          */
         name: string;
         /**
@@ -10431,7 +10450,7 @@ export namespace Schemas {
          */
         key: ExperimentExposureHealthCheckKey;
         /**
-         * What the check looks at, as the health panel lists it.
+         * The problem the check looks for, as the health panel lists it.
          */
         name: string;
         /**
@@ -12414,6 +12433,7 @@ export namespace Schemas {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
+     * * `Nango` - Nango
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13827,7 +13847,8 @@ export namespace Schemas {
         | "AwsS3Tables"
         | "Beacons"
         | "WooPayments"
-        | "Soniox";
+        | "Soniox"
+        | "Nango";
     /**
      * * `web` - web
      * * `api` - api
@@ -15250,6 +15271,7 @@ export namespace Schemas {
          * * `Beacons` - Beacons
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
+         * * `Nango` - Nango
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -16370,6 +16392,12 @@ export namespace Schemas {
      */
     export type InstallationStatusEnum = "connected" | "unavailable";
     /**
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum = "oauth" | "token" | "credentials";
+    /**
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
@@ -16478,6 +16506,14 @@ export namespace Schemas {
     export type IntegrationConfig = {
         id: number;
         kind: IntegrationKindEnum;
+        /**
+         * How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+         *
+         * * `oauth` - OAuth
+         * * `token` - Token
+         * * `credentials` - Credentials
+         */
+        auth_type: IntegrationAuthTypeEnum & unknown;
         /**
          * Standard Integration serializer.
          */

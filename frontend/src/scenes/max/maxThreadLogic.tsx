@@ -3078,10 +3078,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // runStreamLogic, which replays logs/ then opens SSE if non-terminal. The LangGraph
         // reconnect path below is never entered for sandbox runtimes (coexistence).
         if (conversation.agent_runtime === 'sandbox') {
-            if (isPiTaskRuntime(conversation.task?.runtime)) {
-                return
-            }
-
             // runStreamLogic and posthogAiContextLogic are connected (so already mounted) for this
             // conversation. Reset their per-conversation state before replaying this run's history.
             actions.resetSandboxStream()
@@ -3092,6 +3088,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     actions.bootstrapSandboxRun({
                         taskId: conversation.task.id,
                         runId,
+                        taskRuntime: conversation.task.runtime,
                     })
                 }
             }
