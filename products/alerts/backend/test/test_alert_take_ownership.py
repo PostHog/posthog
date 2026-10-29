@@ -22,9 +22,9 @@ class TestAlertTakeOwnership(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == "enabled"
-        # The frontend keys its "take ownership" offer on this code, and shows the detail as the reason.
-        assert response.json()["code"] == "owner_unavailable"
-        assert "former-member@example.com, is no longer in the organization" in response.json()["detail"]
+        # The frontend keys its "take ownership" offer, and the cause it shows, on this code.
+        assert response.json()["code"] == "owner_left_organization"
+        assert "former-member@example.com is no longer in the organization" in response.json()["detail"]
 
     def test_take_ownership_enables_the_alert_as_the_requester(self) -> None:
         alert = self._disabled_alert_of_a_former_member()

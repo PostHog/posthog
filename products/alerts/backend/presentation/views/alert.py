@@ -58,10 +58,10 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
 from posthog.query_creator_access import (
-    OWNER_UNAVAILABLE_CODE,
     CreatorLeftOrganizationError,
     assert_creator_can_run,
     describe_owner_unavailable,
+    owner_unavailable_code,
 )
 from posthog.rate_limit import (
     AlertLLMSimulationBurstThrottle,
@@ -1131,7 +1131,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             except (CreatorLeftOrganizationError, UserAccessControlError) as error:
                 raise ValidationError(
                     {"enabled": [_owner_unavailable_message(self.instance.created_by, error)]},
-                    code=OWNER_UNAVAILABLE_CODE,
+                    code=owner_unavailable_code(error),
                 )
         # Enforced from the object-level validate() so it runs on every create and update — including
         # a PATCH that omits `insight` (which skips the field-level validator), so an alert can't be
