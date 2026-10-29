@@ -61,7 +61,7 @@ const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 // One shared empty array: a new `[]` on each render changes the logic props, so its selectors
 // return new values on every store change and re-render the whole grid.
-const NO_GROUP_TILES: DashboardTileBasicType[] = []
+const NO_GROUP_TILES: readonly DashboardTileBasicType[] = Object.freeze([])
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean

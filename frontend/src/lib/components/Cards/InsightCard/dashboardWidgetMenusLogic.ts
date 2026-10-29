@@ -13,7 +13,7 @@ import type { DashboardWidgetPlacementDestination } from './DashboardWidgetPlace
 export interface DashboardWidgetMenusLogicProps {
     instanceKey: string
     dashboardId: number | null | undefined
-    dashboard_tiles: DashboardTileBasicType[] | null | undefined
+    dashboard_tiles: readonly DashboardTileBasicType[] | null | undefined
 }
 
 function canEditDestinationDashboard(d: DashboardBasicType): boolean {
@@ -34,7 +34,7 @@ export interface dashboardWidgetMenusLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         dashboardIdsWithThisWidget: (
-            dashboard_tiles: DashboardTileBasicType[] | null | undefined,
+            dashboard_tiles: readonly DashboardTileBasicType[] | null | undefined,
             dashboardId: number | null | undefined
         ) => Set<number>
         copyToDestinations: (
@@ -65,7 +65,7 @@ export const dashboardWidgetMenusLogic = kea<dashboardWidgetMenusLogicType>([
         dashboardIdsWithThisWidget: [
             (_, p) => [p.dashboard_tiles, p.dashboardId],
             (
-                dashboard_tiles: DashboardTileBasicType[] | null | undefined,
+                dashboard_tiles: readonly DashboardTileBasicType[] | null | undefined,
                 dashboardId: number | null | undefined
             ): Set<number> => {
                 const set = new Set(liveDashboardIds(dashboard_tiles).map(Number))
