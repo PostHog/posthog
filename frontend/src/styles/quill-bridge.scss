@@ -122,8 +122,7 @@
  * `bg-muted` collides: PostHog's compiled rule reads `--muted-3000`, quill's
  * reads `--muted`. Pin the class to quill's muted surface inside the subtree
  * without hijacking `--muted-3000` (which `text-muted` also depends on).
- * PostHog's tailwind marks every utility `!important`, and an important rule in a layer beats an
- * unlayered one. So this rule joins tailwind's utilities layer, where its higher specificity wins.
+ * PostHog's utilities are `!important` in a layer, so this rule must be too, in the same layer.
  */
 @layer utilities {
     [data-quill] .bg-muted {
