@@ -322,6 +322,7 @@ GARAGE_PREFIXES: tuple[str, ...] = (
     "backend/temporal/",
     "backend/tasks.py",
     "backend/tasks/",
+    "backend/resource_transfer/",
 )
 
 # Wiring locations whose watch is computed, not presence-based. Core runs a query runner by the

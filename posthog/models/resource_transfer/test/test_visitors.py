@@ -5,7 +5,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models.resource_transfer.visitors import CohortVisitor, InsightVisitor
+from posthog.models.resource_transfer.registry import ResourceTransferRegistryError, build_registry, get_registry
+from posthog.models.resource_transfer.visitors import ActionVisitor, CohortVisitor, InsightVisitor
 from posthog.models.resource_transfer.visitors.experiment import ExperimentVisitor
 from posthog.models.resource_transfer.visitors.experiment_holdout import ExperimentHoldoutVisitor
 from posthog.models.resource_transfer.visitors.experiment_payload import (
@@ -22,7 +23,6 @@ from posthog.models.resource_transfer.visitors.survey import SurveyVisitor
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import ExperimentHoldout
 
 
 def _experiment_like_resource(**overrides):
@@ -1195,7 +1195,7 @@ class TestFeatureFlagVisitorDynamicEdges(SimpleTestCase):
         by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
         assert (Cohort, 7) in by_model_pk
         assert (Action, 11) in by_model_pk
-        assert (ExperimentHoldout, 3) in by_model_pk
+        assert ("ExperimentHoldout", 3) in {e.key for e in edges}
 
         names = {e.name for e in edges}
         assert "cohort:7" in names
@@ -1343,3 +1343,22 @@ class TestSurveyVisitorConditionsCohorts(SimpleTestCase):
         adjusted = SurveyVisitor.adjust_duplicate_payload(payload, None, None)
         assert "linkedFlagVariant" not in adjusted["conditions"]
         assert adjusted["conditions"]["url"] == "/a"
+
+
+def _registered_declarations(without_kind: str | None = None) -> list[tuple[str, object]]:
+    return [("registered", visitor) for kind, visitor in get_registry().by_kind.items() if kind != without_kind]
+
+
+class TestVisitorRegistry(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("not_a_visitor", [("products.example", object)], None, "not a ResourceTransferVisitor subclass"),
+            ("duplicate_kind", [("products.example", ActionVisitor)], None, "both declare a visitor for 'Action'"),
+            ("missing_kind", [], "ExperimentHoldout", "No visitor is declared for ExperimentHoldout"),
+        ]
+    )
+    def test_build_registry_rejects_declaration(
+        self, _name: str, extra: list[tuple[str, object]], without_kind: str | None, message: str
+    ) -> None:
+        with self.assertRaisesRegex(ResourceTransferRegistryError, message):
+            build_registry([*_registered_declarations(without_kind), *extra])

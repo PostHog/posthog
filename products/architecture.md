@@ -93,12 +93,12 @@ Core sometimes needs behavior from a product, not data: query runners it dispatc
 These cross the boundary as classes — allowed only under all three rules:
 
 1. **Approved interface.**
-   The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn` and `Interceptor` (the worker in `posthog/temporal/common/worker.py` registers each one), and Celery's `@shared_task`.
+   The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), `ResourceTransferVisitor` (`posthog/models/resource_transfer/visitors/base.py`, with the ORM exception below), Temporal's `@workflow.defn`/`@activity.defn` and `Interceptor` (the worker in `posthog/temporal/common/worker.py` registers each one), and Celery's `@shared_task`.
    Core code may rely only on the base's interface, never on product-specific members.
    Extending the list is a core PR: define the base and validate at the registration point.
    DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; the `facade must not import presentation or DRF` import-linter contract enforces both, with the existing violations grandfathered in its TODO list) — their soundness is governed by the presentation rules above.
 2. **Designated location.**
-   The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies).
+   The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies), `backend/resource_transfer/`.
    An isolated product keeps a wiring location in its `backend:contract-check` inputs while a test outside the product can execute what lives there, so such a change still re-runs the full suite.
    The full suite matters only while such a test exists.
    For `backend/hogql_queries/` that is measured.
@@ -119,6 +119,12 @@ Django models never cross, with or without an approved base.
 A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
 Two core registries are keyed by model class identity and are explicit, sanctioned exceptions: the team-extension registry and the file-system unfiled registry (`FileSystemSyncMixin`).
 There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
+Resource transfer is a third exception, and the only one where core queries through a product's model.
+A product declares the visitors for its models in `RESOURCE_TRANSFER_VISITORS` in `backend/resource_transfer/`.
+`posthog/models/resource_transfer/registry.py` imports that module on first use, and rejects an entry that is not a `ResourceTransferVisitor` subclass, a second visitor for a kind or a model, and a `ResourceKind` without a visitor.
+To copy a resource graph between projects, the framework reads the rows, follows their relations and creates the copies through each visitor's `get_model()`.
+That ORM access is confined to `posthog/models/resource_transfer/` and its API, `posthog/api/resource_transfer.py`; other core code must not use a model class it gets from a visitor.
+`backend/resource_transfer/` is a wiring location, so a narrowed product keeps it in its contract-check inputs.
 
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
 Three products hold entries.
