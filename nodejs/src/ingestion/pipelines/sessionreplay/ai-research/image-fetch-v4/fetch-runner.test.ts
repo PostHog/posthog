@@ -7,7 +7,7 @@ import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/top
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
 import { ConfigurationPolicyService, OriginPolicyDecision } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata } from './crawl-history'
-import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED } from './fetch-runner'
+import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED, URL_TOO_OLD } from './fetch-runner'
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
@@ -849,11 +849,14 @@ describe('FetchRunner', () => {
         expect(attempt).toMatchObject({ outcome: HOPS_EXHAUSTED, finished: true })
     })
 
-    it('records a terminal refusal when no delay topic can hold the wait', async () => {
-        const harness = build({ outcome: 'timeout' }, {}, 'refused_delay')
+    it.each([
+        ['no delay topic can hold the wait', 'refused_delay', DELAY_TOO_LONG],
+        ['the URL is past the age limit', 'refused_age', URL_TOO_OLD],
+    ] as const)('records a terminal refusal when %s', async (_name, republishResult, outcome) => {
+        const harness = build({ outcome: 'timeout' }, {}, republishResult)
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
-        expect(attempt).toMatchObject({ outcome: DELAY_TOO_LONG, finished: true })
+        expect(attempt).toMatchObject({ outcome, finished: true, history: { outcome } })
     })
 
     it('merges a 304 response into the previous cache metadata', async () => {
