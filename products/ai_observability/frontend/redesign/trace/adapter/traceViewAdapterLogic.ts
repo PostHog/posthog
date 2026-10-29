@@ -495,7 +495,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             loadTraceSuccess: ({ trace }) => {
                 actions.loadNeighbors(props.traceId, trace.createdAt)
                 // Cluster and session pages link to a trace with tab=summary. The mode opens without generating.
-                if (values.initialTab === 'summary' && values.mode !== 'summary') {
+                // A link that also names a step opens that step, because the Summary mode covers the whole trace.
+                if (values.initialTab === 'summary' && values.mode !== 'summary' && !values.eventId) {
                     actions.openSummaryFromLink()
                 }
             },

@@ -289,4 +289,11 @@ describe('traceViewAdapterLogic', () => {
         expect(logic.values).toMatchObject({ mode: 'summary', summaryState: { status: 'none' } })
         expect(summaryRequests).toBe(0)
     })
+
+    it('a summary link that names a step opens that step instead of the Summary mode', async () => {
+        mountAt({ tab: 'summary', event: 'gen-1' })
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ mode: 'spans', selectedNodeId: 'gen-1' })
+        expect(traceSummaryLogic({ traceId: 'trace-1' }).values.isOpen).toBe(false)
+    })
 })
