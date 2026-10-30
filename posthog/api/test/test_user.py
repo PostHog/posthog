@@ -27,11 +27,12 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
-from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.email_verification import UNDELIVERABLE_EMAIL_ERROR, email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
+from posthog.email import EmailRecipientUndeliverableError
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
@@ -3418,6 +3419,17 @@ class TestEmailVerificationAPI(APIBaseTest):
                 "attr": None,
             },
         )
+
+    def test_request_verification_tells_the_user_their_address_is_undeliverable(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with patch(
+            "posthog.api.email_verification.send_email_verification_code",
+            side_effect=EmailRecipientUndeliverableError("refused"),
+        ):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.json()["code"], "email_undeliverable")
+        self.assertEqual(response.json()["detail"], UNDELIVERABLE_EMAIL_ERROR)
 
     def test_cant_verify_more_than_six_times(self):
         set_instance_setting("EMAIL_HOST", "localhost")

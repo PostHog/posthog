@@ -3,7 +3,7 @@ import time
 import structlog
 from rest_framework import exceptions
 
-from posthog.email import is_email_available
+from posthog.email import EmailRecipientUndeliverableError, is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
@@ -21,6 +21,11 @@ VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
 
 EMAIL_CODE_STATE_REDIS_KEY_PREFIX = "email_verification_code_state"
 EMAIL_CODE_ATTEMPTS_REDIS_KEY_PREFIX = "email_verification_code_attempts"
+
+UNDELIVERABLE_EMAIL_ERROR = (
+    "We can't deliver email to this address because earlier emails to it bounced. "
+    "Contact support@posthog.com to get your account back."
+)
 
 
 def is_email_verification_disabled(user: User) -> bool:
@@ -94,6 +99,12 @@ class EmailVerificationCodeVerifier:
             # Write the state before the send, so a delivered code can always verify.
             get_client().set(self._state_key(user.pk), f"{issued_at}:{target or ''}", ex=CODE_TTL_SECONDS)
             send_email_verification_code(user.pk, code, target)
+        except EmailRecipientUndeliverableError:
+            logger.warning("Email verification code refused as undeliverable", user_id=user.pk)
+            raise exceptions.APIException(
+                detail=UNDELIVERABLE_EMAIL_ERROR,
+                code="email_undeliverable",
+            )
         except Exception as e:
             logger.exception("Email verification code send failed", user_id=user.pk, error=str(e))
             capture_exception(Exception(f"Email verification code send failed: {e}"))

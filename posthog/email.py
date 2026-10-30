@@ -444,6 +444,17 @@ def _pin_to_workflows(idempotency_key: str, template_id: str) -> None:
         logger.warning("email_workflows_pin_write_failed", error=str(err))
 
 
+def _undeliverable_cache_key(idempotency_key: str) -> str:
+    return f"email_workflows_undeliverable:{idempotency_key}"
+
+
+def _mark_undeliverable(idempotency_key: str) -> None:
+    try:
+        cache.set(_undeliverable_cache_key(idempotency_key), True, timeout=WORKFLOWS_PIN_TTL_SECONDS)
+    except Exception as err:
+        logger.warning("email_workflows_undeliverable_write_failed", error=str(err))
+
+
 def _send_one_via_workflows(
     dest: dict[str, str], campaign_key: str, template_id: str, properties: dict
 ) -> dict[str, Any]:
@@ -533,6 +544,7 @@ def _send_one(
                 # means that no earlier attempt queued the email. The pin keeps a retry of the batch on Workflows, so a
                 # flag change cannot send this recipient through Customer.io, where the email would hard bounce.
                 _pin_to_workflows(idempotency_key, workflows_template_id)
+                _mark_undeliverable(idempotency_key)
                 logger.info("email_workflows_recipient_undeliverable", template_name=template_name)
                 _capture_email_event(
                     capture,
@@ -760,6 +772,25 @@ def _send_via_smtp(
 
 class EmailDeliveryError(Exception):
     """A synchronous send returned without the provider accepting the email."""
+
+
+class EmailRecipientUndeliverableError(EmailDeliveryError):
+    """Workflows refused the recipient because the address can't receive email, so no provider sent it."""
+
+
+def raise_if_recipient_undeliverable(campaign_key: str, email: str) -> None:
+    """Raise EmailRecipientUndeliverableError when Workflows refused this recipient for this campaign.
+
+    A synchronous caller uses this to tell the user that their address can't receive email. A send that failed for
+    another reason does not raise, because a worker retry can still deliver it.
+    """
+    try:
+        refused = cache.get(_undeliverable_cache_key(_workflows_idempotency_key(campaign_key, email)))
+    except Exception as err:
+        logger.warning("email_workflows_undeliverable_read_failed", error=str(err))
+        return
+    if refused:
+        raise EmailRecipientUndeliverableError(f"workflows refused {email} as undeliverable under {campaign_key}")
 
 
 def was_email_delivered(campaign_key: str, email: str) -> bool:
