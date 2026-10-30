@@ -145,14 +145,26 @@ def copy_team_ranks(team_id: int, anchor_version: int, since: datetime, *, dry_r
     # One day per statement, so the rank rows an upsert locks are released before the next day's rows.
     while since < end:
         params |= {"since": since, "until": min(since + _COPY_SLICE, end)}
-        written += _copy_slice(source, params)
+        written += _copy_slice(team_id, source, params)
         since += _COPY_SLICE
-    if written:
-        mark_changed(team_id)
+    _delete_orphaned_ranks(team_id)
     return written
 
 
-def _copy_slice(source: str, params: dict[str, Any]) -> int:
+def _delete_orphaned_ranks(team_id: int) -> None:
+    # A recording deletion removes observations in raw SQL, so rank rows it missed are removed here.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            DELETE FROM replay_vision_replayobservationrank rank
+            WHERE rank.team_id = %s
+                AND NOT EXISTS (SELECT 1 FROM replay_vision_replayobservation o WHERE o.id = rank.observation_id)
+            """,
+            [resolve_effective_team_id(team_id)],
+        )
+
+
+def _copy_slice(team_id: int, source: str, params: dict[str, Any]) -> int:
     category = "CASE o.watch_rank ->> 'category' " + " ".join(
         f"WHEN '{name}' THEN {code}" for name, code in CATEGORY_CODES.items()
     )
@@ -174,7 +186,11 @@ def _copy_slice(source: str, params: dict[str, Any]) -> int:
             """,
             params,
         )
-        return cursor.rowcount
+        written = cursor.rowcount
+        # Each committed day asks for a rebuild, so a copy stopped partway still reaches the feed.
+        if written:
+            mark_changed(team_id)
+        return written
 
 
 def mark_changed(team_id: int) -> None:
