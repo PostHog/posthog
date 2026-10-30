@@ -60,7 +60,6 @@ describe('traceDialogLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-            [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
             [FEATURE_FLAGS.TRACING_TRACE_FOLDED_RUNS]: true,
         })
         getTraceSpy = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue(page(['a'], null))

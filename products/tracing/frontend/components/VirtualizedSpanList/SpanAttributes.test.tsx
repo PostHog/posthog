@@ -2,9 +2,6 @@ import '@testing-library/jest-dom'
 
 import { render, screen, waitFor } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType } from '~/types'
@@ -39,10 +36,6 @@ describe('SpanAttributes correlation links', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS], {
-            [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
-        })
     })
 
     it('renders person and replay links for matching keys, plain text otherwise', () => {
@@ -73,21 +66,6 @@ describe('SpanAttributes correlation links', () => {
         await waitFor(() =>
             expect(container.querySelector('[data-attr="mock-view-recording"]')).toHaveTextContent('session-2')
         )
-    })
-
-    it('renders plain text when the flag is off', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-
-        const { container } = render(
-            <SpanAttributes
-                title="Attributes"
-                attributes={{ sessionId: 'session-1' }}
-                propertyType={PropertyFilterType.SpanAttribute}
-            />
-        )
-
-        expect(screen.getAllByText('session-1').length).toBeGreaterThan(0)
-        expect(container.querySelector('[data-attr="mock-view-recording"]')).toBeNull()
     })
 
     it('never links values in the synthetic details table (no propertyType)', () => {
