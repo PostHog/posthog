@@ -47,6 +47,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.query import add_query_response_identity_headers, get_query_request_analytics_properties
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import insight_query_access_error
@@ -64,7 +65,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
-from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -1422,7 +1423,7 @@ class InsightSerializer(InsightBasicSerializer):
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
                         cache_age_seconds=shared_cache_age_seconds,
-                        analytics_props=get_request_analytics_properties(self.context["request"]),
+                        analytics_props=get_query_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
                     )
                     access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
@@ -2191,6 +2192,9 @@ class InsightViewSet(
     queryset = Insight.objects_including_soft_deleted.all()
 
     parser_classes = (QuerySchemaParser,)
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        return add_query_response_identity_headers(super().finalize_response(request, response, *args, **kwargs))
 
     def get_throttles(self):
         """Apply LLM-specific throttles to the endpoints that call a model."""

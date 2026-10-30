@@ -48,7 +48,7 @@ from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -77,12 +77,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
-from posthog.permissions import (
-    APIScopePermission,
-    TeamMemberStrictManagementPermission,
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-)
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -674,7 +669,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 _SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
 
 
-class SignalSteeringPermission(TeamMemberStrictManagementPermission):
+class SignalSteeringPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if (
             request.method in ("GET", "HEAD", "OPTIONS")
@@ -685,7 +680,7 @@ class SignalSteeringPermission(TeamMemberStrictManagementPermission):
         if is_sandbox_oauth_request(request):
             self.message = "Task agents cannot modify steering instructions or implementation repositories."
             return False
-        return super().has_permission(request, view)
+        return True
 
 
 class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
