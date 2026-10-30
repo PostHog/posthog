@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Team
 
+from products.experiments.backend.experiment_creator import to_experiment_creator
 from products.experiments.backend.facade.actions import (
     count_experiments_referencing_actions,
     experiments_referencing_action,
@@ -39,9 +40,7 @@ class TestActionReferencesFacade(BaseTest):
         references = experiments_referencing_action(self.team.id, ACTION_ID, limit=10)
 
         assert sorted(reference.name for reference in references) == ["Legacy filter", "Metric"]
-        assert {reference.created_by.email if reference.created_by else None for reference in references} == {
-            self.user.email
-        }
+        assert [reference.created_by for reference in references] == [to_experiment_creator(self.user)] * 2
         assert len(experiments_referencing_action(self.team.id, ACTION_ID, limit=1)) == 1
         assert count_experiments_referencing_actions(self.team.id, [ACTION_ID, OTHER_ACTION_ID, 103]) == {
             ACTION_ID: 2,

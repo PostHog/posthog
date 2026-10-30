@@ -557,8 +557,7 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
         for aid, cnt in cursor.fetchall():
             counts[aid] += cnt
 
-    for aid, cnt in count_experiments_referencing_actions(team.pk, ids_array).items():
-        counts[aid] += cnt
+    counts.update(count_experiments_referencing_actions(team.pk, ids_array))
 
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
     with connection.cursor() as cursor:
