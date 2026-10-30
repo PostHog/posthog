@@ -485,6 +485,9 @@ describe("Question relay", () => {
 
         expect(result.outcome.outcome).toBe("cancelled");
         expect(result._meta?.message).toContain("stop before publishing");
+        expect(result._meta?.message).toContain(
+          "A skill the user invokes counts as an explicit ask for the publishing steps that skill requires.",
+        );
       });
     });
   });

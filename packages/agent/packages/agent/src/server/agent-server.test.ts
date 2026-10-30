@@ -3305,24 +3305,6 @@ describe("AgentServer HTTP Mode", () => {
       distinct_id: "user-1",
     };
 
-    it("explains user-invoked skill consent when a publish command is blocked", async () => {
-      const testServer = exposeCloudClient(createServer({ createPr: false }));
-      const { requestPermission } = testServer.createCloudClient(basePayload);
-      const result = await requestPermission({
-        options: [{ optionId: "allow_once", kind: "allow_once" }],
-        toolCall: {
-          kind: "execute",
-          _meta: { toolName: "Bash" },
-          rawInput: { command: "git push origin main" },
-        },
-      });
-
-      expect(result.outcome).toEqual({ outcome: "cancelled" });
-      expect(result._meta?.message).toContain(
-        "A skill the user invokes counts as an explicit ask for the publishing steps that skill requires.",
-      );
-    });
-
     it("relays a relayed-server tool call when the desktop is connected", async () => {
       const testServer = exposeCloudClient(createServer());
       testServer.config.relayMcpServers = ["slack"];
