@@ -31,7 +31,7 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
     const actionBar = (
-        <div className="shrink-0 flex items-center gap-2" data-attr="watch-panel-title-actions">
+        <div className="ml-auto flex items-center gap-2 flex-wrap" data-attr="watch-panel-title-actions">
             {actions}
             <PinToPlaylistButton size="small" type="secondary" labelled />
         </div>
@@ -68,7 +68,7 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
     return (
         <div className="flex items-start gap-3 min-w-0 flex-wrap" data-attr="watch-panel-title">
             {sessionPerson && <PersonIcon person={sessionPerson} size="lg" className="mr-0 shrink-0" />}
-            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1 basis-72">
                 <h2 className="text-base font-semibold truncate m-0 ph-no-capture">
                     {personHref ? (
                         <Link to={personHref} subtle data-attr="watch-panel-title-person">
