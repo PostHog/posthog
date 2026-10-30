@@ -157,7 +157,10 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
             return False, "Your SendGrid API key is missing the scope required to sync this data."
 
         if status == 401:
-            return False, "Invalid SendGrid API key"
+            return (
+                False,
+                "Your SendGrid API key is invalid. Create a new key in SendGrid under Settings > API Keys, then paste the full key here.",
+            )
 
         return False, "Could not validate SendGrid API key"
 
