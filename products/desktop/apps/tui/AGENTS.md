@@ -34,6 +34,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `layout.ts` | Workspaces (splits only), the one main view, focus, persistence to `~/.config/posthog-tui/layout.json` |
 | `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots |
+| `turns.ts` | Which open chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another pane (the orange dot) |
 | `work.ts` | The Work list (`getTasksPage`), one request at a time |
 | `runs.ts` | Cloud run views over `CloudTaskEngine`: tail windows, older pages, preloads, run notices |
 | `chats.ts` | Starting and replying to pi cloud runs |
@@ -54,7 +55,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `images.ts` | Images for a local chat: Ctrl+V reads the clipboard's image (macOS), a dropped image file is read from its pasted path, and the composer shows each as an `[Image #n]` marker |
 | `auth.ts`, `cloud.ts` | OAuth tokens and the engine, API client and local-session wiring |
 | `components/App.tsx`, `components/PaneTree.tsx` | Wiring the hooks together, and drawing the sidebar and the split panes |
-| `hooks/` | App state, one hook per concern: notices, work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, keys, pointer, terminal input |
+| `hooks/` | App state, one hook per concern: notices, work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, turns, keys, pointer, terminal input |
 
 ## Things that bit us
 
