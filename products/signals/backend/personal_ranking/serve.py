@@ -102,16 +102,11 @@ UNAVAILABLE = ServedRanking(
 )
 
 
-def _budgets(config: PersonalRankingConfig) -> tuple[Budget, Budget]:
+def _spend_build(team_id: int, user_id: int, config: PersonalRankingConfig) -> int | None:
+    """Spend one build from both buckets. Returns None when allowed, else the seconds until the next build."""
     hourly = Budget(burst=config.build_burst, per_hour=config.builds_per_hour)
     # Refills the daily cap over 24 hours, so a person cannot spend it twice in one day.
     daily = Budget(burst=config.builds_per_day, per_hour=max(1, -(-config.builds_per_day // 24)))
-    return hourly, daily
-
-
-def _spend_build(team_id: int, user_id: int, config: PersonalRankingConfig) -> int | None:
-    """Spend one build from both buckets. Returns None when allowed, else the seconds until the next build."""
-    hourly, daily = _budgets(config)
     hourly_key = f"{_BUCKET_PREFIX}:hour:{team_id}:{user_id}"
     hourly_decision = consume(hourly_key, hourly)
     if isinstance(hourly_decision, BucketDecision) and not hourly_decision.allowed:
