@@ -14,7 +14,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
@@ -208,7 +208,7 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
         return claim or create_claim(report, actor)
 
 
-def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
+def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = False) -> PullRequestDetails:
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:
         raise InvalidPullRequestUrl("pr_url must be a GitHub pull request URL.")
@@ -235,6 +235,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             team_id=team_id,
             repository=parsed.repository,
         )
+        if raise_on_error:
+            raise
         return details
     if github is None:
         return details
@@ -248,6 +250,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             repository=parsed.repository,
             pr_number=parsed.number,
         )
+        if raise_on_error:
+            raise
         return details
     if not status.get("success"):
         logger.warning(
@@ -257,6 +261,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             pr_number=parsed.number,
             error=status.get("error"),
         )
+        if raise_on_error and status.get("status_code") != 404:
+            raise GitHubIntegrationError("Unable to verify pull request state", status_code=status.get("status_code"))
         return details
 
     merged = bool(status.get("merged"))

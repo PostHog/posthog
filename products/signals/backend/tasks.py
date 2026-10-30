@@ -123,7 +123,7 @@ def refresh_report_implementation_pr_cache(
 def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
     if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
         return
-    pr = report_assignments._pull_request_details(team_id, pr_url)
+    pr = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
     if pr.state not in {SignalReportPullRequest.State.DRAFT, SignalReportPullRequest.State.OPEN}:
         return
     team = Team.objects.filter(id=team_id).first()

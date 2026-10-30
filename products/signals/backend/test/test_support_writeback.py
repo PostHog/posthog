@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
+from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.conversations.backend.facade import api as conversations_facade
 from products.conversations.backend.models import ConversationDelivery, TeamConversationsSlackConfig, Ticket
@@ -299,6 +300,28 @@ class TestPostReportFindingsToTickets(BaseTest):
             ConversationDelivery.objects.for_team(self.team.id).filter(comment_id__in=replies.values("id")).count()
             == expected_replies
         )
+
+    @parameterized.expand([("integration_lookup", True), ("pull_request_fetch", False)])
+    def test_worker_retries_transient_pull_request_lookup_errors(self, _name, integration_lookup_fails):
+        from products.signals.backend.tasks import write_pull_request_to_support_tickets
+
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": False, "error": "Network error fetching pull request"}
+        with (
+            patch("products.signals.backend.tasks.task_can_write_support_ticket_update", return_value=True),
+            patch("products.signals.backend.tasks.fetch_signals_for_report_sync", return_value=[self.signal]),
+            patch(
+                "products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+                side_effect=TimeoutError("GitHub unavailable") if integration_lookup_fails else None,
+            ),
+            pytest.raises((TimeoutError, GitHubIntegrationError)),
+        ):
+            write_pull_request_to_support_tickets.run(
+                self.team.pk, str(self.report.id), "https://github.com/example/app/pull/123", "task-id"
+            )
+
+        assert not _ticket_notes(self.team, self.ticket).exists()
 
     def test_ignores_signals_from_other_products(self):
         error_signal = {"source_product": "error_tracking", "source_id": "issue-1"}
