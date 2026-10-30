@@ -237,7 +237,7 @@ function aiSteps({ featureFlags, currentTeam }: StepCatalogContext): CreateActio
     const mainEnvironment = isMainEnvironment(currentTeam)
     return [
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] ? [AI_TASK_ACTION_NODE] : []),
-        T3_CODE_ACTION_NODE,
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_T3_CODE_STEP] ? [T3_CODE_ACTION_NODE] : []),
         ...(mainEnvironment ? [RUN_SCOUT_ACTION_NODE] : []),
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] ? [CLASSIFY_ACTION_NODE] : []),
         ...(mainEnvironment ? [REPLAY_VISION_ACTION_NODE] : []),
@@ -288,7 +288,6 @@ const ALWAYS_LISTED_STEPS: CreateActionType[] = [
     ...DELAY_NODES_TO_SHOW,
     ...LOGIC_NODES_TO_SHOW,
     ...POSTHOG_NODES_TO_SHOW,
-    T3_CODE_ACTION_NODE,
     ...getRegisteredActionNodeCategories().flatMap((category) => category.nodes),
 ]
 
@@ -296,6 +295,7 @@ const ALL_CATALOG_STEPS: CreateActionType[] = [
     ...ALWAYS_LISTED_STEPS,
     PUSH_NOTIFICATION_ACTION_NODE,
     AI_TASK_ACTION_NODE,
+    T3_CODE_ACTION_NODE,
     RUN_SCOUT_ACTION_NODE,
     CLASSIFY_ACTION_NODE,
     REPLAY_VISION_ACTION_NODE,

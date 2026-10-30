@@ -224,6 +224,7 @@ A `function` node with `template_id: "template-t3-code"` starts a T3 Code agent 
 - `webhook_url` and `signing_secret` are secrets: they are stored encrypted and never returned. Never put them in `instructions` or `payload`.
 - Each request carries an `x-posthog-delivery-id` header that stays the same across retries. Set the T3 Code task's replay key to `{{headers.x-posthog-delivery-id}}` so a retried request does not start a second run.
 - The step retries rate limits (429) and server errors. It fails with a message that says what to fix when the signature is wrong (401), the URL has no task (404), the task is turned off (409), or the body is over 1 MB (413). The step result is `{"deliveryId"}`.
+- The step is behind the `workflow-t3-code-step` feature flag. Without the flag, the save fails with "Template not found".
 
 ### Opt out of messages step
 
