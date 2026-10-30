@@ -103,6 +103,8 @@ Its compact summary has no elapsed timer and keeps its dismiss control inside th
 The run panel supports individual dismissal, checkbox selection with batch dismissal, and dismissing all displayed runs.
 Dismissals persist per project and user.
 Dismissal hides only those IDs and does not cancel the runs or hide future runs.
+Dismissed runs release their streams when no other visible consumer watches them; discovery continues for future runs.
+Sidebar links open the run's details directly, even when table pagination or filters exclude its row.
 The widget is not mounted in the `today-rail-nav` sidebar.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.

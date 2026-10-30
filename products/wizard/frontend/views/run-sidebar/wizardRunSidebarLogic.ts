@@ -2,6 +2,7 @@ import {
     LogicWrapper,
     MakeLogicType,
     actions,
+    afterMount,
     connect,
     kea,
     key,
@@ -31,6 +32,8 @@ export interface wizardRunSidebarLogicValues {
 export interface wizardRunSidebarLogicActions {
     clickState: () => { value: true }
     dismissRuns: (runIds: string[]) => { runIds: string[] }
+    syncWatchedRuns: () => { value: true }
+    watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
 }
 
 export type wizardRunSidebarLogicType = MakeLogicType<
@@ -43,8 +46,11 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
     props({} as WizardRunSidebarProps),
     key(({ projectId, userId }) => `${projectId}.${userId}`),
     path((key) => ['products', 'wizard', 'wizardRunSidebarLogic', key]),
-    connect(({ projectId }: WizardRunSidebarProps) => ({ values: [wizardRunSyncLogic({ projectId }), ['userRuns']] })),
-    actions({ clickState: true, dismissRuns: (runIds: string[]) => ({ runIds }) }),
+    connect(({ projectId }: WizardRunSidebarProps) => ({
+        values: [wizardRunSyncLogic({ projectId }), ['userRuns']],
+        actions: [wizardRunSyncLogic({ projectId }), ['watchRuns']],
+    })),
+    actions({ clickState: true, dismissRuns: (runIds: string[]) => ({ runIds }), syncWatchedRuns: true }),
     reducers(({ props: { projectId, userId } }) => ({
         dismissedRunIds: [
             [] as string[],
@@ -64,7 +70,14 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             },
         ],
     }),
-    listeners(({ values, props: { projectId } }) => ({
+    listeners(({ actions, values, props: { projectId } }) => ({
+        [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => actions.syncWatchedRuns(),
+        [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => actions.syncWatchedRuns(),
+        syncWatchedRuns: () =>
+            actions.watchRuns(
+                'sidebar',
+                values.visibleRuns.map((run) => run.id)
+            ),
         clickState: () => {
             posthog.capture('wizard sidebar state clicked', {
                 event_source: 'wizard_ui',
@@ -74,6 +87,7 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             })
         },
         dismissRuns: ({ runIds }) => {
+            actions.syncWatchedRuns()
             posthog.capture('wizard sidebar state dismissed', {
                 event_source: 'wizard_ui',
                 project_id: projectId,
@@ -82,4 +96,10 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             })
         },
     })),
+    afterMount(({ actions, cache }) => {
+        cache.disposables.add(() => {
+            actions.syncWatchedRuns()
+            return () => actions.watchRuns('sidebar', [])
+        }, 'sidebar-run-watch')
+    }),
 ])

@@ -1,4 +1,5 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { installMockEventSource, MockEventSource } from 'lib/wizard-sync/eventSource.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -9,7 +10,10 @@ import type { WizardRunApi } from '../../generated/api.schemas'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import { wizardRunSidebarLogic } from './wizardRunSidebarLogic'
 
-jest.mock('../../generated/api', () => ({ wizardRunsList: jest.fn().mockResolvedValue({ results: [], next: null }) }))
+jest.mock('../../generated/api', () => ({
+    wizardRunsList: jest.fn().mockResolvedValue({ results: [], next: null }),
+    getWizardRunsStreamRetrieveUrl: (_: string, id: string) => `/stream/${id}`,
+}))
 
 const props = { projectId: '1', userId: MOCK_DEFAULT_USER.id }
 function run(id: string): WizardRunApi {
@@ -18,29 +22,32 @@ function run(id: string): WizardRunApi {
 
 describe('wizardRunSidebarLogic', () => {
     let logic: ReturnType<typeof wizardRunSidebarLogic.build>
+    let restoreEventSource: () => void
 
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+        restoreEventSource = installMockEventSource()
         logic = wizardRunSidebarLogic(props)
         logic.mount()
     })
     afterEach(() => {
         logic.unmount()
+        restoreEventSource()
         localStorage.clear()
     })
 
     it('dismisses one, several, or all known runs without hiding future runs, including after reload', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const sync = wizardRunSyncLogic({ projectId: '1' })
-        const runs = ['first', 'second', 'third'].map(run)
+        const runs = ['first', 'second', 'third'].map((id) => ({ ...run(id), status: 'running' as const }))
         sync.actions.runsLoaded(runs)
         logic.actions.clickState()
         expect(posthog.capture).toHaveBeenCalledWith('wizard sidebar state clicked', {
             event_source: 'wizard_ui',
             project_id: '1',
             run_count: 3,
-            active_run_count: 0,
+            active_run_count: 3,
         })
         logic.actions.dismissRuns(['first'])
         expect(posthog.capture).toHaveBeenCalledWith('wizard sidebar state dismissed', {
@@ -58,8 +65,10 @@ describe('wizardRunSidebarLogic', () => {
             remaining_run_count: 0,
         })
         expect(logic.values.visibleRuns).toEqual([])
-        sync.actions.runsLoaded([run('new'), ...runs])
+        expect(MockEventSource.instances.every((stream) => stream.readyState === MockEventSource.CLOSED)).toBe(true)
+        sync.actions.runsLoaded([{ ...run('new'), status: 'running' }, ...runs])
         expect(logic.values.visibleRuns.map((run) => run.id)).toEqual(['new'])
+        expect(MockEventSource.last().url).toBe('/stream/new')
         logic.unmount()
 
         initKeaTests()
