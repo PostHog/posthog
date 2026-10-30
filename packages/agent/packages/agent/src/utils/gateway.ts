@@ -162,18 +162,14 @@ export function resolveAiProduct({
   product: GatewayProduct;
   aiStage?: string | null;
 }): string {
-  if (product === "signals" && aiStage) {
-    const stage = signalsStage(aiStage);
-    if (SIGNALS_STAGE_PRODUCTS.has(stage)) {
-      return `signals_${stage}`;
-    }
+  if (product !== "signals") {
+    return product;
   }
-  // A stageless signals run has no server provenance for an internally funded
-  // token, so it bills the run's team.
-  if (product === "signals") {
-    return "posthog_ai";
+  const stage = aiStage ? signalsStage(aiStage) : null;
+  if (stage && SIGNALS_STAGE_PRODUCTS.has(stage)) {
+    return `signals_${stage}`;
   }
-  return product;
+  return "posthog_ai";
 }
 
 export function getGatewayUsageUrl(

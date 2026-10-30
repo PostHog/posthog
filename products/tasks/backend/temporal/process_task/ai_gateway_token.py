@@ -150,8 +150,6 @@ def resolve_sandbox_ai_product(
         stage = "scout" if ai_stage.startswith(_SCOUT_STAGE_PREFIX) else ai_stage
         if stage in _SIGNALS_STAGE_PRODUCTS:
             return f"signals_{stage}"
-    # A stageless signals run has no server provenance for an internally funded token, so it
-    # bills the run's team, as create_run's posthog_ai stamp does for new stageless runs.
     if gateway_product == "signals":
         return "posthog_ai"
     return gateway_product
