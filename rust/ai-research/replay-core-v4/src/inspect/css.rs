@@ -6,6 +6,8 @@ use crate::url_policy::{is_fetched_image_type, is_remote, MAX_URL_LEN};
 
 /// Each resolution copies the page URL, so one event resolves at most this many relative URLs.
 pub const MAX_RESOLVED_URLS: usize = 1024;
+/// Far more than a real `image-set()` lists. A longer set gets no rewrite, so the inspector never holds its candidates.
+const MAX_IMAGE_SET_CANDIDATES: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssUrl<'a> {
@@ -285,9 +287,32 @@ fn image_set_urls(
     resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
-    let Some(candidates) = image_set_candidates(&function[name_len + 1..function.len() - 1]) else {
+    let contents = &function[name_len + 1..function.len() - 1];
+    let mut candidates = Vec::new();
+    let mut count = 0;
+    let mut readable = true;
+    let split = split_image_set(contents, &mut |text| {
+        count += 1;
+        if count <= MAX_IMAGE_SET_CANDIDATES {
+            match image_set_candidate(text) {
+                Some(candidate) => candidates.push(candidate),
+                None => readable = false,
+            }
+        }
+    });
+    if split.is_none() || !readable {
         return;
-    };
+    }
+    if count > MAX_IMAGE_SET_CANDIDATES {
+        split_image_set(contents, &mut |text| {
+            if let Some(source) = image_set_candidate(text).and_then(|candidate| candidate.source) {
+                if is_remote(&source) {
+                    found(CssUrl::Unshown(&source));
+                }
+            }
+        });
+        return;
+    }
     let kept = candidates
         .iter()
         .enumerate()
@@ -342,15 +367,14 @@ struct ImageSetCandidate<'a> {
     resolution_dppx: Option<f64>,
 }
 
-fn image_set_candidates(contents: &str) -> Option<Vec<ImageSetCandidate<'_>>> {
+fn split_image_set<'a>(contents: &'a str, each: &mut impl FnMut(&'a str)) -> Option<()> {
     let bytes = contents.as_bytes();
-    let mut candidates = Vec::new();
     let mut start = 0;
     let mut position = 0;
     let mut depth = 0usize;
     while position <= bytes.len() {
         if position == bytes.len() || (bytes[position] == b',' && depth == 0) {
-            candidates.push(image_set_candidate(&contents[start..position])?);
+            each(&contents[start..position]);
             start = position + 1;
             position += 1;
             continue;
@@ -374,7 +398,7 @@ fn image_set_candidates(contents: &str) -> Option<Vec<ImageSetCandidate<'_>>> {
         }
         position += 1;
     }
-    Some(candidates)
+    Some(())
 }
 
 fn image_set_candidate(candidate: &str) -> Option<ImageSetCandidate<'_>> {
@@ -640,5 +664,17 @@ mod tests {
             assert_eq!(found(css, page), expected, "{css}");
         }
         assert_eq!(found(".a{background:url(a.png)}", None), ["image a.png"]);
+        let many: Vec<String> = (1..=MAX_IMAGE_SET_CANDIDATES + 1)
+            .map(|i| format!("url(https://cdn.example.com/{i}.png) {i}x"))
+            .collect();
+        let named = found(
+            &format!(".a{{background:image-set({})}}", many.join(", ")),
+            page,
+        );
+        assert_eq!(named.len(), many.len());
+        assert!(
+            named.iter().all(|url| url.starts_with("unshown ")),
+            "{named:?}"
+        );
     }
 }
