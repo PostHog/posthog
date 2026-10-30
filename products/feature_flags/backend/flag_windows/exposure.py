@@ -17,6 +17,9 @@ compares errors against this curve, not against the edit time.
   value other than false.
 - Each bucket also holds the counts since the edit. Per-bucket counts can't be added up, because a person can be in many
   buckets. The query keeps a `uniqState` per bucket and merges the states of the buckets so far, in the same scan.
+- `uniq` is exact up to about 65,536 people per count and estimates above that. Each count is a separate estimate, so
+  on a large flag `exposed` can be a little above `with_flag`. `uniqExact` would keep every person id of every count of
+  every bucket in memory, in a query that reads every event of the team.
 
 One query per team reads every watched edit, because `$feature/<key>` is on every event: a query per edit would read
 the same events again.
@@ -43,8 +46,7 @@ from posthog.models import Team
 QUERY_TIMEOUT_SECONDS = 30
 QUERY_MAX_THREADS = 2
 
-# HogQL has no finalizeAggregation, so a frame of one row reads the bucket's own count.
-IN_BUCKET = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN CURRENT ROW AND CURRENT ROW)"
+IN_BUCKET = "_finalizeAggregation({state})"
 SINCE_EDIT = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
 
 
@@ -107,7 +109,8 @@ def exposure_by_bucket(
         "toStartOfInterval(timestamp, toIntervalSecond({seconds}), {start})",
         placeholders={"seconds": ast.Constant(value=int(seconds)), "start": ast.Constant(value=start)},
     )
-    states = [state for index, edit in enumerate(edits) for state in _edit_states(index, edit)]
+    states_by_edit = [_edit_states(index, edit) for index, edit in enumerate(edits)]
+    states = [state for edit_states in states_by_edit for state in edit_states]
     per_bucket = ast.SelectQuery(
         select=[ast.Alias(alias="bucket", expr=bucket_start), *states],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -154,9 +157,9 @@ def exposure_by_bucket(
     result: dict[str, list[ExposureBucket]] = {edit.id: [] for edit in edits}
     for row in response.results or []:
         values = iter(row[1:])
-        for edit in edits:
+        for edit, edit_states in zip(edits, states_by_edit):
             # Each count gives the bucket's own value, then the value since the edit.
-            pairs = [(int(next(values)), int(next(values))) for _ in range(2 + len(edit.variants))]
+            pairs = [(int(next(values)), int(next(values))) for _ in edit_states]
             in_bucket = _counts(edit, [pair[0] for pair in pairs])
             since_edit = _counts(edit, [pair[1] for pair in pairs])
             if in_bucket.with_flag:

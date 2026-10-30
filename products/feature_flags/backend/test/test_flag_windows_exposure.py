@@ -99,8 +99,9 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-1", 1, {"$feature/pricing-test": "control"}),
                     ("person-2", 2, {"$feature/pricing-test": "false"}),
                     ("person-3", 3, {"$feature/pricing-test": False}),
+                    ("person-4", 4, {"$feature/pricing-test": True}),
                 ],
-                [(0, 3, 2, {"control": 1, "false": 1})],
+                [(0, 4, 3, {"control": 1, "false": 1})],
             ),
             (
                 "group_flag_counts_groups_not_people",
@@ -225,21 +226,18 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        exposure = exposure_by_bucket(self.team, [MULTIVARIATE, BOOLEAN], START, START + timedelta(minutes=30), BUCKET)
+        boolean = dataclasses.replace(BOOLEAN, edited_at=START + timedelta(minutes=10))
+
+        exposure = exposure_by_bucket(self.team, [MULTIVARIATE, boolean], START, START + timedelta(minutes=30), BUCKET)
 
         self.assertEqual(
             exposure,
             {
                 "boolean": [
                     ExposureBucket(
-                        start=START,
-                        in_bucket=ExposureCounts(with_flag=2, exposed=1, by_variant={}),
-                        since_edit=ExposureCounts(with_flag=2, exposed=1, by_variant={}),
-                    ),
-                    ExposureBucket(
                         start=START + timedelta(minutes=10),
                         in_bucket=ExposureCounts(with_flag=1, exposed=1, by_variant={}),
-                        since_edit=ExposureCounts(with_flag=3, exposed=2, by_variant={}),
+                        since_edit=ExposureCounts(with_flag=1, exposed=1, by_variant={}),
                     ),
                 ],
                 "multivariate": [
@@ -264,6 +262,7 @@ class TestExposureByBucketInput(SimpleTestCase):
                 [BOOLEAN],
             ),
             ("duplicate_edit_ids", START + timedelta(minutes=30), BUCKET, [BOOLEAN, BOOLEAN]),
+            ("end_not_after_start", START, BUCKET, [BOOLEAN]),
         ]
     )
     def test_refuses_input_that_would_lose_or_mix_counts(
