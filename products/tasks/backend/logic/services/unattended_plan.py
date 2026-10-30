@@ -8,6 +8,7 @@ marked for a plan whose rollout is off fails when it starts instead of falling b
 
 from typing import cast, get_args
 
+from posthog.models.integration.claude import ClaudeUserIntegration
 from posthog.models.integration.codex import CodexUserIntegration
 from posthog.models.user import User
 
@@ -17,12 +18,15 @@ from products.tasks.backend.logic.model_access import SubscriptionAdapter
 def can_bill_plan_unattended(user: User, adapter: SubscriptionAdapter) -> bool:
     """Whether the user's plan for this adapter can pay for a run while the user is not at a client.
 
-    A Claude plan cannot, because PostHog stores no Claude token: the owner's Desktop must answer
-    the token request each time an agent session starts. A ChatGPT plan can, because PostHog
-    holds the token and refreshes it for the sandbox.
+    The plan can pay only when PostHog holds a usable token for it. For Claude, that is a
+    connected setup token of a user that may use Claude cloud subscriptions. Without one, the
+    owner's Desktop must answer the token request, so the run cannot start unattended.
     """
-    if adapter != "codex":
-        return False
+    if adapter == "claude":
+        if not ClaudeUserIntegration.cloud_access_allowed(user.id):
+            return False
+        claude = ClaudeUserIntegration.for_user(user.id)
+        return claude is not None and claude.is_connected()
     integration = CodexUserIntegration.for_user(user.id)
     return integration is not None and integration.is_connected()
 

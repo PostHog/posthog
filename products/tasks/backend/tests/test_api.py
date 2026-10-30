@@ -5255,14 +5255,29 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["claude_model_access"] == "own-subscription"
         mock_workflow.assert_called_once()
 
+    @parameterized.expand([("no_server_token", False), ("server_token", True)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_still_rejects_claude_plan_from_a_session(self, mock_workflow):
-        """The relaxation is for Desktop and API keys only. A browser session has nothing
-        that can answer the run's credential request.
+    def test_run_endpoint_accepts_claude_plan_from_a_session_only_with_a_server_token(
+        self, _name: str, connected: bool, mock_workflow: MagicMock
+    ) -> None:
+        """A browser session can answer no credential request, so only a token PostHog
+        holds lets it put a run on the Claude plan.
 
         A fresh client with `force_login`, not `self.client`: the shared one is wired up
         with `force_authenticate`, which leaves no `successful_authenticator` at all, so it
         would pass this test without ever exercising SessionAuthentication."""
+        self.user.email = "owner@posthog.com"
+        self.user.is_staff = True
+        self.user.is_email_verified = True
+        self.user.save()
+        if connected:
+            UserIntegration.objects.create(
+                user=self.user,
+                kind=UserIntegration.IntegrationKind.CLAUDE,
+                integration_id="setup_token",
+                config={"status": "connected"},
+                sensitive_config={"token": "sk-ant-oat01-" + "x" * 40},
+            )
         task = self.create_task()
         client = APIClient()
         client.force_login(self.user)
@@ -5273,10 +5288,17 @@ class TestTaskAPI(BaseTaskAPITest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "claude_model_access"
-        assert not task.runs.exists()
-        mock_workflow.assert_not_called()
+        if not connected:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["attr"] == "claude_model_access"
+            assert not task.runs.exists()
+            mock_workflow.assert_not_called()
+            return
+        assert response.status_code == status.HTTP_200_OK
+        run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert run.state["claude_model_access"] == "own-subscription"
+        assert run.state["claude_subscription_user_id"] == self.user.id
+        mock_workflow.assert_called_once()
 
     @parameterized.expand([("rtk_enabled",), ("benjamin_enabled",), ("claude_model_access",)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

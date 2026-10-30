@@ -132,17 +132,20 @@ def _is_desktop_app_grant(request: Request) -> bool:
 def _may_select_claude_plan(request: Request) -> bool:
     """Whether this caller may bill a run to a Claude plan.
 
-    PostHog stores no Claude token: a subscription run asks the person who started it for
-    one over the run's stream, and fails if nobody answers. The caller therefore has to be
-    something that can answer, on behalf of someone whose plan can be billed. Desktop does
-    it interactively; an API key acting as a user is a deliberate server-to-server
-    credential whose owner can run the same relay unattended, which is what internal
-    automation uses.
+    A subscription run gets its token from PostHog when the owner connected one, and
+    otherwise asks the person who started it over the run's stream. Desktop answers
+    interactively, and an API key owner can run the same relay unattended. Any other
+    signed-in user needs a connected token, because nothing else can answer.
 
-    Sandbox tokens are excluded by both checks — the agent's own code must never be able to
+    Sandbox tokens are always excluded, because the agent's own code must never be able to
     put a run on its owner's plan.
     """
-    return _is_desktop_app_grant(request) or is_api_key_request(getattr(request, "successful_authenticator", None))
+    if _is_desktop_app_grant(request) or is_api_key_request(getattr(request, "successful_authenticator", None)):
+        return True
+    if is_sandbox_oauth_request(request):
+        return False
+    user = getattr(request, "user", None)
+    return bool(user is not None and user.is_authenticated and tasks_facade.can_bill_plan_unattended(user, "claude"))
 
 
 def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
@@ -165,8 +168,8 @@ def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]
         raise serializers.ValidationError(
             {
                 "claude_model_access": (
-                    "Only PostHog Desktop or an API key can start a run on your Claude plan. "
-                    "Start the task from Desktop, authenticate with an API key, or select "
+                    "Connect your Claude token in Settings to start runs on your Claude plan from here. "
+                    "You can also start the task from Desktop, authenticate with an API key, or select "
                     "'posthog-gateway' to use PostHog credits."
                 )
             }
@@ -3643,10 +3646,11 @@ class TaskRunPreferencesFieldMixin(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text=(
-            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
-            "request a Claude token from whoever started the run; Desktop relays it interactively "
-            "and an API key caller relays it unattended. The token is sent in flight and never "
-            "stored on PostHog servers. Only PostHog Desktop and API keys can select "
+            "How the Claude runtime pays for model use. 'own-subscription' runs Claude Code in the "
+            "sandbox with the run owner's Claude login. The sandbox gets the token that the owner "
+            "connected in Settings. Without a connected token, it asks whoever started the run: "
+            "Desktop relays it interactively and an API key caller relays it unattended. PostHog "
+            "Desktop, API keys, and users with a connected Claude token can select "
             "'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep "
             "their billing choice and new runs use the PostHog gateway."
         ),

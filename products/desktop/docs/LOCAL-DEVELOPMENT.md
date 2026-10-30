@@ -111,6 +111,13 @@ The backend also checks tokens from the Desktop relay. Employees can manage only
 The `posthog-code-claude-own-subscription-cloud` flag controls access within this group. A flag change cannot grant access to other users.
 Development mode does not skip the backend checks.
 
+When an employee has a connected token, runs can use the Claude plan without Desktop:
+
+- The web app and other signed-in clients can select `own-subscription` for a run.
+- Slack runs use the plan when the Slack BYOS flag is on for the workspace and the user.
+
+Without a connected token, only Desktop and API keys can select the Claude plan, because they can answer the relay.
+
 ## Test local code and skill changes together
 
 - `hogli start` with the Desktop intent uses local checkout skills and rebuilds them when you edit them. Select the intent once with `hogli dev:setup`.
