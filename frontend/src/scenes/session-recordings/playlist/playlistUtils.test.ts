@@ -1,5 +1,6 @@
 import {
     comparableRecordingFilters,
+    splitOngoingRecordings,
     stripSessionIds,
     summarizePlaylistFilters,
 } from 'scenes/session-recordings/playlist/playlistUtils'
@@ -239,5 +240,19 @@ describe('comparableRecordingFilters()', () => {
         ['drops session ids', { session_ids: ['a'], date_from: '-7d' }, { date_from: '-7d' }],
     ])('%s', (_, filters, expected) => {
         expect(comparableRecordingFilters(filters as any)).toEqual(expected)
+    })
+})
+
+describe('splitOngoingRecordings()', () => {
+    const live = { id: 'live', ongoing: true }
+    const done = { id: 'done', ongoing: false }
+
+    it.each([
+        ['folds ongoing recordings away from finished ones', [live, done], true, [live], [done]],
+        ['keeps every row when all of them are still recording', [live, live], true, [], [live, live]],
+        ['keeps every row when none are still recording', [done], true, [], [done]],
+        ['keeps every row outside the watch layout', [live, done], false, [], [live, done]],
+    ])('%s', (_, recordings, enabled, ongoing, finished) => {
+        expect(splitOngoingRecordings(recordings, enabled)).toEqual({ ongoing, finished })
     })
 })

@@ -29,6 +29,7 @@ import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { OngoingRecordingsGroup } from 'scenes/session-recordings/playlist/OngoingRecordingsGroup'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
+import { splitOngoingRecordings } from 'scenes/session-recordings/playlist/playlistUtils'
 import { ReplayFilterBar } from 'scenes/session-recordings/playlist/ReplayFilterBar'
 import { isFeedReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { ReplayListHeader } from 'scenes/session-recordings/playlist/ReplayListHeader'
@@ -170,10 +171,10 @@ export function Playlist({
             <SessionRecordingPreview recording={item} isActive={isActive} selectable />
         )
 
-    // Still-ingesting recordings fold above the results in the watch layout, so the list opens on finished ones.
-    const ongoingRecordings = newLayout ? otherRecordings.filter((r) => r.ongoing) : []
-    const finishedRecordings =
-        ongoingRecordings.length > 0 ? otherRecordings.filter((r) => !r.ongoing) : otherRecordings
+    const { ongoing: ongoingRecordings, finished: finishedRecordings } = splitOngoingRecordings(
+        otherRecordings,
+        newLayout
+    )
 
     const sections: PlaylistSection[] = []
 

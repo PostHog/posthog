@@ -24,6 +24,16 @@ import {
     UniversalFilterValue,
 } from '~/types'
 
+export function splitOngoingRecordings<T extends { ongoing?: boolean }>(
+    recordings: T[],
+    enabled: boolean
+): { ongoing: T[]; finished: T[] } {
+    if (!enabled || !recordings.some((r) => r.ongoing) || !recordings.some((r) => !r.ongoing)) {
+        return { ongoing: [], finished: recordings }
+    }
+    return { ongoing: recordings.filter((r) => r.ongoing), finished: recordings.filter((r) => !r.ongoing) }
+}
+
 // Pre-seeded session ids and the person picked from the player belong to the open list, not to a saved filter.
 export function stripSessionIds<T extends Partial<RecordingUniversalFilters> | undefined | null>(filters: T): T {
     if (!filters || !('session_ids' in filters || 'person_uuid' in filters)) {
