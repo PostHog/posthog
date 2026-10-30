@@ -2,11 +2,17 @@
 
 The two commands differ only in what they accept and how they render what they
 published. ``AssetKind`` carries those differences; ``run`` performs the flow they
-share: warn, validate, gate on --yes, publish, print markdown.
+share: warn, validate, gate on --yes, then publish.
+
+With an open PR and a gh that supports ``--attach``, the files go to GitHub's own
+attachment storage through ``gh pr edit --attach``. Otherwise they go to PostHog/pr-assets
+and the command prints markdown. The ``upload_route`` command property records which
+route ran.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -14,8 +20,10 @@ from pathlib import Path
 from typing import Final
 
 import click
+from hogli import telemetry
 
 from hogli_commands import pr_assets
+from hogli_commands.github_auth import github_token
 
 # Short form, matching what people already write by hand in pr-assets. GitHub raises no
 # cross-reference event on the target PR for it, so an upload never adds timeline noise.
@@ -32,6 +40,8 @@ class AssetKind:
     max_mb: int
     commit_message: str
     markdown: str  # formatted with `label` and `url`
+    # gh refuses alt text on video, so only kinds that take it get `<file>#<alt>`.
+    gh_alt_text: bool
 
 
 def escape_markdown_label(text: str) -> str:
@@ -54,7 +64,8 @@ def _open_pull_request() -> int | None:
         return None
     try:
         result = subprocess.run(
-            [gh, "pr", "view", "--json", "number", "--jq", ".number"],
+            # A branch whose PR merged or closed still resolves to it, so keep only an open one.
+            [gh, "pr", "view", "--json", "number,state", "--jq", 'select(.state == "OPEN") | .number'],
             capture_output=True,
             text=True,
             timeout=10,
@@ -70,20 +81,90 @@ def _open_pull_request() -> int | None:
         return None
 
 
+def _gh_with_attach() -> str | None:
+    """The gh binary when its `pr edit` supports `--attach`, or None.
+
+    Every failure falls back to the pr-assets route, so it is silent.
+    """
+    gh = shutil.which("gh")
+    if gh is None:
+        return None
+    try:
+        result = subprocess.run(
+            [gh, "pr", "edit", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return gh if "--attach" in result.stdout else None
+
+
 def commit_message(kind: AssetKind, pr: int | None) -> str:
     """Name the PR the asset documents, so a stray file can be traced back to it.
 
     Only the number travels. pr-assets is public and permanent, and a branch name can
     carry a customer or incident name that must not land there.
     """
-    number = pr if pr is not None else _open_pull_request()
-    if number is None:
+    if pr is None:
         return kind.commit_message
-    return f"{kind.commit_message} for {_SOURCE_REPO}#{number}"
+    return f"{kind.commit_message} for {_SOURCE_REPO}#{pr}"
 
 
-def run(files: tuple[Path, ...], caption: str | None, yes: bool, kind: AssetKind, pr: int | None = None) -> None:
-    """Publish every file and print one markdown line each to stdout."""
+def _attach_arg(path: Path, label: str) -> str:
+    """`<file>#<alt>` for gh, refusing a file name that gh would read in place of `path`.
+
+    gh uploads the longest existing file name before a `#`, so a sibling such as
+    `shot.png#alt` would be published although it never passed validation.
+    """
+    arg = f"{path}#{label}"
+    cuts = [i for i, char in enumerate(arg) if char == "#" and i > len(str(path))] + [len(arg)]
+    if any(Path(arg[:cut]).exists() for cut in cuts):
+        raise click.ClickException(
+            f"{path.name}: a file named like '{path.name}#…' exists, rename it or pick other alt text"
+        )
+    return arg
+
+
+def _attach_to_pr(gh: str, files: tuple[Path, ...], caption: str | None, kind: AssetKind, pr: int) -> None:
+    """Attach every file to the PR description through `gh pr edit --attach`.
+
+    gh rewrites a body reference to the local path, such as `![alt](./shot.png)`, to the
+    uploaded asset, and appends a reference for every other file.
+    """
+    args = [gh, "pr", "edit", str(pr)]
+    for path in files:
+        label = caption if caption is not None else path.stem
+        args += ["--attach", _attach_arg(path, label) if kind.gh_alt_text else str(path)]
+
+    # hogli loads application credentials from .env.local, and gh would prefer them over
+    # the developer's own login, which is the one with upload access.
+    token = github_token(prefer_cli=True)
+    env = {**os.environ, "GH_TOKEN": token} if token else None
+
+    if caption is not None and not kind.gh_alt_text:
+        click.secho(f"gh takes no caption for a {kind.noun}, so {kind.caption_flag} is ignored.", fg="yellow", err=True)
+    click.secho(f"Attaching to the description of PR #{pr} …", fg="cyan", err=True)
+    if subprocess.run(args, check=False, env=env).returncode != 0:
+        # gh writes the files that did upload into the body before it exits non-zero.
+        raise click.ClickException(
+            "gh pr edit --attach failed, see its output above. Files that uploaded are already in the "
+            "PR description, so re-run only the ones that failed."
+        )
+    click.secho(f"✓ attached {len(files)} {kind.noun}(s) to the PR description", fg="green", err=True)
+
+
+def run(
+    files: tuple[Path, ...],
+    caption: str | None,
+    yes: bool,
+    kind: AssetKind,
+    pr: int | None = None,
+    print_markdown: bool = False,
+) -> None:
+    """Attach every file to the PR description, or publish it to pr-assets and print markdown."""
     click.secho(pr_assets.PUBLIC_WARNING, fg="yellow", bold=True, err=True)
 
     if caption is not None and len(files) > 1:
@@ -104,8 +185,21 @@ def run(files: tuple[Path, ...], caption: str | None, yes: bool, kind: AssetKind
         )
         raise SystemExit(1)
 
+    number = pr if pr is not None else _open_pull_request()
+    if print_markdown:
+        route = "pr_assets_requested"
+    elif number is None:
+        route = "pr_assets_no_pr"
+    elif (gh := _gh_with_attach()) is None:
+        route = "pr_assets_gh_without_attach"
+    else:
+        telemetry.add_command_properties(upload_route="gh_attach")
+        _attach_to_pr(gh, files, caption, kind, number)
+        return
+    telemetry.add_command_properties(upload_route=route)
+
     click.secho(f"Uploading to {pr_assets.REPO} …", fg="cyan", err=True)
-    urls = pr_assets.publish(files, message=commit_message(kind, pr))
+    urls = pr_assets.publish(files, message=commit_message(kind, number))
 
     for path, url in zip(files, urls, strict=True):
         label = caption if caption is not None else path.stem
