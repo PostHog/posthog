@@ -358,9 +358,9 @@ tools:
         title: Restore feature flag
         description: >
             Restore a soft-deleted feature flag by ID, undoing `delete-feature-flag` or a bulk delete. Requires the
-            flag's numeric ID. Deleted flags are hidden from `feature-flag-get-all` by default, so take the ID from the
-            delete call's response, the experiment that uses the flag, or `system.feature_flags` with `deleted = true`
-            in `execute-sql`.
+            flag's numeric ID. Deleted flags are hidden from `feature-flag-get-all`, so take the ID from the delete
+            call's response, the experiment that uses the flag, or `system.feature_flags` with `deleted = true` in
+            `execute-sql`. There, match the key by prefix, because the delete may have renamed it as described below.
 
 
             Sets `deleted` to false and never accepts or replaces the `filters` object. A flag linked to an experiment
