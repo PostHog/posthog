@@ -316,7 +316,7 @@ class TestExportIterator:
     def test_browser_version_is_always_text(self) -> None:
         lines = [
             orjson.dumps({"event": "A", "properties": {"time": 1, "$browser_version": version}})
-            for version in (120, 17.4, "130.0.0.0")
+            for version in (120, 120.0, 17.4, "130.0.0.0")
         ]
         result = _driver().run(
             "export",
@@ -325,8 +325,8 @@ class TestExportIterator:
             db_incremental_field_last_value=date(2024, 1, 1),
         )
         assert result.raised is None
-        assert [row["$browser_version"] for row in result.rows] == ["120", "17.4", "130.0.0.0"]
-        assert [row["time"] for row in result.rows] == [1, 1, 1]
+        assert [row["$browser_version"] for row in result.rows] == ["120", "120", "17.4", "130.0.0.0"]
+        assert [row["time"] for row in result.rows] == [1, 1, 1, 1]
 
 
 class TestExportStreamRetry:
