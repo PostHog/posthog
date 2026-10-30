@@ -17,6 +17,9 @@ const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[72rem]:grid-cols-2 @[120
 /** A single column stays card-sized rather than stretching one poster across the whole scene. */
 const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[72rem]:max-w-none'
 
+/** One placeholder per grid column at each width, so the loading row spans the feed like the cards above it. */
+const ROW_SKELETON_CLASSES = ['', 'hidden @[72rem]:block', 'hidden @[120rem]:block', 'hidden @[176rem]:block']
+
 function CardSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-3 rounded-lg border bg-surface-primary p-4">
@@ -67,9 +70,13 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
     }
     if (feedHasMore) {
         return (
-            <div ref={ref} aria-busy>
-                <CardSkeleton />
-            </div>
+            <>
+                {ROW_SKELETON_CLASSES.map((className, index) => (
+                    <div key={index} ref={index === 0 ? ref : undefined} className={className} aria-busy>
+                        <CardSkeleton />
+                    </div>
+                ))}
+            </>
         )
     }
     return itemCount > 3 ? (
