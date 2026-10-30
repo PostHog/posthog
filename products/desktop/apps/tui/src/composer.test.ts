@@ -2,7 +2,6 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Composer, isAppKey, isTyping } from "./composer";
-import { rememberTheme } from "./theme";
 
 describe("isAppKey", () => {
   it.each([
@@ -131,24 +130,14 @@ describe("Composer", () => {
     expect(popup).toContain("model");
   });
 
-  it.each([
-    ["light", "\x1b[48;5;252m"],
-    ["dark", "\x1b[48;5;238m"],
-  ] as const)(
-    "on a %s terminal, keeps the solid cursor for the focused pane and a faint one elsewhere",
-    (theme, faintCursor) => {
-      rememberTheme(theme);
-      const composer = new Composer(
-        () => {},
-        () => {},
-      );
-      composer.handleInput("x");
-      const focused = composer.render(30, true).editor.join("");
-      const unfocused = composer.render(30, false).editor.join("");
+  it("shows a cursor only while its pane has focus", () => {
+    const composer = new Composer(
+      () => {},
+      () => {},
+    );
+    composer.handleInput("x");
 
-      expect(focused).toContain("\x1b[7m");
-      expect(unfocused).not.toContain("\x1b[7m");
-      expect(unfocused).toContain(faintCursor);
-    },
-  );
+    expect(composer.render(30, true).editor.join("")).toContain("\x1b[7m");
+    expect(composer.render(30, false).editor.join("")).not.toContain("\x1b[7m");
+  });
 });

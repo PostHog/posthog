@@ -44,14 +44,3 @@ export function detectTheme(
     stdout.write(BACKGROUND_QUERY);
   });
 }
-
-let detected: "light" | "dark" = "dark";
-
-// The theme found at startup, for colours pi's own theme does not cover.
-export function rememberTheme(theme: "light" | "dark"): void {
-  detected = theme;
-}
-
-export function terminalTheme(): "light" | "dark" {
-  return detected;
-}
