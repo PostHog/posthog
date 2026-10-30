@@ -113,6 +113,7 @@ function cloudApp({
   chats = {},
   layout = openTask(initialLayout(), task.id),
   codexCloud,
+  runs = {},
 }: {
   task?: Task;
   // The work list, when the sidebar needs more than the open task.
@@ -122,6 +123,8 @@ function cloudApp({
   chats?: Partial<PiChats>;
   layout?: ReturnType<typeof initialLayout>;
   codexCloud?: CodexCloudClient;
+  // Overrides for the run watcher, when a test drives a run's log itself.
+  runs?: Partial<CloudRuns>;
 } = {}) {
   saveLayout(layout, layoutPath(ACCOUNT));
   const mouse: MouseEvents = new EventEmitter();
@@ -155,6 +158,7 @@ function cloudApp({
       },
       prefetch: async () => {},
       watchPrompts: () => () => {},
+      ...runs,
     } as unknown as CloudRuns,
     chats: chats as PiChats,
     control: controlFor,
@@ -332,19 +336,31 @@ describe("App flows", () => {
     }
   });
 
-  it("spins the chat's sidebar dot as soon as a message is sent, before the run has echoed it", async () => {
-    // An idle run, and a reply that never lands: the log stays as it was, and only the pending message says a
-    // turn began.
+  it("spins the chat's sidebar dot as soon as a message is sent, and stops once the run has answered it", async () => {
+    // An idle run: until it echoes the message, only the pending message says a turn began.
+    const idle: RunView = {
+      ...emptyRunView,
+      loaded: true,
+      status: "in_progress",
+      entries: [
+        { type: "pi_run_started", timestamp: new Date().toISOString() },
+      ],
+    };
+    // The pane and the sidebar's turn tracker each watch the run; both must hear the echo.
+    const watchers: ((view: RunView) => void)[] = [];
+    const publish = (view: RunView): void => {
+      for (const onView of watchers) onView(view);
+    };
     const app = cloudApp({
-      view: {
-        ...emptyRunView,
-        loaded: true,
-        status: "in_progress",
-        entries: [
-          { type: "pi_run_started", timestamp: new Date().toISOString() },
-        ],
+      view: idle,
+      chats: { reply: async () => cloudTask() },
+      runs: {
+        watch: (_t: string, _r: string, onView: (view: RunView) => void) => {
+          watchers.push(onView);
+          onView(idle);
+          return { stop: () => {}, loadOlder: async () => {} };
+        },
       },
-      chats: { reply: () => new Promise(() => {}) },
     });
     try {
       await vi.waitFor(() =>
@@ -354,6 +370,46 @@ describe("App flows", () => {
       app.press("\r");
       await vi.waitFor(() =>
         expect(app.plain().slice(-3000)).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Cloud chat/),
+      );
+      // The run echoes the message and answers it in one go: the turn is over.
+      const at = Date.now();
+      publish({
+        ...idle,
+        entries: [
+          ...idle.entries,
+          {
+            type: "pi_event",
+            timestamp: new Date(at).toISOString(),
+            event: {
+              type: "user_message",
+              id: "u2",
+              timestamp: at,
+              content: [{ type: "text", text: "keep going" }],
+            },
+          },
+          {
+            type: "pi_event",
+            timestamp: new Date(at + 1).toISOString(),
+            event: {
+              type: "assistant_message_chunk",
+              timestamp: at + 1,
+              content: { type: "text", text: "Done." },
+            },
+          },
+          {
+            type: "pi_event",
+            timestamp: new Date(at + 2).toISOString(),
+            event: {
+              type: "turn_completed",
+              timestamp: at + 2,
+              stopReason: "stop",
+            },
+          },
+        ] as RunView["entries"],
+      });
+      await vi.waitFor(
+        () => expect(app.plain().slice(-3000)).toMatch(/● Cloud chat/),
+        { timeout: 3_000 },
       );
     } finally {
       app.close();

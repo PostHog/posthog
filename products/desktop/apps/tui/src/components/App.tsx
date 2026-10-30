@@ -297,39 +297,46 @@ export function App({
     flashNotice,
   });
 
-  const { onSubmit, pending, reopening, undelivered, welcome, welcomeStep } =
-    useSend({
-      layout,
-      setLayout,
-      setFresh,
-      chats,
-      taskOf,
-      resetWork,
-      local: { isLocal, localFor, clear: clearLocal, markActive },
-      places: { placeFor, setPlace },
-      composerFor,
-      modalFor,
-      openModal,
-      closeModal,
-      openModelSheet,
-      openEffortSheet,
-      openModeSheet,
-      pickFor,
-      compact,
-      openSearch: () => latestSearch.current?.toggle(),
-      openHelp: () => setHelpOpen(true),
-      openSettings: settings.toggle,
-      repos: repoPicker,
-      onChatStarted,
-      setTitles,
-      runShell,
-      notice,
-      login,
-      logout,
-      runSetup,
-      codexCloud: session?.codexCloud,
-      mcp: session?.mcp,
-    });
+  const {
+    onSubmit,
+    pending,
+    reopening,
+    undelivered,
+    delivered,
+    welcome,
+    welcomeStep,
+  } = useSend({
+    layout,
+    setLayout,
+    setFresh,
+    chats,
+    taskOf,
+    resetWork,
+    local: { isLocal, localFor, clear: clearLocal, markActive },
+    places: { placeFor, setPlace },
+    composerFor,
+    modalFor,
+    openModal,
+    closeModal,
+    openModelSheet,
+    openEffortSheet,
+    openModeSheet,
+    pickFor,
+    compact,
+    openSearch: () => latestSearch.current?.toggle(),
+    openHelp: () => setHelpOpen(true),
+    openSettings: settings.toggle,
+    repos: repoPicker,
+    onChatStarted,
+    setTitles,
+    runShell,
+    notice,
+    login,
+    logout,
+    runSetup,
+    codexCloud: session?.codexCloud,
+    mcp: session?.mcp,
+  });
   // Chats with a message on its way; a new chat's message waits on its pane until the chat has a task.
   const pendingTaskIds = useMemo(
     () =>
@@ -539,6 +546,7 @@ export function App({
       onUndelivered={(at) =>
         node.taskId && undelivered(node.id, node.taskId, at)
       }
+      onDelivered={() => node.taskId && delivered(node.taskId)}
       pendingShells={shellsFor(node.taskId)}
       onLines={(lines) => setLines(node.id, lines)}
       onOffer={(offer) => setOffer(node.id, offer)}

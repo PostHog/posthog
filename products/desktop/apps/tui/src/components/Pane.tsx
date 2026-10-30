@@ -147,6 +147,7 @@ export function Pane({
   composer,
   pending,
   onUndelivered,
+  onDelivered,
   pendingShells,
   onLines,
   onOffer,
@@ -194,6 +195,8 @@ export function Pane({
   pending: string | null;
   // The backend could not deliver this chat's pending message, logged at `at` (epoch ms).
   onUndelivered: (at: number) => void;
+  // The chat's log now carries the pending message, so it is no longer on its way.
+  onDelivered?: () => void;
   // ! commands run in this chat that its run has not logged yet.
   pendingShells: PendingShell[];
   // The transcript as drawn, so the app can tell a new run of a command from logged ones.
@@ -284,6 +287,13 @@ export function Pane({
   useEffect(() => {
     if (delivery && pending) onUndelivered(delivery.at);
   }, [delivery?.at, pending]);
+  const echoed =
+    pending !== null &&
+    transcript.lines.findLast((line) => line.kind === "user")?.text === pending;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once the chat shows the message
+  useEffect(() => {
+    if (echoed) onDelivered?.();
+  }, [echoed]);
   const setupRunId = task?.latest_run?.id;
   const setup = useMemo(
     () => (setupRunId ? setupProgress(view.entries, setupRunId) : null),
