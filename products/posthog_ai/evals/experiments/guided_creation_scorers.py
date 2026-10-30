@@ -498,9 +498,10 @@ The agent's message after it created the draft experiment:
 
 
 class NewcomerPrimerUpFront(_ExpectedPresenceJudge):
-    """Binary: did the opening carry short definitions and the main best practices?
+    """Binary: did the opening carry short definitions and the main best practices before the first question?
 
-    Judged on ``opening()``, not the report. ``expected["newcomer_primer_up_front"]`` is ``True`` for a
+    Judged on ``opening()``, not the report. The opening runs past the first question, so the judge checks
+    the order too. ``expected["newcomer_primer_up_front"]`` is ``True`` for a
     newcomer, who should get them before the first question (or before the draft when nothing is asked),
     and ``False`` for an existing user, who shouldn't.
     """
@@ -521,11 +522,13 @@ Below is everything the agent wrote before {{output.boundary}}:
 {{output.opening}}
 </opening>
 
-Does the opening include BOTH of these?
+Does the opening include BOTH of these, before the agent's first question to the user?
 1. Short definitions, in plain words, of at least: a variant (and the control), bucketing (how people are assigned to a variant), and a device ID. One line each is enough. Describing only an effect, such as "a visitor keeps their variant when they sign in", is not a definition.
 2. The main best practices for running an experiment: at least three of one hypothesis and one primary metric, working out the sample size or running time first, changing one thing at a time, not stopping early when it looks good, and finishing properly with a conclusion.
 
-Answer `yes` only if both are there. Answer `no` if either is missing.
+A question asked with the question tool shows as `[Asked with the question tool: ...]` and counts as a question. If the agent asked nothing, judge the whole opening.
+
+Answer `yes` only if both are there before the first question. Answer `no` if either is missing, or if the agent asked the user something first and explained afterwards.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
             model=JUDGE_MODEL,
