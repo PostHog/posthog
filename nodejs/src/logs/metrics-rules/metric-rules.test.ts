@@ -228,13 +228,28 @@ describe('metric rules compile + tally', () => {
             expect(nextHour.get(JSON.stringify(['req-new']))!.count).toBe(1)
         })
 
-        it('stops admitting new label sets when the process-wide budget is spent, across teams and rules', () => {
-            const admission = new MetricSeriesAdmission(2, 3)
+        it('counts colliding label sets separately, so crafted FNV-1a collisions cannot pass the cap', () => {
+            const admission = new MetricSeriesAdmission(1)
+            expect(admission.admit(1, 'rule-a', 'costarring', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-a', 'liquid', NOW_MS)).toBe(false)
+        })
+
+        it('caps a team across all its rules, so rule churn cannot take the budget of other teams', () => {
+            const admission = new MetricSeriesAdmission(2, 3, 10)
+            expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-a', 'y', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-b', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-c', 'x', NOW_MS)).toBe(false)
+            expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(2, 'rule-a', 'x', NOW_MS)).toBe(true)
+        })
+
+        it('stops admitting new label sets when the process-wide budget is spent', () => {
+            const admission = new MetricSeriesAdmission(2, 2, 3)
             expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
             expect(admission.admit(1, 'rule-a', 'y', NOW_MS)).toBe(true)
             expect(admission.admit(2, 'rule-a', 'x', NOW_MS)).toBe(true)
             expect(admission.admit(2, 'rule-b', 'z', NOW_MS)).toBe(false)
-            expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
             expect(admission.admit(2, 'rule-b', 'z', NOW_MS + 60 * 60 * 1000)).toBe(true)
         })
 

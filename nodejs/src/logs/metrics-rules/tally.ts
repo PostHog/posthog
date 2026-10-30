@@ -1,3 +1,5 @@
+import { createHmac, randomBytes } from 'crypto'
+
 import { decodeLogAttributeValue } from '../attribute-value'
 import type { LogRecord } from '../log-record-avro'
 import { matchFilterGroup } from '../sampling/filter-group-match'
@@ -126,16 +128,17 @@ function resolveLabelValue(key: string, record: LogRecord): string {
 
 const SERIES_WINDOW_MS = 60 * 60 * 1000
 
-export const MAX_ADMITTED_LABEL_SETS = 200_000
+export const MAX_ADMITTED_LABEL_SETS_PER_TEAM = 5_000
+export const MAX_ADMITTED_LABEL_SETS = 500_000
 
-/** FNV-1a. A collision only lets a rare extra label set through; it never drops a record. */
+/**
+ * HMAC with a random per-process key, truncated to 48 bits. A team cannot craft colliding labels
+ * offline, so a collision cannot admit extra label sets past the cap.
+ */
+const LABEL_HASH_KEY = randomBytes(32)
+
 function hashLabelKey(labelKey: string): number {
-    let hash = 0x811c9dc5
-    for (let i = 0; i < labelKey.length; i++) {
-        hash ^= labelKey.charCodeAt(i)
-        hash = Math.imul(hash, 0x01000193)
-    }
-    return hash >>> 0
+    return createHmac('sha256', LABEL_HASH_KEY).update(labelKey).digest().readUIntBE(0, 6)
 }
 
 /**
@@ -146,10 +149,13 @@ function hashLabelKey(labelKey: string): number {
 export class MetricSeriesAdmission {
     private window = -1
     private admitted = new Map<string, Set<number>>()
+    // Counts survive rule deletion until the hour changes, so rule churn cannot reset a team's budget.
+    private admittedByTeam = new Map<number, number>()
     private admittedTotal = 0
 
     constructor(
         private readonly maxPerRule: number = MAX_LABEL_SETS_PER_RULE,
+        private readonly maxPerTeam: number = MAX_ADMITTED_LABEL_SETS_PER_TEAM,
         private readonly maxTotal: number = MAX_ADMITTED_LABEL_SETS
     ) {}
 
@@ -157,6 +163,7 @@ export class MetricSeriesAdmission {
         const window = Math.floor(nowMs / SERIES_WINDOW_MS)
         if (window !== this.window) {
             this.admitted.clear()
+            this.admittedByTeam.clear()
             this.admittedTotal = 0
             this.window = window
         }
@@ -166,7 +173,12 @@ export class MetricSeriesAdmission {
         if (labelHashes?.has(labelHash)) {
             return true
         }
-        if ((labelHashes?.size ?? 0) >= this.maxPerRule || this.admittedTotal >= this.maxTotal) {
+        const teamAdmitted = this.admittedByTeam.get(teamId) ?? 0
+        if (
+            (labelHashes?.size ?? 0) >= this.maxPerRule ||
+            teamAdmitted >= this.maxPerTeam ||
+            this.admittedTotal >= this.maxTotal
+        ) {
             return false
         }
         if (!labelHashes) {
@@ -174,6 +186,7 @@ export class MetricSeriesAdmission {
             this.admitted.set(key, labelHashes)
         }
         labelHashes.add(labelHash)
+        this.admittedByTeam.set(teamId, teamAdmitted + 1)
         this.admittedTotal++
         return true
     }
