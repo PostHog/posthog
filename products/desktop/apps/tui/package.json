@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "catalog:",
+    "@posthog/api-client": "workspace:*",
     "@posthog/harness": "workspace:*",
     "@posthog/shared": "workspace:*",
     "ink": "^7.1.1",
