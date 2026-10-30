@@ -653,7 +653,7 @@ Payload detail responses include `available` and `data`, preserving omitted prop
 An unavailable payload has null `data`, while durable identities, results, and summaries remain readable.
 
 Passing the deadline makes a payload eligible for cleanup. It remains available until an hourly sweep removes it; delayed runs or a backlog can extend availability.
-The sweep processes at most 20 batches of 500 candidates per payload type, alternating item and result payloads, with a three-minute work budget. Each environment's batch commits independently; retries and overlapping runs are safe. Existing overdue payloads are included, and a backlog drains over subsequent runs.
+The sweep processes at most 20 batches of 500 candidates per payload type, alternating item and result payloads, with a three-minute work budget checked before each environment transaction. Each environment's batch commits independently; retries and overlapping runs are safe. Existing overdue payloads are included, and a backlog drains over subsequent runs.
 
 Each run emits `offline evaluation payload retention run` using scoped capture, including empty runs and handled failures. Properties include `run_id`, `status`, `batches` (committed environment batches), `item_payloads_expired`, `result_payloads_expired`, `payloads_expired`, `budget_exhausted`, and `duration_seconds`. Counts reflect committed work, and the same properties are logged. Event delivery is best-effort; a hard-killed worker cannot emit its completion event.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.

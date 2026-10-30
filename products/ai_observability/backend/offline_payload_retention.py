@@ -29,6 +29,7 @@ class OfflinePayloadRetention:
         self,
         owner_model: type[OfflineExperimentItem] | type[OfflineEvaluationResult],
         payload_model: type[OfflineExperimentItemPayload] | type[OfflineEvaluationResultPayload],
+        deadline: float,
     ) -> bool:
         cutoff = timezone.now()
         by_team: dict[int, list[UUID]] = defaultdict(list)
@@ -43,6 +44,9 @@ class OfflinePayloadRetention:
 
         progressed = False
         for team_id, ids in by_team.items():
+            if time.monotonic() >= deadline:
+                self.budget_exhausted = True
+                return progressed
             with transaction.atomic():
                 owners = owner_model.objects.for_team(team_id).filter(
                     id__in=ids, payload_state=PayloadState.AVAILABLE, payload_expires_at__lte=cutoff
@@ -72,7 +76,7 @@ class OfflinePayloadRetention:
                     self.budget_exhausted = True
                     return
                 if remaining:
-                    progressed = self._expire_batch(owner_model, payload_model)
+                    progressed = self._expire_batch(owner_model, payload_model, deadline)
                     if owner_model is OfflineExperimentItem:
                         items_remaining = progressed
                     else:

@@ -588,7 +588,7 @@ class TestOfflineEvaluationService(TestCase):
         self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
         self.assertFalse(OfflineEvaluationResultPayload.objects.for_team(self.team.id).exists())
 
-    @parameterized.expand([([0, 180], 0), ([0, 0, 180], 1)])
+    @parameterized.expand([([0, 180], 0), ([0, 0, 0, 180], 1)])
     def test_retention_time_budget_leaves_remaining_payloads(self, clock: list[int], expired_items: int) -> None:
         receipt = self.ingestion.upload(self.experiment.id, self.submission)
         with (
@@ -621,6 +621,46 @@ class TestOfflineEvaluationService(TestCase):
             self.assertEqual(OfflineExperimentItemPayload.objects.for_team(self.team.id).count(), 1)
             OfflinePayloadRetention().run()
             self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
+
+    def test_retention_checks_time_budget_between_environments(self) -> None:
+        now = timezone.now()
+        with time_machine.travel(now - timedelta(days=32), tick=False):
+            self.ingestion.upload(self.experiment.id, self.submission)
+        other_experiment = (
+            OfflineExperimentService(team_id=self.other_team.id, user_access_control=None)
+            .create(replace(self.experiment_submission, id=uuid4()))
+            .experiment
+        )
+        item = replace(self.item, id=uuid4())
+        with time_machine.travel(now - timedelta(days=31), tick=False):
+            OfflineEvaluationIngestionService(team_id=self.other_team.id, user_access_control=None).upload(
+                other_experiment.id,
+                UploadSubmission(
+                    items=[item],
+                    results=[replace(self.result, item_id=item.id, scorer_version_id=self.other_version.id)],
+                ),
+            )
+        sweep = OfflinePayloadRetention()
+        with patch("products.ai_observability.backend.offline_payload_retention.time") as mocked_time:
+            mocked_time.monotonic.side_effect = lambda: 180 if sweep.batches else 0
+            sweep.run()
+
+        self.assertTrue(sweep.budget_exhausted)
+        self.assertEqual((sweep.batches, sweep.item_payloads_expired, sweep.result_payloads_expired), (1, 1, 0))
+        self.assertFalse(OfflineExperimentItemPayload.objects.for_team(self.team.id).exists())
+        self.assertTrue(OfflineExperimentItemPayload.objects.for_team(self.other_team.id).exists())
+        self.assertEqual(
+            OfflineExperimentItem.objects.for_team(self.other_team.id).get().payload_state, PayloadState.AVAILABLE
+        )
+        for team_id in (self.team.id, self.other_team.id):
+            self.assertTrue(OfflineEvaluationResultPayload.objects.for_team(team_id).exists())
+
+        retry = OfflinePayloadRetention()
+        retry.run()
+        self.assertEqual((retry.batches, retry.item_payloads_expired, retry.result_payloads_expired), (3, 1, 2))
+        for team_id in (self.team.id, self.other_team.id):
+            self.assertFalse(OfflineExperimentItemPayload.objects.for_team(team_id).exists())
+            self.assertFalse(OfflineEvaluationResultPayload.objects.for_team(team_id).exists())
 
     @parameterized.expand([(0,), (31,)])
     def test_retention_keeps_environment_scoping(self, child_age_days: int) -> None:
