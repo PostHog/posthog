@@ -134,7 +134,6 @@ describe("LocalPiRpcClientFactory", () => {
           additionalDirectories: ["/tmp/shared"],
           channelMode: true,
         },
-        claudeOAuthToken: "sk-ant-oat01-token",
       }),
     ).resolves.toBe(client);
     expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
@@ -202,7 +201,6 @@ describe("LocalPiRpcClientFactory", () => {
         region: "dev-cloud",
         baseUrl: "http://127.0.0.1:1234",
         apiKey: "posthog-code-auth-proxy",
-        claudeOAuthToken: "sk-ant-oat01-token",
       },
       extensions: ["context-wiki"],
     });

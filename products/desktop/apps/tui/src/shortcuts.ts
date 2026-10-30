@@ -6,7 +6,6 @@ export type Shortcut =
   | "close"
   | "newChat"
   | "search"
-  | "settings"
   | "quit"
   | "reload"
   | "toggleSidebar";
@@ -23,7 +22,6 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   if (key.ctrl && letter === "n") return "newChat";
   // Most macOS terminals keep Cmd+K for clearing the screen, so Ctrl+K searches too.
   if ((key.ctrl || key.super) && letter === "k") return "search";
-  if (key.ctrl && input === ";") return "settings";
   if (key.ctrl && letter === "q") return "quit";
   // As in VS Code. Inside tmux, Ctrl+B is tmux's own prefix, so Cmd+B does it too.
   if ((key.ctrl || key.super) && letter === "b") return "toggleSidebar";

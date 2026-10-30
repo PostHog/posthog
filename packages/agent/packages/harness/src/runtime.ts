@@ -131,11 +131,10 @@ export async function createHarnessRuntime(
       },
     });
 
-    const providerKey = options.claudeOAuthToken ?? options.apiKey;
-    if (providerKey) {
+    if (options.apiKey) {
       await services.modelRuntime.setRuntimeApiKey(
         POSTHOG_PROVIDER_NAME,
-        providerKey,
+        options.apiKey,
       );
     }
 
