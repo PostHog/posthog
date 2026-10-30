@@ -1,7 +1,7 @@
 import type { SignalActorKindEnumApi, SignalReportAssigneeApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReportStatus } from '../types'
-import { isReportClaimable, reportClaimRequest } from './reportClaim'
+import { isReportClaimable, reportClaimant, reportClaimRequest } from './reportClaim'
 
 describe('report claim', () => {
     const assignee = (kind: SignalActorKindEnumApi): SignalReportAssigneeApi => ({
@@ -15,23 +15,39 @@ describe('report claim', () => {
     })
 
     it.each([
-        { case: 'unclaimed', current: null, claimable: true, request: { takeover: false } },
-        { case: 'held by a person', current: assignee('user'), claimable: false, request: { takeover: false } },
+        { case: 'unclaimed', current: null, claimable: true, claimant: null, request: { takeover: false } },
+        {
+            case: 'held by a person',
+            current: assignee('user'),
+            claimable: false,
+            claimant: assignee('user').user,
+            request: { takeover: false },
+        },
         {
             case: 'held by an agent',
             current: assignee('agent'),
-            claimable: true,
+            claimable: false,
+            claimant: assignee('agent').responsible_user,
+            request: { takeover: true, takeover_claim_id: 'claim-1' },
+        },
+        {
+            case: 'held by an agent without a responsible user',
+            current: { ...assignee('agent'), responsible_user: null },
+            claimable: false,
+            claimant: assignee('agent').user,
             request: { takeover: true, takeover_claim_id: 'claim-1' },
         },
         {
             case: 'held by a task',
             current: assignee('task'),
             claimable: true,
+            claimant: null,
             request: { takeover: true, takeover_claim_id: 'claim-1' },
         },
-    ])('claims a report $case', ({ current, claimable, request }) => {
+    ])('claims a report $case', ({ current, claimable, claimant, request }) => {
         const report = { assignee: current, status: SignalReportStatus.READY }
         expect(isReportClaimable(report)).toBe(claimable)
+        expect(reportClaimant(report)).toEqual(claimant)
         expect(reportClaimRequest(report, true)).toEqual(request)
     })
 
