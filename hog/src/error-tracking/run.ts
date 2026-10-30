@@ -42,6 +42,7 @@ import {
     type NativeProblem,
 } from './native/package'
 import { sourceStep } from './native/sources'
+import { plistRelease } from './plist'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
 
@@ -49,6 +50,7 @@ export interface ErrorTrackingOptions {
     kind?: ArtifactKind
     mapId?: string
     release: ReleaseFields
+    infoPlist?: string
     releaseMode: ReleaseMode
     publicPathPrefix?: string
     force: boolean
@@ -112,12 +114,14 @@ export async function select(ctx: Context, paths: string[], options: ErrorTracki
     return { artifacts: discover(roots, cwd, { publicPathPrefix: options.publicPathPrefix }), roots, cwd }
 }
 
+// The flags first, then --info-plist, then posthog.json.
 export async function releaseFields(ctx: Context, options: ErrorTrackingOptions): Promise<ReleaseFields> {
     const configured = (await ctx.config())?.config.errorTracking?.release
+    const plist = options.infoPlist ? plistRelease(resolve(ctx.runtime.cwd(), options.infoPlist), ctx.runtime.env) : {}
     return {
-        name: options.release.name ?? configured?.name,
-        version: options.release.version ?? configured?.version,
-        build: options.release.build,
+        name: options.release.name ?? plist.name ?? configured?.name,
+        version: options.release.version ?? plist.version ?? configured?.version,
+        build: options.release.build ?? plist.build,
     }
 }
 
@@ -147,7 +151,14 @@ export class Session {
     constructor(private readonly ctx: Context) {}
 
     getClient(): Promise<SymbolSetClient> {
-        this.client ??= this.ctx.credentials().then((credentials) => new SymbolSetClient(this.ctx.runtime, credentials))
+        this.client ??= this.ctx
+            .credentials()
+            .then(
+                (credentials) =>
+                    new SymbolSetClient(this.ctx.runtime, credentials, () =>
+                        this.ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_endpoint_fallback')
+                    )
+            )
         return this.client
     }
 }
@@ -558,16 +569,45 @@ export async function upload(
             groups.set(key, [item])
         }
     }
-    for (const group of groups.values()) {
-        const client = await session.getClient()
-        const outcome = await client.upload(
-            group.map((item) => item.upload),
-            { concurrency: options.concurrency, ...group[0]!.policy }
-        )
-        for (const [chunkId, status] of outcome.status) {
-            statuses.set(chunkId, status)
-        }
+    // posthog-cli's upload events, so its dashboards keep working. `type` was plain or hermes there.
+    const kinds: Record<string, number> = {}
+    for (const item of planned) {
+        kinds[item.artifact.kind] = (kinds[item.artifact.kind] ?? 0) + 1
     }
+    const kindNames = Object.keys(kinds)
+    const uploadProperties = {
+        type: kindNames.length === 1 ? (kindNames[0] === 'js' ? 'plain' : kindNames[0]) : 'mixed',
+        kinds,
+        file_count: planned.length,
+        total_bytes: planned.reduce((sum, item) => sum + item.upload.data.length, 0),
+    }
+    ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_started', uploadProperties)
+    const uploadStarted = ctx.runtime.now()
+    const finished = (error?: unknown): void => {
+        const counts = [...statuses.values()]
+        ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_finished', {
+            ...uploadProperties,
+            duration_ms: ctx.runtime.now() - uploadStarted,
+            success: error === undefined,
+            uploaded: counts.filter((status) => status === 'uploaded').length,
+            skipped_already_present: counts.filter((status) => status === 'already_present').length,
+            skipped_too_large: counts.filter((status) => status === 'too_large').length,
+            error_code: error === undefined ? null : error instanceof HogError ? error.code : 'internal_error',
+        })
+    }
+    try {
+        for (const group of groups.values()) {
+            const client = await session.getClient()
+            await client.upload(
+                group.map((item) => item.upload),
+                { concurrency: options.concurrency, ...group[0]!.policy, progress: statuses }
+            )
+        }
+    } catch (error) {
+        finished(error)
+        throw error
+    }
+    finished()
 
     let deletedMaps: string[] = []
     if (options.deleteAfter && jsUploadable) {
@@ -654,6 +694,8 @@ export async function cloneMaps(
     let reported: ReleaseReport | null = null
     let releaseId: string | null = null
     if (options.releaseMode === 'symbol-set') {
+        // Without release flags, the release `inject` stamped stays, and the upload binds to it.
+        releaseId = from.map.releaseId
         const fields = await releaseFields(ctx, options)
         if (releaseRequested(fields) || from.map.releaseId === null) {
             const resolved = resolveJsRelease(fields, ctx.runtime.env, from.path, warnings)
@@ -692,6 +734,7 @@ const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
     missing_uuid: "it has no LC_UUID, so crashes can't be matched to it. Link without `-no_uuid`.",
     compressed_dwarf:
         "its DWARF is compressed (`__zdebug` sections), which PostHog can't read yet. Go needs `-ldflags=-compressdwarf=false` on macOS.",
+    unparseable_slice: "one of its architectures can't be parsed, so hog skips that architecture.",
 }
 
 // A path the DWARF names can reach the source folder through a symlink, or the folder can be one,

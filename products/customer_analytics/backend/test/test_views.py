@@ -1115,7 +1115,7 @@ class TestAccountViewSet(APIBaseTest):
             account.tagged_items.create(tag=billing_tag)
             account.tagged_items.create(tag=urgent_tag)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             # Query budget for a tag-filtered account list. Constant regardless of result count
             # because tagged_items and notebooks are prefetched once. If a query is added, please
             # confirm it does not scale with the number of accounts before raising the limit:

@@ -52,6 +52,16 @@ def _where(*conjuncts: str) -> str:
     return f"SELECT count() FROM events WHERE {' AND '.join(conjuncts)}"
 
 
+def _on_posthog_events(where: str, select: str = "count()") -> str:
+    return f"SELECT {select} FROM posthog.events WHERE {where}"
+
+
+POSTHOG_EVENTS_QUALIFIED = (
+    "posthog.events.event = '$feature_flag_called' AND posthog.events.properties.$feature_flag = 'my-flag' "
+    "AND posthog.events.timestamp >= now() - INTERVAL 7 DAY"
+)
+
+
 def _bounded_by(lower_bound: str) -> str:
     return _where(FLAG_CALLED, FLAG_KEY, f"timestamp >= {lower_bound}")
 
@@ -96,7 +106,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
     def test_flag_keys_cover_every_branch_of_an_or(self, _name: str, query: str):
         select = parse_select(query)
         assert isinstance(select, ast.SelectQuery)
-        scan = EventsScan.of(select, lambda: True)
+        scan = EventsScan.of(select, lambda: True, frozenset())
         assert scan is not None
         assert scan.flag_keys(filter_conjuncts(select)) == ["a", "b"]
 
@@ -216,6 +226,25 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ),
             # The printer drops SAMPLE 1. The trends query builders set it on every events read.
             ("sample_of_one", f"SELECT count() FROM events SAMPLE 1 WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"),
+            ("posthog_events", _on_posthog_events(f"{FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}")),
+            ("posthog_events_qualified_without_an_alias", _on_posthog_events(POSTHOG_EVENTS_QUALIFIED)),
+            (
+                "posthog_events_as_one_quoted_name",
+                f"SELECT count() FROM `posthog.events` WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}",
+            ),
+            (
+                "posthog_events_qualified_by_its_scope_name",
+                _on_posthog_events(POSTHOG_EVENTS_QUALIFIED.replace("posthog.events.", "posthog__events.")),
+            ),
+            (
+                "posthog_events_qualified_by_one_quoted_name",
+                _on_posthog_events(POSTHOG_EVENTS_QUALIFIED.replace("posthog.events.", "`posthog.events`.")),
+            ),
+            (
+                "posthog_events_qualifier_with_a_join",
+                "SELECT count() FROM posthog.events JOIN persons AS p ON posthog.events.person_id = p.id "
+                f"WHERE {POSTHOG_EVENTS_QUALIFIED}",
+            ),
             (
                 "alias_that_renames_its_own_column",
                 f"SELECT e.timestamp AS timestamp FROM events e WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}",
@@ -392,6 +421,35 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 "bare_star_with_an_array_join",
                 "SELECT * FROM events ARRAY JOIN [1] AS n WHERE events.event = '$feature_flag_called' "
                 "AND events.properties.$feature_flag = 'my-flag' AND events.timestamp >= now() - INTERVAL 7 DAY",
+            ),
+            (
+                "posthog_events_qualifier_that_a_select_alias_shadows",
+                _on_posthog_events(POSTHOG_EVENTS_QUALIFIED, select="properties AS posthog"),
+            ),
+            (
+                "posthog_events_quoted_qualifier_that_a_select_alias_shadows",
+                _on_posthog_events(
+                    POSTHOG_EVENTS_QUALIFIED.replace("posthog.events.", "`posthog.events`."),
+                    select="properties AS `posthog.events`",
+                ),
+            ),
+            (
+                "posthog_events_qualifier_that_a_cte_shadows",
+                f"WITH posthog AS (SELECT 1) {_on_posthog_events(POSTHOG_EVENTS_QUALIFIED)}",
+            ),
+            (
+                "posthog_events_qualifier_that_a_join_alias_shadows",
+                "SELECT count() FROM posthog.events JOIN persons AS posthog ON posthog.events.person_id = posthog.id "
+                f"WHERE {POSTHOG_EVENTS_QUALIFIED}",
+            ),
+            (
+                "posthog_events_qualifier_under_another_alias",
+                f"SELECT count() FROM posthog.events AS e WHERE {POSTHOG_EVENTS_QUALIFIED}",
+            ),
+            (
+                "posthog_events_read_from_a_cte_of_that_name",
+                "WITH `posthog.events` AS (SELECT event, properties, timestamp FROM posthog.flag_evaluations) "
+                + _on_posthog_events(f"{FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"),
             ),
             ("bound_near_year_one", _bounded_by("'0001-01-01'")),
             ("interval_past_datetime_range", _bounded_by("now() - INTERVAL 999999999 YEAR")),

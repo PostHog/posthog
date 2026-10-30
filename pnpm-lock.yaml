@@ -1523,15 +1523,24 @@ importers:
       '@clack/prompts':
         specifier: 1.8.1
         version: 1.8.1
+      '@posthog/mcp':
+        specifier: workspace:*
+        version: link:../services/mcp
       cli-table3:
         specifier: 0.6.5
         version: 0.6.5
       commander:
         specifier: 15.0.0
         version: 15.0.0
+      diff:
+        specifier: 8.0.4
+        version: 8.0.4
       pako:
         specifier: 2.1.0
         version: 2.1.0
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6

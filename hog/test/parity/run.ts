@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -13,24 +14,32 @@ import type { ParityScenario } from './scenarios'
 export interface ParityResult {
     exitCode: number
     requests: NormalizedRequest[]
-    // Every file in the folder after the run, for scenarios that rewrite files.
-    files?: Record<string, string>
+    // The files the run created or changed, and null for the ones it deleted.
+    files?: Record<string, string | null>
 }
 
+// posthog-cli reads the POSTHOG_CLI_ names and hog the HOG_ ones, so both CLIs get the same credentials.
 function environment(serverUrl: string, home: string): Record<string, string> {
     return {
         HOME: home,
         POSTHOG_HOME: home,
+        HOG_HOME: home,
         POSTHOG_CLI_API_KEY: 'phx_parity',
         POSTHOG_CLI_PROJECT_ID: '1',
         POSTHOG_CLI_HOST: serverUrl,
+        HOG_API_KEY: 'phx_parity',
+        HOG_PROJECT_ID: '1',
+        HOG_HOST: serverUrl,
         NO_COLOR: '1',
     }
 }
 
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true })
 
-// Text files stay readable in the golden, so a diff shows what changed. Other bytes are base64.
+// Files over this size are compared by hash, so goldens stay small. Smaller text files stay
+// readable, so a golden diff shows what changed.
+const INLINE_LIMIT = 2048
+
 export function encodeFile(bytes: Uint8Array): string {
     try {
         return `utf8:${strictUtf8.decode(bytes)}`
@@ -40,18 +49,56 @@ export function encodeFile(bytes: Uint8Array): string {
 }
 
 export function decodeFile(text: string): Uint8Array {
+    if (text.startsWith('sha512:')) {
+        throw new Error('This golden stores the file as a hash. Record the scenario with `fullSnapshot`.')
+    }
     return text.startsWith('utf8:') ? Buffer.from(text.slice(5), 'utf8') : Buffer.from(text.slice(7), 'base64')
+}
+
+// Only what differs from the inputs, so goldens don't repeat fixture files the run left alone.
+// Random chunk ids become placeholders before a large file is hashed, so the hash still compares
+// where the ids go. `full` keeps every file whole and unchanged, for scenarios others start from.
+function changedFiles(
+    folder: string,
+    inputs: Record<string, string | Uint8Array>,
+    options: { full: boolean; randomIds: boolean }
+): Record<string, string | null> {
+    const before: Record<string, string> = {}
+    for (const [path, contents] of Object.entries(inputs)) {
+        before[path] = encodeFile(typeof contents === 'string' ? Buffer.from(contents) : contents)
+    }
+    const after = snapshot(folder)
+    let changed: Record<string, string | null> = {}
+    for (const path of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+        if (before[path] !== after[path]) {
+            changed[path] = after[path] ?? null
+        }
+    }
+    if (options.full) {
+        return changed
+    }
+    if (options.randomIds) {
+        changed = withoutRandomIds({ exitCode: 0, requests: [], files: changed }).files!
+    }
+    return Object.fromEntries(
+        Object.entries(changed).map(([path, text]) => [
+            path,
+            text === null || text.length <= INLINE_LIMIT
+                ? text
+                : `sha512:${createHash('sha512').update(text).digest('hex')}`,
+        ])
+    )
 }
 
 function snapshot(folder: string): Record<string, string> {
     const files: Record<string, string> = {}
     const visit = (path: string): void => {
         for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-            const full = join(path, entry.name)
+            const entryPath = join(path, entry.name)
             if (entry.isDirectory() && entry.name !== '.git') {
-                visit(full)
+                visit(entryPath)
             } else if (entry.isFile()) {
-                files[relative(folder, full)] = encodeFile(readFileSync(full))
+                files[relative(folder, entryPath)] = encodeFile(readFileSync(entryPath))
             }
         }
     }
@@ -92,11 +139,13 @@ async function invoke(
 export async function runScenario(scenario: ParityScenario, cli: { rust: string } | 'hog'): Promise<ParityResult> {
     const folder = mkdtempSync(join(tmpdir(), 'hog-parity-'))
     const home = mkdtempSync(join(tmpdir(), 'hog-parity-home-'))
-    write(folder, scenario.files())
+    const inputs = scenario.files()
+    write(folder, inputs)
     scenario.setup?.()
     const server = startFakeServer(scenario.server)
+    server.store(scenario.objects?.() ?? [])
     try {
-        const env = environment(server.url, home)
+        const env = { ...environment(server.url, home), ...scenario.env }
         for (const step of scenario.before ?? []) {
             await invoke(cli === 'hog' ? step.hog : step.rust, cli, folder, env)
         }
@@ -108,7 +157,14 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
         return {
             exitCode,
             requests: normalize(server.requests),
-            ...(scenario.snapshot ? { files: snapshot(folder) } : {}),
+            ...(scenario.snapshot
+                ? {
+                      files: changedFiles(folder, inputs, {
+                          full: scenario.fullSnapshot === true,
+                          randomIds: scenario.randomIds === true,
+                      }),
+                  }
+                : {}),
         }
     } finally {
         server.stop()
@@ -134,6 +190,8 @@ export function withoutRandomIds(result: ParityResult): ParityResult {
         ...result,
         files:
             result.files &&
-            Object.fromEntries(Object.entries(result.files).map(([path, text]) => [path, rename(text)])),
+            Object.fromEntries(
+                Object.entries(result.files).map(([path, text]) => [path, text === null ? null : rename(text)])
+            ),
     }
 }

@@ -137,10 +137,13 @@ def normalize_focus(focus: str | None, max_chars: int) -> str | None:
 
 
 def input_hash(candidates: list[Candidate], *, activity_summary_version: int | None, focus: str | None) -> str:
-    """Changes when a candidate, its status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
+    """Changes when a candidate, its text, status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
     rows = sorted(
         [
             candidate.report_id,
+            # The prompt shows this text, so an edit makes the stored reasons out of date.
+            candidate.title,
+            candidate.summary_lead,
             candidate.status,
             candidate.priority,
             candidate.pull_request_state,
