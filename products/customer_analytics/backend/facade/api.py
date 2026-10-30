@@ -1512,41 +1512,10 @@ def _definition_source_view(
     return _to_custom_property_source_view(source, user_access_control, enrichment)
 
 
-def list_custom_property_definitions(
-    team_id: int,
-    *,
-    page: PageRequest,
-    user_access_control: "UserAccessControl",
-    exclude_group_targets: bool = False,
-    target_type: str | None = None,
-) -> Page[contracts.CustomPropertyDefinitionView]:
-    """One page of the team's custom property definitions, ordered by name.
-
-    ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
-    metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
-    without ``group`` read authorization. ``target_type`` narrows the scan to one target, so a caller
-    that wants a single target doesn't page over every definition to find it."""
-    queryset = _custom_property_definitions_queryset(team_id, exclude_group_targets, target_type)
-    selected = select_page(queryset, page)
-    views = _to_custom_property_definition_views(team_id, selected.results, user_access_control)
-    return Page(results=views, count=selected.count)
-
-
-def list_all_custom_property_definitions(
-    team_id: int,
-    *,
-    user_access_control: "UserAccessControl",
-    exclude_group_targets: bool = False,
-) -> list[contracts.CustomPropertyDefinitionView]:
-    """All of the team's custom property definitions, ordered by name, for a caller that needs the whole list."""
-    queryset = _custom_property_definitions_queryset(team_id, exclude_group_targets, None)
-    return _to_custom_property_definition_views(team_id, list(queryset.order_by("name", "pk")), user_access_control)
-
-
 def _custom_property_definitions_queryset(
     team_id: int, exclude_group_targets: bool, target_type: str | None
 ) -> QuerySet[CustomPropertyDefinition]:
-    queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
+    queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name", "pk")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     if target_type is not None:
@@ -1576,6 +1545,37 @@ def _to_custom_property_definition_views(
         )
         for d in page
     ]
+
+
+def list_custom_property_definitions(
+    team_id: int,
+    *,
+    page: PageRequest,
+    user_access_control: "UserAccessControl",
+    exclude_group_targets: bool = False,
+    target_type: str | None = None,
+) -> Page[contracts.CustomPropertyDefinitionView]:
+    """One page of the team's custom property definitions, ordered by name.
+
+    ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
+    metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
+    without ``group`` read authorization. ``target_type`` narrows the scan to one target, so a caller
+    that wants a single target doesn't page over every definition to find it."""
+    queryset = _custom_property_definitions_queryset(team_id, exclude_group_targets, target_type)
+    selected = select_page(queryset, page)
+    views = _to_custom_property_definition_views(team_id, selected.results, user_access_control)
+    return Page(results=views, count=selected.count)
+
+
+def list_all_custom_property_definitions(
+    team_id: int,
+    *,
+    user_access_control: "UserAccessControl",
+    exclude_group_targets: bool = False,
+) -> list[contracts.CustomPropertyDefinitionView]:
+    """All of the team's custom property definitions, ordered by name, for a caller that needs the whole list."""
+    queryset = _custom_property_definitions_queryset(team_id, exclude_group_targets, None)
+    return _to_custom_property_definition_views(team_id, list(queryset), user_access_control)
 
 
 def get_custom_property_definition_target_type(team_id: int, definition_id: str) -> str | None:
