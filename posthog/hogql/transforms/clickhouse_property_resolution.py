@@ -2337,18 +2337,21 @@ class ClickHousePropertyResolver(CloningVisitor):
         return _call("and", [prop.group_has(), in_expr])
 
     def _property_group_key_guard(self, node: ast.CompareOperation) -> ast.Call | None:
-        """`has(map, key)` to AND ahead of a range or positive pattern comparison over a property-group property.
+        """`indexHint(has(map, key))` to AND ahead of a range or positive pattern comparison over a property-group property.
 
         Those comparisons read `if(has(map, key), map[key], NULL)` inside the comparison, where no skip index can see
-        it; a top-level `has()` conjunct lets the keys bloom filter skip granules without the key. An absent key reads
+        it; the `has()` conjunct lets the keys bloom filter skip granules without the key. `indexHint` keeps it to index
+        analysis and evaluates to 1 per row, so it cannot change the result and costs no row-level work (a plain `has()`
+        per OR branch cost 20-30% more CPU on an OR of 11 ILIKE patterns). Skipping is sound because an absent key reads
         NULL through the NULL-preserving wrappers unwrapped below, so the comparison is NULL or false. Only a WHERE or
-        PREWHERE comparison under `and`/`or` alone qualifies: there NULL and false filter alike, whereas under `not` or
-        `if`, in a SELECT list, or in ORDER BY the guard's false could differ from NULL (the printer leaves a comparison
-        against an events timestamp without `ifNull`), and a GROUP BY query rejects a bare `has(map, key)` outside its
-        grouped read. A NULL or non-constant pattern can match a NULL value, so it bails.
+        PREWHERE comparison under `and`/`or` alone qualifies: index analysis reads only those clauses, and there a NULL
+        or false comparison drops the row, whereas under `not` or `if` it can still select it (the printer leaves a
+        comparison against an events timestamp without `ifNull`). A NULL or non-constant pattern can match a NULL value,
+        so it bails.
         """
         if id(node) not in self._key_guard_nodes:
             return None
+        operands: tuple[ast.Expr, ...]
         if node.op in _PATTERN_OPS:
             if not isinstance(node.right, ast.Constant) or node.right.value is None:
                 return None
@@ -2365,7 +2368,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 operand = operand.args[0]
             prop = self._property_group_property(operand)
             if prop is not None:
-                return prop.group_has()
+                return _call("indexHint", [prop.group_has()])
         return None
 
     # --- individually-materialized-column optimizers ---

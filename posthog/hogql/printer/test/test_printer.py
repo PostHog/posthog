@@ -1815,7 +1815,7 @@ class TestPrinter(BaseTest):
         assert_result_is_equal("[]", set())
 
     def test_property_groups_optimized_range_and_pattern_comparisons(self) -> None:
-        has_key = "has(events.properties_group_custom, %(hogql_val_0)s)"
+        has_key = "indexHint(has(events.properties_group_custom, %(hogql_val_0)s))"
         value_read = "if(has(events.properties_group_custom, %(hogql_val_1)s), events.properties_group_custom[%(hogql_val_2)s], NULL)"
         for expression, comparison in (
             ("properties.key < 'b'", f"ifNull(less({value_read}, %(hogql_val_3)s), 0)"),
@@ -1882,7 +1882,7 @@ class TestPrinter(BaseTest):
             self._test_property_group_comparison("toString(properties.key) ILIKE '%a%'", None, in_where=True)
 
     def test_property_groups_key_guard_only_in_where_and_or_chains(self) -> None:
-        guard = "and(has(events.properties_group_custom,"
+        guard = "and(indexHint(has(events.properties_group_custom,"
 
         def optimized_sql(query: str) -> str:
             modifiers = HogQLQueryModifiers(
@@ -2015,7 +2015,7 @@ class TestPrinter(BaseTest):
                         optimized_results, optimized_sql = query_results(shape, expr, PropertyGroupsMode.OPTIMIZED)
                         self.assertEqual(optimized_results, disabled_results)
                         if shape_name == "where" and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                            self.assertIn("and(has(events.properties_group_custom,", optimized_sql)
+                            self.assertIn("and(indexHint(has(events.properties_group_custom,", optimized_sql)
                             self.assertEqual({label for (label,) in optimized_results}, matching_labels)
 
     def test_property_groups_optimized_timestamp_comparison_query_results(self):
@@ -2061,7 +2061,7 @@ class TestPrinter(BaseTest):
                 disabled_results, _ = query_results(query, PropertyGroupsMode.DISABLED)
                 optimized_results, optimized_sql = query_results(query, PropertyGroupsMode.OPTIMIZED)
                 self.assertEqual(optimized_results, disabled_results)
-                has_guard = "and(has(events.properties_group_custom," in optimized_sql
+                has_guard = "and(indexHint(has(events.properties_group_custom," in optimized_sql
                 if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                     self.assertEqual(has_guard, name in ("where", "where or"))
 
