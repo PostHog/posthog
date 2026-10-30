@@ -462,13 +462,13 @@ tools:
         list: true
         title: List inbox reports
         description: >
-            List inbox reports in the current project. A report groups related findings into one issue or trend.
-            Each parameter's description says how it filters.
+            List inbox reports in the current project. A report groups related findings into one issue or trend. Each
+            parameter's description says how it filters.
 
-            For "what needs me", pass `view=for_you` with `sort=priority`. For the next fixable work across the
-            project, pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For
-            a personal ranked shortlist, such as "my top 10", the prioritizing-my-inbox skill combines these rows with
-            the user's activity summary. For the work this agent claimed, pass `assignee=me`.
+            For "what needs me", pass `view=for_you` with `sort=priority`. For the next fixable work across the project,
+            pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For a personal
+            ranked shortlist, such as "my top 10", the prioritizing-my-inbox skill combines these rows with the user's
+            activity summary. For the work this agent claimed, pass `assignee=me`.
 
             Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
