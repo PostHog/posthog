@@ -156,6 +156,41 @@ class TestSavedViewBounds(SimpleTestCase):
                     resolve_types(parse_select("select * from leaf"), context, "hogql")
 
 
+class TestInheritedCtes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("outer", ["SELECT 1 AS value"], "SELECT value FROM shared", ast.IntegerType),
+            ("nearest", ["SELECT 1 AS value", "SELECT 'inner' AS value"], "SELECT value FROM shared", ast.StringType),
+            (
+                "local",
+                ["SELECT 1 AS value"],
+                "WITH shared AS (SELECT 'local' AS value) SELECT value FROM shared",
+                ast.StringType,
+            ),
+        ]
+    )
+    def test_inherited_ctes_resolve_with_nearest_scope(
+        self,
+        _name: str,
+        definitions: list[str],
+        query: str,
+        expected_type: type[ast.IntegerType] | type[ast.StringType],
+    ) -> None:
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        scopes: list[ast.SelectQueryType] = []
+        for definition in definitions:
+            parent = resolve_types(
+                parse_select("WITH shared AS (" + definition + ") SELECT value FROM shared"),
+                context,
+                "clickhouse",
+            )
+            assert isinstance(parent.type, ast.SelectQueryType)
+            scopes.append(parent.type)
+        resolved = resolve_types(parse_select(query), context, "clickhouse", scopes=scopes)
+        assert isinstance(resolved.type, ast.SelectQueryType)
+        assert isinstance(resolved.type.columns["value"].resolve_constant_type(), expected_type)
+
+
 class TestResolver(BaseTest):
     maxDiff = None
     snapshot: Any
