@@ -124,8 +124,10 @@ WAIT_POLL_INTERVAL_SECONDS = 0.25
 # Event values must not open or close the <issue> block that fences them in the prompt. Every angle bracket
 # becomes a look-alike, so no "<" from event text reaches the prompt and no nesting can rebuild a fence tag.
 FENCE_ESCAPES = str.maketrans({"<": "\u2039", ">": "\u203a"})
-SUMMARY_URL = re.compile(r"\b(?:[a-z][a-z0-9+.-]*://|www\.)[^\s\"'<>]+", re.IGNORECASE)
+SUMMARY_URL = re.compile(r"\b(?:[a-z][a-z0-9+.-]*://|www\.)[^\s\"'<>`]+", re.IGNORECASE)
 URL_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+# The prompt renders a frame as "app.js line 3 column 10", so a model writing "app.js:3:10" names the same file.
+URL_LINE_SUFFIX = re.compile(r"(?::\d+)+$")
 # A shell command never passes, even when the prompt holds it, because the event text is attacker-controlled.
 SUMMARY_SHELL_COMMAND = re.compile(
     r"\|\s*(?:sudo\s+)?(?:(?:ba|z|da|k)?sh|iex)\b"
@@ -685,6 +687,7 @@ def _generate_claimed(
             issue_id=str(issue_id),
             fields=unsafe_fields,
         )
+        # Not a new outcome: an older worker reads the lock value back as an outcome and fails on one it does not know.
         return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=stored)
 
     with timings.stage("category"):
@@ -1091,7 +1094,7 @@ def _summary_field_safe(value: str, prompt: str) -> bool:
     if SUMMARY_SHELL_COMMAND.search(value):
         return False
     for match in SUMMARY_URL.finditer(value):
-        url = match.group().rstrip(".,;:!?)]}")
+        url = URL_LINE_SUFFIX.sub("", match.group().rstrip(".,;:!?)]}"))
         if url not in prompt and URL_SCHEME.sub("", url) not in prompt:
             return False
     return True
