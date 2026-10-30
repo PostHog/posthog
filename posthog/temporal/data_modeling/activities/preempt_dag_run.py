@@ -95,25 +95,22 @@ async def _abandoned_jobs(temporal: Client, candidates: list[DataModelingJob]) -
     `start_to_close_timeout` caps one attempt, not queue wait, retries, or the workflow overall,
     and MaterializeViewWorkflow is started with no execution timeout.
     """
-    abandoned: list[DataModelingJob] = []
-    for job in candidates:
-        if not job.workflow_id:
-            continue
-        try:
-            description = await temporal.get_workflow_handle(job.workflow_id).describe()
-        except RPCError as e:
-            # NOT_FOUND is the only error that proves absence. Timeouts, unavailability and
-            # permission errors say nothing about the workflow, and marking a live job Failed is
-            # unrecoverable (succeed_materialization refuses to overwrite a terminal status), so
-            # anything else leaves the row alone for a later run to judge.
-            if e.status == RPCStatusCode.NOT_FOUND:
-                abandoned.append(job)
-            continue
-        except Exception:
-            continue
-        if description.status != WorkflowExecutionStatus.RUNNING:
-            abandoned.append(job)
-    return abandoned
+    return [job for job in candidates if job.workflow_id and await workflow_has_closed(temporal, job.workflow_id)]
+
+
+async def workflow_has_closed(temporal: Client, workflow_id: str) -> bool:
+    """Whether Temporal proves this workflow is no longer running."""
+    try:
+        description = await temporal.get_workflow_handle(workflow_id).describe()
+    except RPCError as e:
+        # NOT_FOUND is the only error that proves absence. Timeouts, unavailability and
+        # permission errors say nothing about the workflow, and marking a live job Failed is
+        # unrecoverable (succeed_materialization refuses to overwrite a terminal status), so
+        # anything else leaves the row alone for a later run to judge.
+        return e.status == RPCStatusCode.NOT_FOUND
+    except Exception:
+        return False
+    return description.status != WorkflowExecutionStatus.RUNNING
 
 
 @database_sync_to_async_pool

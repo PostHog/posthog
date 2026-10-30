@@ -3014,18 +3014,30 @@ class TestSavedQueryRun(APIBaseTest):
     @parameterized.expand(
         [
             # The preempt step would cancel the running build, so the selected model blocks the run.
-            ("selected_model_building", "busy_view", 0, 409),
+            ("selected_model_building", "busy_view", 0, False, 409),
             # A build of a model outside the selection doesn't stop this one.
-            ("other_model_building", "other_view", 0, 200),
+            ("other_model_building", "other_view", 0, False, 200),
             # A row older than the longest Trino run was left by a crashed worker.
-            ("stale_row", "busy_view", 30, 200),
+            ("stale_row", "busy_view", 30, False, 200),
+            # A recent row whose workflow was terminated will never close, so it doesn't block a retry.
+            ("workflow_ended", "busy_view", 0, True, 200),
         ]
     )
+    @patch("products.data_modeling.backend.logic.node_materialization.workflow_has_closed")
     @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_on_trino_conflicts_only_with_builds_of_the_selected_models(
-        self, _name, building_view, row_age_hours, expected_status, mock_sync_connect, mock_eligible
+        self,
+        _name,
+        building_view,
+        row_age_hours,
+        workflow_closed,
+        expected_status,
+        mock_sync_connect,
+        mock_eligible,
+        mock_workflow_has_closed,
     ):
+        mock_workflow_has_closed.return_value = workflow_closed
         saved_query, dag, node = self._make_saved_query_with_node("busy_view")
         other_saved_query = DataWarehouseSavedQuery.objects.create(
             name="other_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
@@ -3036,6 +3048,7 @@ class TestSavedQueryRun(APIBaseTest):
             saved_query=saved_query if building_view == "busy_view" else other_saved_query,
             status=DataModelingJob.Status.RUNNING,
             engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            workflow_id="materialize-view-busy",
         )
         DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=row_age_hours))
         mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
@@ -3059,6 +3072,35 @@ class TestSavedQueryRun(APIBaseTest):
         else:
             mock_client.start_workflow.assert_called_once()
             self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
+
+    @patch("products.data_modeling.backend.logic.node_materialization.workflow_has_closed")
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_on_trino_reserves_its_models_until_its_workflow_ends(
+        self, mock_sync_connect, mock_eligible, mock_workflow_has_closed
+    ):
+        saved_query, _dag, _node = self._make_saved_query_with_node("reserved_view")
+        mock_eligible.return_value = True
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        mock_workflow_has_closed.return_value = False
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/"
+
+        first = self.client.post(url, {"engine": "trino"})
+        # The first run has no job row yet, but it still holds the model.
+        second = self.client.post(url, {"engine": "trino"})
+
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(second.status_code, 409, second.content)
+        self.assertIn("reserved_view", second.json()["detail"])
+        self.assertEqual(mock_client.start_workflow.call_count, 1)
+
+        # Once the first run's workflow has ended, its reservation no longer blocks.
+        mock_workflow_has_closed.return_value = True
+        with time_machine.travel(timezone.now() + timedelta(minutes=5)):
+            third = self.client.post(url, {"engine": "trino"})
+        self.assertEqual(third.status_code, 200, third.content)
+        self.assertEqual(mock_client.start_workflow.call_count, 2)
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies_requires_edit_access_to_every_view(self, mock_sync_connect):
