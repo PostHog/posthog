@@ -7,7 +7,7 @@ import { HogError } from '@/core/errors'
 import { SymbolDataType } from './container'
 import { decodeUtf8 } from './json'
 import { crc32 } from './native/zip'
-import type { SymbolSetClient } from './upload'
+import { ApiFailure, type SymbolSetClient } from './upload'
 
 const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
 // Uploads are at most 100 MB compressed. These caps stop a crafted symbol set from inflating
@@ -325,10 +325,28 @@ const UUID = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$
 
 export const isSymbolSetId = (text: string): boolean => UUID.test(text)
 
+// Turns the answers people can act on into errors with a next step. Others keep their message.
+async function lookup(request: () => Promise<unknown>, notFound?: string): Promise<unknown> {
+    try {
+        return await request()
+    } catch (error) {
+        if (error instanceof ApiFailure && (error.status === 401 || error.status === 403)) {
+            throw new HogError(
+                'access_denied',
+                `PostHog answered ${error.status} to the symbol set lookup.`,
+                'Check that the personal API key has the error_tracking:read scope and access to this project.'
+            )
+        }
+        if (notFound && error instanceof ApiFailure && error.status === 404) {
+            throw new HogError('symbol_set_not_found', notFound, 'Check the ID, or pass --ref to look it up as a ref.')
+        }
+        throw error
+    }
+}
+
 export async function resolveRef(client: SymbolSetClient, reference: string): Promise<string> {
-    const found = (await client.api(
-        'GET',
-        `error_tracking/symbol_sets/?ref=${encodeComponent(reference)}&limit=1`
+    const found = (await lookup(() =>
+        client.api('GET', `error_tracking/symbol_sets/?ref=${encodeComponent(reference)}&limit=1`)
     )) as {
         results?: { id?: string }[]
     }
@@ -351,7 +369,10 @@ export async function downloadSymbolSet(
     if (!isSymbolSetId(id)) {
         throw new HogError('invalid_symbol_set_id', `${id} isn't a symbol set ID.`, 'Symbol set IDs are UUIDs.')
     }
-    const { url } = (await client.api('GET', `error_tracking/symbol_sets/${id}/download/`)) as { url: string }
+    const { url } = (await lookup(
+        () => client.api('GET', `error_tracking/symbol_sets/${id}/download/`),
+        `No symbol set has the ID ${id}.`
+    )) as { url: string }
     try {
         const response = await fetcher(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
         if (!response.ok) {
