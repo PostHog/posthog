@@ -1313,7 +1313,15 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     # --- comparison / call rewrites ---
 
     def _rewrite_scalar_json_extract(self, node: ast.Call) -> ast.Expr | None:
-        """`JSONExtractString`, `JSONExtractFloat` or `JSONExtractBool` of one native property, read from its subcolumn.
+        """String, float or Bool extraction of one native property, computed from its subcolumn without JSON text.
+
+        Covers `JSONExtractString`, `JSONExtractFloat`, `JSONExtractBool` and `JSONExtract` to String or Float64. The
+        property pass has replaced the document with `ifNull(toJSONString(<subcolumn>), '')`, so the function would
+        serialize one value and parse it back. This reads the `Dynamic` value instead and reproduces the function's
+        result per stored type: a string passes through, a number or Bool becomes its text for a string target, an
+        integer becomes a number for a float target, a Bool does so only for typed `JSONExtract`, and a missing key
+        gives '' or 0 unless the target is Nullable. A stored Float64 keeps the function for string and Bool targets,
+        because JSON number formatting (an integer token for 2.0, exponent notation) decides the result.
 
         Integer extraction keeps ClickHouse's JSON parser: its coercion rules (fractional and exponent strings truncate,
         Bool reads as 0, overflow reads as 0) take more SQL to emulate than the parse of one serialized value costs.

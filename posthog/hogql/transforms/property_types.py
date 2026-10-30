@@ -305,10 +305,17 @@ class PropertySwapper(CloningVisitor):
         )
 
     def _rewrite_json_property_call(self, node: ast.Call) -> ast.Expr | None:
-        """Read native JSON functions from the selected property without applying inferred property conversions.
+        """A JSON function on `properties` with a constant first key reads that key instead of the whole document.
+
+        On the native events table `properties` is a JSON column, so a JSON function over it needs the document rebuilt
+        as text from every subcolumn, once per row. With a constant first key, only that key's value is serialized and
+        the function runs on it, for the same answer at a fraction of the cost. The ClickHouse property resolver later
+        removes even that serialization for string, float and Bool extraction (`_rewrite_scalar_json_extract`).
 
         The read is marked `as_json`, so the metadata pass leaves it unconverted and the JSON function determines
-        conversion and defaults. Legacy calls rewrite only when an equivalent materialized column exists.
+        conversion and defaults. `JSONHas` keeps the whole document: a key holding JSON null and a missing key read the
+        same from a subcolumn, but `JSONHas` tells them apart. Legacy calls rewrite only when an equivalent materialized
+        column exists.
         """
         property_path = self._simple_json_extract_property_path(node)
         if node.name not in JSON_KEY_PATH_FUNCTIONS or node.name == "JSONHas":
