@@ -55,6 +55,8 @@ describe("shortcutFor", () => {
     ["kitty Ctrl+N", "\x1b[110;5u", "newChat"],
     ["kitty Ctrl+Shift+N", "\x1b[110;6u", "newChatOutside"],
     ["legacy Ctrl+B", "\x02", "toggleSidebar"],
+    ["legacy Ctrl+P", "\x10", "togglePin"],
+    ["kitty Ctrl+P", "\x1b[112;5u", "togglePin"],
     ["kitty Cmd+B", "\x1b[98;9u", "toggleSidebar"],
     ["legacy Ctrl+K", "\x0b", "search"],
     ["kitty Cmd+K", "\x1b[107;9u", "search"],

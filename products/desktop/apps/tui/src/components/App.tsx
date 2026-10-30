@@ -141,6 +141,7 @@ export function App({
   const [narrowSidebar, setNarrowSidebar] = useState(
     () => loadPrefs().narrowSidebar,
   );
+  const [pinned, setPinned] = useState(() => loadPrefs().pinnedTaskIds);
   // Bumped when the terminal turns light or dark, so everything draws again in its colours.
   const [, setThemeVersion] = useState(0);
   // Names given with /rename, shown at once and kept until the work list shows them too.
@@ -224,6 +225,7 @@ export function App({
     openTaskIds: [
       ...allPanes(layout).flatMap((pane) => (pane.taskId ? [pane.taskId] : [])),
       ...localActive.keys(),
+      ...pinned,
     ],
     onRefresh: refreshLocalActive,
   });
@@ -395,6 +397,7 @@ export function App({
     waiting: turns.waiting,
     titles,
     showToday,
+    pinned,
   });
   const caughtUp = [...titles].filter(
     ([taskId, title]) => taskOf(taskId)?.title === title,
@@ -500,6 +503,22 @@ export function App({
       track("sidebar narrowed", { narrow: !narrowSidebar });
       setNarrowSidebar(!narrowSidebar);
       savePrefs({ narrowSidebar: !narrowSidebar });
+    },
+    // Pins the chat under the sidebar cursor, or the focused pane's; a new chat has no task to pin yet.
+    togglePin: () => {
+      const row = sidebar.rows[sidebar.selectedIndex];
+      const taskId = sidebarFocused
+        ? row?.kind === "task"
+          ? row.taskId
+          : null
+        : (findPane(layout, workspace.focusedPaneId)?.taskId ?? null);
+      if (!taskId) return;
+      const next = pinned.includes(taskId)
+        ? pinned.filter((id) => id !== taskId)
+        : [...pinned, taskId];
+      track("chat pinned", { pinned: !pinned.includes(taskId) });
+      setPinned(next);
+      savePrefs({ pinnedTaskIds: next });
     },
     repoPickerKey: repoPicker.onKey,
     notice,

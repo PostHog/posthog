@@ -179,6 +179,36 @@ describe("sidebarRows", () => {
     });
   });
 
+  it("lists pinned chats it knows above the workspaces instead of under All chats, and skips unloaded ones", () => {
+    const layout = openTask(
+      splitFocused(openTask(initialLayout(), "a"), "row"),
+      "b",
+    );
+    const rows = sidebarRows({
+      layout,
+      work: page({ tasks: [task("a"), task("b")] }),
+      collapsed: new Set(),
+      working: new Set(),
+      pinned: ["b", "gone", "a"],
+    });
+    expect(labels(rows)).toEqual([
+      "# Work",
+      "Today",
+      "",
+      "## Pinned",
+      "Task b",
+      "Task a",
+      "",
+      "v Workspace #1",
+      "  Task a",
+      "  Task b",
+      "",
+      "## All chats",
+      "New chat",
+    ]);
+    expect(selectionKey(rows[4])).toBe("task:b");
+  });
+
   it("puts each workspace above Chats with a gap after it", () => {
     let layout = openTask(initialLayout(), "a");
     layout = openTask(splitFocused(layout, "row"), "b");
