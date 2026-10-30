@@ -381,8 +381,8 @@ def create_workflow_task(
                 mode="background",
                 # A task with no repository has nothing to open a PR from.
                 create_pr=bool(repository),
-                # A task with no repository gets no GitHub integration (`Task._github_resolution_allowed`),
-                # so a read-only token is the only GitHub access its sandbox gets.
+                # A task with no repository only reads GitHub. The team integration stays attached so
+                # the credential refresh keeps running, and the refresh mints read-only tokens for it.
                 github_read_access=not repository,
                 posthog_mcp_scopes=posthog_mcp_scopes,
                 hog_flow_id=hog_flow_id,

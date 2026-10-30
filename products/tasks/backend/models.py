@@ -1223,9 +1223,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
     @staticmethod
     def _github_resolution_allowed(origin_product: str, *, has_repository: bool) -> bool:
-        # Audits and repo-less signals, autoresearch, metrics import or workflow tasks must carry no
-        # GitHub credential. Provisioning injects any attached integration; these runs read text that
-        # members or outside senders wrote, so an attached token turns planted text into repository access.
+        # Audits and repo-less signals, autoresearch or metrics import tasks must carry no GitHub
+        # credential. Provisioning injects any attached integration; these runs read member-authored
+        # text, so an attached token turns planted text into repository access.
         return origin_product != Task.OriginProduct.ACCOUNT_AUDIT and (
             has_repository
             or origin_product
@@ -1235,7 +1235,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
                 Task.OriginProduct.AUTORESEARCH,
                 Task.OriginProduct.METRICS_IMPORT,
-                Task.OriginProduct.WORKFLOW,
             )
         )
 

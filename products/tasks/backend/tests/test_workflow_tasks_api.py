@@ -605,7 +605,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.select_related("task").get(id=response.json()["run_id"])
         assert run.state["pending_dispatch"]["create_pr"] is with_repository
-        assert run.task.github_integration_id == (integration.id if with_repository else None)
+        assert run.task.github_integration_id == integration.id
         assert run.state.get("github_read_access", False) is not with_repository
 
     def test_teammates_can_see_and_drive_workflow_tasks(self) -> None:

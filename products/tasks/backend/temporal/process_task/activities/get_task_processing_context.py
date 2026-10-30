@@ -240,8 +240,8 @@ class TaskProcessingContext:
         that carries ``contents: read`` and nothing else.
 
         The workflow rule reads the task, not the run. A follow-up run copies the flag only from a
-        run that had it, and a repo-less workflow task can still have the team integration attached,
-        which provisioning would mint a write-capable token from.
+        run that had it, and a repo-less workflow task has the team integration attached, which
+        provisioning would mint a write-capable token from.
         """
         if (self.state or {}).get("github_read_access") is True:
             return True
