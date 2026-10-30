@@ -66673,6 +66673,13 @@ export namespace Schemas {
       expansion: string[];
     }
 
+    export interface KnowledgeAvailability {
+      /** True when the project has at least one business knowledge source. */
+      readonly has_sources: boolean;
+      /** True when this environment has at least one GitHub repository selected. */
+      readonly has_repositories: boolean;
+    }
+
     /**
      * One chunk in a drill-down window over a single knowledge document.
      *
@@ -107944,6 +107951,17 @@ export namespace Schemas {
     export interface SavedQueryResume {
       /** False when the query's materialization was not suspended. */
       resumed: boolean;
+    }
+
+    /**
+     * Body of the `resume` action.
+     */
+    export interface SavedQueryResumeRequest {
+      /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+       *
+       * * `clickhouse` - ClickHouse
+       * * `trino` - Trino */
+      engine?: MaterializationEngineEnum;
     }
 
     /**

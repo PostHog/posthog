@@ -3,11 +3,11 @@ import { MOCK_DEFAULT_ORGANIZATION_MEMBER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 

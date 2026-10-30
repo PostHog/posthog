@@ -15,8 +15,8 @@ import {
     type TraceViewSurface,
     type TraceViewTimeline,
 } from '../TraceView/traceViewLogic'
-import type { TraceDialogSource } from './traceDialogLogic'
 import { TraceDialogMoreSpansRow } from './TraceDialogMoreSpansRow'
+import type { TraceDialogSource } from './traceDialogOpenLogic'
 import { rowSpanNode, type TraceDialogRow } from './traceDialogRows'
 import { TraceDialogSpanRow } from './TraceDialogSpanRow'
 
