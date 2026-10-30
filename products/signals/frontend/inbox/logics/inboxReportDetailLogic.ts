@@ -2203,7 +2203,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 reportId: props.reportId,
             })
             if (previousTasks !== null && spendLogic.isMounted()) {
-                spendLogic.actions.loadSpend()
+                spendLogic.actions.refreshSpend()
             }
             if (
                 cache.sidebarAlignmentPending &&

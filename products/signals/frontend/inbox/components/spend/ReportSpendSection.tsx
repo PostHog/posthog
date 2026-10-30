@@ -13,7 +13,7 @@ export function ReportSpendSection({ reportId }: { reportId: string }): JSX.Elem
     const { currentTeamId } = useValues(teamLogic)
     const logic = reportSpendLogic({ teamId: currentTeamId ?? 0, reportId })
     const { spend, spendLoading, failed } = useValues(logic)
-    const { loadSpend } = useActions(logic)
+    const { refreshSpend } = useActions(logic)
 
     return (
         <DetailSection title="Usage" icon={<IconReceipt />}>
@@ -21,7 +21,7 @@ export function ReportSpendSection({ reportId }: { reportId: string }): JSX.Elem
                 <LemonBanner
                     type="error"
                     action={
-                        <LemonButton onClick={() => loadSpend()} loading={spendLoading}>
+                        <LemonButton onClick={() => refreshSpend()} loading={spendLoading}>
                             Retry
                         </LemonButton>
                     }
