@@ -79,6 +79,8 @@ NEVER put sensitive information in a PR description or comment. A user may share
 
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
+A push also starts an automatic PostHog Review follow-up, so a push per review finding costs a review per finding.
+Answer a finding you will not act on with a reply and resolve its thread; a push is for the fixes.
 
 A push to this repository cannot be taken back.
 Forks, clones, mirrors, and notification emails carry it within seconds, and a later fix commit does not retract what is already in the branch's history — recovering means abandoning the branch and respinning the PR.
