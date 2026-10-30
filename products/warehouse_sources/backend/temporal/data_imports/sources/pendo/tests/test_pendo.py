@@ -1,4 +1,9 @@
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from typing import Any
+
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -70,6 +75,13 @@ class TestGetRowsListEndpoint:
         assert result.paths == ["/api/v1/page"]
         assert [row["id"] for row in result.rows] == [4]
 
+    @pytest.mark.parametrize("endpoint, expected_expand", [("pages", "*"), ("reports", None)])
+    def test_expands_to_every_app_only_for_app_scoped_objects(self, endpoint: str, expected_expand: str | None) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=[{"id": "a"}])])
+
+        assert result.raised is None
+        assert result.requests[0].param("expand") == expected_expand
+
 
 class TestGetRowsAggregation:
     @patch(f"{PENDO_PATH}.AGGREGATION_PAGE_SIZE", 2)
@@ -110,13 +122,103 @@ class TestGetRowsAggregation:
         assert {"filter": 'visitorId>"ab\\"cd"'} in pipeline
 
 
+DAY_MS = 24 * 60 * 60 * 1000
+
+
+def _ms(value: str) -> int:
+    return int(datetime.fromisoformat(value).replace(tzinfo=UTC).timestamp() * 1000)
+
+
+def _event_window_starts(result: Any) -> list[int]:
+    return [request.json()["request"]["pipeline"][0]["source"]["timeSeries"]["first"] for request in result.requests]
+
+
+class TestGetRowsEvents:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(datetime(2026, 3, 10, 6, 0, tzinfo=UTC), tick=False):
+            yield
+
+    def test_full_refresh_walks_the_lookback_up_to_the_last_started_anchor(self) -> None:
+        result = _driver().run("page_events", always(ScriptedResponse(json={"results": []})))
+
+        assert result.raised is None
+        windows = _event_window_starts(result)
+        assert windows[0] == _ms("2025-12-09T12:00:00")
+        # Today's noon-UTC anchor is still in the future at 06:00 UTC.
+        assert windows[-1] == _ms("2026-03-09T12:00:00")
+        assert all(later - earlier == DAY_MS for earlier, later in zip(windows, windows[1:]))
+
+        source = result.requests[0].json()["request"]["pipeline"][0]["source"]
+        assert source["pageEvents"] == {"appId": 'expandAppIds("*")'}
+        assert source["timeSeries"]["period"] == "dayRange"
+        assert source["timeSeries"]["count"] == 1
+
+    @pytest.mark.parametrize("utc_offset_hours", [-11, -5, 0, 10, 12, 14])
+    def test_incremental_rereads_the_watermark_day_and_the_reprocessing_week(self, utc_offset_hours: int) -> None:
+        watermark = _ms("2026-03-05T00:00:00") - utc_offset_hours * 60 * 60 * 1000
+
+        result = _driver().run(
+            "page_events",
+            always(ScriptedResponse(json={"results": []})),
+            incremental_field="day",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        windows = _event_window_starts(result)
+        assert any(watermark <= anchor < watermark + DAY_MS for anchor in windows)
+        assert windows[0] <= watermark - 7 * DAY_MS + DAY_MS
+
+    @patch(f"{PENDO_PATH}.EVENT_BATCH_SIZE", 1)
+    def test_resumes_from_saved_day_and_keys_buckets_without_measures(self) -> None:
+        bucket = {"day": _ms("2026-03-09T05:00:00"), "trackTypeId": "t1", "visitorId": "v1", "tabId": "a"}
+        first_read = {**bucket, "numEvents": 1, "numMinutes": 1, "lastTime": 1, "lastKeyFrameTimestamp": 1}
+        re_read = {**bucket, "numEvents": 7, "numMinutes": 3, "lastTime": 2, "lastKeyFrameTimestamp": 2}
+        other_tab = {**bucket, "tabId": "b", "numEvents": 1, "numMinutes": 1, "lastTime": 1}
+
+        result = _driver().run(
+            "track_events",
+            [
+                ScriptedResponse(json={"results": [first_read, other_tab]}),
+                ScriptedResponse(json={"results": [re_read]}),
+            ],
+            resume_state=PendoResumeConfig(next_day="2026-03-08"),
+        )
+
+        assert result.raised is None
+        assert _event_window_starts(result) == [_ms("2026-03-08T12:00:00"), _ms("2026-03-09T12:00:00")]
+        # The first of the day's two batches leaves the cursor on that day.
+        assert result.committed_states == [
+            PendoResumeConfig(next_day="2026-03-08"),
+            PendoResumeConfig(next_day="2026-03-09"),
+            PendoResumeConfig(next_day="2026-03-10"),
+        ]
+        first_id, other_tab_id, re_read_id = (row["id"] for row in result.rows)
+        assert first_id == re_read_id
+        assert first_id != other_tab_id
+
+    def test_survey_responses_keep_their_pendo_id_and_send_no_app_filter(self) -> None:
+        response = {"id": "r1", "surveyId": "s1", "visitorId": "v1", "lastUpdatedAt": _ms("2026-03-09T08:00:00")}
+
+        result = _driver().run(
+            "survey_responses",
+            [ScriptedResponse(json={"results": [response]})],
+            resume_state=PendoResumeConfig(next_day="2026-03-09"),
+        )
+
+        assert result.raised is None
+        assert result.rows == [response]
+        assert result.requests[0].json()["request"]["pipeline"][0]["source"]["surveyResponses"] is None
+
+
 class TestPendoSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = PENDO_ENDPOINTS[endpoint]
-        payload: object = {"results": []} if config.is_aggregation else []
+        payload: object = [] if config.path else {"results": []}
 
-        result = _driver().run(endpoint, [ScriptedResponse(json=payload)])
+        result = _driver().run(endpoint, always(ScriptedResponse(json=payload)))
 
         assert result.raised is None
         assert result.response is not None

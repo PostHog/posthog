@@ -24,9 +24,11 @@ import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.limits import (
     COORDINATOR_INTERVAL_MINUTES,
@@ -169,7 +171,7 @@ def _read_flag_payload() -> dict | None:
 ENROLL_ALL_TOKEN = "*"
 
 
-@dataclass(frozen=True)
+@frozen
 class Enrollment:
     """Parsed scout enrollment from the `signals-scout` flag payload.
 
@@ -182,6 +184,7 @@ class Enrollment:
     wildcard: bool
     explicit: set[int]
     skip: set[int]
+    drained: bool = False
 
 
 def _parse_enrollment(payload: dict | None) -> Enrollment:
@@ -223,7 +226,7 @@ def _parse_enrollment(payload: dict | None) -> Enrollment:
     else:
         skip = set()
 
-    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip)
+    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip, drained=payload.get("guaranteed_team_ids") == [])
 
 
 # Flag payload block that enrolls a pilot cohort in one scout that PostHog sets up without a person
@@ -807,11 +810,11 @@ def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
     A skipped team is never enrolled. Otherwise enrolled iff the wildcard is set (everyone is in —
     the UI gates whether they actually HAVE configs) or the team is in the explicit allowlist.
     Canonicalizes child-env ids the same way the coordinator does (`_is_team_enrolled`)."""
-    if _is_team_enrolled(canonical_team_id, enrollment.skip):
+    if enrollment.drained or _is_team_enrolled(canonical_team_id, enrollment.skip):
         return False
     if enrollment.wildcard:
         return True
-    return _is_team_enrolled(canonical_team_id, enrollment.explicit)
+    return _is_team_enrolled(canonical_team_id, enrollment.explicit) or ResearchAccessPolicy.enrolled(canonical_team_id)
 
 
 def team_is_enrolled(canonical_team_id: int) -> bool:

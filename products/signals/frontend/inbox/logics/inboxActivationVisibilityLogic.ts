@@ -14,7 +14,6 @@ interface GeneratedReports {
 export interface inboxActivationVisibilityLogicValues {
     completed: boolean // inboxSetupLogic
     currentTeamId: number | null // inboxSetupLogic
-    isTreatment: boolean // inboxSetupLogic
     savedState: InboxOnboardingStateApi | null // inboxSetupLogic
     activationPeriodElapsed: boolean
     generatedReports: GeneratedReports | null
@@ -60,7 +59,6 @@ export interface inboxActivationVisibilityLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activationPeriodElapsed: (savedState: InboxOnboardingStateApi | null, now: number) => boolean
         showActivationPanel: (
-            isTreatment: boolean,
             completed: boolean,
             activationPeriodElapsed: boolean,
             currentTeamId: number | null,
@@ -79,7 +77,7 @@ export type inboxActivationVisibilityLogicType = MakeLogicType<
 export const inboxActivationVisibilityLogic = kea<inboxActivationVisibilityLogicType>([
     path(['products', 'signals', 'inbox', 'inboxActivationVisibilityLogic']),
     connect({
-        values: [inboxSetupLogic, ['savedState', 'currentTeamId', 'isTreatment', 'completed']],
+        values: [inboxSetupLogic, ['savedState', 'currentTeamId', 'completed']],
         actions: [inboxSetupLogic, ['setSavedState', 'loadSetupSuccess']],
     }),
     actions({ checkVisibility: (now: number = Date.now()) => ({ now }) }),
@@ -110,14 +108,9 @@ export const inboxActivationVisibilityLogic = kea<inboxActivationVisibilityLogic
                 !!state?.completed_at && now - Date.parse(state.completed_at) >= 7 * 24 * 60 * 60_000,
         ],
         showActivationPanel: [
-            (s) => [s.isTreatment, s.completed, s.activationPeriodElapsed, s.currentTeamId, s.generatedReports],
-            (
-                treatment: boolean,
-                completed: boolean,
-                elapsed: boolean,
-                teamId: number | null,
-                reports: GeneratedReports | null
-            ): boolean => treatment && completed && !(elapsed && reports?.teamId === teamId && reports.count > 0),
+            (s) => [s.completed, s.activationPeriodElapsed, s.currentTeamId, s.generatedReports],
+            (completed: boolean, elapsed: boolean, teamId: number | null, reports: GeneratedReports | null): boolean =>
+                completed && !(elapsed && reports?.teamId === teamId && reports.count > 0),
         ],
     }),
     listeners(({ actions, values }) => ({

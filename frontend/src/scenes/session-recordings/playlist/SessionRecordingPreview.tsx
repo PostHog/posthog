@@ -1,7 +1,7 @@
 import './SessionRecordingPreview.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { memo } from 'react'
 
 import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
@@ -9,7 +9,6 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils/durations'
@@ -24,13 +23,10 @@ import { SessionRecordingType } from '~/types'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { gatherIconProperties } from './gatherIconProperties'
+import { ItemCheckbox } from './ItemCheckbox'
 import { PropertyIcons } from './PropertyIcons'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import {
-    DEFAULT_RECORDING_FILTERS_ORDER_BY,
-    MAX_SELECTED_RECORDINGS,
-    sessionRecordingsPlaylistLogic,
-} from './sessionRecordingsPlaylistLogic'
+import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { UnwatchedIndicator } from './UnwatchedIndicator'
 
 export interface SessionRecordingPreviewProps {
@@ -131,32 +127,6 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
         : order === 'inactive_seconds'
           ? recording.inactive_seconds
           : recording.recording_duration
-}
-
-function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.Element {
-    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
-    const { setSelectedRecordingsIds } = useActions(sessionRecordingsPlaylistLogic)
-
-    return (
-        <LemonCheckbox
-            checked={selectedRecordingsIds.some((s) => s === recording.id)}
-            data-attr="select-recording"
-            aria-label="Select recording"
-            disabledReason={
-                selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
-                    ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                    : undefined
-            }
-            onChange={() => {
-                if (selectedRecordingsIds.some((r) => r === recording.id)) {
-                    setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
-                } else {
-                    setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
-                }
-            }}
-            stopPropagation
-        />
-    )
 }
 
 const SessionRecordingPreviewBase = memo(
@@ -287,6 +257,10 @@ const SessionRecordingPreviewBase = memo(
         // The row renders matches_filters, and the same recording flips in and out of matching
         // as filters change around an open player, so comparing only the id would keep it stale.
         prevProps.recording.matches_filters === nextProps.recording.matches_filters &&
+        // Mark watched and a session ending reload the same ids with viewed and ongoing flipped.
+        prevProps.recording.viewed === nextProps.recording.viewed &&
+        prevProps.recording.ongoing === nextProps.recording.ongoing &&
+        prevProps.recording.viewers?.length === nextProps.recording.viewers?.length &&
         prevProps.isActive === nextProps.isActive &&
         prevProps.selectable === nextProps.selectable &&
         prevProps.order === nextProps.order
@@ -310,6 +284,10 @@ export const SessionRecordingPreview = memo(
         // The row renders matches_filters, and the same recording flips in and out of matching
         // as filters change around an open player, so comparing only the id would keep it stale.
         prevProps.recording.matches_filters === nextProps.recording.matches_filters &&
+        // Mark watched and a session ending reload the same ids with viewed and ongoing flipped.
+        prevProps.recording.viewed === nextProps.recording.viewed &&
+        prevProps.recording.ongoing === nextProps.recording.ongoing &&
+        prevProps.recording.viewers?.length === nextProps.recording.viewers?.length &&
         prevProps.isActive === nextProps.isActive &&
         prevProps.selectable === nextProps.selectable &&
         prevProps.order === nextProps.order

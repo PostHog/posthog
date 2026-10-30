@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { LabeledLink } from '../types'
 import { TraceExportButton, TraceExportButtonProps } from './TraceExportButton'
 import { TraceNeighbourLinks } from './TraceNeighbourLinks'
+import { TraceSearchBox, TraceSearchBoxProps } from './TraceSearchBox'
 import { TraceStatusBadge } from './TraceStatusBadge'
 
 export interface TraceHeaderProps {
@@ -12,6 +13,7 @@ export interface TraceHeaderProps {
     olderHref: string | null
     newerHref: string | null
     backLink: LabeledLink
+    search?: TraceSearchBoxProps | null
     exportAction?: TraceExportButtonProps
 }
 
@@ -21,6 +23,7 @@ export function TraceHeader({
     olderHref,
     newerHref,
     backLink,
+    search = null,
     exportAction,
 }: TraceHeaderProps): JSX.Element {
     return (
@@ -35,7 +38,8 @@ export function TraceHeader({
             />
             <h1 className="m-0 min-w-0 truncate text-lg font-semibold">{name}</h1>
             <TraceStatusBadge hasError={hasError} />
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+                {search ? <TraceSearchBox {...search} /> : null}
                 {exportAction ? <TraceExportButton {...exportAction} /> : null}
                 <TraceNeighbourLinks olderHref={olderHref} newerHref={newerHref} />
             </div>

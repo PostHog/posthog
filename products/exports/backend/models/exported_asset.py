@@ -1,6 +1,6 @@
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -176,10 +176,14 @@ class ExportedAsset(models.Model):
 
     @classmethod
     def compute_expires_after(cls, export_format: str) -> datetime:
+        return cls.round_up_expiry(now() + cls.get_expiry_delta(export_format))
+
+    @staticmethod
+    def round_up_expiry(expiry: datetime) -> datetime:
         # Rounded up, because S3 rounds a lifecycle rule up to the next UTC midnight; rounding down
         # retires the row while the object it points at is still there.
-        expiry_datetime = now() + cls.get_expiry_delta(export_format) + timedelta(days=1)
-        return expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+        next_day = expiry.astimezone(UTC) + timedelta(days=1)
+        return next_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
     @property
     def has_content(self):

@@ -30,8 +30,8 @@ def register_export_format_handler(
     """Route exports of this format and `export_context.kind` to a product's handler.
 
     The product owns the export end to end: the generic exports API returns 404 when asked for it and
-    redirects its content requests to `content_path`, an endpoint the product authorizes. It still lists
-    the export for its creator.
+    redirects its content requests, query string included, to `content_path`, an endpoint the product
+    authorizes. It still lists the export for its creator.
     """
     registration = _Registration(handler=handler, content_path=content_path)
     existing = _export_format_handlers.get((export_format, kind))

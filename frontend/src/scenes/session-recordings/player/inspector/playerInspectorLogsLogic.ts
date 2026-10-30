@@ -5,9 +5,10 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 
 import { LogMessage, LogsQuery } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator } from '~/types'
+import { AccessControlResourceType, FilterLogicalOperator } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
@@ -42,6 +43,7 @@ export interface playerInspectorLogsLogicValues {
     end: Dayjs | null // sessionRecordingDataCoordinatorLogic
     start: Dayjs | null // sessionRecordingDataCoordinatorLogic
     logs: LogMessage[]
+    logsAccessDenied: boolean
     logsHasMore: boolean
     logsInitialLoadRequested: boolean
     logsLoadError: boolean
@@ -97,7 +99,13 @@ export interface playerInspectorLogsLogicActions {
 export interface playerInspectorLogsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        readyToLoadLogs: (featureFlags: FeatureFlagsSet, start: Dayjs | null, end: Dayjs | null, arg: any) => boolean
+        readyToLoadLogs: (
+            featureFlags: FeatureFlagsSet,
+            logsAccessDenied: boolean,
+            start: Dayjs | null,
+            end: Dayjs | null,
+            arg: any
+        ) => boolean
     }
 }
 
@@ -205,15 +213,22 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
         ],
     })),
     selectors(() => ({
+        // Users with no logs access get a 403 from the logs API, so readyToLoadLogs stays false for them.
+        logsAccessDenied: [() => [], (): boolean => productHasEffectiveNoneAccess(AccessControlResourceType.Logs)],
         readyToLoadLogs: [
-            (s) => [s.featureFlags, s.start, s.end, (_, props) => props.sessionRecordingId],
+            (s) => [s.featureFlags, s.logsAccessDenied, s.start, s.end, (_, props) => props.sessionRecordingId],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                logsAccessDenied: boolean,
                 start: Dayjs | null,
                 end: Dayjs | null,
                 sessionRecordingId
             ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] && !!start && !!end && !!sessionRecordingId,
+                !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS] &&
+                !logsAccessDenied &&
+                !!start &&
+                !!end &&
+                !!sessionRecordingId,
         ],
     })),
 ])

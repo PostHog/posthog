@@ -20,6 +20,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
+from clickhouse_driver.errors import ServerException
 from hypothesis import (
     HealthCheck,
     example,
@@ -111,9 +112,10 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
         use_new_events_schema: bool | None = None,
         restricted_properties: set[RestrictedProperty] | None = None,
         property_groups_mode: PropertyGroupsMode | None = None,
+        event_properties: dict[str, dict[str, str | None]] | None = None,
     ) -> str:
         expr = parse_select(select)
-        context = self._context(use_new_events_schema)
+        context = self._context(use_new_events_schema, event_properties)
         if restricted_properties is not None:
             context.restricted_properties = restricted_properties
         if property_groups_mode is not None:
@@ -138,6 +140,36 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand(
+        [
+            (f"{conversion}_{windowed}", conversion, windowed)
+            for conversion in ("toFloat", "toInt")
+            for windowed in (False, True)
+        ]
+    )
+    def test_grouped_numeric_conversion_reads_the_group_key(self, _name: str, conversion: str, windowed: bool) -> None:
+        value = f"{conversion}(properties.value)"
+        if windowed:
+            value = f"sum({value}) OVER ()"
+        printed = self._print_select(f"SELECT {value}, count() FROM events GROUP BY properties.value")
+        assert f"accurateCastOrNull({json_dynamic_read_sql('events.properties', ['value'])}," in printed
+
+    def test_grouped_comparisons_preserve_group_key_and_scan_optimizations(self) -> None:
+        printed = self._print_select(
+            "SELECT toString(properties.value) AS value, "
+            "if(toString(properties.value) = 'ready', 1, 0), countIf(properties.value = 'ready') "
+            "FROM events WHERE properties.value = 'ready' GROUP BY value"
+        )
+        assert printed.count(f"toString({json_dynamic_read_sql('events.properties', ['value'])})") == 2
+        assert printed.count("CAST(events.properties.value, 'Nullable(String)')") == 2
+
+    def test_nested_aggregate_keeps_direct_numeric_reads(self) -> None:
+        printed = self._print_select(
+            "SELECT properties.value, sum(sum(toFloat(properties.value))) OVER () "
+            "FROM events WHERE toFloat(properties.value) > 0 GROUP BY properties.value"
+        )
+        assert printed.count("accurateCastOrNull(events.properties.value,") == 2
+
     @parameterized.expand(
         [
             ("dynamic", "properties.value = '5'", "CAST(events.properties.value, 'Nullable(String)')"),
@@ -171,10 +203,59 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         assert "events.properties" not in restricted
         assert "events.person_properties" not in restricted
 
+    @parameterized.expand(
+        [
+            ("aliased", "SELECT s.properties.amount = 'seven' FROM (SELECT properties FROM events) AS s"),
+            (
+                "nested",
+                "SELECT t.properties.amount = 'seven' FROM (SELECT * FROM (SELECT properties FROM events) AS s) AS t",
+            ),
+            ("unaliased", "SELECT properties.amount = 'seven' FROM (SELECT properties FROM events)"),
+            (
+                "union",
+                "SELECT s.properties.amount = 'seven' "
+                "FROM (SELECT properties FROM events UNION ALL SELECT properties FROM events) AS s",
+            ),
+            (
+                "cte",
+                "WITH docs AS (SELECT properties FROM events) SELECT docs.properties.amount = 'seven' FROM docs",
+            ),
+        ]
+    )
+    def test_property_read_from_a_user_document_subquery_stays_a_string(self, _name: str, select: str) -> None:
+        for use_new_events_schema in (False, True):
+            printed = self._print_select(
+                select, use_new_events_schema=use_new_events_schema, event_properties={"amount": {"type": "Numeric"}}
+            )
+            assert "accurateCastOrNull" not in printed, printed
+            assert "JSONExtractRaw(" in printed
+
+    def test_property_converted_inside_a_user_subquery_is_not_converted_again(self) -> None:
+        printed = self._print_select(
+            "SELECT s.amount = 7 FROM (SELECT properties.amount AS amount FROM events) AS s",
+            use_new_events_schema=False,
+            event_properties={"amount": {"type": "Numeric"}},
+        )
+        assert printed.count("accurateCastOrNull") == 1
+        assert "ifNull(equals(s.amount, 7), 0)" in printed
+
     def test_native_string_predicate_inside_an_unaliased_column(self) -> None:
         native = self._print_select("SELECT countIf(properties.value = '5') FROM events")
         assert (
             "countIf(ifNull(equals(CAST(events.properties.value, 'Nullable(String)'), %(hogql_val_0)s), 0))" in native
+        )
+
+    def test_boolean_text_comparison_keeps_user_written_cast(self) -> None:
+        context = self._context(use_new_events_schema=True, event_properties={"opted_in": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select("SELECT toBool(toString(properties.opted_in)) = 'pending' FROM events"),
+                context,
+                "clickhouse",
+            )
+        assert "CAST(events.properties.opted_in, 'Nullable(String)')" not in printed
+        assert (
+            "accurateCastOrNull(toString(accurateCastOrNull(transform(toString(events.properties.opted_in)" in printed
         )
 
     @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
@@ -467,6 +548,177 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "comparison",
+                "SELECT toString(properties.value) AS value, "
+                "if(toString(properties.value) = 'ready', 1, 0), count() "
+                "FROM events GROUP BY value ORDER BY value",
+                ['{"value":"done"}', '{"value":"ready"}', '{"value":"ready"}'],
+                [("done", 0, 1), ("ready", 1, 2)],
+            ),
+            (
+                "numeric",
+                "SELECT toFloat(properties.value) AS value, count() "
+                "FROM events GROUP BY properties.value ORDER BY value",
+                ['{"value":"2"}', '{"value":"7"}', '{"value":"7"}'],
+                [(2.0, 1), (7.0, 2)],
+            ),
+        ]
+        + [
+            (name, query, ['{"value":"2"}', '{"value":"07"}', '{"value":"7"}', '{"value":"7"}'], expected)
+            for name, query, expected in [
+                (
+                    "alias",
+                    "SELECT properties.value AS original, toFloat(original), count() "
+                    "FROM events GROUP BY original ORDER BY original",
+                    [("07", 7.0, 1), ("2", 2.0, 1), ("7", 7.0, 2)],
+                ),
+                (
+                    "having_order",
+                    "SELECT properties.value AS original, count() FROM events GROUP BY properties.value "
+                    "HAVING toFloat(properties.value) > 2 ORDER BY toInt(properties.value), original",
+                    [("07", 1), ("7", 2)],
+                ),
+                (
+                    "window",
+                    "SELECT properties.value AS original, sum(toFloat(properties.value)) OVER () "
+                    "FROM events GROUP BY properties.value ORDER BY original",
+                    [("07", 16.0), ("2", 16.0), ("7", 16.0)],
+                ),
+                (
+                    "nested_aggregate",
+                    "SELECT properties.value AS original, sum(sum(toFloat(properties.value))) OVER () "
+                    "FROM events GROUP BY properties.value ORDER BY original",
+                    [("07", 23.0), ("2", 23.0), ("7", 23.0)],
+                ),
+                (
+                    "named_window_limit_by",
+                    "SELECT properties.value AS original, sum(toFloat(properties.value)) OVER w AS total "
+                    "FROM events GROUP BY properties.value "
+                    "WINDOW w AS (PARTITION BY toInt(properties.value) ORDER BY toInt(properties.value) "
+                    "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) "
+                    "ORDER BY original LIMIT 1 BY toInt(properties.value)",
+                    [("07", 14.0), ("2", 2.0)],
+                ),
+                (
+                    "explicit_conversion",
+                    "SELECT toFloat(properties.value) AS numeric, count() "
+                    "FROM events GROUP BY toFloat(properties.value) ORDER BY numeric",
+                    [(2.0, 1), (7.0, 3)],
+                ),
+                (
+                    "group_by_all",
+                    "SELECT toFloat(properties.value) AS numeric, count() FROM events GROUP BY ALL ORDER BY numeric",
+                    [(2.0, 1), (7.0, 3)],
+                ),
+                (
+                    "subquery_cte",
+                    "WITH grouped AS (SELECT properties.value AS original, sum(toFloat(properties.value)) AS total "
+                    "FROM events GROUP BY properties.value) "
+                    "SELECT toFloat(original), sum(total) FROM grouped GROUP BY original ORDER BY original",
+                    [(7.0, 7.0), (2.0, 2.0), (7.0, 14.0)],
+                ),
+                (
+                    "group_by_all_mixed_aggregate",
+                    "SELECT toFloat(properties.value) + sum(toFloat(properties.value)) AS total, count() "
+                    "FROM events GROUP BY ALL ORDER BY total",
+                    [(4.0, 1), (28.0, 3)],
+                ),
+                (
+                    "nested_select",
+                    "SELECT properties.value AS original, (SELECT sum(toFloat(properties.value)) FROM events), "
+                    "toFloat(properties.value) FROM events GROUP BY properties.value ORDER BY original",
+                    [("07", 23.0, 7.0), ("2", 23.0, 2.0), ("7", 23.0, 7.0)],
+                ),
+                (
+                    "ungrouped_property",
+                    "SELECT properties.value FROM events GROUP BY toFloat(properties.value)",
+                    None,
+                ),
+                (
+                    "ungrouped_window",
+                    "SELECT count(), sum(toFloat(properties.value)) OVER () FROM events GROUP BY ALL",
+                    None,
+                ),
+            ]
+        ]
+        + [
+            (
+                mode,
+                f"SELECT properties.value AS original, toFloat(properties.value), count() FROM events "
+                f"GROUP BY {grouping} ORDER BY original",
+                ['{"value":"2"}', '{"value":"7"}', '{"value":"7"}'],
+                [("2", 2.0, 1), ("7", 7.0, 2), (None, None, 3)],
+            )
+            for mode, grouping in [
+                ("rollup", "ROLLUP(properties.value)"),
+                ("cube", "CUBE(properties.value)"),
+                ("grouping_sets", "GROUPING SETS ((properties.value), ())"),
+            ]
+        ]
+        + [
+            (
+                "numeric_metadata",
+                "SELECT properties.value AS numeric, count() FROM events GROUP BY properties.value ORDER BY numeric",
+                ['{"value":"2"}', '{"value":"07"}', '{"value":"7"}', '{"value":"7"}'],
+                [(2.0, 1), (7.0, 3)],
+                "Numeric",
+            ),
+            (
+                "null_and_invalid",
+                "SELECT properties.value AS original, toFloat(properties.value), count() "
+                "FROM events GROUP BY properties.value ORDER BY original",
+                ["{}", '{"value":null}', '{"value":""}', '{"value":"invalid"}', '{"value":"7"}'],
+                [("", None, 1), ("7", 7.0, 1), ("invalid", None, 1), (None, None, 2)],
+                "String",
+                ("blob", "native"),
+            ),
+        ]
+    )
+    def test_grouped_property_queries(
+        self,
+        _name: str,
+        query: str,
+        documents: list[str],
+        expected: list[tuple[object, ...]] | None,
+        property_type: str = "String",
+        readers: tuple[str, ...] = ("blob", "map", "native"),
+    ) -> None:
+        for reader in readers:
+            with self.subTest(reader=reader):
+                context = self._context(
+                    use_new_events_schema=reader == "native", event_properties={"value": {"type": property_type}}
+                )
+                context.modifiers.propertyGroupsMode = (
+                    PropertyGroupsMode.OPTIMIZED if reader == "map" else PropertyGroupsMode.DISABLED
+                )
+                context.modifiers.materializationMode = (
+                    MaterializationMode.LEGACY_NULL_AS_NULL if reader == "map" else MaterializationMode.DISABLED
+                )
+                with patch("posthog.hogql.printer.utils.build_property_swapper"):
+                    printed, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+                if reader == "map":
+                    assert "properties_group_custom" in printed
+                source = (
+                    "events_json AS (SELECT 1 AS team_id, CAST(document, 'JSON') AS properties "
+                    "FROM (SELECT arrayJoin(%(documents)s) AS document)) "
+                    if reader == "native"
+                    else "events AS (SELECT 1 AS team_id, document AS properties, "
+                    "CAST(JSONExtractKeysAndValues(document, 'String'), 'Map(String, String)') AS properties_group_custom "
+                    "FROM (SELECT arrayJoin(%(documents)s) AS document)) "
+                )
+                sql = "WITH " + source + printed
+                if printed.startswith("WITH "):
+                    sql = "WITH " + source.rstrip() + ", " + printed.removeprefix("WITH ")
+                if expected is None:
+                    with pytest.raises(ServerException, match="not under aggregate function and not in GROUP BY"):
+                        sync_execute(sql, {**context.values, "documents": documents})
+                else:
+                    rows = sync_execute(sql, {**context.values, "documents": documents})
+                    assert rows == expected
+
     @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
     def test_string_paths_read_empty_as_null(self, _name: str, json_type: str) -> None:
         context = self._context()
@@ -594,6 +846,53 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
+            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0]),
+            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0]),
+            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1]),
+            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1]),
+            (
+                "boolean_true_aliases_in",
+                "countIf(properties.opted_in IN ('true', '1', 'T', 'Y', 'YeS', 'ON', 'Enable', 'Enabled'))",
+                [2],
+            ),
+            (
+                "boolean_false_aliases_in",
+                "countIf(properties.opted_in IN ('false', '0', 'F', 'N', 'No', 'OFF', 'Disable', 'Disabled'))",
+                [1],
+            ),
+        ]
+    )
+    def test_boolean_property_compared_to_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int | None]
+    ) -> None:
+        context = self._context(event_properties={"opted_in": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"opted_in":"pending"}',
+                    '{"opted_in":"declined"}',
+                    '{"opted_in":true}',
+                    '{"opted_in":"true"}',
+                    "{}",
+                    '{"opted_in":false}',
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
             (name, property_name, value, escape_forward_slashes)
             for name, property_name, value in [
                 ("typed_array", "$exception_types", ["a", '"b"', "https://example.com/path", r"a\/b", r"a\\/b"]),
@@ -681,6 +980,65 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             },
         )
         assert row == ('{"project":"visible"}', None, "visible", 0, 0, 1)
+
+    def test_person_restriction_masks_set_containers_on_events(self) -> None:
+        context = self._context()
+        context.restricted_properties = {
+            RestrictedProperty(name=name, property_type=PropertyDefinition.Type.PERSON)
+            for name in ("email", "user.email")
+        }
+        query = parse_select(
+            """SELECT properties.$set,
+                properties.$set.email,
+                properties.$set."user%2Eemail" AS dotted_set,
+                properties.$set.name,
+                properties.$set_once.email,
+                properties.$set_once."user%2Eemail" AS dotted_set_once,
+                properties.email,
+                JSONHas(properties, '$set', 'email'),
+                JSONHas(properties, '$set', 'user%2Eemail'),
+                JSONExtractString(properties, '$set_once', 'email')
+            FROM events"""
+        )
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        [row] = sync_execute(
+            """WITH events_json AS (
+                SELECT 1 AS team_id, '$identify' AS event,
+                    CAST(%(document)s, %(event_type)s) AS properties,
+                    CAST('{}', %(person_type)s) AS person_properties,
+                    CAST(%(temporary_document)s, %(temporary_type)s) AS temporary_properties
+            ) """
+            + printed,
+            {
+                **context.values,
+                "document": '{"email":"event-level"}',
+                # The native cleaner stores $set and $set_once in temporary_properties, so a read of either
+                # container comes from that document.
+                "temporary_document": '{"$set":{"email":"hidden","user%2Eemail":"hidden","name":"visible"},"$set_once":{"email":"hidden","user%2Eemail":"hidden"}}',
+                "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
+            },
+        )
+        # `email` as an event property is a different property and stays readable.
+        assert row == ('{"name":"visible"}', None, None, "visible", None, None, "event-level", 0, 0, "")
+
+    def test_person_restriction_masks_set_containers_on_legacy_events(self) -> None:
+        context = self._context(use_new_events_schema=False)
+        context.restricted_properties = {RestrictedProperty(name="email", property_type=PropertyDefinition.Type.PERSON)}
+        query = parse_select("SELECT properties.$set.email, properties.$set, properties.email FROM events")
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        select_list = printed.split("FROM")[0]
+        # The nested read is a constant, never an extract that could reach the raw blob.
+        assert select_list.startswith("SELECT NULL AS `$set__email`,"), printed
+        # The container read comes from the scrubbed blob, which drops the nested path.
+        assert JSON_DROP_KEYS_CLICKHOUSE_NAME in select_list, printed
+        dropped = [value for value in context.values.values() if isinstance(value, list)]
+        assert any("$set.email" in value and "$set_once.email" in value for value in dropped), context.values
+        # The event-level `email` is unrestricted and still read from the blob.
+        assert "email" not in {key for value in dropped for key in value}, context.values
 
 
 class TestPropertyTypes(BaseTest):
@@ -1687,7 +2045,7 @@ class TestEventsSchemaStorageSemantics(ClickhouseTestMixin, HypothesisDjangoTest
 
         value = properties["dynamic_value"]
         encoded = json.dumps(value, ensure_ascii=False)
-        assert native[0] == ((value or None) if isinstance(value, str) else encoded)
+        assert native[0] == (value if isinstance(value, str) else encoded)
         assert legacy[0] == (encoded[1:-1] if isinstance(value, str) else encoded)
 
         browser = properties.get("$browser")
@@ -2354,7 +2712,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             f"Expected PK to use {expected_timestamp_key}, got Keys={pk_keys}"
         )
 
-    def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict]:
+    def _compile_hogql(self, hogql: str, timezone: str = "UTC") -> tuple[str, dict[str, object]]:
         self.team.timezone = timezone
         self.team.save()
         # This class asserts the structural shape of toTimeZone stripping (a PropertySwapper concern).
@@ -2459,24 +2817,6 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         )
         assert re.search(r"greaterOrEquals\([\w.]*scheduled_at, ", sql), sql
         assert not re.search(r"ifNull\(greaterOrEquals\([\w.]*scheduled_at", sql), sql
-
-    def test_toTimeZone_not_stripped_in_join_on(self):
-        """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
-        sql, _ = self._compile_hogql(
-            "SELECT e.timestamp FROM events e LEFT JOIN events e2 "
-            "ON e.person_id = e2.person_id AND e2.timestamp >= e.timestamp "
-            "WHERE e.timestamp >= '2024-03-01' AND e.timestamp < '2024-04-01'",
-            timezone="America/New_York",
-        )
-        # The JOIN ON greaterOrEquals should still have toTimeZone wrapping
-        assert re.search(r"greaterOrEquals\(toTimeZone\(", sql), (
-            f"Expected toTimeZone preserved in JOIN ON greaterOrEquals, got:\n{sql}"
-        )
-        # The WHERE comparisons should have toTimeZone stripped (bare e.timestamp)
-        assert re.search(r"greaterOrEquals\(e\.timestamp,", sql), (
-            f"Expected bare e.timestamp in WHERE greaterOrEquals, got:\n{sql}"
-        )
-        assert re.search(r"less\(e\.timestamp,", sql), f"Expected bare e.timestamp in WHERE less, got:\n{sql}"
 
     def test_toTimeZone_not_stripped_inside_function_calls(self):
         """toTimeZone should NOT be stripped from comparisons inside function calls."""

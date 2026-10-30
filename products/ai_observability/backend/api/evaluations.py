@@ -37,7 +37,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError,
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission, is_service_auth
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.message_utils import last_message_text
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
@@ -58,11 +58,11 @@ from ..facade import (
 )
 from ..facade.contracts import Contract
 from ..hog import compile_ai_observability_hog
-from ..llm import DEFAULT_MODEL_BY_PROVIDER
-from ..llm.decisions import decision_evaluations_enabled, is_decision_model
+from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
+from ..llm.decisions import is_decision_model
 from ..llm.errors import ProviderConnectionError
-from ..llm.providers.openai import OPENAI_DECISIONS_BASE_URL, OpenAIConfig
-from ..llm.providers.openrouter import OPENROUTER_BASE_URL, is_non_chat_model
+from ..llm.providers.openai import OpenAIConfig
+from ..llm.providers.openrouter import is_non_chat_model
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -125,6 +125,16 @@ logger = structlog.get_logger(__name__)
                         "enum": ["llm", "decision"],
                         "nullable": True,
                         "description": "Judge method. Omit to keep the saved method; null restores automatic routing.",
+                    },
+                    "reasoning_level": {
+                        "type": "string",
+                        "enum": ["minimal", "low", "medium", "high"],
+                        "nullable": True,
+                        "description": (
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI "
+                            "reasoning models with the 'llm' judge method support it. Omit to keep the saved "
+                            "level; null uses the model's default."
+                        ),
                     },
                 },
                 "additionalProperties": False,
@@ -572,12 +582,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 model_provider,
                 model_configuration.get("model"),
                 decision_only=judge_method is None,
-                openrouter_enabled=model_provider == "openrouter"
-                and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
                 openai_enabled=judge_method == "decision"
                 and model_provider == LLMProvider.OPENAI
-                and model_configuration.get("model") in OpenAIConfig.DECISION_MODELS
-                and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENAI_DECISIONS_BASE_URL),
+                and model_configuration.get("model") in OpenAIConfig.DECISION_MODELS,
             )
         except ProviderConnectionError as e:
             raise serializers.ValidationError({"model_configuration": str(e)}) from e
@@ -594,15 +601,14 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             config = data["evaluation_config"]
             if not isinstance(config, dict):
                 raise serializers.ValidationError({"evaluation_config": "Must be an object."})
-            if (
-                self.partial
-                and self.instance is not None
-                and evaluation_type == EvaluationType.LLM_JUDGE.value
-                and "judge_method" not in config
-                and "judge_method" in self.instance.evaluation_config
-            ):
-                # A prompt-only PATCH must not reset the saved routing choice.
-                data["evaluation_config"] = {"judge_method": self.instance.evaluation_config["judge_method"], **config}
+            if self.partial and self.instance is not None and evaluation_type == EvaluationType.LLM_JUDGE.value:
+                # A prompt-only PATCH must not reset the saved judge settings.
+                saved = {
+                    key: self.instance.evaluation_config[key]
+                    for key in ("judge_method", "reasoning_level")
+                    if key not in config and key in self.instance.evaluation_config
+                }
+                data["evaluation_config"] = {**saved, **config}
         if (
             self.instance
             and output_type != self.instance.output_type
@@ -642,6 +648,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ).get("judge_method")
         if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
+        self._validate_reasoning_level(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
             self.instance is None
@@ -738,13 +745,26 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if uses_decision_model:
             return
         if model and is_non_chat_model(model):
-            guidance = (
-                "Choose a chat model or a supported decision model."
-                if decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL)
-                else "Choose a chat model."
-            )
             raise serializers.ValidationError(
-                {"model_configuration": f"'{model}' is not supported as an evaluation judge. {guidance}"}
+                {
+                    "model_configuration": f"'{model}' is not supported as an evaluation judge. "
+                    "Choose a chat model or a supported decision model."
+                }
+            )
+
+    def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool) -> None:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return
+        evaluation_config = data.get("evaluation_config", getattr(self.instance, "evaluation_config", None))
+        if not isinstance(evaluation_config, dict) or not evaluation_config.get("reasoning_level"):
+            return
+        model_config = self._effective_model_configuration(data) or {}
+        if uses_decision_model or not supports_reasoning_level(model_config.get("provider"), model_config.get("model")):
+            raise serializers.ValidationError(
+                {
+                    "evaluation_config": "This judge model doesn't support a reasoning level. Choose an Anthropic or OpenAI reasoning model, or use the model default."
+                }
             )
 
     def _validate_can_run(self, data: dict) -> None:
@@ -1879,8 +1899,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             )
 
             io = extract_event_io(event_type, properties)
-            input_preview = extract_text_from_messages(io.input_raw)[:200]
-            output_preview = extract_text_from_messages(io.output_raw)[:200]
+            input_preview = last_message_text(io.input_raw, "user")[:200]
+            output_preview = last_message_text(io.output_raw, "assistant")[:200]
 
             results.append(
                 {

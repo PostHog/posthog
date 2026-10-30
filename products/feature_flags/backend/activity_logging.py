@@ -58,5 +58,6 @@ def handle_feature_flag_change(
             changes=changes,
             name=after_update.key,
             trigger=trigger,
+            context=getattr(after_update, "_activity_context", None),
         ),
     )

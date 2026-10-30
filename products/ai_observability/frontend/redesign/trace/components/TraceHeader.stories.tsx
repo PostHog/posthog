@@ -28,6 +28,20 @@ export const ExportInProgress: Story = {
     // The busy button's spinner is the state this story shows, so the snapshot must not wait for it to go.
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
+export const WithSearch: Story = {
+    args: {
+        search: {
+            query: 'seats',
+            status: 'ready',
+            total: 3,
+            matchingSteps: 2,
+            position: 1,
+            failure: null,
+            onQueryChange: () => {},
+            onStep: () => {},
+        },
+    },
+}
 export const Narrow: Story = {
     args: { name: 'a-very-long-trace-name-that-should-truncate-cleanly', exportAction },
     decorators: [withWidth(360)],

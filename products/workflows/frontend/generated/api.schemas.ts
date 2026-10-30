@@ -8,6 +8,88 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `ai_not_approved` - Ai Not Approved
+ * * `unavailable` - Unavailable
+ */
+export type DataSuggestionsStatusEnumApi =
+    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
+
+export const DataSuggestionsStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    AiNotApproved: 'ai_not_approved',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `not_yet` - Not Yet
+ * * `regulars` - Regulars
+ * * `lapsed` - Lapsed
+ */
+export type AudienceSuggestionKindEnumApi =
+    (typeof AudienceSuggestionKindEnumApi)[keyof typeof AudienceSuggestionKindEnumApi]
+
+export const AudienceSuggestionKindEnumApi = {
+    NotYet: 'not_yet',
+    Regulars: 'regulars',
+    Lapsed: 'lapsed',
+} as const
+
+export interface AudienceSuggestionApi {
+    /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+    id: string
+    /** Suggested audience name, written by AI from the project's events. */
+    name: string
+    /** Who the people are and what to tell them. Used as the cohort description and the email brief. */
+    description: string
+    /** One sentence on why the audience is worth a broadcast. */
+    reason: string
+    /** not_yet: did event in the window but not missing_event. regulars: did event at least min_count times in the window. lapsed: did event in the last 90 days but not in the window.
+     *
+     * * `not_yet` - Not Yet
+     * * `regulars` - Regulars
+     * * `lapsed` - Lapsed */
+    kind: AudienceSuggestionKindEnumApi
+    /** The project event the audience is built on. */
+    event: string
+    /**
+     * For not_yet: the event the audience has not done yet. Null otherwise.
+     * @nullable
+     */
+    missing_event: string | null
+    /** The time window in days. */
+    window_days: number
+    /**
+     * For regulars: how many times the event must happen in the window.
+     * @nullable
+     */
+    min_count: number | null
+    /** People in the audience with an email address, counted when the suggestion was made. */
+    reachable_count: number
+    /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
+    cohort_filters: unknown
+}
+
+export interface AudienceSuggestionsResponseApi {
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+     *
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable */
+    status: DataSuggestionsStatusEnumApi
+    /** Up to 3 suggested broadcast audiences. */
+    suggestions: AudienceSuggestionApi[]
+}
+
+export interface DataSuggestionGenerateRequestApi {
+    /** Make new suggestions even when the cached ones are still valid. */
+    refresh?: boolean
+}
+
+/**
  * * `team` - Only team
  * * `organization` - Organization
  * * `global` - Global
@@ -2208,7 +2290,7 @@ export interface TeamEmailReputationResponseApi {
     readonly email_sending_suspended_at: string | null
     /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
     readonly email_sending_suspension_reason: string
-    /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
+    /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
     readonly sending_allowance: EmailSendingAllowanceApi | null
 }
 
@@ -2419,21 +2501,28 @@ export interface DataSuggestionBuildResponseApi {
     missing_inputs: DataSuggestionMissingInputApi[]
 }
 
-/**
- * * `ready` - Ready
- * * `generating` - Generating
- * * `ai_not_approved` - Ai Not Approved
- * * `unavailable` - Unavailable
- */
-export type DataSuggestionsStatusEnumApi =
-    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
+export interface EventWorkflowsBuildRequestApi {
+    /**
+     * The events to build email workflows for, at most 5. Each event gets at most one draft workflow that starts when the event happens.
+     * @minItems 1
+     * @maxItems 5
+     * @items.maxLength 400
+     */
+    events: string[]
+    /** Start a new build when the last one for these events failed. Leave it false when asking for a running build's status. */
+    retry?: boolean
+}
 
-export const DataSuggestionsStatusEnumApi = {
-    Ready: 'ready',
-    Generating: 'generating',
-    AiNotApproved: 'ai_not_approved',
-    Unavailable: 'unavailable',
-} as const
+export interface EventWorkflowsBuildResponseApi {
+    /** ready when at least one draft was saved, building while the background build runs (call again with the same events to check), failed when no event produced a valid workflow. A failed result stays until a call sends retry.
+     *
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `failed` - Failed */
+    status: DataSuggestionBuildStatusEnumApi
+    /** With status ready: the saved draft workflows, which never run until enabled. Empty otherwise. */
+    workflow_ids: string[]
+}
 
 /**
  * * `signup` - Signup
@@ -2530,11 +2619,6 @@ export interface DataSuggestionsResponseApi {
     readonly email_sender_ready: boolean
 }
 
-export interface DataSuggestionGenerateRequestApi {
-    /** Make new suggestions even when the cached ones are still valid. */
-    refresh?: boolean
-}
-
 /**
  * * `error_tracking` - Error tracking issue
  * * `early_access` - Early access feature
@@ -2622,6 +2706,188 @@ export interface EmailDraftApi {
      * * `model_error` - The model call failed
      * * `invalid_output` - The model returned an unusable draft */
     template_reason: EmailDraftFallbackReasonEnumApi | null
+}
+
+/**
+ * Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.
+ */
+export type WorkflowImportRequestApiSnippets = { [key: string]: string }
+
+/**
+ * Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.
+ */
+export type WorkflowImportRequestApiSegmentCohorts = { [key: string]: number }
+
+/**
+ * Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`.
+ */
+export type WorkflowImportRequestApiLayouts = { [key: string]: string }
+
+/**
+ * * `customerio` - Customer.io
+ */
+export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
+
+export const ImportProviderKeyEnumApi = {
+    Customerio: 'customerio',
+} as const
+
+/**
+ * The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields.
+ */
+export type CustomerioCampaignApiCampaign = { [key: string]: unknown }
+
+export type CustomerioCampaignApiActionsItem = { [key: string]: unknown }
+
+export interface CustomerioCampaignApi {
+    /** The `campaign` object from Customer.io's `GET /v1/environments/{environment_id}/campaigns/{campaign_id}` (Journeys UI API, what the Customer.io CLI and MCP read). Must include `id`, `type`, `edges` and the trigger fields. */
+    campaign: CustomerioCampaignApiCampaign
+    /** The top-level `actions` array from the same response, every step of the automation. */
+    actions: CustomerioCampaignApiActionsItem[]
+    /** The message templates the actions point at, from `GET /v1/environments/{environment_id}/templates/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content. */
+    templates?: unknown
+}
+
+export interface CustomerioSenderIdentityApi {
+    /** The sender identity's id, which templates name in `from_identity_id`. */
+    id: string
+    /** The address the sender sends from. */
+    email: string
+    /** The sender's display name. */
+    name?: string
+}
+
+export interface CustomerioSegmentApi {
+    /** The segment's id. */
+    id: string
+    /** The segment's name. */
+    name: string
+    /** The segment's type: `dynamic`, or `static` for a hand-made list. */
+    type: string
+}
+
+export interface WorkflowImportRequestApi {
+    /** The tool the automations come from.
+     *
+     * * `customerio` - Customer.io */
+    source: ImportProviderKeyEnumApi
+    /** The automations to import, at most 50. People are never read from these objects. */
+    campaigns: CustomerioCampaignApi[]
+    /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
+    snippets?: WorkflowImportRequestApiSnippets
+    /** Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set. */
+    segment_cohorts?: WorkflowImportRequestApiSegmentCohorts
+    /** Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`. */
+    layouts?: WorkflowImportRequestApiLayouts
+    /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
+    sender_identities?: CustomerioSenderIdentityApi[]
+    /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+    segments?: CustomerioSegmentApi[]
+    /** When true, translate and check the automations but save nothing, to preview the import. */
+    dry_run?: boolean
+}
+
+/**
+ * * `preview` - Preview
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ */
+export type WorkflowImportStatusEnumApi = (typeof WorkflowImportStatusEnumApi)[keyof typeof WorkflowImportStatusEnumApi]
+
+export const WorkflowImportStatusEnumApi = {
+    Preview: 'preview',
+    Created: 'created',
+    Updated: 'updated',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `approximated` - Approximated
+ * * `unsupported` - Unsupported
+ * * `needs_input` - Needs input
+ */
+export type WorkflowImportNoteLevelEnumApi =
+    (typeof WorkflowImportNoteLevelEnumApi)[keyof typeof WorkflowImportNoteLevelEnumApi]
+
+export const WorkflowImportNoteLevelEnumApi = {
+    Approximated: 'approximated',
+    Unsupported: 'unsupported',
+    NeedsInput: 'needs_input',
+} as const
+
+export interface WorkflowImportNoteApi {
+    /** `approximated`: the step behaves differently in PostHog. `unsupported`: the setting was left out. `needs_input`: the team must set something before enabling.
+     *
+     * * `approximated` - Approximated
+     * * `unsupported` - Unsupported
+     * * `needs_input` - Needs input */
+    level: WorkflowImportNoteLevelEnumApi
+    /** What changed or was left out, and what to do about it. */
+    message: string
+    /**
+     * The workflow step the note is about, or null.
+     * @nullable
+     */
+    step_id: string | null
+    /**
+     * That step's name, or null.
+     * @nullable
+     */
+    step_name: string | null
+}
+
+export interface WorkflowImportResultApi {
+    /** The automation's id in Customer.io. */
+    source_id: string
+    /** The automation's name. */
+    name: string
+    /** `preview` when dry_run is set, `created` or `updated` for a saved draft, `skipped` when an earlier import of it is no longer a draft, `failed` when the draft does not pass the workflow checks.
+     *
+     * * `preview` - Preview
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `skipped` - Skipped
+     * * `failed` - Failed */
+    status: WorkflowImportStatusEnumApi
+    /**
+     * The draft workflow's id, when one was saved. In a preview, the draft an import would replace.
+     * @nullable
+     */
+    workflow_id: string | null
+    /** What the import changed or left out. */
+    notes: WorkflowImportNoteApi[]
+    /** Why the draft failed the workflow checks, for `failed`. */
+    validation_errors: string[]
+}
+
+export interface WorkflowImportResponseApi {
+    /** One result per automation, in request order. */
+    results: WorkflowImportResultApi[]
+    /** True when PostHog read message content from Customer.io with the project's stored App API key. */
+    content_fetched: boolean
+}
+
+export interface WorkflowImportRecordApi {
+    /** The import record's id. */
+    readonly id: string
+    /** The tool the workflow was imported from. */
+    readonly source: string
+    /** The automation's id in that tool. */
+    readonly source_id: string
+    /** The automation's name in that tool. */
+    readonly source_name: string
+    /**
+     * The workflow.
+     * @nullable
+     */
+    readonly hog_flow: string | null
+    /** What the import changed or left out. */
+    readonly notes: readonly WorkflowImportNoteApi[]
+    /** When the workflow was last imported. */
+    readonly updated_at: string
 }
 
 export type PeopleImportCreateApiRowsItem = { [key: string]: string }
@@ -2843,6 +3109,10 @@ export type HogFlowsListParams = {
      */
     created_by?: string
     id?: string
+    /**
+     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     */
+    latest_send_first?: boolean
     /**
      * Number of results to return per page.
      */
@@ -3314,4 +3584,11 @@ export type HogFlowsSendCalendarRetrieveParams = {
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */
     start: string
+}
+
+export type WorkflowImportsForWorkflowRetrieveParams = {
+    /**
+     * The workflow to read the import of.
+     */
+    hog_flow_id: string
 }

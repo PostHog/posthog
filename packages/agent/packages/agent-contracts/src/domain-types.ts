@@ -370,6 +370,7 @@ const taskRunStateFields = {
   benjamin_version: optionalField(z.string()),
   codex_max_subagents: optionalField(z.number().int().positive()),
   codex_shared_prompt_cache: optionalField(z.boolean()),
+  disable_repo_hooks: optionalField(z.boolean()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(
@@ -1179,6 +1180,20 @@ export interface Signal {
 export interface SignalReportsResponse {
   results: SignalReport[];
   count: number;
+}
+
+/** The list filters a section count request shares with the inbox list. */
+export interface SignalReportSectionCountsParams {
+  source_product?: string;
+  priority?: string;
+  suggested_reviewers?: string;
+}
+
+export interface SignalReportSectionCounts {
+  /** Ready reports with an implementation pull request. */
+  pull_requests: number;
+  /** Ready reports without an implementation pull request. */
+  reports: number;
 }
 
 export interface SignalProcessingStateResponse {

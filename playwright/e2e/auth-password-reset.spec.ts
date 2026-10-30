@@ -21,11 +21,11 @@ test.describe('Password Reset', () => {
     })
 
     test('Can request password reset', async ({ page }) => {
-        await loginPage.enterUsername('fake@posthog.com')
-        await page.locator('[data-attr=login-email]').blur()
-        await expect(page.locator('[data-attr=forgot-password]')).toBeVisible({ timeout: 5000 })
+        // Only an existing account reaches the password step, where the reset link lives
+        await loginPage.enterUsername(workspace!.user_email)
+        await loginPage.continueWithEmail()
         await page.click('[data-attr="forgot-password"]')
-        await expect(page).toHaveURL('/reset?email=fake%40posthog.com')
+        await expect(page).toHaveURL(`/reset?email=${encodeURIComponent(workspace!.user_email)}`)
         // Use a unique email so the per-email reset throttle (6/day) doesn't trip under repeated runs
         const resetEmail = `${randomString('reset')}@posthog.com`
         await page.fill('[data-attr="reset-email"]', resetEmail)
