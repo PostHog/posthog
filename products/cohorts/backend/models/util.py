@@ -170,15 +170,19 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
-def _default_missing_operators(node: dict) -> None:
-    # Legacy person properties often omit `operator`, which every evaluator reads as exact.
-    # Filters validation requires it for person filters, so set it explicitly.
+def _normalize_legacy_operators(node: dict) -> None:
+    # Legacy groups store operators that filters validation rejects: person properties often omit
+    # `operator`, which every evaluator reads as exact, and cohort references use in/not_in where
+    # filters use `negation`.
     if node.get("type") in ("AND", "OR"):
         for child in node.get("values") or []:
             if isinstance(child, dict):
-                _default_missing_operators(child)
+                _normalize_legacy_operators(child)
     elif node.get("type") in ("person", "person_metadata") and node.get("operator") is None:
         node["operator"] = "exact"
+    elif node.get("type") == "cohort" and node.get("operator") in ("in", "not_in", None):
+        if node.pop("operator", None) == "not_in":
+            node["negation"] = not node.get("negation", False)
 
 
 def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
@@ -194,7 +198,7 @@ def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
             # empty group rather than store filters that match nobody.
             if not all(properties.get("values") or []):
                 return None
-            _default_missing_operators(properties)
+            _normalize_legacy_operators(properties)
             return {"properties": properties}
     except Exception:
         logger.warning("cohort_legacy_groups_conversion_failed", exc_info=True)
