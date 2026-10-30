@@ -26,8 +26,11 @@ export function InternalFeedbackWidget(): JSX.Element | null {
                 {selectedElementRect && <ElementHighlight rect={selectedElementRect} isSelected />}
                 {isInspecting && hoverElementRect && <ElementHighlight rect={hoverElementRect} />}
             </div>
-            <InternalFeedbackPopover />
-            <InternalFeedbackBar />
+            {/* The quill scope sits on a wrapper because the bridge rules for `bg-card` only match descendants of `[data-quill]`. */}
+            <div data-quill className="contents">
+                <InternalFeedbackPopover />
+                <InternalFeedbackBar />
+            </div>
         </>,
         document.body
     )

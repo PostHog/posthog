@@ -50,7 +50,6 @@ export function InternalFeedbackPopover(): JSX.Element | null {
     return (
         <Card
             size="sm"
-            data-quill
             {...{ [INTERNAL_FEEDBACK_IGNORE_ATTR]: '' }}
             // Same top layer as the bar, so an open modal or menu never covers the card.
             className={cn(
