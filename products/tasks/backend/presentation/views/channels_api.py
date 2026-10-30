@@ -10,9 +10,9 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import page_link_with_params
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership
@@ -741,8 +741,8 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         data = TaskActivityPageSerializer(activity).data
         if data["next_before"] is not None:
-            next_url = replace_query_param(request.build_absolute_uri(), "before", data["next_before"])
-            data["next"] = replace_query_param(next_url, "before_id", data["next_before_id"])
+            next_params = {"before": data["next_before"], "before_id": data["next_before_id"]}
+            data["next"] = page_link_with_params(request, next_params)
         return Response(data)
 
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema

@@ -28,6 +28,19 @@ def page_link(request: Request, param: str, value: str | int | None) -> str | No
     return replace_query_param(request.build_absolute_uri(), param, value)
 
 
+def page_link_with_params(request: Request, params: dict[str, str | int] | None) -> str | None:
+    """Return the request URL with every query param in `params` set, or None when there is no such page.
+
+    Use this for lists whose page position takes more than one param, such as a timestamp and an id.
+    """
+    if params is None:
+        return None
+    url = request.build_absolute_uri()
+    for param, value in params.items():
+        url = replace_query_param(url, param, value)
+    return url
+
+
 def previous_offset(offset: int, limit: int) -> int | None:
     """Return the offset of the page before the page at `offset`, or None on the first page."""
     if offset <= 0:
