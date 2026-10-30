@@ -6,8 +6,9 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 @dataclass
 class PlaidEndpointConfig:
     name: str
-    primary_key: str
+    primary_keys: list[str]
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    partition_key: str | None = None
 
 
 # One PostHog source connects one Plaid Item (the access token the user
@@ -17,11 +18,11 @@ class PlaidEndpointConfig:
 PLAID_ENDPOINTS: dict[str, PlaidEndpointConfig] = {
     "accounts": PlaidEndpointConfig(
         name="accounts",
-        primary_key="account_id",
+        primary_keys=["account_id"],
     ),
     "transactions": PlaidEndpointConfig(
         name="transactions",
-        primary_key="transaction_id",
+        primary_keys=["transaction_id"],
         incremental_fields=[
             {
                 "label": "date",
@@ -30,6 +31,33 @@ PLAID_ENDPOINTS: dict[str, PlaidEndpointConfig] = {
                 "field_type": IncrementalFieldType.Date,
             },
         ],
+        partition_key="date",
+    ),
+    "investment_transactions": PlaidEndpointConfig(
+        name="investment_transactions",
+        primary_keys=["investment_transaction_id"],
+        incremental_fields=[
+            {
+                "label": "date",
+                "type": IncrementalFieldType.Date,
+                "field": "date",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ],
+        partition_key="date",
+    ),
+    # A holding has no ID of its own: Plaid returns one position per security per account.
+    "investment_holdings": PlaidEndpointConfig(
+        name="investment_holdings",
+        primary_keys=["account_id", "security_id"],
+    ),
+    "liabilities": PlaidEndpointConfig(
+        name="liabilities",
+        primary_keys=["account_id"],
+    ),
+    "institutions": PlaidEndpointConfig(
+        name="institutions",
+        primary_keys=["institution_id"],
     ),
 }
 

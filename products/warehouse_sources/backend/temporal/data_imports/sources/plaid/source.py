@@ -83,7 +83,7 @@ class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Plaid",
             keywords=["bank", "banking", "open banking", "financial", "fintech", "transactions"],
-            caption="""Connect a Plaid Item to pull its accounts and transactions into the PostHog Data warehouse.
+            caption="""Connect a Plaid Item to pull its accounts, transactions, investments, liabilities, and institution into the PostHog Data warehouse.
 
 You can find your client ID and secret in the [Plaid dashboard](https://dashboard.plaid.com/developers/keys). The access token identifies one linked Item (institution connection), obtained when a user completes Plaid Link — add one source per Item.""",
             iconPath="/static/services/plaid.png",
