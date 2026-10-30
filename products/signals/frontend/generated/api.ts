@@ -26,7 +26,6 @@ import type {
     ForgetRequestApi,
     ForgetResponseApi,
     InboxOnboardingDraftApi,
-    InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
@@ -100,6 +99,8 @@ import type {
     SignalReportArtefactLogCreateApi,
     SignalReportArtefactWriteApi,
     SignalReportArtefactWriteResponseApi,
+    SignalReportBulkClaimRequestApi,
+    SignalReportBulkClaimResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
     SignalReportCheckApi,
@@ -119,6 +120,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportSectionCountsApi,
     SignalReportSourceMetadataRequestApi,
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
@@ -158,6 +160,7 @@ import type {
     SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
+    SignalsReportsSectionCountsRetrieveParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
     SignalsScoutConfigTrialComparisonHistoryParams,
@@ -421,26 +424,9 @@ export const getSignalsOnboardingExposeCreateUrl = (projectId: string) => {
 
 export const signalsOnboardingExposeCreate = async (
     projectId: string,
-    inboxOnboardingExposureApi: InboxOnboardingExposureApi,
     options?: RequestInit
 ): Promise<InboxOnboardingStateApi> => {
     return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingExposeCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(inboxOnboardingExposureApi),
-    })
-}
-
-export const getSignalsOnboardingReconcileCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/onboarding/reconcile/`
-}
-
-export const signalsOnboardingReconcileCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<InboxOnboardingStateApi> => {
-    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingReconcileCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -1535,6 +1521,27 @@ export const signalsReportsBulkStateCreate = async (
     })
 }
 
+export const getSignalsReportsBulkClaimUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/bulk_claim/`
+}
+
+/**
+ * Claim many reports for the current user, internal task, or external agent in one call. Each id is claimed independently, and the call is 200 even when some claims are refused: inspect `results` and the counts. Use the single-report claim endpoint to release a claim or to add pull requests.
+ * @summary Claim many signal reports
+ */
+export const signalsReportsBulkClaim = async (
+    projectId: string,
+    signalReportBulkClaimRequestApi: SignalReportBulkClaimRequestApi,
+    options?: RequestInit
+): Promise<SignalReportBulkClaimResponseApi> => {
+    return apiMutator<SignalReportBulkClaimResponseApi>(getSignalsReportsBulkClaimUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportBulkClaimRequestApi),
+    })
+}
+
 export const getSignalsReportsPrCiStatusesUrl = (projectId: string, params: SignalsReportsPrCiStatusesParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1635,6 +1642,39 @@ export const signalsReportsRefundSummaryRetrieve = async (
     options?: RequestInit
 ): Promise<SignalReportRefundSummaryResponseApi> => {
     return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsSectionCountsRetrieveUrl = (
+    projectId: string,
+    params?: SignalsReportsSectionCountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/section_counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/section_counts/`
+}
+
+/**
+ * Count the ready reports with and without an implementation pull request, in one query. Accepts the list's filters, so each count matches a `count_only` list request with `status=ready` and the matching `has_implementation_pr`. Rejects `status`, `has_implementation_pr`, `include_all_statuses` and `view`, because the counts set those.
+ */
+export const signalsReportsSectionCountsRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsSectionCountsRetrieveParams,
+    options?: RequestInit
+): Promise<SignalReportSectionCountsApi> => {
+    return apiMutator<SignalReportSectionCountsApi>(getSignalsReportsSectionCountsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

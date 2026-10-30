@@ -1,12 +1,17 @@
 """Evaluation of due metrics alerts on the shared alerts platform.
 
 Each check sends its PromQL expression to Snuffle as one instant query, at the check's due time
-held back to the ingestion checkpoint. Each series the query returns is compared with the
+held back to where the team's ingestion has reached. Each series the query returns is compared with the
 condition. Under grouping by result labels, each distinct set of grouping label values is a group.
 Without grouping, the alert has one group that breaches when any series does.
 
-A series the query no longer returns resolves its group, as it does in Prometheus. A series whose
-value is not a number reaches no verdict, so its group keeps its state.
+A series the query no longer returns keeps its group's state, and so does a series whose value is
+not a number. Prometheus resolves a missing series, but a team's samples spread over ingestion
+partitions, and the freshness read cannot tell that every partition has caught up. So a missing
+series could be one a lagging partition has not written yet, and resolving it would read lag as
+recovery. The hold is bounded: a group missing for `ABSENT_RESOLVE_AFTER` while the team's
+ingestion is fresh resolves, which no lag that leaves the team fresh explains, and which frees its
+slot under `max_instances`. A watermark covering every partition would let it resolve at once.
 
 This reads and decides. It writes nothing, so a retried attempt reads the same due checks and makes
 the same decisions. The platform records the outcomes in its own activity.
@@ -19,12 +24,16 @@ import operator
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
+from uuid import uuid4
+
+from django.conf import settings
 
 import structlog
 from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
 from products.alerts_platform.backend.facade.api import due_checks, has_incident_destination, slot_of
 from products.alerts_platform.backend.facade.contracts import (
@@ -36,12 +45,14 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.facade.grouping import (
     GroupObservation,
     bounded_grouping_key,
     decide_groups,
     delivery_parts,
     muted_value,
+    not_breaching,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
@@ -63,8 +74,8 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
-from products.metrics.backend.alerts.checkpoint import evaluation_time, fetch_live_metrics_checkpoint
 from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
+from products.metrics.backend.alerts.freshness import evaluation_time, fetch_metrics_freshness
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertCondition, MetricsPlatformAlertConfig
 from products.metrics.backend.alerts.wording import alert_url
 from products.metrics.backend.promql import PromQLQueryError, snuffle_payload
@@ -81,10 +92,17 @@ BATCH_QUERY_BUDGET_SECONDS: Final = 25
 MAX_QUERY_SECONDS: Final = 10
 # Below this there is no point starting another query.
 MIN_QUERY_SECONDS: Final = 2
-CHECKPOINT_QUERY_SECONDS: Final = 5
+FRESHNESS_QUERY_SECONDS: Final = 5
+INFLIGHT_KEY: Final = "alerts:platform:metrics:batches:inflight"
+# Outlasts the evaluation activity's run, so a slot frees before its batch ends only when a worker
+# died mid-batch.
+BATCH_SLOT_LEASE_SECONDS: Final = 90
 # Ten times the most groups a configuration can hold. A query past it is refused before its series
 # are judged, so one high-cardinality expression cannot exhaust the worker.
 MAX_SERIES: Final = 1000
+# Far past any partition lag that leaves the team fresh, and short enough that groups which stopped
+# reporting cannot hold every instance slot.
+ABSENT_RESOLVE_AFTER: Final = timedelta(hours=1)
 
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
@@ -118,35 +136,60 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
-    checkpoint = _checkpoint(team)
+    # One slot per batch, because a batch runs its queries one after another, so the batches in
+    # flight bound the concurrent metrics queries across the fleet. A batch the pool turns away
+    # records nothing, so its checks stay due and a later tick finds them again.
+    # Unique per execution: a redispatch of a batch whose old query still runs must hold its own slot.
+    member = f"{team_id}:{slot}:{uuid4().hex}"
+    held_until = hold_evaluation_slot(
+        member,
+        limit=settings.ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform metrics batch over the pool limit", team_id=team_id, slot=slot)
+        safe_record(increment_checks_deferred, SOURCE.value, len(checks))
+        return SourceBatchEvaluation(outcomes=(), deliveries=(), omitted=len(checks))
+    try:
+        return _evaluate_admitted(team, slot, checks, cutoff=cutoff, started_at=started_at)
+    finally:
+        release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def _evaluate_admitted(
+    team: Team, slot: str, checks: Sequence[PlatformAlertCheckInput], *, cutoff: datetime, started_at: float
+) -> SourceBatchEvaluation:
+    freshness = _freshness(team)
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     decided: list[Decision] = []
     for check in checks:
         remaining = deadline - time.monotonic()
         if remaining < MIN_QUERY_SECONDS:
             break
-        at = evaluation_time(check.next_check_at or cutoff, checkpoint)
+        at = evaluation_time(check.next_check_at or cutoff, freshness)
         decided.append(
             _evaluate(
                 team,
                 check,
                 at=at,
                 now=cutoff,
+                ingestion_fresh=freshness is not None,
                 query_seconds=min(MAX_QUERY_SECONDS, remaining),
                 muted=_in_quiet_hours(check, cutoff, team.timezone),
             )
         )
-    evaluation = _collect(decided, team_id=team_id, slot=slot, past_budget=len(checks) - len(decided))
+    evaluation = _collect(decided, team_id=team.id, slot=slot, past_budget=len(checks) - len(decided))
     safe_record(record_batch_duration, SOURCE.value, int((time.monotonic() - started_at) * 1000))
     return evaluation
 
 
-def _checkpoint(team: Team) -> datetime | None:
+def _freshness(team: Team) -> datetime | None:
     try:
-        return fetch_live_metrics_checkpoint(team, max_execution_time=CHECKPOINT_QUERY_SECONDS)
+        return fetch_metrics_freshness(team, max_execution_time=FRESHNESS_QUERY_SECONDS)
     except Exception:
-        # Without a checkpoint the check reads at its due time, as it would with a fresh one.
-        logger.exception("Failed to fetch the metrics ingestion checkpoint", team_id=team.id)
+        # Without a freshness the batch still runs, at its due time.
+        logger.exception("Failed to fetch the metrics ingestion freshness", team_id=team.id)
         return None
 
 
@@ -160,7 +203,14 @@ def _in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str)
 
 
 def _evaluate(
-    team: Team, check: PlatformAlertCheckInput, *, at: datetime, now: datetime, query_seconds: float, muted: bool
+    team: Team,
+    check: PlatformAlertCheckInput,
+    *,
+    at: datetime,
+    now: datetime,
+    ingestion_fresh: bool,
+    query_seconds: float,
+    muted: bool,
 ) -> Decision:
     started_at = time.monotonic()
     try:
@@ -185,8 +235,7 @@ def _evaluate(
         policy=POLICY,
         now=now,
         muted=muted,
-        # A group with no number this check keeps its state. One the query no longer returns resolves.
-        absent=lambda key: None if key in unknown else GroupObservation(grouping_key=key, current_breached=False),
+        absent=lambda key: _absent(check, key, unknown=unknown, now=now, ingestion_fresh=ingestion_fresh),
     )
     for verdict in decision.verdicts:
         safe_record(increment_checks, SOURCE.value, verdict.outcome.notification.value)
@@ -256,10 +305,20 @@ def _breached(condition: MetricsPlatformAlertCondition, value: float | None) -> 
     return _COMPARE[condition.operator](value, condition.threshold)
 
 
+def _absent(
+    check: PlatformAlertCheckInput, key: str, *, unknown: frozenset[str], now: datetime, ingestion_fresh: bool
+) -> GroupObservation | None:
+    """A missing group's verdict: None holds its state, as the module docstring explains, until the hold runs out."""
+    last_seen_at = check.instance(key).last_seen_at
+    if key in unknown or not ingestion_fresh or last_seen_at is None or now - last_seen_at < ABSENT_RESOLVE_AFTER:
+        return None
+    return not_breaching(key)
+
+
 def _observations(
     check: PlatformAlertCheckInput, condition: MetricsPlatformAlertCondition, samples: Sequence[_Sample]
-) -> tuple[list[GroupObservation], set[str]]:
-    """One observation per sample, and the keys of the groups held without a verdict.
+) -> tuple[list[GroupObservation], frozenset[str]]:
+    """One observation per sample, leaving out the groups held without a verdict, and those groups' keys.
 
     A group with a sample that has no number is held, unless another of its samples breaches. A healthy
     sample beside it does not show that the unknown one recovered.
@@ -281,8 +340,24 @@ def _observations(
             GroupObservation(grouping_key=key, current_breached=breached, value=sample.value, labels=labels)
         )
     breaching = {observation.grouping_key for observation in observations if observation.current_breached}
-    held = unknown - breaching
-    return [observation for observation in observations if observation.grouping_key not in held], held
+    held = frozenset(unknown - breaching)
+    kept = [observation for observation in observations if observation.grouping_key not in held]
+    # An announced firing the query still returns is reported as still firing, which notifies nothing,
+    # so the platform records it as seen and its absence hold counts from this check. An unannounced
+    # one is left out, because a breach would announce it on a value that reached no verdict.
+    kept.extend(GroupObservation(grouping_key=key, current_breached=True) for key in held if _announced(check, key))
+    return kept, held
+
+
+def _announced(check: PlatformAlertCheckInput, key: str) -> bool:
+    """Whether a group fires and has announced it, the same test the lifecycle machine applies."""
+    instance = check.instance(key)
+    return (
+        instance.state == PlatformAlertState.FIRING.value
+        and instance.firing_started_at is not None
+        and instance.last_notified_at is not None
+        and instance.last_notified_at >= instance.firing_started_at
+    )
 
 
 def _grouping_key_of(labels: dict[str, str]) -> str:

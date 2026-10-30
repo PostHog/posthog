@@ -26,7 +26,7 @@ export {
     series,
     sqlChart,
 } from './interactions'
-export { personsModal } from './elements'
+export { annotationBadges, personsModal } from './elements'
 export { buildActorsResponse, setupInsightMocks } from './mocks'
 export type { MockResponse, QueryBody, SetupMocksOptions } from './mocks'
 export { expectNoNaN } from './query-helpers'

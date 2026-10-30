@@ -22,8 +22,9 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, as_drf_validation_error
+from posthog.integrations import IntegrationManager
 from posthog.models import User
-from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration
+from posthog.models.integration import SLACK_INTEGRATION_KINDS
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.alerts.backend.facade.destinations import (
@@ -63,12 +64,23 @@ _DEFAULT_EVENT_KINDS: dict[DestinationType, tuple[AlertEventKind, ...]] = {
     DestinationType.PAGERDUTY: (AlertEventKind.FIRING, AlertEventKind.RESOLVED),
 }
 _MESSAGE_EVENT_KINDS = (AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN)
-# Choices classes for the serializers below. Each label is its value, so the OpenAPI enums keep the
-# names their ENUM_NAME_OVERRIDES entries in posthog/settings/web.py give them. TextChoices supports
-# this functional API at runtime, but its type stubs only describe member construction.
-MetricsAlertDestinationTypeChoices = cast(Any, models.TextChoices)(
-    "MetricsAlertDestinationTypeChoices",
-    [(member.name, (member.value, member.value)) for member in METRICS_ALERT_DESTINATION_TYPES],
+_WEBHOOK_FIELDS = ("webhook_url",)
+# The fields each type stores. Redaction knows only its own type's credential, so a field of another
+# type would be stored and then shown in full.
+_FIELDS_BY_TYPE: dict[DestinationType, tuple[str, ...]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id", "slack_channel_name"),
+    DestinationType.WEBHOOK: _WEBHOOK_FIELDS,
+    DestinationType.TEAMS: _WEBHOOK_FIELDS,
+    DestinationType.DISCORD: _WEBHOOK_FIELDS,
+    DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+}
+# Choices classes for the serializers below. TextChoices supports this functional API at runtime, but
+# its type stubs only describe member construction. The destination types carry their display labels,
+# so the OpenAPI enum is named after this class (MetricsAlertDestinationTypeEnum). The others keep
+# label equal to value, so they share the names their ENUM_NAME_OVERRIDES entries give them.
+MetricsAlertDestinationType = cast(Any, models.TextChoices)(
+    "MetricsAlertDestinationType",
+    [(member.name, (member.value, member.label)) for member in METRICS_ALERT_DESTINATION_TYPES],
 )
 PagerDutySeverityChoices = cast(Any, models.TextChoices)(
     "PagerDutySeverityChoices", [(member.name, (member.value, member.value)) for member in PagerDutySeverity]
@@ -85,7 +97,7 @@ MetricsAlertDestinationEventKind = cast(Any, models.TextChoices)(
 class MetricsAlertDestinationSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the destination. Send it to the delete endpoint to remove it.")
     type = serializers.ChoiceField(
-        choices=MetricsAlertDestinationTypeChoices.choices, help_text="Notification destination type."
+        choices=MetricsAlertDestinationType.choices, help_text="Notification destination type."
     )
     enabled = serializers.BooleanField(help_text="Whether the destination is sent to.")
     event_kinds = serializers.ListField(
@@ -121,7 +133,7 @@ class MetricsAlertDestinationSerializer(serializers.Serializer):
 
 class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=MetricsAlertDestinationTypeChoices.choices, help_text="Notification destination type."
+        choices=MetricsAlertDestinationType.choices, help_text="Notification destination type."
     )
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
@@ -160,15 +172,10 @@ class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = DestinationType(attrs["type"])
-        # The PagerDuty fields have defaults, so they arrive for every type. Only PagerDuty keeps them.
+        # The PagerDuty fields have defaults, so they arrive for every type. Each type keeps only its own.
         data = cast(
             AlertDestinationData,
-            {
-                key: value
-                for key, value in attrs.items()
-                if key != "event_kinds"
-                and (destination_type == DestinationType.PAGERDUTY or not key.startswith("pagerduty_"))
-            },
+            {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs},
         )
         data["type"] = destination_type
         try:
@@ -257,12 +264,9 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         event_kinds: tuple[AlertEventKind, ...] = serializer.validated_data["event_kinds"]
         # Native delivery looks the workspace up by team and kind, so a destination naming any other
         # integration would be saved and never notify.
-        if (
-            data["type"] == DestinationType.SLACK
-            and not Integration.objects.filter(
-                id=data["slack_workspace_id"], team_id=self.team_id, kind__in=SLACK_INTEGRATION_KINDS
-            ).exists()
-        ):
+        if data["type"] == DestinationType.SLACK and data["slack_workspace_id"] not in IntegrationManager.kinds(
+            *SLACK_INTEGRATION_KINDS, auth_types="any"
+        ).get_many(self.team_id, [data["slack_workspace_id"]]):
             raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
         try:
             with transaction.atomic():
@@ -292,12 +296,13 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
-        report_user_action(
-            cast(User, request.user),
-            "metrics alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": [kind.value for kind in event_kinds]},
-            team=self.team,
-            request=request,
+        # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
+        transaction.on_commit(
+            lambda: self._track(
+                "created",
+                {"alert_id": str(alert.id), "type": data["type"], "event_kinds": [kind.value for kind in event_kinds]},
+            ),
+            robust=True,
         )
         return Response(MetricsAlertDestinationSerializer(_serialized(created)).data, status=status.HTTP_201_CREATED)
 
@@ -318,11 +323,16 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
             team_id=self.team_id, configuration_id=alert.id, destination_ids=destination_ids
         )
 
-        report_user_action(
-            cast(User, request.user),
-            "metrics alert destination deleted",
-            {"alert_id": str(alert.id), "count": deleted},
-            team=self.team,
-            request=request,
+        transaction.on_commit(
+            lambda: self._track("deleted", {"alert_id": str(alert.id), "count": deleted}), robust=True
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _track(self, action: Literal["created", "deleted"], properties: dict[str, Any]) -> None:
+        report_user_action(
+            cast(User, self.request.user),
+            f"metrics alert destination {action}",
+            properties,
+            team=self.team,
+            request=self.request,
+        )

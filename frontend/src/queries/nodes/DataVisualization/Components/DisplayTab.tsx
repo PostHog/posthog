@@ -92,10 +92,9 @@ export const DisplayTab = (): JSX.Element => {
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
     const supportsAnnotations =
-        isDateXAxis &&
-        (isLineChart ||
-            effectiveVisualizationType === ChartDisplayType.ActionsBar ||
-            effectiveVisualizationType === ChartDisplayType.ActionsStackedBar)
+        isLineChart ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+        effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
         const leftPlaceholder = isHorizontalBarChart
@@ -295,7 +294,10 @@ export const DisplayTab = (): JSX.Element => {
                                         className="flex-1 w-full"
                                         data-attr="data-visualization-show-annotations"
                                         label="Show annotations"
-                                        checked={chartSettings.showAnnotations ?? false}
+                                        disabledReason={
+                                            !isDateXAxis && 'Annotations need a Date or DateTime column on the X-axis'
+                                        }
+                                        checked={isDateXAxis && (chartSettings.showAnnotations ?? false)}
                                         onChange={(value) => {
                                             updateChartSettings({ showAnnotations: value })
                                         }}

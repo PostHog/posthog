@@ -8,7 +8,7 @@ type ListedStatus = ListedHealthCheck['status']
 
 const STATUS_DISPLAY: Record<ListedStatus, { icon: JSX.Element; label: string }> = {
     not_checked: { icon: <IconQuestion className="text-secondary" />, label: "Couldn't check" },
-    passed: { icon: <IconCheck className="text-success" />, label: 'No problem found' },
+    passed: { icon: <IconCheck className="text-success" />, label: 'Looked for, not found' },
     not_applicable: { icon: <IconMinus className="text-tertiary" />, label: "Doesn't apply" },
 }
 
@@ -40,16 +40,14 @@ function groupByOutcome(checks: ListedHealthCheck[], exposureChecksMissing: bool
 }
 
 export function HealthCheckList({
-    id,
     checks,
     exposureChecksMissing,
 }: {
-    id?: string
     checks: ListedHealthCheck[]
     exposureChecksMissing: boolean
 }): JSX.Element {
     return (
-        <div id={id} className="flex flex-col gap-2 px-3 py-2" data-attr="experiment-health-check-list">
+        <div className="flex flex-col gap-2 px-3 py-2" data-attr="experiment-health-check-list">
             {groupByOutcome(checks, exposureChecksMissing).map((group) => (
                 <div key={`${group.status}:${group.label}`} className="flex flex-col gap-1">
                     <span className="text-xs font-semibold text-secondary">{group.label}</span>

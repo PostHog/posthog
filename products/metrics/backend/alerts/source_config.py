@@ -73,4 +73,5 @@ METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
     native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES),
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
+    rollout_flag="platform-alerts-source-metrics",
 )

@@ -9,7 +9,7 @@ import {
 import { CommonFilters, HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 
 import { initKeaTests } from '~/test/init'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { AppContext } from '~/types'
 
 describe('heatmapDataLogic window resize', () => {

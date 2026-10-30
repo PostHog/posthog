@@ -22,6 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceImageResolver,
     SourceKind,
     SourceRecipients,
+    SourceSlackRenderer,
 )
 
 if TYPE_CHECKING:
@@ -77,3 +78,7 @@ def has_legacy_event_emitter(source: SourceKind) -> bool:
 def native_sends_legacy_webhook_body(source: SourceKind, team: Team) -> bool | None:
     """Whether a stock webhook receives the body its HogFunction sent when delivered natively. None when unknown."""
     return legacy_webhook.native_sends_legacy_body(source, team)
+
+
+def register_source_slack_renderer(source: SourceKind, renderer: SourceSlackRenderer) -> None:
+    describers.register_slack_renderer(source, renderer)

@@ -1113,6 +1113,10 @@ class SourceConfigSpec:
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
     native: NativeAlertLifecycle | None = None
+    # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
+    # A new kind names its own flag, so it opens on its own schedule while the others stay generally
+    # available.
+    rollout_flag: str | None = None
 
     def __post_init__(self) -> None:
         # The source-row hooks write a row a native kind does not have.
@@ -1416,6 +1420,38 @@ class SourceRecipients(Protocol):
     """
 
     def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
+
+
+@frozen
+class SlackMessageContent:
+    text: str
+    blocks: list[dict[str, Any]]
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+
+
+class SourceSlackRenderer(Protocol):
+    """A source's own Slack layout for a transition, or None to use the platform's.
+
+    Runs on the send path, so it reads only the transition it is given. The platform catches a
+    renderer that raises and sends its own layout instead, so a broken renderer costs the card
+    rather than the notification.
+
+    `text` is what a push notification and a screen reader read, so it is never empty, whether or
+    not the card itself lives in `attachments`. The platform adds the group-limit warning to the
+    content wherever it finds room, and adds the state line to it on a later edit; neither assumes
+    a particular block order.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        transition: AnnouncedTransition,
+        alert_name: str,
+        alert_url: str,
+        project: MessageLink | None,
+        image: MessageImage | None,
+    ) -> SlackMessageContent | None: ...
 
 
 class SourceImageResolver(Protocol):
