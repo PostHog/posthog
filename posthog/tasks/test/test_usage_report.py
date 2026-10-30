@@ -6419,7 +6419,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
         self.assertEqual(
-            get_teams_with_mcp_event_count_in_period(self.begin, reporting_end, count_distinct=True),
+            get_teams_with_mcp_event_count_in_period(self.begin, reporting_end),
             [(self.team.id, 3)],
         )
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 3)
@@ -6448,7 +6448,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         flush_persons_and_events()
 
         self.assertEqual(
-            get_teams_with_mcp_event_count_in_period(self.begin, self.end, count_distinct=True),
+            get_teams_with_mcp_event_count_in_period(self.begin, self.end),
             [(self.team.id, 1)],
         )
 

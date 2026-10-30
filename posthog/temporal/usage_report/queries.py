@@ -279,7 +279,7 @@ QUERIES: list[QuerySpec] = [
     ),
     QuerySpec(
         name="teams_with_mcp_event_count_in_period",
-        fn=lambda b, e: get_teams_with_mcp_event_count_in_period(b, e, count_distinct=True),
+        fn=get_teams_with_mcp_event_count_in_period,
         timeout_minutes=30,
     ),
     QuerySpec(

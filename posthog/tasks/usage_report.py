@@ -866,19 +866,12 @@ def get_teams_with_event_count_with_groups_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_mcp_event_count_in_period(
-    begin: datetime, end: datetime, count_distinct: bool = False
-) -> TeamUsageRows:
+def get_teams_with_mcp_event_count_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
     # Same table and dedup key as `get_teams_with_billable_event_count_in_period`, but split at midnight,
     # so two copies of one event a few hours apart still count once.
-    if count_distinct:
-        distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
-    else:
-        distinct_expression = "1"
-
-    # nosemgrep: clickhouse-fstring-param-audit - events table/count expression are internal fragments
+    # nosemgrep: clickhouse-fstring-param-audit - the events table is an internal fragment
     query_template = f"""
-        SELECT team_id, count({distinct_expression}) as count
+        SELECT team_id, count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
         FROM {events_read_table(use_new_events_schema(None))}
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             AND startsWith(event, %(mcp_event_prefix)s)
@@ -3381,9 +3374,7 @@ def _get_all_usage_data(
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
         "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
         "teams_with_metrics_records_in_period": metrics_usage["records"],
-        "teams_with_mcp_event_count_in_period": get_teams_with_mcp_event_count_in_period(
-            period_start, period_end, count_distinct=True
-        ),
+        "teams_with_mcp_event_count_in_period": get_teams_with_mcp_event_count_in_period(period_start, period_end),
     }
 
 
