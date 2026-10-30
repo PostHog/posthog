@@ -195,6 +195,11 @@ describe("transcriptFrom shell commands", () => {
     }),
   ];
 
+  it("shows a cloud Claude chat's first message once, from its logged prompt", () => {
+    const lines = transcriptFrom("acp", ACP_LOG, "Rename the helper").lines;
+    expect(lines.filter((line) => line.kind === "user")).toHaveLength(1);
+  });
+
   it("shows a command the user ran apart from the agent's own tool calls", () => {
     const { lines } = transcriptFrom("pi", [
       ...PI_LOG,

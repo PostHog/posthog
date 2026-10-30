@@ -1,4 +1,7 @@
-import { convertStoredEntriesToEvents } from "@posthog/core/sessions/sessionEvents";
+import {
+  convertStoredEntriesToEvents,
+  hasSessionPromptEvent,
+} from "@posthog/core/sessions/sessionEvents";
 import {
   type AgentConversationEvent,
   type AgentRuntime,
@@ -112,7 +115,13 @@ export function transcriptFrom(
           null,
         )
       : buildConversationItems(
-          convertStoredEntriesToEvents(entries, taskDescription),
+          // A Claude or Codex cloud log holds its first prompt; a pi cloud log omits it, so the task's description stands in.
+          convertStoredEntriesToEvents(
+            entries,
+            hasSessionPromptEvent(convertStoredEntriesToEvents(entries))
+              ? undefined
+              : taskDescription,
+          ),
           null,
         );
   const lines =

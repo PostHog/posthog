@@ -199,29 +199,14 @@ describe("piControl", () => {
     });
   });
 
-  it("stops the agent's current turn", async () => {
-    const sendCommand = vi.fn(
-      async ({
-        params,
-      }: {
-        params: { command: { id: string; type: string } };
-      }) => ({
-        success: true,
-        result: {
-          id: params.command.id,
-          type: "response",
-          command: params.command.type,
-          success: true,
-        },
-      }),
-    );
+  it("stops the agent's current turn with the command every sandbox agent takes", async () => {
+    const sendCommand = vi.fn(async (_input: { method: string }) => ({
+      success: true,
+    }));
 
     await piControl(sendCommand as never, "t1", "r1").abort();
 
-    expect(sendCommand.mock.calls[0][0]).toMatchObject({
-      method: "pi/rpc",
-      params: { command: { type: "abort" } },
-    });
+    expect(sendCommand.mock.calls[0][0]).toMatchObject({ method: "cancel" });
   });
 
   it("runs a shell command in the run's sandbox and returns its output", async () => {
