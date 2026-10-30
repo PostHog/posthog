@@ -371,6 +371,7 @@ export const defaultMocks: Mocks = {
             completed_at: null,
             github_optional_available: false,
         },
+        '/api/projects/:team_id/signals/scout/notes/': [],
         '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_prompts/resolve/': {},
         '/api/environments/:team_id/llm_analytics/': {},

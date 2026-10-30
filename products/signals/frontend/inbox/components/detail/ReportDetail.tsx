@@ -58,6 +58,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportNotesSection } from './ReportNotesSection'
 import { ReportPlanBlock } from './ReportPlanBlock'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
@@ -535,6 +536,7 @@ export function InboxDetailFrame({
                         <ReportTasksSection report={report} />
                         <ReportChecksSection report={report} />
                         <ReportActivitySection report={report} />
+                        <ReportNotesSection report={report} onToggleCollapsed={captureSectionToggle('notes')} />
                         {asideFooter}
                     </aside>
                 )}
