@@ -95,8 +95,8 @@ describe('DeletedFlagBanner', () => {
                 },
             },
             patch: {
-                '/api/projects/:team/feature_flags/:id': async ({ request }) => {
-                    restoreBodies.push(await request.json())
+                '/api/projects/:team/feature_flags/:id': async ({ request, params }) => {
+                    restoreBodies.push({ id: params.id, body: await request.json() })
                     return [200, { ...deletedFlag, key: 'checkout-flag', deleted: false }]
                 },
             },
@@ -152,7 +152,7 @@ describe('DeletedFlagBanner', () => {
         await screen.findByText(/feature flag is deleted/)
         await userEvent.click(restoreButtons()[0])
 
-        await waitFor(() => expect(restoreBodies).toEqual([{ deleted: false }]))
+        await waitFor(() => expect(restoreBodies).toEqual([{ id: String(FLAG_ID), body: { deleted: false } }]))
         await waitFor(() => expect(screen.queryByText(/feature flag is deleted/)).not.toBeInTheDocument())
     })
 
