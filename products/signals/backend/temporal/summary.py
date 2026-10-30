@@ -65,6 +65,7 @@ from products.signals.backend.report_tags import coerce_report_tags
 from products.signals.backend.spend import (
     begin_report_spend,
     finish_report_spend,
+    lock_signal_spend,
     report_triggering_signal,
     submit_signal_metadata_updates,
 )
@@ -1076,11 +1077,13 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
                 return _ReportStartTransition(
                     run_count=report.run_count, signal_count=report.signal_count, was_duplicate=True
                 )
+            signal_id = input.signal_id or (str(report.triggering_signal_id) if report.triggering_signal_id else None)
+            if signal_id:
+                lock_signal_spend(team_id=input.team_id, signal_id=signal_id)
             if team is not None:
                 prepare_report_pass(
                     team=team, report_id=input.report_id, operation_key=operation_key, paid_authorized=paid_authorized
                 )
-            signal_id = input.signal_id or (str(report.triggering_signal_id) if report.triggering_signal_id else None)
             if signal_id:
                 begin_report_spend(team_id=input.team_id, report_id=input.report_id, signal_id=signal_id)
             updated_fields = report.transition_to(

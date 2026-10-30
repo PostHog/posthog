@@ -8,7 +8,7 @@ from decimal import Decimal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import F, Func, JSONField, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -126,7 +126,16 @@ async def submit_signal_metadata_updates(
         )
 
 
+def lock_signal_spend(*, team_id: int, signal_id: str) -> None:
+    # Report admission must serialize with settlement even before the spend row exists.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-spend:{team_id}:{UUID(signal_id)}"]
+        )
+
+
 def _locked_ad_hoc_spend(*, team_id: int, signal_id: str, trial_grant_id: str | None = None) -> SignalSpend:
+    lock_signal_spend(team_id=team_id, signal_id=signal_id)
     spend, _ = SignalSpend.objects.for_team(team_id).get_or_create(
         team_id=team_id,
         signal_id=signal_id,

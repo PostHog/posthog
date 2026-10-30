@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from types import SimpleNamespace
 from uuid import uuid4
@@ -6,7 +7,7 @@ from uuid import uuid4
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.db import connection
+from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
 
 import httpx
@@ -21,7 +22,12 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.llm_spend import generate_with_spend
 from products.signals.backend.models import InvalidStatusTransition, SignalReport, SignalSpend
-from products.signals.backend.spend import begin_report_spend, record_llm_spend
+from products.signals.backend.spend import (
+    begin_report_spend,
+    complete_signal_pipeline,
+    lock_signal_spend,
+    record_llm_spend,
+)
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.temporal.summary import (
@@ -39,6 +45,8 @@ from products.signals.backend.trial.reports import prepare_report_pass, report_t
 from products.tasks.backend.facade.api import get_task_run
 from products.tasks.backend.models import Task, TaskRun
 
+from ee.models.license import License
+
 
 class TestTrialReportExecution(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
@@ -52,6 +60,68 @@ class TestTrialReportExecution(NonAtomicBaseTest):
 
     def claim(self) -> SignalTrialGrant:
         return self.policy.claim(user_id=self.user.pk)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_grouping_settlement_and_report_start_share_lock_order(self, existing_spend: bool) -> None:
+        grant = self.claim()
+        signal_id = str(uuid4())
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.CANDIDATE, triggering_signal_id=signal_id
+        )
+        if existing_spend:
+            record_llm_spend(
+                team_id=self.team.id,
+                signal_id=signal_id,
+                stage="grouping",
+                token_cost_microusd=0,
+                trial_grant_id=str(grant.id),
+            )
+        settling, starting = Event(), Event()
+
+        def settle() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    lock_signal_spend(team_id=self.team.id, signal_id=signal_id)
+                    settling.set()
+                    assert starting.wait(timeout=10)
+                    record_llm_spend(
+                        team_id=self.team.id,
+                        signal_id=signal_id,
+                        stage="grouping",
+                        token_cost_microusd=123,
+                        trial_grant_id=str(grant.id),
+                    )
+                    complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
+            finally:
+                close_old_connections()
+
+        def start_lock(*, team_id: int, signal_id: str) -> None:
+            starting.set()
+            lock_signal_spend(team_id=team_id, signal_id=signal_id)
+
+        with (
+            patch("products.signals.backend.temporal.summary.lock_signal_spend", side_effect=start_lock),
+            patch("products.signals.backend.temporal.summary._capture_report_event", new_callable=AsyncMock),
+            patch(
+                "products.signals.backend.temporal.summary.temporalio.activity.info",
+                return_value=SimpleNamespace(workflow_run_id="concurrent", activity_id="start"),
+            ),
+            ThreadPoolExecutor(max_workers=1) as pool,
+        ):
+            pending = pool.submit(settle)
+            assert settling.wait(timeout=10)
+            async_to_sync(mark_report_in_progress_activity)(
+                MarkReportInProgressInput(
+                    team_id=self.team.id, report_id=str(report.id), signal_id=signal_id, trial_policy_version=1
+                )
+            )
+            pending.result(timeout=10)
+        report.refresh_from_db()
+        grant.refresh_from_db()
+        assert report.status == SignalReport.Status.IN_PROGRESS
+        assert grant.settled_microusd == 123
+        assert SignalTrialReportReservation.objects.for_team(self.team.id).filter(report_id=report.id).count() == 1
 
     @parameterized.expand([(True,), (False,)])
     def test_rollout_controls_report_pass_quota_bypass(self, enabled: bool) -> None:
@@ -154,7 +224,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         )
         prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="first-pass")
         task = Task.objects.create(
-            team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id
+            team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id, internal=True
         )
         run = task.create_run(extra_state={"ai_stage": "research"})
         run.state["sandbox_provisioning_started"] = True
@@ -342,12 +412,19 @@ class TestTrialReportExecution(NonAtomicBaseTest):
                     raise AssertionError("Billing request was not released")
                 raise ReadTimeout()
 
-            with patch("ee.billing.billing_manager.http_session.get", side_effect=get):
+            with (
+                patch("ee.billing.billing_manager.http_session.get", side_effect=get),
+                patch(
+                    "products.signals.backend.trial.billing.get_cached_instance_license",
+                    return_value=License(key="trial-test::synthetic-billing-secret-for-tests"),
+                ),
+            ):
                 decision = asyncio.create_task(
                     run_model_decision(
                         team_id=self.team.id,
                         stage="actionability",
                         primary_model="example-model",
+                        mode_override="system-one-shadow",
                         source_id="example-source",
                         source_product="example-product",
                         state={},
