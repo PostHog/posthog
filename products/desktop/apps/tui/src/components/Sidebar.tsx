@@ -1,5 +1,5 @@
-import { Box, Text } from "ink";
-import type { ReactElement } from "react";
+import { Box, type DOMElement, Text } from "ink";
+import type { ReactElement, RefObject } from "react";
 import type { Indicator, SidebarRow } from "../sidebar";
 import { Spinner } from "./Spinner";
 
@@ -75,11 +75,15 @@ function rowKey(row: SidebarRow, index: number): string {
 }
 
 export function Sidebar({
+  boxRef,
+  notice,
   rows,
   focused,
   selectedIndex,
   activePaneId,
 }: {
+  boxRef?: RefObject<DOMElement | null>;
+  notice: string | null;
   rows: SidebarRow[];
   focused: boolean;
   selectedIndex: number;
@@ -95,6 +99,7 @@ export function Sidebar({
 
   return (
     <Box
+      ref={boxRef}
       width={SIDEBAR_WIDTH}
       flexShrink={0}
       flexDirection="column"
@@ -114,8 +119,8 @@ export function Sidebar({
         </Box>
       ))}
       <Box flexGrow={1} />
-      <Text dimColor wrap="truncate-end">
-        tab focus · ^S split · ^C quit
+      <Text dimColor={!notice} wrap="truncate-end">
+        {notice ?? "tab · ^S split · ^C^C close"}
       </Text>
     </Box>
   );

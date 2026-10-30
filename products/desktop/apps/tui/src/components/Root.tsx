@@ -1,12 +1,22 @@
+import type { EventEmitter } from "node:events";
 import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { Box, useWindowSize } from "ink";
 import { type ReactElement, useMemo, useState } from "react";
 import type { TuiAuth } from "../auth";
+import type { Click } from "../mouse";
 import { WorkList } from "../work";
 import { App } from "./App";
 import { SignIn } from "./SignIn";
 
-function Workbench({ auth }: { auth: TuiAuth }): ReactElement {
+type Clicks = EventEmitter<{ click: [Click] }>;
+
+function Workbench({
+  auth,
+  clicks,
+}: {
+  auth: TuiAuth;
+  clicks?: Clicks;
+}): ReactElement {
   const work = useMemo(
     () =>
       new WorkList(
@@ -18,20 +28,26 @@ function Workbench({ auth }: { auth: TuiAuth }): ReactElement {
       ),
     [auth],
   );
-  return <App work={work} />;
+  return <App work={work} clicks={clicks} />;
 }
 
 export function Root({
   initialAuth,
+  clicks,
 }: {
   initialAuth: TuiAuth | null;
+  clicks?: Clicks;
 }): ReactElement {
   const { rows } = useWindowSize();
   const [auth, setAuth] = useState(initialAuth);
   // A full-height frame makes Ink repaint from the top-left of the screen.
   return (
     <Box height={rows} flexDirection="column">
-      {auth ? <Workbench auth={auth} /> : <SignIn onSignedIn={setAuth} />}
+      {auth ? (
+        <Workbench auth={auth} clicks={clicks} />
+      ) : (
+        <SignIn onSignedIn={setAuth} />
+      )}
     </Box>
   );
 }

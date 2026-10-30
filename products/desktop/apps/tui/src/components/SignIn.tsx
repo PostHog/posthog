@@ -1,7 +1,8 @@
 import type { CloudRegion } from "@posthog/shared";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useApp, useInput } from "ink";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { TuiAuth } from "../auth";
+import { shortcutFor } from "../shortcuts";
 
 const REGIONS: { id: CloudRegion; label: string }[] = [
   { id: "us", label: "US cloud" },
@@ -22,6 +23,7 @@ export function SignIn({
   const [selected, setSelected] = useState(0);
   const [step, setStep] = useState<Step>({ kind: "pick" });
   const abort = useRef<AbortController | null>(null);
+  const { exit } = useApp();
 
   useEffect(() => () => abort.current?.abort(), []);
 
@@ -38,7 +40,11 @@ export function SignIn({
     });
   };
 
-  useInput((_, key) => {
+  useInput((input, key) => {
+    if (shortcutFor(input, key) === "close") {
+      exit();
+      return;
+    }
     if (step.kind === "waiting") {
       if (key.escape) {
         abort.current?.abort();
