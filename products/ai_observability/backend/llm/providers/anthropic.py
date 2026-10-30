@@ -129,6 +129,9 @@ class AnthropicConfig:
         "claude-opus-4-1",
         "claude-opus-4-0",
         "claude-sonnet-4-0",
+        # Dated IDs of Claude 4.0, such as claude-sonnet-4-20250514.
+        "claude-opus-4-20",
+        "claude-sonnet-4-20",
     )
     # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
     # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.

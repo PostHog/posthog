@@ -105,6 +105,14 @@ class TestStructuredOutputComplete:
     @parameterized.expand(
         [
             ("budget_model", "claude-haiku-4-5", "medium", {"type": "enabled", "budget_tokens": 4096}, None, 12288),
+            (
+                "dated_claude_4_0",
+                "claude-sonnet-4-20250514",
+                "low",
+                {"type": "enabled", "budget_tokens": 2048},
+                None,
+                10240,
+            ),
             ("adaptive_model", "claude-haiku-5-5", "high", {"type": "adaptive"}, "high", 16384),
             ("adaptive_minimal_is_low", "claude-opus-4-7", "minimal", {"type": "adaptive"}, "low", 9216),
             ("unlisted_newer_model", "claude-sonnet-9", "low", {"type": "adaptive"}, "low", 10240),
