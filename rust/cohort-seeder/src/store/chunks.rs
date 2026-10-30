@@ -270,7 +270,8 @@ impl PgChunkStore {
                 -- `ANY($1)` repeats the join so that the planner reads only the claimable chunks
                 -- through `cohort_bfc_run_status_day_idx`. With the join alone, it probes each
                 -- candidate through the `(run_id, day, band)` key and filters out every
-                -- confirmed chunk row by row.
+                -- confirmed chunk row by row. Only a plan built for the bound arrays does this,
+                -- so the statement is not cached.
                 WHERE c.run_id = ANY($1) AND r.status IN {seedable}
                   -- A trailing day is scanned only once it has ended and its run is `trailing`.
                   -- Claimed while the run still seeds, it would lose its lease when the
@@ -292,17 +293,19 @@ impl PgChunkStore {
                 -- `r.backfill_kind = $9` is true only for person runs, and `false` sorts first,
                 -- so behavioral chunks (readiness-gating, fence-sensitive) claim before person
                 -- chunks. The kind key must lead: person chunks sit on a far-future sentinel day,
-                -- which `day DESC` alone would claim first. The load keys come next: the team
-                -- holding the fewest of this replica's slots of the kind goes first, then that
-                -- team's run holding the fewest. A heavy run's chunk holds its slot for hours
-                -- while a cheap one frees its slot in seconds, so under day order alone the heavy
-                -- run ends up holding every slot and every other run advances one day per freed
-                -- slot. A team alone still gets every slot. Among equal loads, newest day first
-                -- lets a short-window cohort, whose days are all recent, finish without waiting
-                -- behind a long run's older days. Claimable trailing days have no key of their own
-                -- and sort among the newest days, because their cohorts already serve as ready and
-                -- under-count the boundary day until the trailing tiles apply.
-                ORDER BY (r.backfill_kind = $9), u.team_load, u.run_load, c.day DESC, c.band
+                -- which `day DESC` alone would claim first. Of the claimable chunks, only trailing
+                -- days have a `claimable_after`, so the next key puts them ahead of every load,
+                -- because their cohorts already serve as ready and under-count the boundary day
+                -- until the trailing tiles apply. The load keys come next: the team holding
+                -- the fewest of this replica's slots of the kind goes first, then the run holding
+                -- the fewest. A heavy run's chunk holds its slot for hours while a cheap one frees
+                -- its slot in seconds, so under day order alone the heavy run ends up holding
+                -- every slot and every other run advances one day per freed slot. A team alone
+                -- still gets every slot. Among equal loads, newest day first lets a short-window
+                -- cohort, whose days are all recent, finish without waiting behind a long run's
+                -- older days.
+                ORDER BY (r.backfill_kind = $9), (c.claimable_after IS NULL), u.team_load,
+                         u.run_load, c.day DESC, c.band
                 LIMIT 1
                 FOR UPDATE OF c SKIP LOCKED
             )
@@ -325,6 +328,9 @@ impl PgChunkStore {
             seedable = SEEDABLE_RUN_STATUSES_SQL,
         );
         let row = sqlx::query_as::<_, ClaimedRow>(&sql)
+            // Postgres can switch a cached statement to a generic plan after five runs. That plan
+            // loops over the candidates and reads every chunk of each, confirmed ones included.
+            .persistent(false)
             .bind(run_ids)
             .bind(claimant.as_str())
             .bind(lease.as_secs())

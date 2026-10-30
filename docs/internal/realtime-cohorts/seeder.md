@@ -83,7 +83,7 @@ It stays in `seeding`, holding the cohort's run slot, until an operator cancels 
 
 A worker claims the next chunk with one statement using `FOR UPDATE SKIP LOCKED`.
 It picks behavioral chunks before person chunks.
-Within a kind, it serves the team that holds the fewest of this replica's claim slots, then that team's run that holds the fewest, and only then the newest day.
+Within a kind, it serves the team that holds the fewest of this replica's claim slots, then the run that holds the fewest, and only then the newest day.
 A heavy run's chunk can hold its slot for hours, so under day order alone that run ends up with every slot.
 With this order, each slot that frees goes to the team and run that hold the fewest, so the split moves toward an even share.
 A claim never takes a slot back, and a team that is alone gets every slot.

@@ -1944,8 +1944,8 @@ async fn behavioral_days_claim_newest_first_then_person_chunks_with_ranges() -> 
     .await
 }
 
-/// A claim serves the team holding the fewest slots, then that team's run holding the fewest, and
-/// only then the newest day.
+/// A claim takes a lapsed trailing day first, then serves the team holding the fewest slots, then
+/// the run holding the fewest, and only then the newest day.
 #[tokio::test]
 async fn claims_serve_the_least_loaded_team_then_run_before_the_newest_day() -> Result<()> {
     with_db(|pool| async move {
@@ -1963,6 +1963,8 @@ async fn claims_serve_the_least_loaded_team_then_run_before_the_newest_day() -> 
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let other_team_run =
             insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let trailing_run =
+            insert_run(&pool, 4, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
         for (run_id, day) in [(heavy_run, 100), (sibling_run, 98), (other_team_run, 97)] {
             ensure!(
@@ -1973,20 +1975,35 @@ async fn claims_serve_the_least_loaded_team_then_run_before_the_newest_day() -> 
                 )? == 1
             );
         }
+        let lapsed = Utc::now() - chrono::Duration::hours(1);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(trailing_run, [trailing(96, lapsed)], ONE_BAND)
+                    .await?
+            )? == 1
+        );
+        sqlx::query("UPDATE cohort_backfill_runs SET status = 'trailing' WHERE id = $1")
+            .bind(trailing_run)
+            .execute(&pool)
+            .await?;
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
         let claimant = Claimant::new("worker-a")?;
         let rounds = [
+            // Team 4 holds the most slots and its trailing day is the oldest day, but the trailing
+            // day still goes first.
+            ([(2, 2), (2, 0), (1, 1), (3, 0)], (trailing_run, 96)),
             // Team 2 holds two slots and team 3 one, so team 3 goes first, ahead of team 2's newer
             // days and of its sibling run that holds none.
-            ([(2, 2), (2, 0), (1, 1)], (other_team_run, 97)),
+            ([(2, 2), (2, 0), (1, 1), (4, 1)], (other_team_run, 97)),
             // Both teams hold one slot, so inside team 2 the run holding none goes first, ahead of
             // the heavy run's newer day.
-            ([(1, 1), (1, 0), (1, 1)], (sibling_run, 98)),
+            ([(1, 1), (1, 0), (1, 1), (4, 1)], (sibling_run, 98)),
         ];
         for (loads, expected) in rounds {
-            let candidates = [heavy_run, sibling_run, other_team_run]
+            let candidates = [heavy_run, sibling_run, other_team_run, trailing_run]
                 .into_iter()
                 .zip(loads)
                 .map(|(run_id, (team, run))| ClaimCandidate {
