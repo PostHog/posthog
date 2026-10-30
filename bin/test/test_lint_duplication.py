@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+import json
 import tempfile
 import subprocess
 from pathlib import Path
@@ -227,7 +228,30 @@ class TestChangedFilesBetween(unittest.TestCase):
 
 
 class TestCommittedScanTree(unittest.TestCase):
-    def test_scans_head_without_worktree_changes(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_clones", [], [], 1, 0),
+            ("below_bar", [make_clone("tracked.py", "other.py", APP_MAX_NEW_CLONE_TOKENS - 1)], [], 1, 0),
+            ("unchanged_pair", [make_clone("unchanged.py", "other.py", 900)], [], 1, 0),
+            (
+                "grandfathered",
+                [make_clone("tracked.py", "other.py", APP_MAX_NEW_CLONE_TOKENS)],
+                [make_clone("tracked.py", "other.py", APP_MAX_NEW_CLONE_TOKENS)],
+                2,
+                0,
+            ),
+            ("new_clone", [make_clone("tracked.py", "other.py", APP_MAX_NEW_CLONE_TOKENS)], [], 2, 1),
+            ("baseline_failed", [make_clone("tracked.py", "other.py", 900)], None, 2, 2),
+        ]
+    )
+    def test_scans_head_without_worktree_changes(
+        self,
+        _name: str,
+        current_clones: list[dict],
+        baseline_clones: list[dict] | None,
+        expected_scans: int,
+        expected_exit: int,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
@@ -245,13 +269,38 @@ class TestCommittedScanTree(unittest.TestCase):
 
             def record_scan(scan_root: Path, _out_dir: Path) -> list[dict]:
                 scans.append({path.name: path.read_text() for path in scan_root.glob("*.py")})
-                return []
+                if len(scans) == 1:
+                    return current_clones
+                if baseline_clones is None:
+                    raise SystemExit(2)
+                return baseline_clones
 
             with patch("bin.lint_duplication.run_jscpd", side_effect=record_scan):
-                with patch.object(sys, "argv", ["lint_duplication.py", "--base", baseline, "--path", str(repo)]):
-                    self.assertEqual(main(), 0)
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["lint_duplication.py", "--base", baseline, "--path", str(repo), "--report-dir", str(repo)],
+                ):
+                    self.assertEqual(main(), expected_exit)
 
-            self.assertEqual(scans, [{"tracked.py": "committed\n"}, {"tracked.py": "before\n"}])
+            self.assertEqual(scans, [{"tracked.py": "committed\n"}, {"tracked.py": "before\n"}][:expected_scans])
+            self.assertEqual(
+                json.loads((repo / "duplication-scan-status.json").read_text()),
+                {"status": "failed" if expected_exit == 2 else "ok"},
+            )
+            if expected_exit != 2:
+                findings = json.loads((repo / "duplication-findings-python.json").read_text())
+                self.assertEqual(json.loads((repo / "duplication-findings-ts.json").read_text()), [])
+                self.assertEqual(bool(findings), expected_exit == 1)
+                if findings:
+                    self.assertEqual(findings[0]["first_file"], "tracked.py")
+                    self.assertEqual(findings[0]["tokens"], APP_MAX_NEW_CLONE_TOKENS)
+            self.assertEqual(
+                subprocess.check_output(["git", "worktree", "list", "--porcelain"], cwd=repo, text=True).count(
+                    "worktree "
+                ),
+                1,
+            )
 
 
 if __name__ == "__main__":
