@@ -10,12 +10,12 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -75,7 +75,7 @@ class DependentsValidationError(serializers.ValidationError):
             self.extra = {"node_id": node_id}
 
 
-class DataWarehouseSavedQueryPagination(PageNumberPagination):
+class DataWarehouseSavedQueryPagination(BoundedPageNumberPagination):
     page_size = 1000
 
 
