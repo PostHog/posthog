@@ -71,7 +71,6 @@ describe('customerIOImportLogic', () => {
         })
         initKeaTests()
         logic = customerIOImportLogic()
-        logic.mount()
     })
 
     afterEach(() => {
@@ -80,7 +79,10 @@ describe('customerIOImportLogic', () => {
     })
 
     it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
-        await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(logic.values.currentStep).toBe('provider')
         jest.useFakeTimers()
         logic.actions.toggleImportStep('categories')
 
@@ -93,6 +95,7 @@ describe('customerIOImportLogic', () => {
             { provider: 'customerio', steps: ['suppressions', 'opt_outs'], api_key: 'app-key' },
         ])
         expect(logic.values.isImportRunActive).toBe(true)
+        expect(logic.values.currentStep).toBe('import')
 
         await jest.advanceTimersByTimeAsync(2000)
         await expectLogic(logic).toDispatchActions(['loadImportRunsFailure'])
@@ -108,5 +111,19 @@ describe('customerIOImportLogic', () => {
         await jest.advanceTimersByTimeAsync(10000)
 
         expect(listCalls).toBe(callsWhenFinished)
+    })
+
+    it('opens on the progress step when an import is already running', async () => {
+        runResponses = [[200, [importRun('running')]]]
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadImportRunsSuccess'])
+
+        expect(logic.values).toMatchObject({
+            currentStep: 'import',
+            selectedProvider: 'customerio',
+            disabledSteps: { provider: expect.any(String), connect: expect.any(String), choose: expect.any(String) },
+        })
     })
 })

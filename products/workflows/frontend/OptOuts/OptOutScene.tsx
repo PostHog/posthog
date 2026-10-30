@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconDownload, IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
-import { customerIOImportLogic } from './customerIOImportLogic'
-import { CustomerIOImportModal } from './CustomerIOImportModal'
+import { messagingTabUrl } from '../messagingTabUrl'
 import { OptOutCategories } from './OptOutCategories'
 import { OptOutList } from './OptOutList'
 import { optOutSceneLogic } from './optOutSceneLogic'
@@ -16,7 +16,7 @@ export function OptOutScene(): JSX.Element {
 
     const { preferencesUrlLoading } = useValues(optOutSceneLogic)
     const { openPreferencesPage } = useActions(optOutSceneLogic)
-    const { openImportModal } = useActions(customerIOImportLogic)
+    const { location } = useValues(router)
 
     return (
         <div className="space-y-8" data-attr="opt-out-scene">
@@ -27,8 +27,9 @@ export function OptOutScene(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             size="small"
-                            onClick={() => openImportModal()}
+                            to={messagingTabUrl(location.pathname, 'import')}
                             icon={<IconDownload />}
+                            data-attr="opt-outs-import-from-customerio"
                             tooltip="Import subscription topics and preferences from Customer.io"
                         >
                             Import from Customer.io
@@ -58,8 +59,6 @@ export function OptOutScene(): JSX.Element {
                 <p className="mt-2">Message recipients who have opted out of all marketing messages</p>
                 <OptOutList />
             </div>
-
-            <CustomerIOImportModal />
         </div>
     )
 }

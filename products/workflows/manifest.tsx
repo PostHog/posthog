@@ -78,6 +78,7 @@ export const manifest: ProductManifest = {
         '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
         '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
         '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
+        '/broadcasts/import': ['Broadcasts', 'broadcasts'],
         '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
         '/transactional': ['Transactional', 'transactional'],
         '/transactional/library': ['Transactional', 'transactional'],
@@ -86,6 +87,7 @@ export const manifest: ProductManifest = {
         '/transactional/suppression': ['Transactional', 'transactional'],
         '/transactional/reputation': ['Transactional', 'transactional'],
         '/transactional/settings': ['Transactional', 'transactional'],
+        '/transactional/import': ['Transactional', 'transactional'],
         '/transactional/new': ['Transactional', 'transactional'],
         // A template opened from a section's Templates tab stays in that section.
         '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -134,6 +136,7 @@ export const manifest: ProductManifest = {
                 { name: 'Suppression list', href: urls.workflows('suppression') },
                 { name: 'Reputation', href: urls.workflows('reputation') },
                 { name: 'Settings', href: urls.workflows('settings') },
+                { name: 'Import', href: urls.workflows('import') },
             ],
             type: 'workflows',
             category: ProductItemCategory.MESSAGING,
