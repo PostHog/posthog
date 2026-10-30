@@ -102,6 +102,7 @@ export function QuillSceneTitleSection({
                                   : undefined
                         }
                         icon={resourceIcon}
+                        iconLeadsName={resourceType.iconLeadsName}
                         current={staticName ? { name, description: description || undefined } : undefined}
                     />
                 }
@@ -145,7 +146,7 @@ export function QuillSceneTitleSection({
                             the menus onto their own line, where the divider would lead the line, so it hides there. */}
                         <div
                             ref={setMenuBarSlot}
-                            className="flex min-w-0 items-center empty:hidden before:mx-1 before:h-4 before:w-px before:shrink-0 before:bg-[var(--border)] before:content-[''] @max-xl/main-content:before:hidden"
+                            className="flex shrink-0 items-center empty:hidden before:mx-1 before:h-4 before:w-px before:shrink-0 before:bg-[var(--border)] before:content-[''] @max-xl/main-content:before:hidden"
                         />
                     </>
                 }

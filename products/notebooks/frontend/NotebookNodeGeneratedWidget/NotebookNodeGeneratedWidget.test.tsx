@@ -6,8 +6,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MarkdownNotebookV2 } from 'scenes/notebooks/Notebook/MarkdownNotebookV2Renderer'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -74,7 +72,6 @@ describe('NotebookNodeGeneratedWidget', () => {
 
     beforeEach(async () => {
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true })
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as never)
         jest.spyOn(api.notebooks, 'get').mockResolvedValue(cachedNotebook)
         jest.spyOn(api.notebooks, 'markdownSave').mockImplementation(async (_shortId, notebook) => ({

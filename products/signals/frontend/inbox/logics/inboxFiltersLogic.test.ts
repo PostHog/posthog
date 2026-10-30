@@ -58,7 +58,7 @@ describe('inboxFiltersLogic', () => {
         })
 
         it('leads with the ranking field for a model sort', () => {
-            expect(buildSignalReportListOrdering('ranking_fixed', 'desc')).toBe('-ranking_fixed,status,-updated_at')
+            expect(buildSignalReportListOrdering('ranking_fix', 'desc')).toBe('-ranking_fix,status,-updated_at')
         })
 
         // The server ignores the `sort` preset whenever `ordering` is present.
@@ -107,6 +107,7 @@ describe('inboxFiltersLogic', () => {
                 { ...DEFAULT_STATE, scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
                 { scope: 'teammate:0199ed4a-5c03-0000-3220-df21df612e95' },
             ],
+            ['claimed-by-you scope only', { ...DEFAULT_STATE, scope: 'claimed-by-you' }, { scope: 'claimed-by-you' }],
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
@@ -123,15 +124,16 @@ describe('inboxFiltersLogic', () => {
             expect(
                 parseFilterSearchParams({
                     scope: 'teammate:not-a-uuid',
-                    source: 'error_tracking,bogus_source',
+                    // `logs` has no entry in the old toolbar list, but the Source filter can offer it.
+                    source: 'error_tracking,logs,bogus_source',
                     priority: 'P9,P1',
-                    state: 'monitoring,bogus-state',
+                    state: 'monitoring,closed,bogus-state',
                     // priority:desc has a valid field and direction but is not one of the offered sort options.
                     sort: 'priority:desc',
                 })
             ).toEqual({
                 ...DEFAULT_STATE,
-                sourceProductFilter: ['error_tracking'],
+                sourceProductFilter: ['error_tracking', 'logs'],
                 priorityFilter: ['P1'],
                 stateFilter: ['monitoring'],
             })
@@ -154,6 +156,13 @@ describe('inboxFiltersLogic', () => {
                 'asc',
             ],
             ['keeps an explicit Priority first from a shared link', 'priority:asc', false, 'priority', 'asc'],
+            [
+                'moves a link with the old Fix sort name to the current one',
+                'ranking_fixed:desc',
+                true,
+                'ranking_fix',
+                'desc',
+            ],
         ] as const)('%s', (_name, sort, modelSortAvailable, sortField, sortDirection) => {
             expect(parseFilterSearchParams({ sort }, { modelSortAvailable })).toEqual({
                 ...DEFAULT_STATE,
@@ -213,10 +222,7 @@ describe('inboxFiltersLogic', () => {
 
         // The flat Reports list has no `?view=` sub-view, so a query change on it must attribute to
         // the `reports` tab and agree with the `tab` that `Inbox viewed` sends for the same visit.
-        it('attributes a redesigned Reports query change to the reports tab', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            })
+        it('attributes a Reports query change to the reports tab', async () => {
             router.actions.push(urls.inbox('reports'))
             logic.actions.toggleState('needs-decision')
             await expectLogic(logic).toFinishAllListeners()
@@ -263,6 +269,60 @@ describe('inboxFiltersLogic', () => {
                 priorityFilter: ['P1'],
                 searchQuery: 'checkout',
             })
+        })
+
+        // The API combines `source_product` and `scout` as AND, so a leftover value from the other
+        // dimension would silently narrow the list to reports that match both.
+        it.each([
+            [{ kind: 'source_product', value: 'logs' }, ['logs'], [], 'logs', undefined],
+            [{ kind: 'scout', value: 'my-custom-scout' }, [], ['my-custom-scout'], undefined, 'my-custom-scout'],
+            [null, [], [], undefined, undefined],
+        ] as const)(
+            'replaces the whole source selection with %p and keeps the other filters',
+            (selection, sourceProductFilter, scoutFilter, sourceParam, scoutParam) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
+                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                })
+                logic.actions.setFilters({
+                    ...DEFAULT_STATE,
+                    sourceProductFilter: ['error_tracking', 'github'],
+                    scoutFilter: ['signals-scout-error-tracking'],
+                    priorityFilter: ['P1'],
+                    searchQuery: 'checkout',
+                })
+
+                logic.actions.setSourceFilter(selection)
+
+                expect(logic.values).toMatchObject({
+                    sourceProductFilter,
+                    scoutFilter,
+                    activeSourceProductFilter: sourceProductFilter,
+                    activeScoutFilter: scoutFilter,
+                    priorityFilter: ['P1'],
+                    searchQuery: 'checkout',
+                })
+                expect(router.values.searchParams.source).toBe(sourceParam)
+                expect(router.values.searchParams.scout).toBe(scoutParam)
+                expect(router.values.searchParams.priority).toBe('P1')
+            }
+        )
+
+        it('ignores a stored source selection while the flag is off and reloads when the flag changes', async () => {
+            logic.actions.setFilters({ ...DEFAULT_STATE, scoutFilter: ['my-custom-scout'] })
+
+            expect(logic.values).toMatchObject({
+                scoutFilter: ['my-custom-scout'],
+                activeScoutFilter: [],
+                hasActiveFilters: false,
+            })
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_SOURCE_FILTER], {
+                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                })
+            })
+                .toDispatchActions(['sourceFilterAvailabilityChanged'])
+                .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
         })
 
         it.each([

@@ -142,6 +142,27 @@ class TestFanout:
         assert saved.next_token is None
         assert saved.fanout is not None and sorted(saved.fanout["completed"]) == ["/templates/t1", "/templates/t2"]
 
+    def test_template_tags_carry_their_template_id(self) -> None:
+        # Tag names repeat across templates ("latest" everywhere), so a row that loses its templateID
+        # collides with another template's tag on the composite key.
+        result = _driver().run(
+            "template_tags",
+            [
+                _response([{"templateID": "t1"}, {"templateID": "t2"}]),
+                _response([{"tag": "latest", "buildID": "b1"}]),
+                _response([{"tag": "latest", "buildID": "b2"}]),
+            ],
+        )
+        assert result.raised is None
+        assert sorted(result.rows, key=lambda row: row["templateID"]) == [
+            {"tag": "latest", "buildID": "b1", "templateID": "t1"},
+            {"tag": "latest", "buildID": "b2", "templateID": "t2"},
+        ]
+        assert result.paths == ["/v2/templates", "/templates/t1/tags", "/templates/t2/tags"]
+        # The tags endpoint documents no page-size or cursor param.
+        assert result.params("limit")[1:] == [None, None]
+        assert result.params("nextToken")[1:] == [None, None]
+
 
 class TestLatestSandboxMetrics:
     def test_walks_the_whole_sandbox_list_starting_from_a_resumed_cursor(self) -> None:

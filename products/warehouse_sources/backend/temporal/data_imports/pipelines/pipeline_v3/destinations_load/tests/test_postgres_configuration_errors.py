@@ -5,7 +5,8 @@ from unittest import mock
 
 import psycopg
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound, IntegrationReader
+from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE
 
 from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLClient, PostgreSQLConnectionError
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import DestinationRunContext
@@ -231,7 +232,7 @@ class TestWriterClient:
         writer = PostgresDestinationWriter(_ctx(integration_id))
 
         with (
-            mock.patch.object(Integration.objects, "aget", side_effect=Integration.DoesNotExist),
+            mock.patch.object(IntegrationReader, "aget", side_effect=IntegrationNotFound),
             mock.patch.object(psycopg.AsyncConnection, "connect") as connect,
             pytest.raises(DestinationConfigurationError) as caught,
         ):
@@ -251,6 +252,20 @@ class TestWriterClient:
             await _open(_FixedClientWriter(HOST))
 
         assert IPV6_ONLY_HOST_DETAIL in str(caught.value)
+        connect.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_host_that_resolves_internal_fails_without_connecting(self, settings) -> None:
+        settings.FORCE_URL_VALIDATION = True
+
+        with (
+            mock.patch("socket.getaddrinfo", return_value=_addrinfo("10.0.0.5")),
+            mock.patch.object(psycopg.AsyncConnection, "connect") as connect,
+            pytest.raises(DestinationConfigurationError) as caught,
+        ):
+            await _open(_FixedClientWriter(HOST))
+
+        assert UNREACHABLE_HOST_MESSAGE in str(caught.value)
         connect.assert_not_called()
 
     @pytest.mark.parametrize(

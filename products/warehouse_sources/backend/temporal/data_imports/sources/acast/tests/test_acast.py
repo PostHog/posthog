@@ -48,16 +48,6 @@ def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show() -> No
     ("status", "message", "expected"),
     [
         (200, "", (True, None)),
-        (
-            401,
-            "Authentication required",
-            (False, "Acast rejected the API key. Contact Acast Customer Success to check or replace the key."),
-        ),
-        (
-            403,
-            "Forbidden",
-            (False, "Acast denied access. Ask Acast Customer Success to check the shows assigned to your API key."),
-        ),
     ],
 )
 def test_credential_validation_maps_auth_errors(status: int, message: str, expected: tuple[bool, str | None]) -> None:

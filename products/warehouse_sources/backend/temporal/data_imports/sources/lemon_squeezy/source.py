@@ -115,7 +115,7 @@ class LemonSqueezySource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register a webhook on each of your Lemon Squeezy stores using "
                 "your API key, with a generated signing secret used to verify deliveries.\n\n"

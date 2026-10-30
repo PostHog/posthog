@@ -110,6 +110,7 @@ class TestDatabaseThreadStore(APIBaseTest):
                     configuration_id=str(self.configuration.id),
                     evaluation_key="eval-1",
                     target=TARGET,
+                    destination_id="destination-1",
                     announcement=_announcement(episode_started_at=FIRING),
                 )
 

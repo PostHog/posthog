@@ -29,7 +29,7 @@ from products.feature_flags.backend.variant_rollout import format_variant_rollou
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
 
-    from posthog.models.activity_logging.activity_log import Trigger
+    from posthog.models.activity_logging.activity_log import ActivityContextBase, Trigger
     from posthog.models.team import Team
 
     from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
@@ -154,6 +154,9 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # (for example the experiment exposure freeze) sets this before the gated write; the
     # activity-log receiver reads it so the entry does not render as a manual edit.
     _activity_trigger: "Trigger | None" = None
+    # Never persisted. The update serializer sets this before the write when the request carries a rollback reason,
+    # so the reason lands on the activity log entry of the same edit.
+    _activity_context: "ActivityContextBase | None" = None
 
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
@@ -302,7 +305,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             type="feature_flag",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.key or "Untitled",
-            href=f"/feature_flags/{self.id}",
+            href=f"/feature-flags/{self.id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,

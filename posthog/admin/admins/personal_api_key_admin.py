@@ -20,6 +20,7 @@ class PersonalAPIKeyAdmin(RollApiKeyAdminMixin):
         "created_at",
         "last_used_at",
         "last_rolled_at",
+        "expires_at",
         "scopes",
         "scoped_teams",
         "scoped_organizations",

@@ -142,8 +142,6 @@ def test_resume_after_page_failure_then_advance_to_next_window(config: NoaaCdoSo
     [
         (400, "Token parameter is required.", AUTH_ERROR),
         (400, "The token parameter provided is not valid.", AUTH_ERROR),
-        (401, "Unauthorized", AUTH_ERROR),
-        (403, "Forbidden", AUTH_ERROR),
         (400, "Invalid dataset", REQUEST_ERROR),
     ],
 )

@@ -405,13 +405,21 @@ mod tests {
 
     #[test]
     fn excluded_event_property_keys_are_skipped() {
-        let blob =
-            r#"{"$insert_id":"abc-123","$browser":"Chrome","distinct_id":"u1","$session_id":"s1"}"#;
-        let exclusions = excluded(&["$insert_id", "distinct_id", "$session_id"]);
+        let blob = r#"{"$insert_id":"abc-123","$browser":"Chrome","distinct_id":"u1","$session_id":"s1","$time":"1","$timezone":"UTC","$feature/new-onboarding":true,"$feature_flag":"new-onboarding"}"#;
+        let exclusions = excluded(&[
+            "$insert_id",
+            "distinct_id",
+            "$session_id",
+            "$time",
+            "$feature/*",
+        ]);
         let tuples = fan_out(&event(blob), &exclusions, TEST_CAPS);
-        assert_eq!(tuples.len(), 1, "only $browser should survive exclusion");
-        assert_eq!(tuples[0].0.property_key, "$browser");
-        assert_eq!(tuples[0].0.property_value, "Chrome");
+        let mut keys: Vec<&str> = tuples
+            .iter()
+            .map(|(t, _)| t.property_key.as_str())
+            .collect();
+        keys.sort();
+        assert_eq!(keys, ["$browser", "$feature_flag", "$timezone"]);
     }
 
     #[test]

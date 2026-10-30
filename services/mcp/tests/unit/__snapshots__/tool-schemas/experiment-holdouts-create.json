@@ -212,14 +212,14 @@
                                             "type": "string"
                                         },
                                         "operator": {
-                                            "description": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
+                                            "description": "Semantic version comparison operator.\n\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
                                             "enum": [
+                                                "semver_eq",
+                                                "semver_neq",
                                                 "semver_gt",
                                                 "semver_gte",
                                                 "semver_lt",
                                                 "semver_lte",
-                                                "semver_eq",
-                                                "semver_neq",
                                                 "semver_tilde",
                                                 "semver_caret",
                                                 "semver_wildcard"
@@ -290,6 +290,14 @@
                                 },
                                 {
                                     "properties": {
+                                        "cohort_deleted": {
+                                            "description": "Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.",
+                                            "type": "boolean"
+                                        },
+                                        "cohort_missing": {
+                                            "description": "Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
+                                            "type": "boolean"
+                                        },
                                         "cohort_name": {
                                             "anyOf": [
                                                 {

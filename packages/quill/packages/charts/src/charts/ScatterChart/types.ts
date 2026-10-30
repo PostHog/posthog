@@ -73,7 +73,7 @@ export interface ScatterChartConfig<Meta = unknown> {
     showBestFit?: boolean
     legend?: ChartLegendConfig
     tooltip?: ScatterTooltipConfig<Meta>
-    /** Applied over the computed margins. Should be referentially stable (a module-level constant). */
+    /** Applied over the computed margins. */
     margins?: Partial<ChartMargins>
 }
 

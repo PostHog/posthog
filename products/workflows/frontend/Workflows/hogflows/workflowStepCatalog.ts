@@ -11,6 +11,7 @@ import type { CreateActionType } from './hogFlowEditorLogic'
 import { destinationPickerFilter } from './panel/destinationPickerFilter'
 import { getRegisteredActionNodeCategories } from './registry/actions/actionNodeRegistry'
 import { DEFAULT_DELAY_DURATION, getDelayDescription } from './steps/stepDelayLogic'
+import type { HogFlowAction } from './types'
 
 const ACTION_NODES_TO_SHOW: CreateActionType[] = [
     {
@@ -69,7 +70,7 @@ const AI_TASK_ACTION_NODE: CreateActionType = {
 const RUN_SCOUT_ACTION_NODE: CreateActionType = {
     type: 'function',
     name: 'Run scout',
-    description: 'Start a Signals scout run. The scout explores as it does on its schedule.',
+    description: 'Start a Signals scout run. With a note, the scout handles what the note names first.',
     config: {
         template_id: 'template-posthog-run-scout',
         // Same reason as the AI-task node above: 409 (run in flight, scout paused, cooldown,
@@ -183,6 +184,22 @@ const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
+const ADD_TO_STATIC_COHORT_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Add to static cohort',
+    description: 'Add the person to a static cohort.',
+    config: { template_id: 'template-posthog-add-to-static-cohort', inputs: {} },
+}
+
+const OPT_OUT_OF_MESSAGES_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Opt out of messages',
+    description: 'Opt the recipient out of a message category, or of all marketing messages.',
+    config: { template_id: 'template-posthog-opt-out-of-messages', inputs: {} },
+    // The executor only stops on an explicit abort. A failed opt-out must not continue to a message step.
+    on_error: 'abort',
+}
+
 export interface StepCatalogContext {
     featureFlags: FeatureFlagsSet
     currentTeam: Pick<TeamPublicType | TeamType, 'id' | 'project_id'> | null
@@ -219,6 +236,14 @@ function aiSteps({ featureFlags, currentTeam }: StepCatalogContext): CreateActio
     ]
 }
 
+function posthogSteps({ featureFlags }: StepCatalogContext): CreateActionType[] {
+    return [
+        ...POSTHOG_NODES_TO_SHOW,
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_ADD_TO_STATIC_COHORT_ACTION] ? [ADD_TO_STATIC_COHORT_ACTION_NODE] : []),
+        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION] ? [OPT_OUT_OF_MESSAGES_ACTION_NODE] : []),
+    ]
+}
+
 const BETA_TEMPLATE_IDS = new Set(['template-posthog-create-task'])
 
 export function isBetaStep(step: CreateActionType): boolean {
@@ -237,7 +262,7 @@ export function workflowStepSections(context: StepCatalogContext): StepCatalogSe
         { key: 'ai', title: 'AI', steps: aiSteps(context) },
         { key: 'delays', title: 'Delays', steps: forTrigger(DELAY_NODES_TO_SHOW, context.isRowScopedTrigger) },
         { key: 'split', title: 'Audience split', steps: forTrigger(LOGIC_NODES_TO_SHOW, context.isRowScopedTrigger) },
-        { key: 'posthog', title: 'PostHog actions', steps: POSTHOG_NODES_TO_SHOW },
+        { key: 'posthog', title: 'PostHog actions', steps: posthogSteps(context) },
         ...getRegisteredActionNodeCategories(context.featureFlags).map((category) => ({
             key: category.label,
             title: category.label,
@@ -258,6 +283,15 @@ const ALWAYS_LISTED_STEPS: CreateActionType[] = [
     ...getRegisteredActionNodeCategories().flatMap((category) => category.nodes),
 ]
 
+const ALL_CATALOG_STEPS: CreateActionType[] = [
+    ...ALWAYS_LISTED_STEPS,
+    PUSH_NOTIFICATION_ACTION_NODE,
+    AI_TASK_ACTION_NODE,
+    RUN_SCOUT_ACTION_NODE,
+    CLASSIFY_ACTION_NODE,
+    REPLAY_VISION_ACTION_NODE,
+]
+
 /** Destinations already offered as their own step stay out of the destination list. */
 const TEMPLATE_IDS_AT_TOP_LEVEL = ALWAYS_LISTED_STEPS.flatMap((step) => templateIdOf(step) ?? [])
 
@@ -270,4 +304,28 @@ export function destinationStep(template: HogFunctionTemplateType): CreateAction
         description: typeof template.description === 'string' ? template.description : '',
         config: { template_id: template.id, inputs: {} },
     }
+}
+
+/** Destination templates that are not already a step of their own, as steps, by name. */
+export function destinationSteps(templates: HogFunctionTemplateType[]): CreateActionType[] {
+    return templates
+        .filter(isPickableDestination)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(destinationStep)
+}
+
+const kindKey = (type: string, templateId: string | undefined): string => `${type}:${templateId ?? ''}`
+
+const STEP_KIND_NAMES = new Map(ALL_CATALOG_STEPS.map((step) => [kindKey(step.type, templateIdOf(step)), step.name]))
+
+/** The name the step picker gives this kind of step, so one kind of step has one name everywhere. */
+export function stepKindName(action: HogFlowAction): string | undefined {
+    const templateId = 'template_id' in action.config ? (action.config.template_id as string | undefined) : undefined
+    return STEP_KIND_NAMES.get(kindKey(action.type, templateId)) ?? STEP_KIND_NAMES.get(kindKey(action.type, undefined))
+}
+
+/** The step's own name, unless it is still the name the step picker gave it or reads the same as a text shown beside it. */
+export function customStepName(action: HogFlowAction, shownElsewhere: (string | undefined)[]): string | undefined {
+    const name = action.name?.trim()
+    return name && name !== stepKindName(action) && !shownElsewhere.includes(name) ? name : undefined
 }

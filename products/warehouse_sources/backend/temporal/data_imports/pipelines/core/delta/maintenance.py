@@ -480,7 +480,12 @@ class DeltaMaintenance:
 
     @recorded_phase("compact")
     async def _compact(
-        self, table: deltalake.DeltaTable, plan: CompactionPlan | None = None, *, partitions: list[str] | None = None
+        self,
+        table: deltalake.DeltaTable,
+        plan: CompactionPlan | None = None,
+        *,
+        partitions: list[str] | None = None,
+        partition_column: str = PARTITION_KEY,
     ) -> bool:
         plan = plan or await self._plan_compaction(table)
         target_size = plan.target_size
@@ -510,7 +515,7 @@ class DeltaMaintenance:
             def _compact_op(size: int = target_size, tasks: int | None = max_concurrent_tasks) -> dict[str, Any]:
                 if partitions:
                     return table.optimize.compact(
-                        partition_filters=[(PARTITION_KEY, "in", partitions)],
+                        partition_filters=[(partition_column, "in", partitions)],
                         target_size=size,
                         max_concurrent_tasks=tasks,
                     )
@@ -587,6 +592,11 @@ class DeltaMaintenance:
             "max_bins_per_commit": COMPACT_MAX_BINS_PER_COMMIT,
             "partitions": partitions,
         }
+        # Without this, compaction writes row groups up to deltalite's 128 MiB default and so joins again
+        # the row groups that the upsert cap split.
+        max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
+        if max_row_group_bytes > 0:
+            compact_kwargs["max_row_group_decoded_bytes"] = max_row_group_bytes
 
         def _run() -> dict[str, Any]:
             if identity is None:
@@ -605,6 +615,7 @@ class DeltaMaintenance:
             compact_target_size=target_size,
             compact_max_parallel_bins=compact_kwargs["max_parallel_bins"],
             compact_slot_budget_mb=round(slot_budget_mb, 1) if slot_budget_mb is not None else None,
+            compact_max_row_group_decoded_bytes=compact_kwargs.get("max_row_group_decoded_bytes"),
             pod_memory_mb=pod_mb_before,
             peak_rss_mb=_peak_rss_mb(),
         )
@@ -967,6 +978,46 @@ class DeltaMaintenance:
             )
         except Exception as e:
             await self._log_maintenance_failure(e, step="compact")
+
+    async def compact_history_partitions(self, partition_column: str) -> bool:
+        """Compact each partition of a partitioned history table that holds enough small files.
+
+        Every append and every close merge adds a file to the current partition, and each close moves the
+        rows it closes into the month that is still filling. A CDC table runs without the small-file
+        triggers of `compact_if_fragmented`, because a CDC load lands on every tick, and its count triggers
+        average over every month partition. Never raises, like `run_scheduled`.
+        """
+        try:
+            table = await self._table.get_delta_table()
+            if table is None or partition_column not in (table.metadata().partition_columns or []):
+                return False
+            prefix = f"{partition_column}="
+            sizes: defaultdict[str, list[int]] = defaultdict(list)
+            for path, size in table._table.get_add_file_sizes().items():
+                directory = path.rpartition("/")[0]
+                if directory.startswith(prefix):
+                    sizes[directory[len(prefix) :]].append(size or 0)
+
+            def fragmented(target_size: int) -> list[str]:
+                return sorted(
+                    value
+                    for value, file_sizes in sizes.items()
+                    if removable_file_count(file_sizes, target_size)
+                    >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
+                )
+
+            if not fragmented(table_target_file_size(table)):
+                return False
+            # The memory plan can shrink the bin below the table's target, and a smaller bin can merge
+            # fewer files. Without the recheck every sync would plan a compaction that removes nothing.
+            plan = await self._plan_compaction(table)
+            selected = [] if plan.target_size is None else fragmented(plan.target_size)
+            if not selected:
+                return False
+            return await self._compact(table, plan, partitions=selected, partition_column=partition_column)
+        except Exception as e:
+            await self._log_maintenance_failure(e, step="compact_history_partitions")
+            return False
 
     async def _log_maintenance_failure(self, e: Exception, *, step: str) -> None:
         if isinstance(e, ObjectStorePermissionDeniedError):

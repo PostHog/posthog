@@ -46,7 +46,7 @@ class GerritSource(ResumableSource[GerritSourceConfig, GerritResumeConfig]):
             name=ExternalDataSourceType.GERRIT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Gerrit",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["code review"],
             caption="""Enter your Gerrit instance URL and credentials to pull your code review data into the PostHog Data warehouse.
 

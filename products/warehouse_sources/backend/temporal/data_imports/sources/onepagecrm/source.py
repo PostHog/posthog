@@ -54,10 +54,10 @@ class OnepagecrmSource(ResumableSource[OnepagecrmSourceConfig, OnepagecrmResumeC
             name=ExternalDataSourceType.ONEPAGECRM,
             category=DataWarehouseSourceCategory.CRM,
             label="OnePageCRM",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OnePageCRM API credentials to pull your CRM data into the PostHog Data warehouse.
 
-You can find your User ID and API key in [OnePageCRM](https://app.onepagecrm.com) under **Apps & Integrations → API**. The key grants read access to your contacts, companies, deals, actions, notes, calls, meetings, users, statuses, and lead sources.
+You can find your User ID and API key in [OnePageCRM](https://app.onepagecrm.com) under **Apps & Integrations → API**. The key grants read access to your contacts, companies, deals, actions, notes, calls, meetings, users, statuses, lead sources, call results, pipelines, and custom field definitions.
 """,
             iconPath="/static/services/onepagecrm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/onepagecrm",

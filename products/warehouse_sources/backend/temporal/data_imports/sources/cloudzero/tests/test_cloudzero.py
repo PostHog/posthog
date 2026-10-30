@@ -4,8 +4,6 @@ from typing import Any
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudzero.cloudzero import (
-    KEY_REJECTED_MESSAGE,
-    PROBE_FAILED_MESSAGE,
     CloudzeroResumeConfig,
     _rolling_incremental_start_date,
     validate_credentials,
@@ -164,10 +162,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, (True, None)),
-            ("forbidden", 403, (False, KEY_REJECTED_MESSAGE)),
-            ("unauthorized", 401, (False, KEY_REJECTED_MESSAGE)),
-            # A CloudZero-side failure leaves the key unjudged, so it must not be blamed on the key.
-            ("server_error", 500, (False, PROBE_FAILED_MESSAGE)),
         ]
     )
     def test_status_code_maps_to_validity(

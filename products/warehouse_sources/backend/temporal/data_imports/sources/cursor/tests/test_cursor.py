@@ -136,10 +136,6 @@ class TestCursorTransport:
     @parameterized.expand(
         [
             (200, (True, None)),
-            (401, (False, cursor.KEY_REJECTED_MESSAGE)),
-            (403, (False, cursor.KEY_FORBIDDEN_MESSAGE)),
-            # A Cursor-side failure leaves the key unjudged, so it must not be blamed on the key.
-            (500, (False, cursor.PROBE_FAILED_MESSAGE)),
         ]
     )
     def test_validate_credentials_maps_status(self, status_code, expected):

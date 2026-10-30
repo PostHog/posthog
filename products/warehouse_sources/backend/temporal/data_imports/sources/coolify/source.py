@@ -129,8 +129,8 @@ class CoolifySource(SimpleSource[CoolifySourceConfig]):
             name=ExternalDataSourceType.COOLIFY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Coolify",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Coolify instance URL and an API token to pull your servers, projects, environments, applications, databases, services, deployments, scheduled task and backup runs, audit events, and teams into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.GA,
+            caption="""Enter your Coolify instance URL and an API token to pull your servers, projects, environments, applications, preview deployments, databases, services and their containers and databases, deployments, scheduled task and backup runs, audit events, and teams into the PostHog Data warehouse.
 
 Create a token under **Keys & Tokens > API tokens** in your Coolify dashboard. A read-only token is enough, because this source never writes or deploys. Audit events need a token created by a team admin or owner.
 

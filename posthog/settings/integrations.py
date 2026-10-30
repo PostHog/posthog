@@ -67,6 +67,8 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRE
 
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
+# The signing secret from the Linear App's webhook settings. Empty leaves `webhooks/linear` unconfigured.
+LINEAR_APP_WEBHOOK_SECRET = get_from_env("LINEAR_APP_WEBHOOK_SECRET", "")
 
 HELPSCOUT_APP_CLIENT_ID = get_from_env("HELPSCOUT_APP_CLIENT_ID", "")
 HELPSCOUT_APP_CLIENT_SECRET = get_from_env("HELPSCOUT_APP_CLIENT_SECRET", "")
@@ -258,13 +260,3 @@ POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV = get_from_env("POSTHOG_CONNECT_OAUTH_CL
 POSTHOG_CONNECT_BASE_URL_US = get_from_env("POSTHOG_CONNECT_BASE_URL_US", "https://us.posthog.com")
 POSTHOG_CONNECT_BASE_URL_EU = get_from_env("POSTHOG_CONNECT_BASE_URL_EU", "https://eu.posthog.com")
 POSTHOG_CONNECT_BASE_URL_DEV = get_from_env("POSTHOG_CONNECT_BASE_URL_DEV", "http://localhost:8000")
-
-# Legacy OAuth client credentials kept alive during an app or secret rotation.
-# Refreshes fall back to these when the primary credentials fail, so tokens issued
-# by a since-migrated app keep working until users reconnect.
-OAUTH_CLIENT_FALLBACKS: dict[str, dict[str, str]] = {
-    "bing-ads": {
-        "client_id": BING_ADS_CLIENT_ID_FALLBACK,
-        "client_secret": BING_ADS_CLIENT_SECRET_FALLBACK,
-    },
-}

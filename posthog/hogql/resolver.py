@@ -30,7 +30,13 @@ from posthog.hogql.database.schema.log_entries import (
 )
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    UNRESOLVED_FIELD_MESSAGE,
+    ImpossibleASTError,
+    NotImplementedError,
+    QueryError,
+    ResolutionError,
+)
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -1008,6 +1014,7 @@ class Resolver(CloningVisitor):
         new_node.array_join_op = node.array_join_op
         ac = AliasCollector()
         array_join_aliases = []
+        array_join_placeholders: dict[str, ast.FieldAliasType] = {}
         if node.array_join_list:
             for expr in node.array_join_list:
                 ac.visit(expr)
@@ -1015,7 +1022,8 @@ class Resolver(CloningVisitor):
             for key in array_join_aliases:
                 if key in node_type.aliases:
                     raise QueryError(f"Cannot redefine an alias with the name: {key}")
-                node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+                array_join_placeholders[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+                node_type.aliases[key] = array_join_placeholders[key]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
@@ -1113,6 +1121,17 @@ class Resolver(CloningVisitor):
                     # delete the keys we added in the first pass to avoid "can't redefine" errors
                     del node_type.aliases[key]
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
+            for array_join_expr in new_node.array_join_list:
+                if isinstance(array_join_expr, ast.Alias) and isinstance(array_join_expr.type, ast.FieldAliasType):
+                    array_join_expr.type = ast.ArrayJoinAliasType(
+                        alias=array_join_expr.alias, type=array_join_expr.type.type
+                    )
+                    if not array_join_expr.hidden:
+                        node_type.aliases[array_join_expr.alias] = array_join_expr.type
+                    # SELECT columns resolved against the pass 1 placeholder, so give it the item type.
+                    placeholder = array_join_placeholders.get(array_join_expr.alias)
+                    if placeholder is not None:
+                        placeholder.type = array_join_expr.type.resolve_constant_type(self.context)
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
@@ -1458,7 +1477,7 @@ class Resolver(CloningVisitor):
                         raise
                     database_table = opaque_table
 
-            self._record_read(database_table)
+            self._record_read(database_table, ".".join(table_name_chain))
 
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
@@ -1971,6 +1990,14 @@ class Resolver(CloningVisitor):
                 node.type = ast.FloatType()
         elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
             node.type = ast.DateTimeType()
+        elif (
+            self.dialect == "trino"
+            and node.op in (ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub)
+            and isinstance(left_type, ast.DateType)
+            and isinstance(right_type, ast.IntegerType)
+        ):
+            # ClickHouse reads `Date ± Int` as a day offset; the Trino printer lowers it to date_add by this type.
+            node.type = ast.DateType()
         elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):
             # ClickHouse widens Decimal combined with a Float to Float; Decimal combined with a
             # Decimal or Integer stays Decimal. Anything else (e.g. Decimal + String) is unknown.
@@ -2535,7 +2562,7 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}", node=node, fix=fix)
+                raise QueryError(f"{UNRESOLVED_FIELD_MESSAGE}: {name}{suggestion_suffix}", node=node, fix=fix)
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
@@ -2966,7 +2993,7 @@ class Resolver(CloningVisitor):
 
         return False
 
-    def _record_read(self, database_table: Table) -> None:
+    def _record_read(self, database_table: Table, table_name: str) -> None:
         if isinstance(database_table, SavedQuery):
             self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
@@ -2974,6 +3001,8 @@ class Resolver(CloningVisitor):
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
             self._record_direct_read(database_table.table_id)
+        else:
+            self._record_direct_read(table_name)
 
     def _record_saved_query_read(self, saved_query_id: str, *, is_user_view: bool) -> None:
         self.context.referenced_saved_query_ids.add(saved_query_id)

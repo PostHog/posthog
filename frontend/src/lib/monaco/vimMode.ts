@@ -1,8 +1,14 @@
-import { editor as monacoEditor } from 'monaco-editor'
+import { Range, editor as monacoEditor } from 'monaco-editor'
 import { VimMode, initVimMode } from 'monaco-vim'
 
 import { VimrcError, parseVimrc } from './vimrc'
-import { VimMappingContext, VimrcMappingSession, createNonrecursiveVimMapping } from './vimrcMappings'
+import {
+    RUN_QUERY_ACTION,
+    VimMappingContext,
+    VimrcMappingSession,
+    createNonrecursiveVimMapping,
+    holdVimrcMappingPrefixes,
+} from './vimrcMappings'
 
 export interface VimModeHandle {
     vimMode: VimMode
@@ -23,6 +29,18 @@ interface VimrcEditorState {
 const vimrcEditorStates = new WeakMap<object, VimrcEditorState>()
 const vimrcMappingSession = new VimrcMappingSession()
 let vimrcSupportRegistered = false
+
+// CodeEditorImpl registers this action for Cmd+Enter. It runs the selection when there is one, and the full query otherwise.
+const RUN_QUERY_EDITOR_ACTION = 'saveAndRunPostHog'
+
+async function runQuery(cm: any): Promise<void> {
+    const action = cm.editor.getAction(RUN_QUERY_EDITOR_ACTION)
+    if (!action) {
+        cm.openNotification("This editor can't run queries")
+        return
+    }
+    await action.run()
+}
 
 // Options and ex commands live on monaco-vim's global Vim object, which all editors share, so register them once.
 function registerVimrcSupport(): void {
@@ -45,6 +63,33 @@ function registerVimrcSupport(): void {
             createNonrecursiveVimMapping(params.args[0], params.args[1], context)
         })
     }
+
+    holdVimrcMappingPrefixes(vimrcMappingSession)
+
+    Vim.defineAction(RUN_QUERY_ACTION, (cm: any): void => {
+        void runQuery(cm)
+    })
+
+    // An ex range is linewise, so `:'<,'>run` runs the full lines of the last visual selection.
+    Vim.defineEx('run', 'run', (cm: any, params: { line?: number; lineEnd?: number }): void => {
+        if (params.line === undefined) {
+            void runQuery(cm)
+            return
+        }
+        const editor: monacoEditor.IStandaloneCodeEditor = cm.editor
+        const model = editor.getModel()
+        const position = editor.getPosition()
+        if (!model || !position) {
+            return
+        }
+        const lineCount = model.getLineCount()
+        const lines = [params.line, params.lineEnd ?? params.line].map((line) =>
+            Math.min(Math.max(line + 1, 1), lineCount)
+        )
+        const [startLineNumber, endLineNumber] = [Math.min(...lines), Math.max(...lines)]
+        editor.setSelection(new Range(startLineNumber, 1, endLineNumber, model.getLineMaxColumn(endLineNumber)))
+        void runQuery(cm).finally(() => editor.setPosition(position))
+    })
 
     // monaco-vim forces a solid cursor each time the editor enters normal mode. patchCursorBlink re-applies this option after that.
     Vim.defineOption('cursorblink', false, 'boolean', [], (value: boolean | undefined, cm?: any): boolean | void => {

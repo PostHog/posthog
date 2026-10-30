@@ -58,7 +58,7 @@ class RentCastSource(ResumableSource[RentCastSourceConfig, RentCastResumeConfig]
             name=ExternalDataSourceType.RENTCAST,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="RentCast",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your RentCast API key to pull US real estate data into the PostHog Data warehouse.
 
 You can create an API key under **API dashboard** in [RentCast](https://app.rentcast.io/app/api). The key grants read access to property records, active sale and rental listings, and market statistics.
@@ -80,6 +80,7 @@ To sync the **markets** table, enter the ZIP codes you want market statistics fo
                     ),
                     SourceFieldInputConfig(
                         name="zip_codes",
+                        sync_setting=True,
                         label="ZIP codes for market statistics",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

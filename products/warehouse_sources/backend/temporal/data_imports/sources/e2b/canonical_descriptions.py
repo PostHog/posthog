@@ -107,6 +107,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "envdVersion": "Version of the envd daemon baked into the build.",
         },
     },
+    "template_tags": {
+        "description": "Tags of each sandbox template, with the build each tag currently points at.",
+        "docs_url": "https://e2b.dev/docs",
+        "columns": {
+            "templateID": "Identifier of the template the tag belongs to.",
+            "tag": "The tag name.",
+            "buildID": "Identifier of the build associated with this tag.",
+            "createdAt": "Time when the tag was assigned.",
+        },
+    },
     "team_metrics": {
         "description": "Concurrent sandboxes and sandbox start rate for the team over time.",
         "docs_url": "https://e2b.dev/docs",

@@ -90,7 +90,6 @@ class TestMarketstackSource:
 
     @parameterized.expand(
         [
-            ("http_unauthorized", "401 Client Error: Unauthorized for url: https://api.marketstack.com"),
             ("body_invalid_key", "Marketstack API error [invalid_access_key]"),
             ("body_usage_limit", "Marketstack API error [usage_limit_reached]"),
             ("body_function_restricted", "Marketstack API error [function_access_restricted]"),

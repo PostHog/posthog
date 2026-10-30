@@ -138,7 +138,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
             name=ExternalDataSourceType.MICROSOFTCLARITY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Microsoft Clarity",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Generate an API token in your Clarity project under **Settings -> Data Export -> Generate new API token**, then paste it below.
 
 Microsoft Clarity's export API allows a maximum of 10 requests per project per day and only returns the last 1-3 days of data (no historical backfill), so PostHog syncs a rolling snapshot on each run rather than pulling full history.""",
@@ -157,6 +157,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="num_of_days",
+                        sync_setting=True,
                         label="Reporting window",
                         required=True,
                         defaultValue=DEFAULT_NUM_OF_DAYS,
@@ -168,6 +169,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension1",
+                        sync_setting=True,
                         label="Breakdown dimension 1 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,
@@ -175,6 +177,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension2",
+                        sync_setting=True,
                         label="Breakdown dimension 2 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,
@@ -182,6 +185,7 @@ Microsoft Clarity's export API allows a maximum of 10 requests per project per d
                     ),
                     SourceFieldSelectConfig(
                         name="dimension3",
+                        sync_setting=True,
                         label="Breakdown dimension 3 (optional)",
                         required=False,
                         defaultValue=NO_DIMENSION,

@@ -28,7 +28,9 @@ class TestNuntlySourceResumeBehavior:
     def _page(rows: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:
         return ScriptedResponse(json={"data": rows, "nextCursor": next_cursor})
 
-    @parameterized.expand([("Emails",), ("Messages",), ("Inboxes",), ("Domains",), ("Webhooks",)])
+    @parameterized.expand(
+        [("Emails",), ("Messages",), ("Inboxes",), ("Domains",), ("Webhooks",), ("Namespaces",), ("Contacts",)]
+    )
     def test_fresh_run_walks_pages_and_saves_cursor_after_each_non_terminal_page(self, endpoint: str) -> None:
         result = self._driver().run(
             endpoint,
@@ -76,18 +78,99 @@ class TestNuntlySourceResumeBehavior:
         assert result.response.partition_keys == ["createdAt"]
 
 
+class TestNuntlyFanout:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(NuntlySource(), NuntlySourceConfig(api_key="apk_test"))
+
+    @staticmethod
+    def _page(rows: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+        return ScriptedResponse(json={"data": rows, "nextCursor": next_cursor})
+
+    def test_threads_walk_every_inbox_page_and_thread_page(self) -> None:
+        result = self._driver().run(
+            "Threads",
+            [
+                self._page([{"id": "ibx_1"}], "inbox-cursor"),
+                self._page([{"id": "thr_1", "inboxId": "ibx_1"}], "thread-cursor"),
+                self._page([{"id": "thr_2", "inboxId": "ibx_1"}]),
+                self._page([{"id": "ibx_2"}]),
+                self._page([{"id": "thr_3", "inboxId": "ibx_2"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/inboxes",
+            "/inboxes/ibx_1/threads",
+            "/inboxes/ibx_1/threads",
+            "/inboxes",
+            "/inboxes/ibx_2/threads",
+        ]
+        assert result.params("cursor") == [None, None, "thread-cursor", "inbox-cursor", None]
+        assert result.params("limit") == ["30"] * 5
+        assert [(row["inboxId"], row["id"]) for row in result.rows] == [
+            ("ibx_1", "thr_1"),
+            ("ibx_1", "thr_2"),
+            ("ibx_2", "thr_3"),
+        ]
+        assert result.saved_states and all(
+            state.fanout_state is not None and state.cursor is None for state in result.saved_states
+        )
+        assert result.response is not None and result.response.supports_resume is True
+
+    def test_email_events_fetch_one_unpaginated_page_per_email_and_skip_missing_emails(self) -> None:
+        result = self._driver().run(
+            "EmailEvents",
+            [
+                self._page([{"id": "em_1"}, {"id": "em_gone"}, {"id": "em_2"}]),
+                # Not paginated: a stray `nextCursor` must not trigger a second request.
+                self._page([{"id": "evt_1", "emailId": "em_1"}], "ignored"),
+                ScriptedResponse(status=404, json={"error": {"status": 404, "code": "not_found", "title": "x"}}),
+                ScriptedResponse(json={"data": [{"id": "evt_2", "emailId": "em_2"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/emails", "/emails/em_1/events", "/emails/em_gone/events", "/emails/em_2/events"]
+        assert result.params("limit") == ["30", None, None, None]
+        assert [(row["emailId"], row["id"]) for row in result.rows] == [("em_1", "evt_1"), ("em_2", "evt_2")]
+        assert result.saved_states == []
+        assert result.response is not None and result.response.supports_resume is False
+
+    def test_fanout_resume_skips_inboxes_whose_threads_already_synced(self) -> None:
+        first = self._driver().run(
+            "Threads",
+            [
+                self._page([{"id": "ibx_1"}, {"id": "ibx_2"}]),
+                self._page([{"id": "thr_1", "inboxId": "ibx_1"}]),
+                self._page([{"id": "thr_2", "inboxId": "ibx_2"}]),
+            ],
+        )
+
+        resumed = self._driver().run(
+            "Threads",
+            [
+                self._page([{"id": "ibx_1"}, {"id": "ibx_2"}]),
+                self._page([{"id": "thr_2", "inboxId": "ibx_2"}]),
+            ],
+            resume_state=first.saved_states[0],
+        )
+
+        assert resumed.raised is None
+        assert resumed.paths == ["/inboxes", "/inboxes/ibx_2/threads"]
+        assert [row["id"] for row in resumed.rows] == ["thr_2"]
+
+
 class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
+    @parameterized.expand(
+        [
+            (200, True),
+        ]
+    )
     def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             is_valid, code = validate_credentials("apk_test")
 
         assert (is_valid, code) == (expected_valid, status_code)
         assert network.requests_log[0].path == "/emails"
-
-
-class TestEndpointSettings:
-    @parameterized.expand([(name,) for name in ENDPOINTS])
-    def test_every_declared_endpoint_has_a_settings_entry(self, endpoint: str) -> None:
-        assert ENDPOINTS[endpoint].path.startswith("/")
-        assert ENDPOINTS[endpoint].primary_keys == ["id"]

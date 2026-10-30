@@ -50,6 +50,14 @@ const SECTION_KINDS: Record<string, Exclude<ReportSummarySectionKind, 'other'>> 
     recommendation: 'solution',
 }
 
+// `_layer_summary` in products/signals/backend/stack_plan.py appends this section to every layer it
+// creates. Keep the two in sync, or layer pages show the plain-text sentence beside the plan block.
+const GENERATED_PLAN_SECTION_BODY = /^This is layer \d+ of \d+ of the plan '.*'\.$/
+
+export function isGeneratedPlanSection(section: ReportSummarySection): boolean {
+    return section.kind === 'other' && section.heading === 'Plan' && GENERATED_PLAN_SECTION_BODY.test(section.body)
+}
+
 function headingText(node: any): string {
     const collect = (child: any): string =>
         typeof child?.value === 'string' ? child.value : (child?.children ?? []).map(collect).join('')

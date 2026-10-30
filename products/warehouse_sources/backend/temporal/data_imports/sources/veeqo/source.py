@@ -60,7 +60,7 @@ The API key gives full account access, so store it securely.
 """,
             iconPath="/static/services/veeqo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/veeqo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

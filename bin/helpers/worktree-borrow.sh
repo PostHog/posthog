@@ -34,24 +34,62 @@ posthog_find_venv() {
     return 0
 }
 
+# Export SSL_CERT_FILE as the system CA bundle, unless a CA file is already
+# set. The flox binaries use Nix's OpenSSL, which trusts no CA when neither
+# SSL_CERT_FILE nor NIX_SSL_CERT_FILE names a bundle. `flox activate` sets
+# them, but a borrow outside an activated shell does not. Without a bundle,
+# every TLS request from the borrowed node fails, so pnpm cannot reach the
+# registry and the post-checkout install fails. The paths are the bundles on
+# macOS, Debian/Ubuntu and RHEL/Fedora.
+posthog_export_ca_bundle() {
+    if [ -n "${SSL_CERT_FILE:-}" ] || [ -n "${NIX_SSL_CERT_FILE:-}" ]; then
+        return 0
+    fi
+    for _ph_ca in /etc/ssl/cert.pem /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+        if [ -f "$_ph_ca" ]; then
+            SSL_CERT_FILE="$_ph_ca"
+            export SSL_CERT_FILE
+            return 0
+        fi
+    done
+    return 0
+}
+
 # Borrow the main clone's toolchain into the current shell's environment.
 # Must be called with cwd = repo root (the hooks guarantee that). Scope $1 is
-# `node` or `all` (default): post-checkout only needs the node borrow, so it
-# skips the venv work (including the uv.lock compare, which isn't free).
+# `node`, `all` (default) or `main-only`: post-checkout only needs the node
+# borrow, so it skips the venv work (including the uv.lock compare, which isn't
+# free). `main-only` is `all` without the worktree's flox env, for callers that
+# run with the user's credentials in a worktree whose branch may not be trusted.
 posthog_worktree_borrow() {
     _ph_scope="${1:-all}"
     _ph_main="$(posthog_main_repo "$(pwd)")"
     [ -n "$_ph_main" ] || return 0
 
-    # flox-installed pnpm/uv/node live under the main clone's .flox/run --
-    # add them to PATH so borrowing works even from GUI git clients that
-    # don't inherit a flox-activated shell.
-    if [ -d "$_ph_main/.flox/run" ]; then
-        for _ph_bin in "$_ph_main/.flox/run"/*/bin; do
+    # flox-installed pnpm/uv/node live under .flox/run -- add them to PATH so
+    # borrowing works even from GUI git clients that don't inherit a
+    # flox-activated shell. Prefer the worktree's own flox env, because the
+    # main clone's can pin older tools than this worktree's branch requires.
+    _ph_flox_root="$_ph_main"
+    if [ "$_ph_scope" != "main-only" ]; then
+        for _ph_bin in .flox/run/*/bin; do
             if [ -d "$_ph_bin" ]; then
-                PATH="$_ph_bin:$PATH"
+                _ph_flox_root="$(pwd)"
+                break
             fi
         done
+    fi
+    if [ -d "$_ph_flox_root/.flox/run" ]; then
+        _ph_flox_on_path=""
+        for _ph_bin in "$_ph_flox_root/.flox/run"/*/bin; do
+            if [ -d "$_ph_bin" ]; then
+                PATH="$_ph_bin:$PATH"
+                _ph_flox_on_path=1
+            fi
+        done
+        if [ -n "$_ph_flox_on_path" ]; then
+            posthog_export_ca_bundle
+        fi
     fi
 
     if [ ! -d node_modules/.pnpm ] && [ -d "$_ph_main/node_modules/.pnpm" ]; then
@@ -63,7 +101,7 @@ posthog_worktree_borrow() {
         fi
     fi
 
-    if [ "$_ph_scope" = "all" ] && [ -z "$(posthog_find_venv "$(pwd)")" ]; then
+    if [ "$_ph_scope" != "node" ] && [ -z "$(posthog_find_venv "$(pwd)")" ]; then
         _ph_main_venv="$(posthog_find_venv "$_ph_main")"
         if [ -n "$_ph_main_venv" ]; then
             if cmp -s uv.lock "$_ph_main/uv.lock"; then

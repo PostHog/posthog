@@ -4,6 +4,7 @@ from django.utils import timezone
 from posthog.models.team import Team
 
 from products.web_analytics.backend.models import (
+    ContentAutopilotOpportunity,
     ContentAutopilotProposal,
     ContentAutopilotRun,
     ContentAutopilotSiteProfile,
@@ -110,6 +111,10 @@ def cancel_run(*, team: Team, run_id: str) -> ContentAutopilotRun:
         locked_run = lock_run(team, run_id)
         if locked_run.run_status not in ACTIVE_RUN_STATUSES:
             raise ContentAutopilotLifecycleError("Only a pending or generating run can be canceled.")
+        if locked_run.run_status == ContentAutopilotRun.RunStatus.PENDING:
+            ContentAutopilotOpportunity.objects.for_team(canonical_team_id(team), canonical=True).filter(
+                run=locked_run, status=ContentAutopilotOpportunity.Status.QUEUED
+            ).update(status=ContentAutopilotOpportunity.Status.NEW, updated_at=timezone.now())
         locked_run.run_status = ContentAutopilotRun.RunStatus.CANCELED
         locked_run.completed_at = timezone.now()
         locked_run.save(update_fields=["run_status", "completed_at", "updated_at"])

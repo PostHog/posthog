@@ -2,6 +2,7 @@ import os
 import re
 import shlex
 import signal
+import itertools
 import subprocess
 from datetime import timedelta
 from pathlib import Path
@@ -10,7 +11,11 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from products.tasks.backend.exceptions import SandboxExecutionError
-from products.tasks.backend.logic.services.agent_server_launcher import AgentServerPreflight
+from products.tasks.backend.logic.services.agent_server_launcher import (
+    AGENT_SERVER_PREFLIGHT_REUSE_MARKER,
+    AgentServerPreflight,
+    build_agent_server_preflight_lines,
+)
 from products.tasks.backend.logic.services.agentsh import (
     BASH_ENV_SCRIPT,
     ENV_WRAPPER_SCRIPT,
@@ -26,13 +31,17 @@ from products.tasks.backend.logic.services.launch_preparation_metrics import (
     launch_preparation_metric_context,
     record_launch_preparation_ms,
 )
-from products.tasks.backend.logic.services.modal_launch_preparation import build_modal_launch_preparation_script
+from products.tasks.backend.logic.services.modal_launch_preparation import (
+    build_modal_agent_server_launch_script,
+    build_modal_launch_preparation_script,
+)
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
     build_bundled_skills_clear_command,
 )
+from products.tasks.backend.logic.services.task_filesystem import TASK_FILESYSTEM_SCRIPT
 
 
 @pytest.fixture
@@ -69,9 +78,9 @@ esac
 
 
 def run_preparation(
-    root: Path, allowed_domains: list[str] | None, environment: dict[str, str]
+    root: Path, allowed_domains: list[str] | None, environment: dict[str, str], script: str | None = None
 ) -> subprocess.CompletedProcess[str]:
-    script = build_modal_launch_preparation_script(allowed_domains)
+    script = script if script is not None else build_modal_launch_preparation_script(allowed_domains)
     script = re.sub(r"/(?:tmp|etc|opt|var)/", lambda match: f"{root}{match.group()}", script)
     script = script.replace(
         "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -130,6 +139,39 @@ def test_preparation_installs_complete_files_and_can_be_reapplied(
     if allowed_domains is None:
         assert not (tmp_path / "etc/agentsh").exists()
         assert not (tmp_path / SESSION_ID_FILE.lstrip("/")).exists()
+
+
+def run_launch_script(
+    root: Path, environment: dict[str, str], *, agent_server_healthy: bool
+) -> subprocess.CompletedProcess[str]:
+    health_body = '{"status":"ok","hasSession":true}' if agent_server_healthy else '{"status":"ok","hasSession":false}'
+    (root / "bin/curl").write_text(
+        f'#!/bin/bash\ncase "$*" in *localhost:8080/health*) echo {shlex.quote(health_body)} ;; *) echo 200 ;; esac\n'
+    )
+    script = build_modal_agent_server_launch_script(
+        ["example.com"],
+        bundled_skills_clear_command="true",
+        preflight_lines=build_agent_server_preflight_lines(probe_health=True, executable_paths=()),
+    ).replace(f"/usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} enter -- ", "")
+    return run_preparation(root, ["example.com"], environment, script)
+
+
+@pytest.mark.parametrize("agent_server_healthy", [True, False])
+def test_launch_script_reports_reuse_only_for_a_healthy_agent_server(
+    tmp_path: Path, shell_environment: dict[str, str], agent_server_healthy: bool
+) -> None:
+    result = run_launch_script(tmp_path, shell_environment, agent_server_healthy=agent_server_healthy)
+
+    assert (AGENT_SERVER_PREFLIGHT_REUSE_MARKER in result.stdout.splitlines()) is agent_server_healthy
+
+
+@pytest.mark.parametrize("agent_server_healthy", [True, False])
+def test_launch_script_creates_an_agentsh_session_only_when_not_reusing(
+    tmp_path: Path, shell_environment: dict[str, str], agent_server_healthy: bool
+) -> None:
+    run_launch_script(tmp_path, shell_environment, agent_server_healthy=agent_server_healthy)
+
+    assert (tmp_path / SESSION_ID_FILE.lstrip("/")).exists() is not agent_server_healthy
 
 
 @pytest.mark.parametrize(
@@ -298,7 +340,7 @@ def test_preparation_metric_measures_only_upload_and_execution(export_fails: boo
             sandbox, "_agent_server_preflight", return_value=AgentServerPreflight(reused=True, capabilities=frozenset())
         ),
     ):
-        clock.monotonic.side_effect = [10.0, 10.5, 11.25]
+        clock.monotonic.side_effect = itertools.chain([10.0, 10.0, 10.5, 11.25], itertools.repeat(20.0))
         if export_fails:
             metric_meter.side_effect = RuntimeError("export unavailable")
 

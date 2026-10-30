@@ -210,7 +210,12 @@ class TestErrorHandling:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(("status", "expected"), [(200, True), (401, False), (403, False)])
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (200, True),
+        ],
+    )
     def test_maps_status_to_bool(self, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("key") is expected

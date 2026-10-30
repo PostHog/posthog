@@ -119,11 +119,12 @@ def partnerstack_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"limit": PAGE_SIZE},
+                    "params": {"limit": PAGE_SIZE} if config.paginated else {},
                     "data_selector": "data.items",
                     # A 200 whose body isn't the expected `{"data": {"items": [...]}}` envelope is
                     # treated as transient and reissued, matching the hand-rolled source's retry.
                     "data_selector_malformed_retryable": True,
+                    **({} if config.paginated else {"paginator": "single_page"}),
                 },
             }
         ],
