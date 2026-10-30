@@ -43,20 +43,21 @@ class XmlReader {
             while (/\s/.test(this.text[this.index] ?? '')) {
                 this.index++
             }
-            const close = this.text.startsWith('<!--', this.index)
-                ? this.text.indexOf('-->', this.index) + 3
+            const delimiter = this.text.startsWith('<!--', this.index)
+                ? '-->'
                 : this.text.startsWith('<?', this.index)
-                  ? this.text.indexOf('?>', this.index) + 2
+                  ? '?>'
                   : this.text.startsWith('<!DOCTYPE', this.index)
-                    ? this.text.indexOf('>', this.index) + 1
-                    : -1
-            if (close === -1) {
+                    ? '>'
+                    : undefined
+            if (delimiter === undefined) {
                 return
             }
-            if (close < this.index) {
+            const end = this.text.indexOf(delimiter, this.index)
+            if (end < 0) {
                 throw new PlistError('unterminated markup')
             }
-            this.index = close
+            this.index = end + delimiter.length
         }
     }
 
