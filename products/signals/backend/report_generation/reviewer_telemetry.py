@@ -75,6 +75,9 @@ def capture_suggested_reviewers_resolved(
     after_inbox_notification: bool | None = None,
     removal_reason: str | None = None,
     has_removal_note: bool | None = None,
+    proposed_count: int | None = None,
+    reviewer_outcome: str | None = None,
+    report_status: str | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_resolved` when a report's suggested reviewers are persisted.
 
@@ -94,6 +97,11 @@ def capture_suggested_reviewers_resolved(
     `correction_note_targets` report what that forwarding did — notes written, and scouts the
     correction was addressed to, which is the larger number when the suppression window swallowed a
     target's logins. Both are absent on every other path, so absence reads as "no correction".
+
+    Scout paths add `proposed_count` (how many reviewers the scout sent, before reviewer rules
+    filtered them), `reviewer_outcome`, and `report_status`. Every surfaced scout report emits
+    this event, with `suggested_count = 0` when it has no reviewers, so empty reports stay in the
+    denominator whichever assignment flags are on.
 
     Best-effort: never raises, so analytics can't break report generation.
     """
@@ -133,6 +141,9 @@ def capture_suggested_reviewers_resolved(
                 "all_unlinkable": bool(linkability.unlinkable_count) and not linkability.linkable_count,
                 **({"removal_reason": removal_reason} if removal_reason else {}),
                 **({"has_removal_note": has_removal_note} if has_removal_note is not None else {}),
+                **({"proposed_count": proposed_count} if proposed_count is not None else {}),
+                **({"reviewer_outcome": reviewer_outcome} if reviewer_outcome else {}),
+                **({"report_status": report_status} if report_status else {}),
                 **(
                     {}
                     if correction_notes_written is None

@@ -322,10 +322,34 @@ class TestScoutReportPersistence(BaseTest):
         run.refresh_from_db()
         assert run.emitted_report_ids == report_ids
 
-    def test_create_with_reviewers_fires_linkability_telemetry(self) -> None:
-        # Scout-authored reports persist reviewers here, not through the custom-agent path; without
-        # this call the scout bucket silently disappears from the reviewer-linkability metric.
+    @parameterized.expand(
+        [
+            ("selected_writer_off", False, ["octocat"], "selected", SignalReport.Status.READY, ["octocat"]),
+            ("non_member_dropped_writer_on", True, ["octocat"], "selected", SignalReport.Status.READY, []),
+            ("empty_writer_off", False, [], "empty", SignalReport.Status.READY, []),
+            ("omitted_writer_off", False, None, "omitted", SignalReport.Status.READY, []),
+            ("omitted_writer_on", True, None, "omitted", SignalReport.Status.READY, []),
+            ("suppressed_writer_off", False, None, "omitted", SignalReport.Status.SUPPRESSED, None),
+        ]
+    )
+    def test_create_fires_reviewer_telemetry_for_every_surfaced_report(
+        self,
+        _name: str,
+        writer_enabled: bool,
+        logins: list[str] | None,
+        outcome: str,
+        status: SignalReport.Status,
+        expected_logins: list[str] | None,
+    ) -> None:
+        # Scout-authored reports persist reviewers here, not through the custom-agent path. A surfaced
+        # report with no reviewers must still count, or the routed share loses its denominator.
+        reviewers = (
+            SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in logins])
+            if logins is not None
+            else None
+        )
         with (
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
             patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -335,13 +359,22 @@ class TestScoutReportPersistence(BaseTest):
                 summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
                 signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
-                suggested_reviewers=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
+                status=status,
+                suggested_reviewers=reviewers,
+                proposed_reviewer_count=len(logins or []),
+                reviewer_outcome=outcome,
             )
 
+        if expected_logins is None:
+            mock_capture.assert_not_called()
+            return
         assert mock_capture.call_count == 1
         kwargs = mock_capture.call_args.kwargs
         assert kwargs["source"] == "scout"
-        assert kwargs["github_logins"] == ["octocat"]
+        assert kwargs["github_logins"] == expected_logins
+        assert kwargs["proposed_count"] == len(logins or [])
+        assert kwargs["reviewer_outcome"] == outcome
+        assert kwargs["report_status"] == str(status)
 
     def test_set_reviewers_fires_linkability_telemetry_with_merged_list(self) -> None:
         result = create_scout_report(
@@ -367,6 +400,8 @@ class TestScoutReportPersistence(BaseTest):
         kwargs = mock_capture.call_args.kwargs
         assert kwargs["source"] == "scout_edit"
         assert kwargs["github_logins"] == ["octocat"]
+        assert kwargs["proposed_count"] == 1
+        assert kwargs["reviewer_outcome"] == "selected"
 
     def test_set_reviewers_preserves_legacy_commit_with_oversized_reasons(self) -> None:
         result = create_scout_report(

@@ -350,6 +350,8 @@ class ReviewerProposal(BaseModel):
     source: str = "automatic"
     outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
     retry_reason: str | None = Field(default=None, max_length=500)
+    # Why a scout edit found no suitable owner. Required before that outcome may clear a non-empty list.
+    outcome_reason: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
     def validate_outcome(self) -> ReviewerProposal:
