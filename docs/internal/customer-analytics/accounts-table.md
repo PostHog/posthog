@@ -11,6 +11,36 @@ Reads resolve the current project defaults without copying them into the user ro
 A personal save stores the complete ordered list and an override marker.
 A saved empty list means the user chose no pinned properties and no longer inherits project changes.
 
+## Table columns and definitions
+
+The first table response contains rows, ordered columns, and the metadata needed to show and edit those columns.
+A default view sends `useDefaultColumns: true`. The backend selects the name, tags, note count, and all project relationships.
+Saved views store their selected column expressions. Relationship expressions contain the definition ID and a stable alias:
+
+```text
+accounts.relationships.values.`<definition-id>` AS rel_<definition-id-without-hyphens>
+```
+
+Relationship sort entries use the same alias followed by `ASC` or `DESC`.
+The column picker and default-column builder create this format. Saved views preserve it unchanged.
+The query planner sends typed definition references to the table endpoint.
+Empty results still include column metadata.
+
+The table and overview queries start without waiting for definition catalogs.
+The backend validates custom-property and relationship filters, including filters for columns outside the table.
+The Accounts UI requests that missing definitions be omitted, so deleted properties do not block saved views.
+The response omits their columns and values. A deleted sort column falls back to the default row order.
+Saved custom-property filters with incompatible operators are omitted after a definition changes type.
+Other API callers retain strict validation by default.
+
+Saved overview metrics use their definition IDs without waiting for catalogs.
+Missing or nonnumeric metric definitions produce an empty metric value.
+Table metadata caches workflow-reference flags for 60 seconds per project.
+
+Opening a column, filter, or overview editor loads each definition catalog once with `pagination=none`.
+The API keeps its `results`, `count`, `next`, and `previous` envelope. Other callers keep pagination by default.
+Catalog responses update picker options without changing the table request.
+
 ## Query scheduling
 
 Account row and overview requests use a dedicated frontend queue with two concurrent slots.

@@ -39,6 +39,50 @@ ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
 ]
 
 
+# A tick must end inside its minute, so these buckets resolve the seconds up to and past 60.
+ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS = (
+    "alerts_platform_tick_duration_ms",
+    "alerts_platform_tick_start_delay_ms",
+)
+
+ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS = [
+    100.0,
+    500.0,
+    1_000.0,
+    2_000.0,
+    5_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    40_000.0,
+    50_000.0,
+    60_000.0,
+    90_000.0,
+    120_000.0,
+]
+
+ALERTS_PLATFORM_TICK_KEYS_METRICS = ("alerts_platform_tick_keys",)
+
+ALERTS_PLATFORM_TICK_KEYS_BUCKETS = [
+    0.0,
+    50.0,
+    100.0,
+    200.0,
+    300.0,
+    400.0,
+    500.0,
+    600.0,
+    800.0,
+    1_000.0,
+    1_250.0,
+    1_500.0,
+    2_000.0,
+    3_000.0,
+    5_000.0,
+]
+
+
 def safe_record(fn: Callable[..., object], *args: object, **kwargs: object) -> None:
     """Best-effort metric recording. A batch that decided correctly must not fail on telemetry."""
     try:
@@ -169,6 +213,14 @@ def increment_describer_failures(source: str) -> None:
     ).add(1)
 
 
+def increment_slack_renderer_failures(source: str) -> None:
+    """A source's Slack renderer raised, so its alerts went out in the platform's generic layout."""
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_slack_renderer_failures_total",
+        "Slack messages sent in the platform's layout because the source's renderer raised",
+    ).add(1)
+
+
 def increment_root_edit_failures(provider: str) -> None:
     """An opening message could not be brought up to date, so it shows an older state."""
     get_metric_meter({"provider": provider}).create_counter(
@@ -210,7 +262,7 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
     ).record(dt.timedelta(milliseconds=duration_ms))
 
 
-DeliveryOutcomeLabel = Literal["sent", "failed", "already_delivered", "busy", "no_transport"]
+DeliveryOutcomeLabel = Literal["sent", "failed", "misconfigured", "already_delivered", "busy", "no_transport"]
 
 _DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
 _DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition and the send that announced it"
@@ -240,7 +292,8 @@ def increment_deliveries(source: str, provider: str, path: str, outcome: Deliver
 
     `already_delivered` is a retry finding its send done, and `busy` a send that waits on another
     one holding the thread. Neither sent anything, so a rising `sent` with a flat `failed` is the
-    only reading that says alerts reach people.
+    only reading that says alerts reach people. `misconfigured` is a refusal only the destination's
+    owner can fix, so it stays out of `failed`, which measures the platform.
     """
     labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
     try:
@@ -263,6 +316,26 @@ def record_delivery_lag(source: str, provider: str, lag_ms: int) -> None:
     meter.create_histogram_timedelta(
         name="alerts_platform_delivery_lag_ms", description=_DELIVERY_LAG_DESCRIPTION, unit="ms"
     ).record(dt.timedelta(milliseconds=lag_ms))
+
+
+def record_tick_keys(keys: int) -> None:
+    """Batch keys one tick's discovery found due, the ones its limits left out included. Called
+    from workflow code; the workflow meter emits nothing during replay."""
+    get_metric_meter().create_histogram(
+        name=ALERTS_PLATFORM_TICK_KEYS_METRICS[0],
+        description="Batch keys one tick's discovery found due, including those its limits left out",
+    ).record(keys)
+
+
+def record_tick_end(*, duration: dt.timedelta, deadline_reached: bool) -> None:
+    """One finished tick, measured from its scheduled minute. A tick that runs past its minute
+    makes the schedule skip the next one, so the duration's distance from 60 seconds is the
+    headroom left. Called from workflow code; the workflow meter emits nothing during replay."""
+    get_metric_meter({"deadline_reached": str(deadline_reached).lower()}).create_histogram_timedelta(
+        name="alerts_platform_tick_duration_ms",
+        description="Time from a tick's scheduled minute to the end of its last dispatch page",
+        unit="ms",
+    ).record(duration)
 
 
 def record_scheduler_lag(source: str, lag_ms: int) -> None:

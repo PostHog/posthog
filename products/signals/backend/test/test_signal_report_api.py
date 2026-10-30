@@ -1446,14 +1446,22 @@ class TestSignalReportListAPI(APIBaseTest):
 
     # --- status filter ---
 
-    def test_filter_by_resolved_status(self):
-        resolved = self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+    @parameterized.expand([("resolved", "status"), ("closed", "status"), ("closed", "view")])
+    def test_filter_by_completed_status(self, report_status: str, parameter: str) -> None:
+        resolved = self._create_report(title="Completed attempt", status=report_status)
         self._create_report(title="Ready", status=SignalReport.Status.READY)
+        self._create_report(title="Other outcome", status="closed" if report_status == "resolved" else "resolved")
 
-        response = self.client.get(self._list_url(status="resolved"))
+        response = self.client.get(self._list_url(**{parameter: report_status}))
         assert response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in response.json()["results"]}
         assert ids == {str(resolved.id)}
+
+        for unclaimed in ("true", "false"):
+            response = self.client.get(self._list_url(unclaimed=unclaimed))
+            assert response.status_code == status.HTTP_200_OK
+            ids = {row["id"] for row in response.json()["results"]}
+            assert (str(resolved.id) in ids) is (unclaimed == "false")
 
     @parameterized.expand(
         [("disabled", False), ("enabled", True), ("unavailable", RuntimeError("flag service unavailable"))]
@@ -1832,9 +1840,19 @@ class TestSignalReportListAPI(APIBaseTest):
         with patch("products.signals.backend.ranking.inbox_sort.posthoganalytics") as analytics:
             get_flag = analytics.get_feature_flag
             get_flag.return_value = outcome
-            response = self.client.get(self._list_url(status="ready", sort="recommended"))
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
+        list_sql = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if query["sql"].startswith('SELECT "signals_signalreport"."id"') and "ORDER BY" in query["sql"]
+        ]
+        assert len(list_sql) == 1
+        # The sort reads every matching report, so a score subquery repeated in the ORDER BY
+        # multiplies the artefact walks for the whole team.
+        assert list_sql[0].count("'ranking_score'") == 1
         assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
         assert body["ranker"] == outcome
@@ -2461,7 +2479,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert filter_sql
         for sql in filter_sql:
             # Django aliases the PR artefact, task-run artefact, legacy task, and assignment task tables as V0.
-            assert sql.count(f'V0."team_id" = {self.team.id}') == 4
+            assert sql.count(f'"V0"."team_id" = {self.team.id}') == 4
             # A join to the assignment or pull request table lets the planner scan every team's rows first.
             assert "JOIN" not in sql
             assert '"pull_request_id" = ANY((ARRAY(SELECT' in sql
@@ -2574,12 +2592,12 @@ class TestSignalReportListAPI(APIBaseTest):
         [
             ("short_first_page", 10, 0, 3, False, False),
             ("short_last_page", 2, 2, 1, False, False),
-            ("exact_full_page", 3, 0, 3, True, False),
-            ("full_page_with_more", 2, 0, 2, True, True),
+            ("exact_full_page", 3, 0, 3, False, False),
+            ("full_page_with_more", 2, 0, 2, False, True),
             ("offset_past_the_end", 2, 5, 0, True, False),
         ]
     )
-    def test_search_page_counts_without_a_second_scan_when_the_page_is_short(
+    def test_search_page_counts_without_a_second_scan(
         self, _name: str, limit: int, offset: int, rows: int, runs_count_query: bool, has_next: bool
     ) -> None:
         for i in range(3):
@@ -2587,12 +2605,15 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_report(title="Unrelated")
 
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get(self._list_url(search="checkout", limit=limit, offset=offset))
+            response = self.client.get(
+                self._list_url(search="checkout", ordering="-created_at", limit=limit, offset=offset)
+            )
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["count"] == 3
-        assert len(body["results"]) == rows
+        newest_first = ["Checkout failure 2", "Checkout failure 1", "Checkout failure 0"]
+        assert [r["title"] for r in body["results"]] == newest_first[offset : offset + rows]
         assert (body["next"] is not None) == has_next
         count_queries = [
             q for q in ctx.captured_queries if 'COUNT(*) AS "__count" FROM "signals_signalreport"' in q["sql"]
@@ -3133,13 +3154,18 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["dismissal_reason"] == "analysis_wrong"
 
     def _repo_selection_artefact(
-        self, report: SignalReport, *, repository: str | None, created_at: datetime | None = None
+        self,
+        report: SignalReport,
+        *,
+        repository: str | None,
+        created_at: datetime | None = None,
+        research_context: dict[str, str] | None = None,
     ) -> SignalReportArtefact:
         art = SignalReportArtefact(
             team=self.team,
             report=report,
             type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-            content=json.dumps({"repository": repository, "reason": "pick"}),
+            content=json.dumps({"repository": repository, "reason": "pick", "research_context": research_context}),
         )
         art.save()
         if created_at is not None:
@@ -3167,14 +3193,16 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert reports[0].prefetched_repo_selection_artefacts == [latest]
 
-    def test_list_repo_slug_null_without_selection(self):
+    @parameterized.expand([(None,), ({"mode": "data_only", "repository_status": "no_integration"},)])
+    def test_list_repo_slug_null_without_selection(self, research_context: dict[str, str] | None) -> None:
         report = self._create_report()
-        self._repo_selection_artefact(report, repository=None)
+        self._repo_selection_artefact(report, repository=None, research_context=research_context)
 
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["repo_slug"] is None
+        assert row["research_context"] == research_context
 
     @parameterized.expand(
         [
@@ -4354,6 +4382,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
             ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),
             ("resolved", SignalReport.Status.RESOLVED, SignalReport.Status.RESOLVED),
+            ("closed", SignalReport.Status.CLOSED, SignalReport.Status.CLOSED),
             ("failed", SignalReport.Status.FAILED, SignalReport.Status.FAILED),
             # In-flight / pre-research states have no live workflow, so restore re-enters the pipeline.
             ("potential", SignalReport.Status.POTENTIAL, SignalReport.Status.POTENTIAL),

@@ -53,7 +53,7 @@ export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
 const RAIL_PANE_HOMES: Partial<Record<TodayRailPane, (effectivePhaiView: PhaiViewMode) => string>> = {
     home: () => urls.projectHomepage(),
     spaces: todayNewChatUrl,
-    analytics: () => urls.analyticsProductHome(),
+    analytics: () => urls.analyticsList(),
     settings: () => urls.settings('project'),
 }
 

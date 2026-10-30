@@ -8,7 +8,7 @@ from django.db.models import QuerySet
 
 import structlog
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -278,9 +278,11 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
         # canonical team, so accept any integration in the same project.
         project_id = Team.objects.values_list("project_id", flat=True).get(id=team_id)
         # nosemgrep: environment-model-scoped-by-project -- alert rows live on the canonical team, so a Slack integration from any environment of the project is valid
-        if not Integration.objects.filter(
-            team__project_id=project_id, id=integration_id, kind=Integration.IntegrationKind.SLACK
-        ).exists():
+        project_team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
+        if not any(
+            IntegrationManager.slack.oauth.get_many(project_team_id, [integration_id])
+            for project_team_id in project_team_ids
+        ):
             raise AlertValidationError("Slack integration not found for this project.")
         channel = config.get("channel")
         if not isinstance(channel, str) or not channel:

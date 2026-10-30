@@ -10,11 +10,16 @@ Tasks/runs are created through the tasks facade (the product is isolated) — ne
 Runs are recorded via the production dual-write (`record_implementation_task`), so seeded reports are
 billable-faithful; for the refund-path matrix (excluded/credited/exempt) use `seed_refund_test_data`.
 
+`--github-optional` seeds the shape GitHub-optional research leaves when the project has no GitHub
+integration: a `data_only` repo selection with no repository, no commits, no GitHub reviewers, and
+no implementation runs, since opening a pull request still needs GitHub access.
+
 DEBUG only.
 
     python manage.py seed_inbox_data --team-id 1
     python manage.py seed_inbox_data --team-id 1 --count 12 --clear
     python manage.py seed_inbox_data --team-id 1 --no-runs
+    python manage.py seed_inbox_data --team-id 1 --github-optional
 """
 
 import json
@@ -40,6 +45,7 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.agentic.report import _persist_agentic_report_artefacts
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[2] / "report_generation" / "fixtures"
 _DEFAULT_REPOSITORY = "posthog/posthog"
@@ -95,6 +101,11 @@ class Command(BaseCommand):
             action="store_false",
             help="Skip creating task runs + logs (reports and artefacts only)",
         )
+        parser.add_argument(
+            "--github-optional",
+            action="store_true",
+            help="Seed data-only reports researched without a GitHub integration (no repository, commits, or runs)",
+        )
 
     def handle(self, *args, **options):
         if not settings.DEBUG:
@@ -109,16 +120,18 @@ class Command(BaseCommand):
         if options["clear"]:
             self._clear_existing(team)
 
+        github_optional = options["github_optional"]
         created = 0
         for index in range(count):
-            name, repository, result = fixtures[index % len(fixtures)]
+            name, fixture_repository, result = fixtures[index % len(fixtures)]
+            repository = None if github_optional else fixture_repository
             final_status = _FINAL_STATES[index % len(_FINAL_STATES)]
             report = self._seed_report(team, result, repository, final_status)
             self.stdout.write(f"  · {report.status:<13} {result.title[:70]} ({name})")
 
             self._add_extra_log_artefacts(team.id, str(report.id), repository, index)
             self._add_suggested_reviewers(team.id, str(report.id), repository, index, user_uuid)
-            if options["with_runs"]:
+            if options["with_runs"] and repository is not None:
                 self._seed_task_run(team, user_id, report, repository, index)
             created += 1
 
@@ -178,7 +191,7 @@ class Command(BaseCommand):
     # ── report + artefacts ─────────────────────────────────────────────────────
 
     def _seed_report(
-        self, team: Team, result: ReportResearchOutput, repository: str, final_status: SignalReport.Status
+        self, team: Team, result: ReportResearchOutput, repository: str | None, final_status: SignalReport.Status
     ) -> SignalReport:
         signal_count = max(len(result.effective_findings()), 1)
 
@@ -199,7 +212,15 @@ class Command(BaseCommand):
             update={"new_artefacts": [*result.old_artefacts, *result.new_artefacts], "old_artefacts": []}
         )
 
-        repo_selection = RepoSelectionResult(repository=repository, reason="seed_inbox_data: synthetic seed report")
+        if repository is None:
+            repo_selection = RepoSelectionResult(
+                repository=None,
+                reason="Research will use project data without code access.",
+                research_context=ReportResearchContext(mode="data_only", repository_status="no_integration"),
+                autostart_eligible=False,
+            )
+        else:
+            repo_selection = RepoSelectionResult(repository=repository, reason="seed_inbox_data: synthetic seed report")
         asyncio.run(_persist_agentic_report_artefacts(team.id, str(report.id), result, repo_selection))
 
         self._advance_to_final(report, result, final_status)
@@ -223,7 +244,7 @@ class Command(BaseCommand):
                 # Keep the report at READY rather than aborting the seed on an unexpected transition.
                 self.stdout.write(self.style.WARNING(f"    left at READY ({final_status} transition failed: {e})"))
 
-    def _add_extra_log_artefacts(self, team_id: int, report_id: str, repository: str, index: int) -> None:
+    def _add_extra_log_artefacts(self, team_id: int, report_id: str, repository: str | None, index: int) -> None:
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,
@@ -232,6 +253,8 @@ class Command(BaseCommand):
             ),
             attribution=ArtefactAttribution.system(),
         )
+        if repository is None:
+            return
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,
@@ -246,11 +269,12 @@ class Command(BaseCommand):
         )
 
     def _add_suggested_reviewers(
-        self, team_id: int, report_id: str, repository: str, index: int, user_uuid: str
+        self, team_id: int, report_id: str, repository: str | None, index: int, user_uuid: str
     ) -> None:
         # Reviewers are normally derived from finding commit hashes via GitHub, which won't resolve
         # locally — so seed them directly. Counts vary (1..7) so some reports exercise the list-overflow.
-        reviewer_count = 1 + (index % 7)
+        # Without a repository there are no commits to derive GitHub reviewers from.
+        reviewer_count = 0 if repository is None else 1 + (index % 7)
         logins = ["timgl", "marius", "yakkomajuri", "neilkakkar", "macobo", "hazzadous", "pauldambra", "benjackwhite"]
         entries = [
             SuggestedReviewerEntry(

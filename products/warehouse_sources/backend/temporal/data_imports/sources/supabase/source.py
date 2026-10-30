@@ -235,6 +235,11 @@ class SupabaseSource(PostgresSource):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SUPABASE
 
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `PostgresSource`.
+        return "supabase"
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             _SUPABASE_REALTIME_PARTITION_ERROR: _SUPABASE_REALTIME_PARTITION_MESSAGE,

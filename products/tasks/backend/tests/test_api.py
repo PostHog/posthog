@@ -3034,22 +3034,42 @@ class TestTaskAPI(BaseTaskAPITest):
             # a scout's no-repo selection is not authoritative for a human "Create PR" click, so it
             # falls through to the cascade rather than making a task that can never push
             ("persisted_no_repo", True, None, "acme/web"),
+            ("pilot_without_access", True, "example/app", None, True, False),
+            ("pilot_with_access", True, "example/app", "example/app", True, True),
+            ("pilot_temporary_failure", True, "example/app", None, True, True, True),
         ]
     )
     def test_create_signal_report_task_resolves_repository_when_none_provided(
-        self, _name, has_artefact, persisted_repository, expected_repository
+        self,
+        _name,
+        has_artefact,
+        persisted_repository,
+        expected_repository,
+        pilot=False,
+        repository_available=True,
+        temporary_failure=False,
     ):
+        from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
-        Integration.objects.create(
+        integration = Integration.objects.create(
             team=self.team,
             kind="github",
             integration_id="gh-cascade",
-            config={"installation_id": "gh-cascade"},
+            config={"installation_id": "gh-cascade", "account": {"type": "User"}},
             sensitive_config={},
             repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
             repository_cache_updated_at=django_timezone.now(),
         )
+        if pilot:
+            Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="gh-other",
+                config={"installation_id": "gh-other", "account": {"type": "Organization"}},
+                repository_cache=[{"full_name": "example/other", "name": "other", "id": 2}],
+                repository_cache_updated_at=django_timezone.now(),
+            )
         report = SignalReport.objects.create(team=self.team)
         if has_artefact:
             SignalReportArtefact.objects.create(
@@ -3059,28 +3079,50 @@ class TestTaskAPI(BaseTaskAPITest):
                 content=RepoSelectionResult(repository=persisted_repository, reason="test").model_dump_json(),
             )
 
-        response = self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": "Signal Task",
-                "description": "From a signal report",
-                "origin_product": "signal_report",
-                "signal_report": str(report.id),
-            },
-            format="json",
-        )
+        with (
+            patch("products.signals.backend.facade.github_optional.github_optional_pilot_enabled", return_value=pilot),
+            patch(
+                "products.signals.backend.facade.github_optional.pilot_repository_integration_id",
+                return_value=integration.id if repository_available else None,
+                side_effect=RepositoryAccessTemporarilyUnavailable(wait=30) if temporary_failure else None,
+            ),
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Signal Task",
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                },
+                format="json",
+            )
 
+        if temporary_failure:
+            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+            self.assertEqual(response.headers["Retry-After"], "30")
+            self.assertFalse(Task.objects.filter(signal_report=report).exists())
+            return
+        if pilot and not repository_available:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertFalse(Task.objects.filter(signal_report=report).exists())
+            return
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["repository"], expected_repository)
+        if pilot:
+            self.assertEqual(Task.objects.get(id=response.json()["id"]).github_integration_id, integration.id)
 
     @parameterized.expand(
         [
             ("allowed", tasks_access.DesktopAccessDecision.ALLOWED, True),
             ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, False),
             ("unresolvable", DesktopAccessResolutionError("cannot verify"), False),
+            ("pilot_broken_github", tasks_access.DesktopAccessDecision.ALLOWED, False, True),
         ]
     )
-    def test_discussion_starts_repo_less_and_credential_follows_the_desktop_gate(self, _name, decision, entitled):
+    def test_discussion_starts_repo_less_and_credential_follows_the_desktop_gate(
+        self, _name, decision, entitled, pilot=False
+    ):
         # A "Discuss" kickoff never clones: the sandbox boots repo-less so the first answer is not
         # held behind a checkout. It is also credential-less for a caller the gate refuses, so the
         # generally-available Inbox never 403s on the click this path exists to unblock. An
@@ -3095,6 +3137,7 @@ class TestTaskAPI(BaseTaskAPITest):
             integration_id="gh-cascade",
             config={"installation_id": "gh-cascade"},
             sensitive_config={},
+            errors="TOKEN_REFRESH_FAILED" if pilot else "",
             repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
             repository_cache_updated_at=django_timezone.now(),
         )
@@ -3107,7 +3150,10 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         gate = {"side_effect": decision} if isinstance(decision, Exception) else {"return_value": decision}
-        with patch("products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision", **gate):
+        with (
+            patch("products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision", **gate),
+            patch("products.signals.backend.facade.github_optional.github_optional_pilot_enabled", return_value=pilot),
+        ):
             response = self.client.post(
                 "/api/projects/@current/tasks/",
                 {
@@ -7840,6 +7886,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "ai_agent_name": "signals-scout-general",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
                     "self_driving_head_branch": "posthog-self-driving/attacker-000000",
+                    # a writable access list widens what the run's GitHub token can write to
+                    "github_access_repositories": ["attacker/attacker"],
                     "runtime_adapter": "codex",
                     "provider": "openai",
                     "model": "claude-opus-4-8",
@@ -7913,6 +7961,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
+        assert "github_access_repositories" not in run.state
         assert run.state["runtime_adapter"] == "claude"
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
@@ -11265,14 +11314,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("default_keeps_the_copy", "", status.HTTP_200_OK, True),
-            ("thread_drops_the_copy", "?view=thread", status.HTTP_200_OK, False),
-            ("thread_drops_the_copy_from_a_page", "?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
-            ("unknown_view_rejected", "?view=compact", status.HTTP_400_BAD_REQUEST, None),
+            ("default_keeps_the_copy", "logs/", status.HTTP_200_OK, True),
+            ("thread_drops_the_copy", "logs/?view=thread", status.HTTP_200_OK, False),
+            ("thread_drops_the_copy_from_a_page", "logs/?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
+            ("unknown_view_rejected", "logs/?view=compact", status.HTTP_400_BAD_REQUEST, None),
+            ("log_entries_drops_the_copy", "log_entries?view=thread", status.HTTP_200_OK, False),
+            ("log_entries_rejects_unknown_view", "log_entries?view=compact", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
     @patch("posthog.storage.object_storage.read")
-    def test_logs_endpoint_view(self, _name: str, query: str, expected_status: int, has_copy: bool | None, mock_read):
+    def test_logs_endpoint_view(self, _name: str, path: str, expected_status: int, has_copy: bool | None, mock_read):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team)
         entry = {
@@ -11283,10 +11334,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         }
         mock_read.side_effect = lambda path, missing_ok=False: json.dumps(entry) + "\n" if path == run.log_url else None
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/{query}")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{path}")
 
         self.assertEqual(response.status_code, expected_status)
         if has_copy is not None:
+            self.assertEqual(response["Cache-Control"], "no-cache")
             claude_code = json.loads(response.content.decode("utf-8").splitlines()[0])["notification"]["params"][
                 "update"
             ]["_meta"]["claudeCode"]
