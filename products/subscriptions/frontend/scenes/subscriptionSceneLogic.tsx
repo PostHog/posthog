@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -15,6 +16,7 @@ import {
     subscriptionsDeliveriesList,
     subscriptionsPartialUpdate,
     subscriptionsRetrieve,
+    subscriptionsTakeOwnershipCreate,
     subscriptionsTestDeliveryCreate,
 } from 'products/subscriptions/frontend/generated/api'
 import type {
@@ -359,7 +361,24 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             }
             lemonToast.success(subscription.enabled ? 'Subscription enabled' : 'Subscription disabled')
         },
-        setEnabledFailure: ({ errorObject }) => {
+        setEnabledFailure: async ({ errorObject }) => {
+            const cause = ownerUnavailableCause(errorObject)
+            if (cause) {
+                const taken = await openTakeOwnershipDialog({
+                    resourceLabel: 'subscription',
+                    resourceId: props.id,
+                    owner: values.subscription?.created_by ?? null,
+                    cause,
+                    takeOwnership: async () => {
+                        await subscriptionsTakeOwnershipCreate(String(getCurrentTeamId()), props.id)
+                        lemonToast.success('Subscription enabled')
+                    },
+                })
+                if (taken) {
+                    actions.loadSubscription()
+                }
+                return
+            }
             // Surface the serializer's actionable message (e.g. re-enabling a Slack
             // sub with no integration) — backend already validates this.
             const detail = errorObject?.detail

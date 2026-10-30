@@ -8,7 +8,9 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -24,7 +26,7 @@ import {
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
-import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
+import { alertsSimulateCreate, alertsTakeOwnershipCreate } from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -692,6 +694,24 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ? await api.alerts.create(payload)
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
+                    const cause = ownerUnavailableCause(error)
+                    if (cause && existingAlertId !== undefined) {
+                        // Taking ownership enables the alert, so the rest of the edits are saved by a second submit.
+                        void openTakeOwnershipDialog({
+                            resourceLabel: 'alert',
+                            resourceId: existingAlertId,
+                            owner: alert.created_by ?? props.alert?.created_by ?? null,
+                            cause,
+                            takeOwnership: async () => {
+                                await alertsTakeOwnershipCreate(String(getCurrentTeamId()), existingAlertId)
+                            },
+                        }).then((taken) => {
+                            if (taken) {
+                                actions.submitAlertForm()
+                            }
+                        })
+                        throw error
+                    }
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
                     // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
                     // be formatted with those fields or we end up with "undefined: undefined".

@@ -138,6 +138,27 @@ export function alertConfigurationActivityDescriber(
         }
     }
 
+    if (logItem.activity == 'took_ownership') {
+        const contextDesc = getContextDescription(logItem?.detail?.context)
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'Took ownership of the alert',
+                <>
+                    {formattedName(logItem.detail.name)}
+                    {contextDesc}
+                </>
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> took ownership of the alert{' '}
+                    {formattedName(logItem?.detail.name)}
+                    {contextDesc}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated') {
         const contextDesc = getContextDescription(logItem?.detail?.context)
 
