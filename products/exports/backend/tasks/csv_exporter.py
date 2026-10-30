@@ -335,6 +335,23 @@ def _is_all_events_series(node: Optional[Mapping[str, Any]]) -> bool:
     return node is not None and node.get("kind") == NodeKind.EVENTS_NODE and node.get("event") is None
 
 
+def _funnel_step_rows(
+    steps: list[Mapping[str, Any]], series_query: Optional[Mapping[str, Any]]
+) -> Iterator[dict[str, Any]]:
+    for step_index, step in enumerate(steps):
+        node = _funnel_step_series(series_query, step_index)
+        name = step.get("custom_name") or step.get("name")
+        action_id = _funnel_step_action_id(node)
+        yield {
+            "name": name or ("All events" if _is_all_events_series(node) else ""),
+            "breakdown_value": _format_breakdown_value(step.get("breakdown_value")),
+            "action_id": "" if action_id is None else action_id,
+            "count": step.get("count", ""),
+            "median_conversion_time (seconds)": step.get("median_conversion_time", ""),
+            "average_conversion_time (seconds)": step.get("average_conversion_time", ""),
+        }
+
+
 def _series_query(query: dict) -> dict:
     # The runner unwraps a visualization node and runs the upgraded query, which stamps `kind` on legacy series nodes.
     upgraded = upgrade(deepcopy(query))
@@ -391,18 +408,7 @@ def _convert_response_to_csv_data(
             multiple_items = results if isinstance(first_result, list) else [results]
             # FUNNELS LIKE
             for items in multiple_items:
-                for step_index, step in enumerate(items):
-                    node = _funnel_step_series(series_query, step_index)
-                    name = step.get("custom_name") or step.get("name")
-                    action_id = _funnel_step_action_id(node)
-                    yield {
-                        "name": name or ("All events" if _is_all_events_series(node) else ""),
-                        "breakdown_value": _format_breakdown_value(step.get("breakdown_value")),
-                        "action_id": "" if action_id is None else action_id,
-                        "count": step.get("count", ""),
-                        "median_conversion_time (seconds)": step.get("median_conversion_time", ""),
-                        "average_conversion_time (seconds)": step.get("average_conversion_time", ""),
-                    }
+                yield from _funnel_step_rows(items, series_query)
             return
         elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
