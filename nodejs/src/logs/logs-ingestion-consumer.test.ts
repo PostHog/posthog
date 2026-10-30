@@ -2786,6 +2786,40 @@ describe('LogsIngestionConsumer', () => {
             expect(limiterConfig.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND).toBe(7)
         })
 
+        it.each([
+            { label: 'drops spans with the span rules when the team is enabled', enabled: true },
+            { label: 'leaves spans untouched when the team is not enabled', enabled: false },
+        ])('$label', async ({ enabled }) => {
+            const getCompiledRuleSet = jest.fn().mockResolvedValue(
+                compileRuleSet([
+                    {
+                        id: '00000000-0000-0000-0000-0000000000bb',
+                        rule_type: 'path_drop',
+                        scope_service: null,
+                        scope_path_pattern: null,
+                        scope_attribute_filters: [],
+                        config: { patterns: ['.*'] },
+                    },
+                ])
+            )
+            await consumer.stop()
+            consumer = createTracesIngestionConsumer({ TRACES_SAMPLING_ENABLED_TEAMS: enabled ? String(team.id) : '' })
+            consumer['deps'].samplingRulesCache = { getCompiledRuleSet } as unknown as SamplingRulesCache
+            await consumer.start()
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const produced = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+            if (enabled) {
+                expect(getCompiledRuleSet).toHaveBeenCalledWith(team.id, 'spans')
+                expect(produced).toHaveLength(0)
+            } else {
+                expect(getCompiledRuleSet).not.toHaveBeenCalled()
+                expect(produced).toHaveLength(1)
+            }
+        })
+
         it('evaluates the span retention rules, not the log ones', () => {
             const tracesConsumer = createTracesIngestionConsumer()
 

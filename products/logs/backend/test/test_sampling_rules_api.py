@@ -4,6 +4,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.logs.backend.models import LogsExclusionRule
 
 
@@ -293,3 +296,71 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "too many nodes" in str(response.json()), response.json()
+
+    def test_span_rules_are_listed_and_reordered_apart_from_log_rules(self):
+        log_rule = self.client.post(self.base_url, self._payload(name="logs"), format="json").json()
+        span_a = self.client.post(self.base_url, self._payload(name="span a", source="spans"), format="json").json()
+        span_b = self.client.post(self.base_url, self._payload(name="span b", source="spans"), format="json").json()
+        assert (log_rule["source"], span_a["source"]) == ("logs", "spans")
+        assert (span_a["priority"], span_b["priority"]) == (0, 1)
+
+        default_list = self.client.get(self.base_url).json()["results"]
+        assert [r["name"] for r in default_list] == ["logs"]
+        span_list = self.client.get(f"{self.base_url}?source=spans").json()["results"]
+        assert [r["name"] for r in span_list] == ["span a", "span b"]
+
+        r = self.client.post(
+            f"{self.base_url}reorder/?source=spans", {"ordered_ids": [span_b["id"], span_a["id"]]}, format="json"
+        )
+        assert r.status_code == status.HTTP_200_OK, r.json()
+        assert [rule["id"] for rule in r.json()] == [span_b["id"], span_a["id"]]
+
+    @parameterized.expand(
+        [
+            ("patch", "patch", {"source": "logs"}),
+            ("put_without_source", "put", None),
+        ]
+    )
+    def test_source_cannot_change_after_create(self, _label, method, body):
+        rule = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+        payload = body if body is not None else self._payload(name="renamed")
+
+        response = getattr(self.client, method)(f"{self.base_url}{rule['id']}/", payload, format="json")
+
+        assert LogsExclusionRule.objects.get(id=rule["id"]).source == "spans", response.json()
+
+    def test_severity_sampling_is_rejected_for_spans(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(rule_type="severity_sampling", source="spans", config={"actions": {}}),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "rule_type"
+
+    @parameterized.expand(
+        [
+            ("logs", ["logs:write"], status.HTTP_201_CREATED),
+            ("spans", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("spans", ["logs:write", "tracing:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_span_rule_writes_need_tracing_write_scope(self, source, scopes, expected_status):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.post(
+            self.base_url,
+            self._payload(source=source),
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == expected_status, response.json()

@@ -5,6 +5,7 @@ import { LogsIngestionConsumer, LogsIngestionConsumerDeps } from './logs-ingesti
 import type { MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import { DEFAULT_TRACES_RETENTION_DAYS, TracingConfigCache } from './retention/tracing-config-cache'
+import type { SamplingRuleSource } from './sampling/sampling-rules-cache'
 
 export interface TracesIngestionConsumerDeps extends LogsIngestionConsumerDeps {
     /** Per-team default span retention. Without it, traces fall back to the built-in default. */
@@ -20,6 +21,8 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override metricRuleSource: MetricRuleSource = 'spans'
     // Span retention rules live in their own table, which this source selects.
     protected override retentionRuleSource: RetentionRuleSource = 'spans'
+    // Span drop rules and rate limits share the log rules table, filtered to `source=spans`.
+    protected override samplingRuleSource: SamplingRuleSource = 'spans'
     private tracingConfigCache?: TracingConfigCache
 
     constructor(
@@ -54,6 +57,10 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
                 // independently of log retention.
                 LOGS_RETENTION_ENABLED_TEAMS: config.TRACES_RETENTION_ENABLED_TEAMS,
                 LOGS_RETENTION_KILLSWITCH: config.TRACES_RETENTION_KILLSWITCH,
+                // Span drop rules gate on traces-specific env config so they roll out
+                // independently of log drop rules.
+                LOGS_SAMPLING_ENABLED_TEAMS: config.TRACES_SAMPLING_ENABLED_TEAMS,
+                LOGS_SAMPLING_KILLSWITCH: config.TRACES_SAMPLING_KILLSWITCH,
                 // Internal batches are logs only, so a signed traces batch is still billed.
                 LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
                 LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '',

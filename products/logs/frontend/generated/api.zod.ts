@@ -2052,6 +2052,8 @@ export const logsSamplingRulesCreateBodyScopeServiceMax = 512
 
 export const logsSamplingRulesCreateBodyScopePathPatternMax = 1024
 
+export const logsSamplingRulesCreateBodySourceDefault = `logs`
+
 export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsSamplingRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
     enabled: zod
@@ -2094,6 +2096,13 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsSamplingRulesCreateBodySourceDefault)
+        .describe(
+            'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
 })
 
 export const logsSamplingRulesUpdateBodyNameMax = 255
@@ -2104,6 +2113,8 @@ export const logsSamplingRulesUpdateBodyPriorityMin = 0
 export const logsSamplingRulesUpdateBodyScopeServiceMax = 512
 
 export const logsSamplingRulesUpdateBodyScopePathPatternMax = 1024
+
+export const logsSamplingRulesUpdateBodySourceDefault = `logs`
 
 export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsSamplingRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
@@ -2147,6 +2158,13 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsSamplingRulesUpdateBodySourceDefault)
+        .describe(
+            'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
 })
 
 export const logsSamplingRulesPartialUpdateBodyNameMax = 255
@@ -2157,6 +2175,8 @@ export const logsSamplingRulesPartialUpdateBodyPriorityMin = 0
 export const logsSamplingRulesPartialUpdateBodyScopeServiceMax = 512
 
 export const logsSamplingRulesPartialUpdateBodyScopePathPatternMax = 1024
+
+export const logsSamplingRulesPartialUpdateBodySourceDefault = `logs`
 
 export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -2206,10 +2226,17 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND\/OR tree of property predicates evaluated per record) and\/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB\/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes.'
         ),
+    source: zod
+        .enum(['logs', 'spans'])
+        .describe('\* `logs` - Logs\n\* `spans` - Spans')
+        .default(logsSamplingRulesPartialUpdateBodySourceDefault)
+        .describe(
+            'Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.\n\n\* `logs` - Logs\n\* `spans` - Spans'
+        ),
 })
 
 /**
- * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1). Log and span rules have separate orders; the `source` query parameter picks which one.
  */
 export const LogsSamplingRulesReorderCreateBody = /* @__PURE__ */ zod.object({
     ordered_ids: zod

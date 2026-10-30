@@ -12,6 +12,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.schema import PropertyGroupFilter
 
@@ -83,6 +84,15 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             "uncompressed byte size, matching how billing measures ingested bytes."
         )
     )
+    # `source` collides with DRF's Field.source typing (the attribute lookup), hence the ignore.
+    source: serializers.ChoiceField = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=LogsExclusionRule.RecordSource.choices,
+        default=LogsExclusionRule.RecordSource.LOGS,
+        help_text=(
+            "Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces "
+            "pipeline. Immutable after creation. Span rules support path_drop and rate_limit only."
+        ),
+    )
     version = serializers.IntegerField(
         read_only=True, help_text="Incremented on each update for worker cache coherency."
     )
@@ -100,6 +110,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             "scope_path_pattern",
             "scope_attribute_filters",
             "config",
+            "source",
             "version",
             "created_by",
             "created_at",
@@ -109,9 +120,20 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
+        if self.instance is not None:
+            if "source" in self.initial_data and attrs.get("source") != self.instance.source:
+                raise ValidationError({"source": "source is immutable after creation. Create a new rule instead."})
+            # A PUT that omits `source` would otherwise write the default over a spans rule.
+            attrs["source"] = self.instance.source
         rule_type = attrs.get("rule_type")
         if rule_type is None and self.instance is not None:
             rule_type = self.instance.rule_type
+        if (
+            attrs.get("source") == LogsExclusionRule.RecordSource.SPANS
+            and rule_type == LogsExclusionRule.RuleType.SEVERITY_SAMPLING
+        ):
+            # Spans carry no severity, so every span would rank as info and one action would hit all of them.
+            raise ValidationError({"rule_type": "severity_sampling rules are not supported for spans."})
         config = attrs.get("config")
         # Only reject vacuous groups on requests that actually write config: rows that
         # predate this validator can carry an empty group, and a PATCH of unrelated
@@ -254,6 +276,15 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         return value
 
 
+class LogsSamplingRuleSourceQuerySerializer(serializers.Serializer):
+    source = serializers.ChoiceField(
+        choices=LogsExclusionRule.RecordSource.choices,
+        default=LogsExclusionRule.RecordSource.LOGS,
+        required=False,
+        help_text="Record source whose rules to list or reorder. Defaults to `logs`.",
+    )
+
+
 class LogsSamplingRuleReorderSerializer(serializers.Serializer):
     ordered_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -274,15 +305,50 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = LogsSamplingRuleSerializer
     lookup_field = "id"
 
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        # A span rule drops trace data, so API-key writes need authority over tracing as well as logs.
+        if self.action in ("create", "update", "partial_update", "destroy") and self._write_targets_spans(request):
+            return ["logs:write", "tracing:write"]
+        return None
+
+    def _write_targets_spans(self, request: Request) -> bool:
+        if self.action == "create":
+            # drf-spectacular calls this with a mock request during schema generation.
+            data = getattr(request, "data", None) or {}
+            return data.get("source") == LogsExclusionRule.RecordSource.SPANS
+        try:
+            instance = self.get_object()
+        except Exception:
+            # Schema generation has no resolved team, and a 404 has no spans rule to gate.
+            return False
+        return instance.source == LogsExclusionRule.RecordSource.SPANS
+
+    def _requested_source(self) -> str:
+        query = LogsSamplingRuleSourceQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        return query.validated_data["source"]
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(team_id=self.team_id)
+        queryset = queryset.filter(team_id=self.team_id)
+        if self.action == "list":
+            queryset = queryset.filter(source=self._requested_source())
+        return queryset
+
+    @extend_schema(parameters=[LogsSamplingRuleSourceQuerySerializer])
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         s = cast(LogsSamplingRuleSerializer, serializer)
         user = cast(User, self.request.user)
-        max_priority = LogsExclusionRule.objects.filter(team_id=self.team_id).aggregate(m=Max("priority"))["m"] or -1
+        max_priority = LogsExclusionRule.objects.filter(
+            team_id=self.team_id, source=s.validated_data["source"]
+        ).aggregate(m=Max("priority"))["m"]
         raw_priority = s.validated_data.pop("priority", None)
-        priority = max_priority + 1 if raw_priority is None else int(raw_priority)
+        if raw_priority is not None:
+            priority = int(raw_priority)
+        else:
+            priority = 0 if max_priority is None else max_priority + 1
         instance = s.save(
             team_id=self.team_id,
             created_by=user if user.is_authenticated else None,
@@ -292,7 +358,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report_user_action(
             user,
             "logs sampling rule created",
-            {"rule_id": str(instance.id), "rule_type": instance.rule_type},
+            {"rule_id": str(instance.id), "rule_type": instance.rule_type, "source": instance.source},
             team=self.team,
             request=self.request,
         )
@@ -306,7 +372,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report_user_action(
             user,
             "logs sampling rule updated",
-            {"rule_id": str(instance.id), "rule_type": instance.rule_type},
+            {"rule_id": str(instance.id), "rule_type": instance.rule_type, "source": instance.source},
             team=self.team,
             request=self.request,
         )
@@ -324,24 +390,31 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=LogsSamplingRuleReorderSerializer,
+        parameters=[LogsSamplingRuleSourceQuerySerializer],
         responses={200: LogsSamplingRuleSerializer(many=True)},
-        description="Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).",
+        description=(
+            "Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1). "
+            "Log and span rules have separate orders; the `source` query parameter picks which one."
+        ),
     )
     @action(detail=False, methods=["post"], url_path="reorder")
     def reorder(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = LogsSamplingRuleReorderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         ordered_ids = serializer.validated_data["ordered_ids"]
-        team_rule_ids = set(LogsExclusionRule.objects.filter(team_id=self.team_id).values_list("id", flat=True))
+        source = self._requested_source()
+        team_rule_ids = set(
+            LogsExclusionRule.objects.filter(team_id=self.team_id, source=source).values_list("id", flat=True)
+        )
         if set(ordered_ids) != team_rule_ids or len(ordered_ids) != len(team_rule_ids):
-            raise ValidationError("ordered_ids must list every sampling rule for this team exactly once.")
+            raise ValidationError(f"ordered_ids must list every {source} sampling rule for this team exactly once.")
         with transaction.atomic():
             for index, rid in enumerate(ordered_ids):
                 LogsExclusionRule.objects.filter(id=rid, team_id=self.team_id).update(
                     priority=index,
                     version=F("version") + 1,
                 )
-        qs = self.safely_get_queryset(LogsExclusionRule.objects.all()).order_by("priority", "created_at")
+        qs = LogsExclusionRule.objects.filter(team_id=self.team_id, source=source).order_by("priority", "created_at")
         return Response(LogsSamplingRuleSerializer(qs, many=True).data, status=status.HTTP_200_OK)
 
     @extend_schema(
