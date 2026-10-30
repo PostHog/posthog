@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -25,6 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio 
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.skio.source import SkioSource
+
+# Verbatim message shape `requests`/urllib3 raise for a read timeout against the live host.
+READ_TIMEOUT = requests.ReadTimeout(
+    "HTTPSConnectionPool(host='graphql.skio.com', port=443): Read timed out. (read timeout=60.0)"
+)
 
 TOKEN = "test-token"
 
@@ -144,6 +150,21 @@ class TestSkioTransport:
         result = _run([_response({}, status_code=403)])
 
         assert isinstance(result.raised, requests.HTTPError)
+
+    def test_read_timeout_is_retried_then_succeeds(self) -> None:
+        # The GraphQL endpoint is queried over POST, which the tracked session's transport-level
+        # retry does not cover (it only retries idempotent methods), so a read timeout must be
+        # retried by the source itself or it fails the whole import attempt on the first blip.
+        result = _run([READ_TIMEOUT, _response(_page(_rows(0, 1)))])
+
+        assert result.raised is None
+        assert result.rows == _rows(0, 1)
+
+    def test_read_timeout_that_keeps_failing_raises_and_matches_retryable_errors(self) -> None:
+        result = _run(always(READ_TIMEOUT))
+
+        assert isinstance(result.raised, requests.ReadTimeout)
+        assert error_message_matches(str(result.raised), SkioSource().get_retryable_errors())
 
 
 class TestValidateCredentials:
