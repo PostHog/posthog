@@ -654,11 +654,13 @@ def _tombstone_persons_at_exact_versions(
     tombstone landed is deleted, so it is counted and logged even when the ClickHouse publish
     fails; that failure gets its own step and the weekly deletion sweep republishes it.
 
-    With PERSON_DELETE_VIA_LIFECYCLE the identity server's fenced saga does the whole job: it
-    tells the person's leader before the row changes, and its publish outbox and the person
-    changelog carry the ClickHouse rows, so nothing is published from here.
+    On the leader write path the identity server's fenced saga does the whole job: it tells
+    the person's leader before the row changes, and its publish outbox and the person changelog
+    carry the ClickHouse rows, so nothing is published from here. The replica path must not
+    serve a delete once writes go through the leader: the replica never tells the leader, so
+    the leader's cached person outlives the tombstone and its next write revives the person.
     """
-    if settings.PERSON_DELETE_VIA_LIFECYCLE:
+    if settings.PERSONHOG_WRITE_PATH == "leader":
         return _tombstone_persons_via_lifecycle(team_id, persons, failures, run)
 
     deleted: builtins.list[_DeletedPerson] = []

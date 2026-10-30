@@ -771,7 +771,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if held:
             fake.hold_lifecycle_mark(team_id=self.team.pk, person_id=person.pk)
 
-        with self.settings(PERSON_DELETE_VIA_LIFECYCLE=True, PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS=4_000):
+        with self.settings(PERSONHOG_WRITE_PATH="leader", PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS=4_000):
             response = self.client.delete(f"/api/person/{person.uuid}/")
 
         self.assertEqual(response.status_code, expected)

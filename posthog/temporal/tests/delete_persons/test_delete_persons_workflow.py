@@ -55,7 +55,7 @@ class TestDeletePersonsActivity:
 
     async def test_by_ids_runs_the_saga_under_the_workflow_run_and_attempt(self, activity_environment):
         person_uuid = str(uuid_lib.uuid4())
-        with fake_personhog_client() as fake, _no_publish(), override_settings(PERSON_DELETE_VIA_LIFECYCLE=True):
+        with fake_personhog_client() as fake, _no_publish(), override_settings(PERSONHOG_WRITE_PATH="leader"):
             fake.add_person(team_id=1, person_id=10, uuid=person_uuid, version=3, distinct_ids=["d1"])
 
             deleted, _ = await activity_environment.run(

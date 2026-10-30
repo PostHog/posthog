@@ -290,7 +290,7 @@ class DeletePersonsProfileTests(BaseTest):
         assert get_active_fake().tombstone_queue == {}
 
 
-@override_settings(PERSON_DELETE_VIA_LIFECYCLE=True)
+@override_settings(PERSONHOG_WRITE_PATH="leader")
 class LifecycleDeletePersonsProfileTests(BaseTest):
     def _saga_calls(self):
         return [call for call in get_active_fake().calls if call.method == "lifecycle.delete_persons"]
