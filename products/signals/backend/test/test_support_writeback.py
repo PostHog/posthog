@@ -245,23 +245,60 @@ class TestPostReportFindingsToTickets(BaseTest):
             )
         send_note.assert_not_called()
 
-    def test_worker_rechecks_verified_task_pr_before_ticket_write(self):
+    @parameterized.expand(
+        [
+            ("open", "open", 1),
+            ("draft", "draft", 1),
+            ("merged", "merged", 0),
+            ("closed", "closed", 0),
+            ("unavailable", "unknown", 0),
+        ]
+    )
+    def test_worker_rechecks_verified_task_pr_before_ticket_write(self, _name, pr_state, expected_replies):
         from products.signals.backend.tasks import write_pull_request_to_support_tickets
 
         pr_url = "https://github.com/PostHog/posthog/pull/123"
         task = Task.objects.create(team=self.team, created_by=self.user)
         SignalReportTask.objects.create(team=self.team, report=self.report, task=task, relationship="implementation")
         run = TaskRun.objects.create(team=self.team, task=task, state={})
+        self.team.conversations_settings = {"automated_update_slack_channel_ids": ["C123"]}
+        self.team.save(update_fields=["conversations_settings"])
+        TeamConversationsSlackConfig.objects.update_or_create(
+            team=self.team, defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"}
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id="slack-user",
+            channel_source="slack",
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000100",
+        )
+        signal = {"source_product": "conversations", "source_id": str(ticket.id)}
+        client = MagicMock()
+        client.conversations_info.return_value = {"channel": {"is_channel": True}}
 
-        with patch("products.signals.backend.tasks.fetch_signals_for_report_sync", return_value=[self.signal]):
+        details = PullRequestDetails(
+            url=pr_url, repository="PostHog/posthog", number=123, state=pr_state, merged=pr_state == "merged"
+        )
+        with (
+            patch("products.signals.backend.tasks.fetch_signals_for_report_sync", return_value=[signal]),
+            patch("products.signals.backend.report_assignments._pull_request_details", return_value=details),
+            patch("products.conversations.backend.facade.api.get_slack_client", return_value=client),
+        ):
             write_pull_request_to_support_tickets.run(self.team.pk, str(self.report.id), pr_url, str(task.id))
-            assert not _ticket_notes(self.team, self.ticket).exists()
+            assert not _ticket_notes(self.team, ticket).exists()
 
             run.state = {"verified_pr_urls": [pr_url]}
             run.save(update_fields=["state"])
             write_pull_request_to_support_tickets.run(self.team.pk, str(self.report.id), pr_url, str(task.id))
 
-        assert _ticket_notes(self.team, self.ticket).count() == 1
+        replies = _ticket_notes(self.team, ticket)
+        assert replies.count() == expected_replies
+        assert (
+            ConversationDelivery.objects.for_team(self.team.id).filter(comment_id__in=replies.values("id")).count()
+            == expected_replies
+        )
 
     def test_ignores_signals_from_other_products(self):
         error_signal = {"source_product": "error_tracking", "source_id": "issue-1"}
