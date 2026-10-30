@@ -160,6 +160,7 @@ class TestSendCommentToSlack(APIBaseTest):
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
         mock_backfill.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
 
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 1)
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -200,6 +201,7 @@ class TestSendCommentToSlack(APIBaseTest):
         assert "not enabled" in res.json()["detail"]
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
 
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 1)
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -217,6 +219,7 @@ class TestSendCommentToSlack(APIBaseTest):
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
         assert CommentSlackThread.objects.for_team(self.team.id).get().slack_channel_id == "C1"
 
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 0)
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
