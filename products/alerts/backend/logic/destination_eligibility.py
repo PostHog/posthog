@@ -72,7 +72,7 @@ def _load_stock_input_values(file_name: str) -> StockInputValues:
 
 STOCK_INPUT_VALUES: Final = _load_stock_input_values("destination_stock_inputs.json")
 # Every value a logs alert path has written as a default, by template and input key: what the logs
-# alert API builds, and the retired Slack headers that functions built in April 2026 still hold. When
+# alert API builds, and the retired Slack messages that functions built in April 2026 still hold. When
 # a logs message changes, add the new value and keep the old one, because functions built with it still exist.
 LOGS_STOCK_INPUT_VALUES: Final = _load_stock_input_values("logs_destination_stock_inputs.json")
 # Matches the logs events that `GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES` in cdp names.
