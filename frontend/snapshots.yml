@@ -8482,6 +8482,14 @@ snapshots:
         hash: v1.k794b7964.cdce03b8be8c4ffeef15eb0a6bcab206c7eb5b1cd8b8852b1aca0de497732226.6biyQXJiwnyQcZZtOgCOVH3hpDAfJp6K_L06WtP_aW8
     products-workflows-reputation--shared-sending-domain--light:
         hash: v1.k794b7964.e029f36f5a4cf022e888be7cfa04b7ef2741414b6205173b0d879b037b3663df.FJeja9fI99Dhe5aX-g4hQp6P3oGBNjviDjw14YhV0cY
+    products-workflows-scout-suggestions-introduction--off--dark:
+        hash: v1.k794b7964.da5c5992812c3878e78e72617c10b5452467f774b666ef7a794d7573d6938e81.3JaZU91MxMr0cj0g4uUfjUISYu142mVs1yTKEankt_I
+    products-workflows-scout-suggestions-introduction--off--light:
+        hash: v1.k794b7964.6c84ee7c117ed50ee7d1fb173a735f4a0c00638bcdb68d2757c124dac12d3521.8kRMT3Nat_KUMNmneYs5z18A0s1OhU4qIFx1cJkYSTM
+    products-workflows-scout-suggestions-introduction--on--dark:
+        hash: v1.k794b7964.0d8631ab117b1d25a08df13ee28233029c246aa3088984e8d11a832107e7c2b6.kkhXPGXJExB7qyjTcXn_CbUgy_GOBrAXd6DR67morqY
+    products-workflows-scout-suggestions-introduction--on--light:
+        hash: v1.k794b7964.f7ba8a58003ebba96e6ba59722c504c200f3a21cd10643382afaa59e0fa32e02.3TOYT2oIsj9HJmqZbTV3rRGg5gpqcgZDEMjuFUFeErA
     products-workflows-send-calendar--busy-week--dark:
         hash: v1.k794b7964.1edf0999ab5e390b86d0a8d48ab5821c5cb291b35eba58eb4000587652ba79af.4plcEAYl06VvPXCtAKWYvMcbQLWV-U1_khdj3SHu5Ho
     products-workflows-send-calendar--busy-week--light:
