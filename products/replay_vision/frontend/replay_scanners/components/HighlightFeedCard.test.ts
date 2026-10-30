@@ -27,17 +27,17 @@ describe('HighlightFeedCard helpers', () => {
                     watch_category: 'struggle',
                     similar_count: 1,
                 } as HighlightFeedReasonApi,
-                expected: 'The user struggled in this session. 1 other session from this scanner looks similar.',
+                expected: 'The user struggled here and in 1\u00a0similar session.',
             },
             {
-                name: 'counts the people behind an embedding pick when it reached more than one',
+                name: 'counts sessions rather than people, so the sentence matches the similar sessions button',
                 reason: {
                     kind: 'embedding_pick',
                     watch_category: 'failure',
                     similar_count: 5,
                     affected_people: 4,
                 } as HighlightFeedReasonApi,
-                expected: 'Something failed in this session. 4 people had a similar session.',
+                expected: 'Something failed here and in 5\u00a0similar sessions.',
             },
             {
                 name: 'renders a sentence for a reason kind this frontend does not know',

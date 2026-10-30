@@ -343,12 +343,12 @@ class TestDraftGrounding(_VisionAPITestCase):
 
 class TestGenerate:
     def _mock_client(self, mock_client_cls: MagicMock, side_effect: list) -> MagicMock:
-        generate = mock_client_cls.return_value.models.generate_content
+        generate = mock_client_cls.return_value.generate_content
         generate.side_effect = side_effect
         return generate
 
     @parameterized.expand([("quick_blip", 0.5, 2), ("slow_timeout", 60.0, 1)])
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_retries_only_a_quick_failure(self, _name, failure_seconds, expected_calls, mock_client_cls):
         response = MagicMock(text=_draft().model_dump_json())
         generate = self._mock_client(mock_client_cls, [RuntimeError("blip"), response])
@@ -362,7 +362,7 @@ class TestGenerate:
 
         assert generate.call_count == expected_calls
 
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_gives_up_after_the_second_failure(self, mock_client_cls):
         generate = self._mock_client(mock_client_cls, [RuntimeError("blip"), RuntimeError("blip")])
 
@@ -371,7 +371,7 @@ class TestGenerate:
 
         assert generate.call_count == 2
 
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_caps_output_tokens(self, mock_client_cls):
         response = MagicMock(text=_draft().model_dump_json())
         generate = self._mock_client(mock_client_cls, [response])
@@ -381,7 +381,7 @@ class TestGenerate:
         assert generate.call_args.kwargs["config"].max_output_tokens == _MAX_OUTPUT_TOKENS
         assert generate.call_args.kwargs["config"].thinking_config is None
 
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_a_thinking_budget_reaches_the_model_config(self, mock_client_cls):
         response = MagicMock(text=_draft().model_dump_json())
         generate = self._mock_client(mock_client_cls, [response])
@@ -390,7 +390,7 @@ class TestGenerate:
 
         assert generate.call_args.kwargs["config"].thinking_config.thinking_budget == 512
 
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_output_cut_off_by_the_token_budget_is_its_own_failure(self, mock_client_cls):
         # Thinking shares the output budget, so a truncated draft is our cap's fault, not a bad
         # model response — the two used to be indistinguishable as "invalid_response".
@@ -611,7 +611,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         assert "model down" not in resp.content.decode()
 
     @patch(
-        "products.replay_vision.backend.scanner_draft.genai.Client",
+        "products.replay_vision.backend.scanner_draft.gemini_text_models",
         side_effect=ValueError("Missing key inputs argument!"),
     )
     def test_client_construction_failure_is_a_clean_503(self, _mock):

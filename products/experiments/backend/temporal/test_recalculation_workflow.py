@@ -280,7 +280,7 @@ class TestExperimentMetricsRecalculationWorkflow:
         async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
             return _START_QUERY_TO if update.mark_started else None
 
-        async def failing_sync(
+        def failing_sync(
             experiment_id: int,
             metric_uuid: str,
             recalculation_id: str,
@@ -393,6 +393,7 @@ class TestExperimentMetricsRecalculationWorkflow:
         task_queue = str(uuid.uuid4())
         with (
             patch(f"{_ACTIVITIES_MODULE}._calculate_experiment_metric_for_recalculation_sync", new=slow_sync),
+            patch(f"{_ACTIVITIES_MODULE}.on_asyncify_pool", lambda fn: fn),
             patch(f"{_ACTIVITIES_MODULE}._cancel_metric_query_sync", new=fake_kill),
             patch(f"{_WORKFLOW_MODULE}.METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS", 8),
         ):

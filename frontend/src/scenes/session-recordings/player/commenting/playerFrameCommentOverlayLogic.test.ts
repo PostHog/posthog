@@ -94,6 +94,7 @@ describe('playerFrameCommentOverlayLogic', () => {
         }).toDispatchActions([playerCommentModel.actionTypes.commentEdited, 'submitRecordingCommentSuccess'])
 
         expect(createSpy).toHaveBeenCalledTimes(1)
+        expect(createSpy.mock.calls[0][0].content).toEqual('a comment')
         expect(createSpy.mock.calls[0][0].item_context).toMatchObject({
             milliseconds_into_recording: 0,
             time_in_recording: dayjs(recordingMetaJson.start_time).toISOString(),

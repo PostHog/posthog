@@ -11,8 +11,8 @@ import {
     resolveAxisLineColor,
 } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
-import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
+import { applyChartDefaults } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
     buildSegmentResolveValue,
@@ -25,6 +25,7 @@ import {
     yTickCountForHeight,
 } from '../../core/scales'
 import type { ScaleSet, StackedBand } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import { DEFAULT_Y_AXIS_ID, resolveAxisLines } from '../../core/types'
 import type {
     ChartDimensions,
@@ -51,7 +52,8 @@ export interface LineChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: LineChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
@@ -76,7 +78,7 @@ function LineChartInner<Meta = unknown>({
     series,
     labels,
     config: rawConfig,
-    theme,
+    theme: themeProp,
     tooltip,
     onPointClick,
     onPointContextMenu,
@@ -85,6 +87,7 @@ function LineChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',

@@ -18,6 +18,7 @@ from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, T
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
+    DestinationMisconfigured,
     MessageHandle,
     RootEditor,
 )
@@ -31,6 +32,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
 from products.alerts_platform.backend.temporal.metrics import (
+    DeliveryOutcomeLabel,
     increment_deliveries,
     increment_root_edit_failures,
     record_delivery_lag,
@@ -141,7 +143,8 @@ def _send(
             succeeded=False,
             error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
-        safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, "failed")
+        outcome: DeliveryOutcomeLabel = "misconfigured" if isinstance(error, DestinationMisconfigured) else "failed"
+        safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
         raise
     record_delivery(
         team_id=team_id,

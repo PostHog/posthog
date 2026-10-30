@@ -29,7 +29,7 @@ const meta: Meta<typeof FirstReportProgress> = {
             get: {
                 '/api/projects/:id/tasks/:taskId': [200, mockTask('task-1', 'completed')],
                 '/api/projects/:id/tasks/:taskId/runs/:runId': [200, mockTaskRun('task-1', 'run-1')],
-                '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
+                '/api/projects/:id/tasks/:taskId/runs/:runId/log_entries': () => new HttpResponse(mockRunLog()),
             },
         }),
     ],

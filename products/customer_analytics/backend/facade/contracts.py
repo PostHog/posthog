@@ -269,6 +269,7 @@ class AccountTableField(str, Enum):
 
 @dataclass(frozen=True, kw_only=True)
 class AccountTableColumnSelection:
+    use_default_columns: bool = False
     account_fields: frozenset[AccountTableField] = frozenset()
     include_tags: bool = False
     include_note_count: bool = False
@@ -532,7 +533,22 @@ class AccountTableRow:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyDefinition:
+    id: UUID
+    name: str
+    description: str | None
+    display_type: str
+    is_big_number: bool
+    is_canonical: bool
+    has_workflow_reference: bool
+    source_id: UUID | None
+    options: list[dict[str, str]] | None
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTablePage:
+    relationship_definitions: list[AccountRelationshipDefinition] = field(default_factory=list)
+    custom_property_definitions: list[AccountTableCustomPropertyDefinition] = field(default_factory=list)
     rows: list[AccountTableRow]
     has_more: bool
     limit: int
