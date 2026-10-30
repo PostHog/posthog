@@ -65,6 +65,19 @@ describe('summarizePlaylistFilters()', () => {
         ).toEqual('Pageview & Rageclick & Random action & Pageview & Autocapture')
     })
 
+    it('names events and actions by custom name and all events, in their order', () => {
+        expect(
+            summarizePlaylistFilters(
+                [
+                    { type: 'events', id: 'signed_up', name: 'signed_up', custom_name: 'Sign ups', order: 2 },
+                    { type: 'events', id: null, name: 'All events', order: 0 },
+                    { type: 'actions', id: 7, name: 'Purchased', order: 1 },
+                ],
+                cohortIdsMapped
+            )
+        ).toEqual('All events & Purchased & Sign ups')
+    })
+
     it('summarizes a playlist with one event, one PH person property and one custom property', () => {
         expect(
             summarizePlaylistFilters(
