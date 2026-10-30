@@ -312,6 +312,18 @@ pub enum Decline {
 }
 
 impl Decline {
+    pub const ALL: [Decline; 9] = [
+        Decline::TooLong,
+        Decline::NotAbsolute,
+        Decline::BadScheme,
+        Decline::BadPort,
+        Decline::NoHost,
+        Decline::NonPublicHost,
+        Decline::Credential,
+        Decline::InvalidQuery,
+        Decline::TrackingBeacon,
+    ];
+
     /// True for a URL the policy refuses because nobody wants it fetched, not because it is
     /// malformed or unsafe. A consumer that reads jobs from a queue drops only that job for such a
     /// decline, and rejects the whole record for every other one.

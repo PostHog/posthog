@@ -1,6 +1,6 @@
 //! Moves inline images out of a v4 block. Each base64 raster data URI becomes an `image:v4` reference, and its
-//! decoded bytes go to the flush's image pack. A base64 AVIF data URI becomes [`AVIF_MARKER`], so the block holds no
-//! AVIF image.
+//! decoded bytes go to the flush's image pack. A base64 AVIF data URI becomes the [`ImageDecline::Avif`] marker, so
+//! the block holds no AVIF image.
 //!
 //! The scan is one pass over the colons, for `data:image/` in any case. A data URI looks the same in an attribute, a CSS `url()`, a
 //! `srcset` candidate or stylesheet text, so the scan needs no knowledge of where it sits. Every other byte is
@@ -12,10 +12,9 @@ use std::collections::HashSet;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
-use crate::refs::{image_ref, reference_hash};
+use posthog_replay_anonymizer::v4_image_refs::{image_ref, ImageDecline};
 
-/// What an AVIF data URI becomes. The dataset keeps no AVIF image, inline or fetched.
-pub const AVIF_MARKER: &str = "image:v4:declined:avif";
+use crate::refs::reference_hash;
 
 /// The longest media type and parameters a taken data URI has before its comma. A raster type with parameters, such
 /// as `image/png;charset=utf-8;base64`, fits. The bound keeps the scan linear.
@@ -58,7 +57,7 @@ pub struct ImageSink<'k> {
     pub images: Vec<Image>,
     /// Images left inline: over a cap, not decodable, or not a supported raster type.
     pub left_inline: u32,
-    /// AVIF images replaced by [`AVIF_MARKER`].
+    /// AVIF images replaced by the [`ImageDecline::Avif`] marker.
     pub removed_avif: u32,
 }
 
@@ -393,7 +392,7 @@ pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, 
                 sink.removed_avif += 1;
                 let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
                 out.extend_from_slice(&bytes[copied_to..start]);
-                out.extend_from_slice(AVIF_MARKER.as_bytes());
+                out.extend_from_slice(ImageDecline::Avif.marker().as_bytes());
                 copied_to = end;
             }
         }
@@ -561,7 +560,7 @@ mod tests {
             let out = extract_images(event.as_bytes(), &mut images);
             assert_eq!(
                 String::from_utf8_lossy(&out),
-                format!(r#"{{"src":"{AVIF_MARKER}","alt":"x"}}"#),
+                r#"{"src":"image:v4:declined:avif","alt":"x"}"#,
                 "{uri}"
             );
             assert_eq!((images.images.len(), images.removed_avif), (0, 1), "{uri}");
@@ -572,7 +571,7 @@ mod tests {
         let out = extract_images(event.as_bytes(), &mut images);
         assert_eq!(
             String::from_utf8_lossy(&out),
-            format!(r#"{{"srcset":"{AVIF_MARKER} 100w"}}"#)
+            r#"{"srcset":"image:v4:declined:avif 100w"}"#
         );
     }
 

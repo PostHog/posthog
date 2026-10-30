@@ -1,6 +1,6 @@
 //! The fallback for a block whose remote URLs the writer could not all name or replace. Each remote URL token left in
-//! the stored bytes becomes [`UNCHECKED_MARKER`], so no URL the policy would refuse is stored, and the block is kept
-//! instead of dropped.
+//! the stored bytes becomes [`URL_UNCHECKED_MARKER`], so no URL the policy would refuse is stored, and the block is
+//! kept instead of dropped.
 //!
 //! The scrub reads the bytes one character at a time through their JSON escapes and CSS escapes, so it never splits an
 //! escape and the stored JSON stays valid. A URL token ends at whitespace or at the end of its JSON string. A URL that
@@ -11,9 +11,7 @@
 use std::borrow::Cow;
 
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
-
-/// What a scrubbed URL token becomes.
-pub const UNCHECKED_MARKER: &str = "imageurl:v4:declined:unchecked";
+use posthog_replay_anonymizer::v4_image_refs::URL_UNCHECKED_MARKER;
 
 /// Which URL tokens the scrub replaces.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -384,7 +382,7 @@ impl Scrubber {
             }
             if start >= copied_to {
                 out.extend_from_slice(&bytes[copied_to..start]);
-                out.extend_from_slice(UNCHECKED_MARKER.as_bytes());
+                out.extend_from_slice(URL_UNCHECKED_MARKER.as_bytes());
                 replaced += 1;
             }
             copied_to = end;
@@ -441,7 +439,7 @@ mod tests {
 
     #[test]
     fn replaces_every_remote_url_token_and_keeps_the_json_around_it() {
-        let m = UNCHECKED_MARKER;
+        let m = "imageurl:v4:declined:unchecked";
         for (input, expected) in [
             (
                 r#"{"src":"https://cdn.example.com/a.png?x=1"}"#.to_owned(),
@@ -500,7 +498,7 @@ mod tests {
 
     #[test]
     fn replaces_the_tokens_that_hold_a_host_in_any_form() {
-        let m = UNCHECKED_MARKER;
+        let m = "imageurl:v4:declined:unchecked";
         let (out, count) = scrub(
             Scrub::Hosts(vec!["internal.example.com".to_owned()]),
             r#"{"style":"url(https\\3a \\2f \\2f Internal.example.com\\2f a.png)","alt":"see internal.example.com/a'b?token=x\nnow","title":"other.example.com"}"#,
@@ -514,7 +512,7 @@ mod tests {
 
     #[test]
     fn matches_a_host_only_as_the_browser_reads_it_inside_a_string() {
-        let m = UNCHECKED_MARKER;
+        let m = "imageurl:v4:declined:unchecked";
         for (host, input, expected) in [
             (
                 "10.0.0.7",
