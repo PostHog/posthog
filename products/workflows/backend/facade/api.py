@@ -7,7 +7,7 @@ from django.db.models import F
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import AccessSource, UserAccessControl
 from products.workflows.backend.facade.contracts import (
     CohortDependentWorkflow,
     EmailDomainCheck,
@@ -148,6 +148,22 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         return HogFlow.objects.values_list("created_by_id", flat=True).get(team_id=team_id, id=workflow_id)
     except HogFlow.DoesNotExist:
         raise WorkflowNotFound() from None
+
+
+_SHARED_ACCESS_SOURCES = frozenset(
+    {AccessSource.CREATOR, AccessSource.ORGANIZATION_ADMIN, AccessSource.EXPLICIT_MEMBER, AccessSource.EXPLICIT_ROLE}
+)
+
+
+def is_workflow_owner_or_shared_editor(
+    *, team_id: int, workflow_id: UUID, user_access_control: UserAccessControl
+) -> bool:
+    try:
+        flow = HogFlow.objects.only("id", "team_id", "created_by_id").get(team_id=team_id, id=workflow_id)
+    except HogFlow.DoesNotExist:
+        raise WorkflowNotFound() from None
+    shared = user_access_control.get_access_source_for_object(flow, "hog_flow") in _SHARED_ACCESS_SOURCES
+    return shared and user_access_control.check_access_level_for_object(flow, "editor")
 
 
 def get_workflow_static_cohort_ids(*, team_id: int, workflow_id: UUID) -> set[int]:

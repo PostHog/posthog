@@ -155,6 +155,7 @@ from products.workflows.backend.facade.activity import (
 from products.workflows.backend.facade.api import (
     flow_ids_with_active_schedule,
     is_utm_apply_eligible,
+    is_workflow_owner_or_shared_editor,
     load_team_utm_defaults,
     plan_flow_utm_update,
     release_edited_email_utm_keys,
@@ -665,6 +666,12 @@ _CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
 # The scan runs as the workflow's owner, but whoever saves the step chooses which sessions it reads and
 # where the answers go, so the editor needs recording access too.
 _REPLAY_VISION_TEMPLATE_ID = "template-posthog-replay-vision"
+
+_T3_CODE_TEMPLATE_ID = "template-t3-code"
+_T3_CODE_OWNER_ONLY_ERROR = (
+    "This workflow has a T3 Code step, so only its owner or someone they share it with can change or run it. "
+    "Ask the owner to share it with you."
+)
 # Each group lists the scopes that grant one thing the step needs: reading recordings, and starting scans,
 # which the scan APIs gate on scanner write.
 _REPLAY_VISION_STEP_SCOPES = (
@@ -707,6 +714,26 @@ def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) 
     if scanner_id not in cache:
         cache[scanner_id] = workflow_scan_editor_error(user=user, team=team, scanner_id=scanner_id)
     return cache[scanner_id]
+
+
+def _holds_t3_code_step(*action_lists: Any) -> bool:
+    return any(
+        isinstance(step, dict) and (step.get("config") or {}).get("template_id") == _T3_CODE_TEMPLATE_ID
+        for actions in action_lists
+        if isinstance(actions, list)
+        for step in actions
+    )
+
+
+def _may_change_t3_code_steps(
+    workflow: WorkflowEditState, user_access_control: UserAccessControl, *actions: Any
+) -> bool:
+    draft_actions = (workflow.draft or {}).get("actions")
+    if not _holds_t3_code_step(workflow.actions, draft_actions, *actions):
+        return True
+    return is_workflow_owner_or_shared_editor(
+        team_id=workflow.team_id, workflow_id=workflow.id, user_access_control=user_access_control
+    )
 
 
 def _require_replay_vision_editor_access(request: Request | None, context: dict[str, Any], actions: Any) -> None:
@@ -3663,6 +3690,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         instance = cast(Optional[WorkflowEditState], self.instance)
         is_draft = self.context.get("is_draft")
 
+        user_access_control = self.user_access_control
+        if (
+            instance
+            and user_access_control
+            and not _may_change_t3_code_steps(instance, user_access_control, data.get("actions"))
+        ):
+            raise exceptions.PermissionDenied(_T3_CODE_OWNER_ONLY_ERROR)
+
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
         # recovery is keyed by action id, so a forged duplicate id could otherwise pull another action's
@@ -3899,6 +3934,8 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     hog_flow = get_team_workflow_edit_state(
         team_id=team_id, workflow_id=workflow_id, user_access_control=user_access_control, required_level="editor"
     )
+    if not _may_change_t3_code_steps(hog_flow, user_access_control):
+        raise WorkflowAccessDenied(required_level="editor")
     target = HogFlowState.ACTIVE if enabled else HogFlowState.DRAFT
     if hog_flow.status != target:
         validated_data: dict[str, Any] = {"status": target}
@@ -5420,7 +5457,9 @@ class HogFlowViewSet(
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self._require_replay_vision_caller_access(request, self._edit_state().actions)
+        edit_state = self._edit_state()
+        self._require_t3_code_caller_access(request, edit_state)
+        self._require_replay_vision_caller_access(request, edit_state.actions)
 
         # `serializer.data` runs `to_representation`, which converts the
         # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
@@ -6520,6 +6559,14 @@ class HogFlowViewSet(
         except Exception as error:
             capture_exception(error)
 
+    def _require_t3_code_caller_access(
+        self, request: Request, workflow: WorkflowEditState | None, actions: Any = None
+    ) -> None:
+        if workflow is None or is_service_auth(request):
+            return
+        if not _may_change_t3_code_steps(workflow, self.user_access_control, actions):
+            raise exceptions.PermissionDenied(_T3_CODE_OWNER_ONLY_ERROR)
+
     def _require_replay_vision_caller_access(self, request: Request, actions: Any) -> None:
         # A live test or a manual run starts the Replay Vision step as the workflow's owner, on sessions the caller
         # can pick, so the caller needs the access that saving the step needs.
@@ -6576,6 +6623,7 @@ class HogFlowViewSet(
 
         if not payload.get("mock_async_functions", True):
             configuration = payload.get("configuration") or {}
+            self._require_t3_code_caller_access(request, hog_flow, configuration.get("actions"))
             self._require_replay_vision_caller_access(
                 request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
             )
@@ -7404,7 +7452,9 @@ class HogFlowViewSet(
             audience_cohort = realtime_audience_cohort(self.team.project_id, hog_flow.trigger_filters)
             if audience_cohort is not None and not audience_cohort.can_finish:
                 raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
-            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            edit_state = self._edit_state()
+            self._require_t3_code_caller_access(request, edit_state)
+            self._require_replay_vision_caller_access(request, edit_state.actions)
 
             batch_job = create_batch_job(
                 team_id=self.team_id,
@@ -7529,7 +7579,9 @@ class HogFlowViewSet(
 
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
-            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            edit_state = self._edit_state()
+            self._require_t3_code_caller_access(request, edit_state)
+            self._require_replay_vision_caller_access(request, edit_state.actions)
             schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
             self._log_schedule_activity(hog_flow, before=None, after=schedule)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
@@ -7569,8 +7621,10 @@ class HogFlowViewSet(
             schedule, data=request.data, partial=True, context=self.get_serializer_context()
         )
         serializer.is_valid(raise_exception=True)
+        edit_state = self._edit_state()
+        self._require_t3_code_caller_access(request, edit_state)
         if "variables" in serializer.validated_data:
-            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            self._require_replay_vision_caller_access(request, edit_state.actions)
         previous = schedule
         schedule = update_schedule(
             team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id, fields=serializer.validated_data
@@ -7613,7 +7667,9 @@ class HogFlowViewSet(
 
         serializer = HogFlowRunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self._require_replay_vision_caller_access(request, self._edit_state().actions)
+        edit_state = self._edit_state()
+        self._require_t3_code_caller_access(request, edit_state)
+        self._require_replay_vision_caller_access(request, edit_state.actions)
 
         variables = cast(dict[str, object], {var.get("key"): var.get("default") for var in hog_flow.variables or []})
         variables.update(serializer.validated_data["variables"])
