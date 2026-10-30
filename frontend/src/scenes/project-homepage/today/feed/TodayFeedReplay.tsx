@@ -2,6 +2,7 @@ import { Suspense, lazy, useState } from 'react'
 
 import { IconPlayFilled } from '@posthog/icons'
 import { Skeleton, Text } from '@posthog/quill'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { retryImport } from 'lib/utils/retryImport'
@@ -36,16 +37,28 @@ export function TodayFeedReplay({
         <div className="flex flex-col gap-1">
             <div className="relative aspect-video overflow-hidden rounded-lg border border-border bg-muted">
                 {playing ? (
-                    <Suspense fallback={<Skeleton className="size-full" />}>
-                        <SessionRecordingPlayer
-                            sessionRecordingId={sessionId}
-                            playerKey={`today-feed-${sessionId}`}
-                            autoPlay
-                            noMeta
-                            noBorder
-                            withSidebar={false}
-                        />
-                    </Suspense>
+                    // A player that fails to load or crashes stays inside this card, so the rest of the feed keeps working.
+                    <PostHogErrorBoundary
+                        additionalProperties={{ feature: 'today_feed_replay' }}
+                        fallback={
+                            <span className="flex size-full items-center justify-center p-4 text-center">
+                                <Text size="xs" variant="muted">
+                                    The player didn't load. Open the recording to watch it.
+                                </Text>
+                            </span>
+                        }
+                    >
+                        <Suspense fallback={<Skeleton className="size-full" />}>
+                            <SessionRecordingPlayer
+                                sessionRecordingId={sessionId}
+                                playerKey={`today-feed-${sessionId}`}
+                                autoPlay
+                                noMeta
+                                noBorder
+                                withSidebar={false}
+                            />
+                        </Suspense>
+                    </PostHogErrorBoundary>
                 ) : (
                     <button
                         type="button"
