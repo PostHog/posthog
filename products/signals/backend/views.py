@@ -310,6 +310,7 @@ from products.signals.backend.suggested_reviewer_index import report_ids_naming_
 from products.signals.backend.task_attribution import (
     TASK_ID_HEADER,
     is_automatic_signal_agent,
+    is_token_bound_task,
     resolve_request_attribution,
 )
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
@@ -1981,6 +1982,19 @@ class SignalReportViewSet(
     def _is_automatic_signal_agent(self) -> bool:
         return is_automatic_signal_agent(self.request, self._request_attribution(), self.team.id)
 
+    @cached_property
+    def _close_actor(self) -> ArtefactAttribution:
+        """Who the claim gate holds answerable for this request.
+
+        Attribution normally takes the task from `X-PostHog-Task-Id`, which any caller can set. A
+        request that names a task its token was not issued for answers as its authenticated user
+        instead, so the header cannot borrow someone else's claim.
+        """
+        attribution = self._request_attribution()
+        if attribution.task_id is not None and not is_token_bound_task(self.request, attribution):
+            return ArtefactAttribution.from_user(self.request.user.id)
+        return attribution
+
     def _close_denial_message(self, report: SignalReport, target_status: SignalReport.Status) -> str | None:
         """Why this request may not dismiss or resolve the report, or None when it may."""
         if (
@@ -1990,7 +2004,7 @@ class SignalReportViewSet(
             or self._is_automatic_signal_agent
         ):
             return None
-        actor = self._request_attribution()
+        actor = self._close_actor
         denial = close_denial(get_active_claim(team_id=self.team.id, report_id=report.id), actor)
         if denial is None:
             return None

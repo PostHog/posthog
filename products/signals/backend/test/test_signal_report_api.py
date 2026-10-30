@@ -6150,9 +6150,21 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
     def _state_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/state/"
 
-    def _bind_task_token(self, origin_product: str) -> str:
+    def _create_task(self, origin_product: str, *, internal: bool = False, created_by: User | None = None) -> str:
         Task = apps.get_model("tasks", "Task")
-        task = Task.objects.create(team=self.team, title="Agent", description="Agent", origin_product=origin_product)
+        return str(
+            Task.objects.create(
+                team=self.team,
+                title="Agent",
+                description="Agent",
+                origin_product=origin_product,
+                internal=internal,
+                created_by=created_by,
+            ).id
+        )
+
+    def _bind_task_token(self, origin_product: str, *, internal: bool = False) -> str:
+        task_id = self._create_task(origin_product, internal=internal)
         app = OAuthApplication.objects.create(
             name="Synthetic sandbox",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -6169,11 +6181,11 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
             scope="task:read task:write",
             expires=timezone.now() + timedelta(hours=1),
             scoped_teams=[self.team.id],
-            sandbox_task_id=task.id,
+            sandbox_task_id=task_id,
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
-        return str(task.id)
+        return task_id
 
     @parameterized.expand(
         [
@@ -6217,23 +6229,22 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("scout_task", "signals_scout", True, status.HTTP_200_OK),
-            ("pipeline_task", "signal_report", True, status.HTTP_200_OK),
-            ("user_task", "user_created", True, status.HTTP_409_CONFLICT),
-            ("scout_header_without_token_binding", "signals_scout", False, status.HTTP_409_CONFLICT),
+            ("scout_task", "signals_scout", False, True, status.HTTP_200_OK),
+            ("pipeline_task", "signal_report", True, True, status.HTTP_200_OK),
+            # The Discuss and Create PR runs a person starts from the inbox share the pipeline's
+            # origin product, and they answer for the person who started them.
+            ("inbox_discussion_task", "signal_report", False, True, status.HTTP_409_CONFLICT),
+            ("user_task", "user_created", False, True, status.HTTP_409_CONFLICT),
+            ("scout_header_without_token_binding", "signals_scout", False, False, status.HTTP_409_CONFLICT),
         ]
     )
     def test_only_token_bound_automatic_agents_skip_the_claim(
-        self, _name: str, origin_product: str, bound: bool, expected: int
+        self, _name: str, origin_product: str, internal: bool, bound: bool, expected: int
     ) -> None:
         if bound:
-            task_id = self._bind_task_token(origin_product)
+            task_id = self._bind_task_token(origin_product, internal=internal)
         else:
-            task_id = str(
-                apps.get_model("tasks", "Task")
-                .objects.create(team=self.team, title="Agent", description="Agent", origin_product=origin_product)
-                .id
-            )
+            task_id = self._create_task(origin_product, internal=internal)
 
         with self._flag():
             response = self.client.post(
@@ -6241,6 +6252,25 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
             )
 
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("claim_holder_task",), ("claim_holder_own_task",)])
+    def test_the_task_header_alone_does_not_borrow_a_claim(self, case: str) -> None:
+        """A teammate names the claim's task, or a task its holder started, without a token bound to it."""
+        if case == "claim_holder_task":
+            task_id = self._create_task("signal_report", internal=True, created_by=self.teammate)
+            create_claim(self.report, ArtefactAttribution.from_task(task_id))
+        else:
+            task_id = self._create_task("user_created", created_by=self.teammate)
+            create_claim(self.report, ArtefactAttribution.from_user(self.teammate.id))
+
+        with self._flag():
+            response = self.client.post(
+                self._state_url(), {"state": "suppressed"}, format="json", headers={"X-PostHog-Task-Id": task_id}
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.READY
 
     def test_bulk_dismiss_skips_reports_the_caller_has_not_claimed(self) -> None:
         claimed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Mine")
