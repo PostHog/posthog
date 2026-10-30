@@ -148,6 +148,7 @@ function cloudApp({
         return { stop: () => {}, loadOlder: async () => {} };
       },
       prefetch: async () => {},
+      watchPrompts: () => () => {},
     } as unknown as CloudRuns,
     chats: chats as PiChats,
     control: controlFor,
@@ -591,7 +592,10 @@ describe("App flows", () => {
               work: {
                 listRecent: async () => ({ tasks: [], hasMore: false }),
               } as unknown as WorkList,
-              runs: { prefetch: async () => {} } as unknown as CloudRuns,
+              runs: {
+                prefetch: async () => {},
+                watchPrompts: () => () => {},
+              } as unknown as CloudRuns,
               chats: {} as PiChats,
               control: () => ({}) as PiControl,
               startLocal: () => Promise.reject(new Error("no local")),
@@ -776,7 +780,10 @@ describe("App flows", () => {
                   hasMore: false,
                 }),
               } as unknown as WorkList,
-              runs: { prefetch: async () => {} } as unknown as CloudRuns,
+              runs: {
+                prefetch: async () => {},
+                watchPrompts: () => () => {},
+              } as unknown as CloudRuns,
               chats: {} as PiChats,
               control: () => ({}) as PiControl,
               startLocal: async () => local,

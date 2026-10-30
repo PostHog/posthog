@@ -57,7 +57,7 @@ describe("App", () => {
         <App
           session={{
             work,
-            runs: {} as CloudRuns,
+            runs: { watchPrompts: () => () => {} } as unknown as CloudRuns,
             chats: {} as PiChats,
             control: () => ({}) as PiControl,
             startLocal: () => Promise.reject(new Error("no local")),
@@ -80,6 +80,7 @@ describe("App", () => {
     const runs = {
       watch: vi.fn(() => ({ stop: () => {}, loadOlder: async () => {} })),
       prefetch: vi.fn(async () => {}),
+      watchPrompts: () => () => {},
     } as unknown as CloudRuns;
 
     const { instance } = renderInTerminal(
@@ -134,7 +135,10 @@ describe("App", () => {
       <App
         session={{
           work,
-          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          runs: {
+            prefetch: async () => {},
+            watchPrompts: () => () => {},
+          } as unknown as CloudRuns,
           chats: {} as PiChats,
           control: () => ({}) as PiControl,
           startLocal: async () => local,
@@ -179,7 +183,10 @@ describe("App", () => {
           work: {
             listRecent: () => new Promise(() => {}),
           } as unknown as WorkList,
-          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          runs: {
+            prefetch: async () => {},
+            watchPrompts: () => () => {},
+          } as unknown as CloudRuns,
           chats: {} as PiChats,
           control: () => ({}) as PiControl,
           startLocal: () => Promise.reject(new Error("no local")),
@@ -209,7 +216,10 @@ describe("App", () => {
             work: {
               listRecent: () => new Promise(() => {}),
             } as unknown as WorkList,
-            runs: { prefetch: async () => {} } as unknown as CloudRuns,
+            runs: {
+              prefetch: async () => {},
+              watchPrompts: () => () => {},
+            } as unknown as CloudRuns,
             chats: {} as PiChats,
             control: () => ({}) as PiControl,
             startLocal: () => Promise.reject(new Error("no local")),
@@ -265,7 +275,10 @@ describe("App", () => {
               hasMore: false,
             }),
           } as unknown as WorkList,
-          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          runs: {
+            prefetch: async () => {},
+            watchPrompts: () => () => {},
+          } as unknown as CloudRuns,
           chats: {} as PiChats,
           control: () => ({}) as PiControl,
           startLocal: async () => local,
@@ -335,7 +348,10 @@ describe("App", () => {
               hasMore: false,
             }),
           } as unknown as WorkList,
-          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          runs: {
+            prefetch: async () => {},
+            watchPrompts: () => () => {},
+          } as unknown as CloudRuns,
           chats: {} as PiChats,
           control: () => ({}) as PiControl,
           startLocal: async () => local,
@@ -398,6 +414,7 @@ describe("App", () => {
           runs: {
             watch: () => ({ stop: () => {}, loadOlder: async () => {} }),
             prefetch: async () => {},
+            watchPrompts: () => () => {},
           } as unknown as CloudRuns,
           chats: {} as PiChats,
           control: () => ({}) as PiControl,
@@ -497,7 +514,10 @@ describe("App", () => {
           work: {
             listRecent: () => new Promise(() => {}),
           } as unknown as WorkList,
-          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          runs: {
+            prefetch: async () => {},
+            watchPrompts: () => () => {},
+          } as unknown as CloudRuns,
           chats: { rename } as unknown as PiChats,
           control: () => ({}) as PiControl,
           startLocal: () => Promise.reject(new Error("no local")),
@@ -645,7 +665,10 @@ describe("App", () => {
                 hasMore: false,
               }),
             } as unknown as WorkList,
-            runs: { prefetch: async () => {} } as unknown as CloudRuns,
+            runs: {
+              prefetch: async () => {},
+              watchPrompts: () => () => {},
+            } as unknown as CloudRuns,
             chats: {} as PiChats,
             control: () => ({}) as PiControl,
             startLocal: async () => local,
@@ -744,6 +767,7 @@ describe("App", () => {
             } as unknown as WorkList,
             runs: {
               prefetch: async () => {},
+              watchPrompts: () => () => {},
               watch: (
                 _taskId: string,
                 _runId: string,
@@ -818,7 +842,10 @@ describe("App", () => {
       work: {
         listRecent: () => new Promise(() => {}),
       } as unknown as WorkList,
-      runs: { prefetch: async () => {} } as unknown as CloudRuns,
+      runs: {
+        prefetch: async () => {},
+        watchPrompts: () => () => {},
+      } as unknown as CloudRuns,
       chats: {} as PiChats,
       control: () => ({}) as PiControl,
       startLocal: () => Promise.reject(new Error("no local")),
@@ -905,7 +932,10 @@ describe("App", () => {
                   hasMore: false,
                 }),
               } as unknown as WorkList,
-              runs: { prefetch: async () => {} } as unknown as CloudRuns,
+              runs: {
+                prefetch: async () => {},
+                watchPrompts: () => () => {},
+              } as unknown as CloudRuns,
               chats: chats as PiChats,
               control: () => ({}) as PiControl,
               startLocal: async () => local,
@@ -1070,7 +1100,10 @@ describe("App", () => {
           work: {
             listRecent: () => new Promise(() => {}),
           } as unknown as WorkList,
-          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          runs: {
+            prefetch: async () => {},
+            watchPrompts: () => () => {},
+          } as unknown as CloudRuns,
           chats: {} as PiChats,
           control: () => ({}) as PiControl,
           startLocal: () => Promise.reject(new Error("no local")),

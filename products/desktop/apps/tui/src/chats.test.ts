@@ -58,14 +58,19 @@ function setup({ canReopen = false } = {}) {
       ],
     ),
   };
+  const relay = {
+    servers: vi.fn((): string[] => []),
+    designate: vi.fn((_runId: string, _servers: string[]) => {}),
+  };
   const chats = new PiChats(
     api as unknown as PostHogAPIClient,
     sendMessage,
     "posthog/posthog",
     uploads,
     canReopen ? agentRestarted : undefined,
+    relay,
   );
-  return { api, sendMessage, uploads, chats, agentRestarted };
+  return { api, sendMessage, uploads, chats, agentRestarted, relay };
 }
 
 describe("PiChats", () => {
@@ -128,6 +133,34 @@ describe("PiChats", () => {
         initialPermissionMode: "plan",
       }),
     );
+  });
+
+  it("relays this machine's MCP servers into a new Claude Code run, and names them on the run so the sandbox asks for them", async () => {
+    const { api, chats, relay } = setup();
+    relay.servers.mockReturnValue(["playwright"]);
+
+    await chats.start("Open the site", [], undefined, "claude");
+
+    expect(api.createTaskRun).toHaveBeenCalledWith(
+      "t1",
+      expect.objectContaining({
+        relayedMcpServers: [{ name: "playwright" }],
+      }),
+    );
+    expect(relay.designate).toHaveBeenCalledWith("r1", ["playwright"]);
+  });
+
+  it("relays nothing into a pi run, which takes its servers from the account alone", async () => {
+    const { api, chats, relay } = setup();
+    relay.servers.mockReturnValue(["playwright"]);
+
+    await chats.start("Fix it");
+
+    expect(api.createTaskRun).toHaveBeenCalledWith(
+      "t1",
+      expect.not.objectContaining({ relayedMcpServers: expect.anything() }),
+    );
+    expect(relay.designate).not.toHaveBeenCalled();
   });
 
   it.each([

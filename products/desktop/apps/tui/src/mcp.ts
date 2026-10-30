@@ -1,5 +1,6 @@
 import { loadUserClaudeJsonMcpServerDescriptors } from "@posthog/agent/adapters/claude/session/mcp-config";
 import type { McpServerInstallation } from "@posthog/api-client/types";
+import { classifyLocalMcpServer } from "@posthog/core/local-mcp/localMcpImport";
 import type { LocalMcpServerDescriptor } from "@posthog/shared";
 import type { Sheet, SheetItem } from "./sheet";
 
@@ -14,6 +15,17 @@ export const localMcpServers = (
   homeDir?: string,
 ): LocalMcpServerDescriptor[] =>
   loadUserClaudeJsonMcpServerDescriptors(cwd, undefined, homeDir);
+
+// The local servers a sandbox cannot reach on its own: a process on this machine, or a private address. A cloud
+// chat gets them through the TUI, which answers the sandbox's calls against the real server, as the desktop app does.
+export const relayedMcpServers = (
+  locals: LocalMcpServerDescriptor[],
+): string[] =>
+  locals
+    .map(classifyLocalMcpServer)
+    .filter((server) => server.availability === "requires_desktop")
+    .map((server) => server.name)
+    .sort();
 
 const installationState = (installation: McpServerInstallation): string =>
   installation.needs_reauth
@@ -34,11 +46,20 @@ const transportOf = (server: LocalMcpServerDescriptor): string =>
 const byLabel = (a: SheetItem, b: SheetItem): number =>
   a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
 
-// /mcp: the account's servers first, then the ones on this machine.
+export const RELAY_LABEL = "Cloud chats reach this machine's servers";
+
+export interface McpSheet extends Sheet {
+  // The index of the relay switch, the one item that does something.
+  relayToggle: number;
+}
+
+// /mcp: the account's servers first, then the ones on this machine, then the switch that relays those to cloud chats.
 export function mcpSheet(
   installations: McpServerInstallation[],
   locals: LocalMcpServerDescriptor[],
-): Sheet {
+  { relay = false }: { relay?: boolean } = {},
+): McpSheet {
+  const relayed = new Set(relay ? relayedMcpServers(locals) : []);
   const items: SheetItem[] = [
     ...installations
       .map((installation) => ({
@@ -49,23 +70,25 @@ export function mcpSheet(
     ...locals
       .map((server) => ({
         label: server.name,
-        detail: `this machine · ${transportOf(server)}`,
+        detail: [
+          "this machine",
+          transportOf(server),
+          ...(relayed.has(server.name) ? ["relayed to cloud chats"] : []),
+        ].join(" · "),
       }))
       .sort(byLabel),
   ];
+  if (items.length === 0)
+    items.push({
+      label: "No MCP servers yet",
+      disabled: "add one in PostHog's MCP settings",
+    });
   return {
     title: "MCP servers",
     description:
-      "PostHog's servers reach every chat. This machine's come from ~/.claude.json.",
-    items:
-      items.length > 0
-        ? items
-        : [
-            {
-              label: "No MCP servers yet",
-              disabled: "add one in PostHog's MCP settings",
-            },
-          ],
-    footer: "Esc to close",
+      "PostHog's servers reach every chat. This machine's come from ~/.claude.json; the TUI must stay open while a cloud chat uses one.",
+    items: [...items, { label: RELAY_LABEL, current: relay }],
+    relayToggle: items.length,
+    footer: "Enter to switch · Esc to close",
   };
 }

@@ -380,10 +380,24 @@ export function useSend({
       return;
     }
     mcp.installations().then(
-      (installations) =>
-        openModal(paneId, mcpSheet(installations, localMcpServers()), () =>
-          closeModal(paneId),
-        ),
+      (installations) => {
+        const sheet = mcpSheet(installations, localMcpServers(), {
+          relay: loadPrefs().relayLocalMcp,
+        });
+        openModal(paneId, sheet, (index) => {
+          closeModal(paneId);
+          if (index !== sheet.relayToggle) return;
+          const relay = !loadPrefs().relayLocalMcp;
+          savePrefs({ relayLocalMcp: relay });
+          track("mcp relay switched", { on: relay });
+          flashNotice(
+            relay
+              ? "New cloud Claude Code and Codex chats reach this machine's MCP servers while the TUI is open"
+              : "New cloud chats no longer reach this machine's MCP servers",
+            here,
+          );
+        });
+      },
       (error: unknown) =>
         flashNotice(`Couldn't list MCP servers: ${messageOf(error)}`, here),
     );

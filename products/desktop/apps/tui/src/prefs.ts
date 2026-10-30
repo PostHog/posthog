@@ -23,6 +23,8 @@ export interface Prefs {
   showContext: boolean;
   // The first run's sign-in sheet has been shown.
   welcomed: boolean;
+  // Cloud Claude Code and Codex chats reach this machine's MCP servers through the TUI, from /mcp.
+  relayLocalMcp: boolean;
 }
 
 const modelOf = (saved: unknown): ModelChoice | undefined => {
@@ -44,6 +46,7 @@ const DEFAULT_PREFS: Prefs = {
   claudeMode: "auto",
   showContext: false,
   welcomed: false,
+  relayLocalMcp: false,
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -71,6 +74,7 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
       ...(modelOf(saved.lastModel) && { lastModel: modelOf(saved.lastModel) }),
       showContext: saved.showContext === true,
       welcomed: saved.welcomed === true,
+      relayLocalMcp: saved.relayLocalMcp === true,
     };
   } catch {
     return DEFAULT_PREFS;

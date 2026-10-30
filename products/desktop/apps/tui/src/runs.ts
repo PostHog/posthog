@@ -1,3 +1,4 @@
+import type { PermissionOption } from "@agentclientprotocol/sdk";
 import type { TaskRunSessionLogsPage } from "@posthog/api-client/posthog-client";
 import type { CloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
 import { CloudTaskEvent } from "@posthog/core/cloud-task/schemas";
@@ -9,6 +10,7 @@ import {
   TRANSCRIPT_TAIL_WINDOW,
 } from "@posthog/shared";
 import type { ChatNotice } from "./chatView";
+import type { AcpQuestion, AgentPrompt, PromptReply } from "./prompts";
 import {
   activityOf,
   PENDING_ID,
@@ -454,6 +456,105 @@ export class CloudRuns {
 
   // Open watches by run, so a run brought back can be watched again for its panes.
   private readonly watching = new Map<string, number>();
+
+  // What a cloud run waits on the user for, by task: a Claude Code or Codex permission request, or the engine's
+  // approval of a relayed MCP call. Answered through the engine, which keeps a relay approval to itself.
+  private prompts = new Map<string, AgentPrompt[]>();
+  private readonly taskOfRun = new Map<string, string>();
+  private readonly promptListeners = new Set<
+    (prompts: Map<string, AgentPrompt[]>) => void
+  >();
+  private promptListener?: (update: CloudTaskUpdatePayload) => void;
+
+  watchPrompts(
+    onPrompts: (prompts: Map<string, AgentPrompt[]>) => void,
+  ): () => void {
+    if (!this.promptListener) {
+      this.promptListener = (update) => {
+        if (update.kind === "permission_request") {
+          const meta = update.toolCall._meta as
+            | { codeToolKind?: string; questions?: AcpQuestion[] }
+            | undefined;
+          const questions =
+            meta?.codeToolKind === "question" && Array.isArray(meta.questions)
+              ? meta.questions
+              : undefined;
+          this.taskOfRun.set(update.runId, update.taskId);
+          this.setPrompts(update.taskId, [
+            ...(this.prompts.get(update.taskId) ?? []),
+            {
+              kind: "acp",
+              request: {
+                taskRunId: update.runId,
+                // The request id is what the engine answers by; the sandbox's own call id is not needed again.
+                toolCallId: update.requestId,
+                title: update.toolCall.title,
+                // The sandbox's options name ACP's kinds; the shared type only says string.
+                options: update.options as PermissionOption[],
+                ...(questions && { questions }),
+              },
+            },
+          ]);
+        } else if (
+          (update.kind === "status" || update.kind === "snapshot") &&
+          update.status &&
+          FINISHED.includes(update.status)
+        ) {
+          this.setPrompts(
+            update.taskId,
+            (this.prompts.get(update.taskId) ?? []).filter(
+              (prompt) =>
+                prompt.kind !== "acp" ||
+                prompt.request.taskRunId !== update.runId,
+            ),
+          );
+        }
+      };
+      this.engine.on(CloudTaskEvent.Update, this.promptListener);
+    }
+    this.promptListeners.add(onPrompts);
+    onPrompts(this.prompts);
+    return () => {
+      this.promptListeners.delete(onPrompts);
+      if (this.promptListeners.size === 0 && this.promptListener) {
+        this.engine.off(CloudTaskEvent.Update, this.promptListener);
+        this.promptListener = undefined;
+      }
+    };
+  }
+
+  private setPrompts(taskId: string, prompts: AgentPrompt[]): void {
+    this.prompts = new Map(this.prompts).set(taskId, prompts);
+    for (const listener of this.promptListeners) listener(this.prompts);
+  }
+
+  async answer(reply: PromptReply): Promise<void> {
+    if (reply.kind !== "acp") return;
+    const taskId = this.taskOfRun.get(reply.taskRunId);
+    if (!taskId) return;
+    this.setPrompts(
+      taskId,
+      (this.prompts.get(taskId) ?? []).filter(
+        (prompt) =>
+          prompt.kind !== "acp" ||
+          prompt.request.toolCallId !== reply.toolCallId,
+      ),
+    );
+    const result = await this.engine.sendCommand({
+      taskId,
+      runId: reply.taskRunId,
+      ...(await this.context()),
+      method: "permission_response",
+      params: {
+        requestId: reply.toolCallId,
+        optionId: reply.optionId,
+        ...(reply.customInput && { customInput: reply.customInput }),
+        ...(reply.answers && { answers: reply.answers }),
+      },
+    });
+    if (!result.success)
+      throw new Error(result.error ?? "The run did not take the answer");
+  }
 
   // Resolves once a run brought back with `resume_in_cloud` has its agent running again, after `since` (epoch ms).
   // The engine stops watching a run once it ends, so the run is watched again to see it come back.
