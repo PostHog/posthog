@@ -57964,6 +57964,11 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface GithubIssueDependencyRef {
+      repository: string;
+      number: number;
+    }
+
     export interface GithubIssueSignalExtra {
       html_url: string;
       number: number;
@@ -57974,6 +57979,7 @@ export namespace Schemas {
       state: string;
       author_login?: string | null;
       author_association?: string | null;
+      depends_on_issues?: GithubIssueDependencyRef[];
     }
 
     export interface GitlabIssueSignalExtra {
