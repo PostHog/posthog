@@ -167,6 +167,9 @@ class StableCursorPagination(CursorPagination):
     cursor does not store the primary key.
     """
 
+    # A subclass can leave `count` out, because counting costs a full scan on large tables.
+    include_count: bool = True
+
     def get_ordering(self, request: Request, queryset: Any, view: Any) -> tuple[str, ...]:
         ordering = super().get_ordering(request, queryset, view)
         model = getattr(queryset, "model", None)
@@ -181,6 +184,8 @@ class StableCursorPagination(CursorPagination):
         return super().paginate_queryset(queryset, request, view)
 
     def get_paginated_response(self, data: Any) -> Response:
+        if not self.include_count:
+            return super().get_paginated_response(data)
         return Response(
             {
                 "count": self.counted_rows.count(),
@@ -192,6 +197,8 @@ class StableCursorPagination(CursorPagination):
 
     def get_paginated_response_schema(self, schema: dict) -> dict:
         paginated = super().get_paginated_response_schema(schema)
+        if not self.include_count:
+            return paginated
         paginated["required"] = ["count", "results"]
         paginated["properties"] = {
             "count": {"type": "integer", "example": 123},

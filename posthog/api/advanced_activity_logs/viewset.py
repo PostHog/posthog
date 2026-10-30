@@ -174,6 +174,8 @@ class TailFollowingCursorPagination(StableCursorPagination):
     timestamp-positioned cursor and matches DRF's behavior mid-stream.
     """
 
+    # A follower polls this on every request, so a count would scan the activity log each time.
+    include_count = False
     follow = False
 
     def get_next_link(self) -> Optional[str]:
@@ -224,6 +226,15 @@ class ActivityLogPagination(TailFollowingCursorPagination):
         if self.request and self.request.query_params.get("page"):
             return self.page_number_pagination.get_paginated_response(data)
         return super().get_paginated_response(data)
+
+    def get_paginated_response_schema(self, schema):
+        # The paginator picks cursor or page-number mode per request, so the schema has to describe
+        # both. Cursor responses (the default) carry no `count`, so it is documented as an optional
+        # property rather than a required one.
+        cursor_schema = super().get_paginated_response_schema(schema)
+        page_number_schema = self.page_number_pagination.get_paginated_response_schema(schema)
+        cursor_schema["properties"]["count"] = page_number_schema["properties"]["count"]
+        return cursor_schema
 
 
 class ActivityLogScopeField(serializers.ChoiceField):
