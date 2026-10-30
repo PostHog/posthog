@@ -41,7 +41,7 @@ describe('telemetry', () => {
                     options: ['var'],
                     source: 'endpoint',
                     variable_count: 1,
-                    env_id: '7',
+                    env_id: null,
                     agent: 'claude-code',
                     $process_person_profile: false,
                 }),
@@ -79,7 +79,10 @@ describe('telemetry', () => {
             for (const result of [first, second]) {
                 const [event] = events(result)
                 expect(event!.distinct_id).toBe('user-1')
-                expect(event!.properties).toMatchObject({ $groups: { organization: 'org-1', project: 'project-uuid' } })
+                expect(event!.properties).toMatchObject({
+                    env_id: '7',
+                    $groups: { organization: 'org-1', project: 'project-uuid' },
+                })
                 expect(event!.properties).not.toHaveProperty('$process_person_profile')
             }
             expect(second.requests.filter((request) => request.url !== TELEMETRY)).toEqual([])
