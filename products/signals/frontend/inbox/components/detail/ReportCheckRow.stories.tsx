@@ -174,14 +174,26 @@ export const Monitoring: Story = {
                 },
             }),
             check({
-                id: 'monitoring-paused',
+                id: 'monitoring-agent',
                 title: 'No new reports of the export timeout',
                 soak_minutes: 1440,
                 next_run_at: '2026-09-22T00:00:00Z',
                 monitoring_timing: {
-                    state: 'paused',
+                    state: 'monitoring',
                     started_at: '2026-09-21T00:00:00Z',
                     ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'verifying-agent',
+                title: 'Checkout errors stay at zero after the retry fix',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'verifying',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
                     next_measurement_at: null,
                 },
             }),

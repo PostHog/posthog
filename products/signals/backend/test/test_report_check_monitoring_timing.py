@@ -84,12 +84,15 @@ class TestMonitoringCheckTiming(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("agent", "agent", "active", 1440, True, True, "paused"),
+            ("agent", "agent", "active", 1440, True, True, "monitoring"),
             ("legacy_metric", "metric_threshold", "active", 1440, False, True, "paused"),
             ("pending", "metric_threshold", "pending", 1440, True, True, "waiting"),
             ("missing_start", "metric_threshold", "active", 1440, True, False, "unavailable"),
             ("missing_soak", "metric_threshold", "active", None, True, True, "unavailable"),
             ("zero_soak", "metric_threshold", "active", 0, True, True, "window_ended"),
+            ("agent_exact_deadline", "agent", "active", 360, False, True, "window_ended"),
+            ("agent_past_deadline", "agent", "active", 60, False, True, "window_ended"),
+            ("agent_zero_soak", "agent", "active", 0, False, True, "window_ended"),
             ("terminal", "metric_threshold", "errored", 1440, True, True, None),
         ]
     )
