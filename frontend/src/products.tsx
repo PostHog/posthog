@@ -2401,6 +2401,7 @@ export type ProductTreePath =
     | 'MCP servers'
     | 'Metrics'
     | 'Notebooks'
+    | 'Platform alerts'
     | 'Playground'
     | 'Product analytics'
     | 'Product tours'
@@ -3040,6 +3041,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
+    },
+    {
+        path: 'Platform alerts',
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'inbox',
+        href: urls.platformAlerts(),
+        searchKeywords: ['alerts', 'alerting', 'notifications', 'monitors'],
+        flag: FEATURE_FLAGS.PLATFORM_ALERTS,
+        sceneKey: 'PlatformAlerts',
+        sceneKeys: ['PlatformAlerts', 'PlatformAlert'],
     },
     {
         path: 'Playground',

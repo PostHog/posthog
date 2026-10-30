@@ -1,4 +1,8 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
+import { ProductItemCategory } from '~/queries/schema/schema-general'
+import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'AlertsPlatform',
@@ -27,5 +31,16 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {},
     treeItemsNew: [],
-    treeItemsProducts: [],
+    treeItemsProducts: [
+        {
+            path: 'Platform alerts',
+            category: ProductItemCategory.UNRELEASED,
+            iconType: 'inbox',
+            href: urls.platformAlerts(),
+            searchKeywords: ['alerts', 'alerting', 'notifications', 'monitors'],
+            flag: FEATURE_FLAGS.PLATFORM_ALERTS,
+            sceneKey: 'PlatformAlerts',
+            sceneKeys: ['PlatformAlerts', 'PlatformAlert'],
+        },
+    ],
 }
