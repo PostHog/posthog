@@ -6,16 +6,17 @@ Other charts, such as scatter and pie, provide specialized tooltips; check their
 
 ## Behavior: `config.tooltip`
 
-`TooltipConfig` (see the JSDoc in `core/types.ts`) sets `enabled`, `pinnable`, `placement`, `resolveClickToNearestSeries`, and `hitArea`.
+`TooltipConfig` (see the JSDoc in `core/types.ts`) sets `enabled`, `pinnable`, `placement`, `resolveClickToNearestSeries`, `hitArea`, and `mode`.
 
 - `placement: 'cursor'` is the library default through `DEFAULT_CHART_CONFIG`; `follow-data` tracks the highest point at the hovered x and `top` pins the panel to the top edge.
 - `pinnable` lets a click pin the panel. An unpinned tooltip is `pointer-events: none`, so row clicks only land once it is pinned.
 - `resolveClickToNearestSeries` (default false) makes a click on a pinnable multi-series chart resolve the series nearest the cursor and fire `onPointClick` directly instead of pinning first. Use it only where the target series is visually unambiguous by position (funnel breakdown areas, one per breakdown value). Leave it off where series overlap and a wrong guess is costly (trend lines).
+- `mode: 'single'` lists only the series under the cursor. See [`DefaultTooltip` props](#defaulttooltip-props).
 - `hitArea` applies to bar charts. `bar` (default) needs the cursor over the painted bar, so the empty space above a short bar shows nothing. `band` accepts anywhere in the hovered band. `Sparkline` uses `band` because a sparkline bar can be one pixel tall and a zero bucket has no bar to aim at.
 
 ## Formatting without a render prop
 
-`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `showTotal`, `totalLabel`, `totalFormatter`, `sortedByValue`, and `mode` into `DefaultTooltip`.
+`config.tooltip` also forwards `valueFormatter`, `labelFormatter`, `showTotal`, `totalLabel`, `totalFormatter`, and `sortedByValue` into `DefaultTooltip`.
 Prefer this for "format each row" and "add a total" cases (SQL insights pass per-column formatters this way).
 A render prop, if given, owns the content and these fields are ignored.
 
@@ -29,7 +30,7 @@ Usable from a custom `tooltip` render prop by spreading the context: `<DefaultTo
 - `showHeader` (default true) toggles the header row. Pass false where there is no meaningful header (pie slices, aggregated single-column bars).
 - `showTotal` appends a row summing the visible series. It excludes `overlay` series (goal lines) and series with `visibility.total: false` (a percentage column beside counts; the row itself still renders), and is suppressed when fewer than two summable series remain. `totalFormatter` defaults to `valueFormatter` applied with the first summable row's entry; `totalLabel` defaults to `'Total'`.
 - `sortedByValue` sorts rows by value: `true` or `'desc'` puts the highest first, `'asc'` the lowest.
-- `mode: 'single'` lists only the series closest to the cursor: the nearest line, or the hovered segment of a stacked bar. A pinned tooltip, or one with no series under the cursor, lists every row.
+- `mode: 'single'` lists only the series closest to the cursor: the nearest line, or the hovered segment of a stacked bar. Overlay series such as trend lines are skipped, as the hover dot skips them. A pinned tooltip lists every row. So does a tooltip with no series under the cursor, or whose series under the cursor is hidden from the tooltip.
 - `hideZeroRows` drops rows whose value is exactly `0` (lifecycle statuses absent for a period).
 - `onRowClick(entry)` makes each row clickable. The tooltip must be pinned for clicks to land. Use it for a per-series drill-down (the persons modal).
 - `footer` renders arbitrary content below all rows, after a divider. Useful for "click to inspect" hints.

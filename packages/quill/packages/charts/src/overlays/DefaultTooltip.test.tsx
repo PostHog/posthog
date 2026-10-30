@@ -262,24 +262,35 @@ describe('DefaultTooltip', () => {
             expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['High', 'Low'])
         })
 
-        it.each<[string, TooltipProps, TooltipContext['hoverPosition'], string[], boolean?]>([
-            ['sortedByValue: true puts the highest value first', { sortedByValue: true }, null, ['Beta', 'Alpha']],
-            ["sortedByValue: 'asc' puts the lowest value first", { sortedByValue: 'asc' }, null, ['Alpha', 'Beta']],
-            ["mode: 'single' lists only the row closest to the cursor", { mode: 'single' }, { x: 0, y: 290 }, ['Beta']],
-            ["mode: 'single' lists every row without a cursor", { mode: 'single' }, null, ['Alpha', 'Beta']],
+        // Alpha (10) sits below Beta (25), as on a real chart, so value order and pixel order disagree.
+        it.each<[string, TooltipProps, Partial<TooltipContext>, string[]]>([
+            ['sortedByValue: true puts the highest value first', { sortedByValue: true }, {}, ['Beta', 'Alpha']],
+            ["sortedByValue: 'asc' puts the lowest value first", { sortedByValue: 'asc' }, {}, ['Alpha', 'Beta']],
+            [
+                "mode: 'single' lists only the row closest to the cursor",
+                { mode: 'single' },
+                { hoverPosition: { x: 0, y: 290 } },
+                ['Alpha'],
+            ],
+            [
+                "mode: 'single' lists the hovered stacked segment over the closest row",
+                { mode: 'single' },
+                { hoverPosition: { x: 0, y: 40 }, hoveredSeriesKey: 'a' },
+                ['Alpha'],
+            ],
+            ["mode: 'single' lists every row without a cursor", { mode: 'single' }, {}, ['Beta', 'Alpha']],
             [
                 "mode: 'single' lists every row when pinned",
                 { mode: 'single' },
-                { x: 0, y: 290 },
-                ['Alpha', 'Beta'],
-                true,
+                { hoverPosition: { x: 0, y: 290 }, isPinned: true },
+                ['Beta', 'Alpha'],
             ],
-        ])('%s', (_, props, hoverPosition, expectedRows, isPinned = false) => {
+        ])('%s', (_, props, ctxOverrides, expectedRows) => {
             const withYPixel: TooltipContext['seriesData'] = [
-                { ...TWO_SERIES[0], yPixel: 40 },
-                { ...TWO_SERIES[1], yPixel: 300 },
+                { ...TWO_SERIES[0], yPixel: 300 },
+                { ...TWO_SERIES[1], yPixel: 40 },
             ]
-            renderTooltip(props, withYPixel, { hoverPosition, isPinned })
+            renderTooltip(props, withYPixel, ctxOverrides)
             expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(expectedRows)
         })
 
