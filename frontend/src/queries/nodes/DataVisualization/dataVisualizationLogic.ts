@@ -1047,7 +1047,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions._setQuery(props.query)
         }
     }),
-    propsChanged(({ actions, values, props }) => {
+    propsChanged(({ actions, values, props }, oldProps) => {
+        // Without setQuery, the internal query keeps the axis settings that the parent never receives, so it never
+        // equals props.query. Comparing against it would dispatch _setQuery on every parent render.
+        if (!props.setQuery && objectsEqual(props.query, oldProps.query)) {
+            return
+        }
         if (props.query && !objectsEqual(props.query, values.query)) {
             actions._setQuery(props.query)
         }

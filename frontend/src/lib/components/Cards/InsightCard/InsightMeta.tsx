@@ -77,7 +77,10 @@ import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
-import { useInsightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
+import {
+    DisplayOptionTab,
+    useInsightDisplayOptions,
+} from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -134,7 +137,28 @@ interface InsightMetaProps extends Pick<
     onCreateAnomalyAlert?: () => void
 }
 
-export function InsightMeta({
+const NO_DISPLAY_OPTION_TABS: DisplayOptionTab[] = []
+
+// Only product analytics insights have display option tabs, and useInsightDisplayOptions mounts three insight
+// logics. SQL tiles skip it because every mounted logic makes each later dispatch on the dashboard slower. The two
+// branches are different component types, so React remounts if the query kind changes, and no hook runs conditionally.
+export function InsightMeta(props: InsightMetaProps): JSX.Element {
+    return isDataVisualizationNode(props.insight.query) ? (
+        <InsightMetaBody {...props} displayOptionTabs={NO_DISPLAY_OPTION_TABS} />
+    ) : (
+        <InsightMetaWithDisplayOptions {...props} />
+    )
+}
+
+function InsightMetaWithDisplayOptions(props: InsightMetaProps): JSX.Element {
+    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
+    // portal, which cascades into closing the dropdown before the user can interact with it.
+    const { tabs } = useInsightDisplayOptions()
+    return <InsightMetaBody {...props} displayOptionTabs={tabs} />
+}
+
+function InsightMetaBody({
+    displayOptionTabs,
     headerStatus,
     tile,
     insight,
@@ -175,7 +199,7 @@ export function InsightMeta({
     onCreateAnomalyAlert,
     projectId,
     contextHeading,
-}: InsightMetaProps): JSX.Element {
+}: InsightMetaProps & { displayOptionTabs: DisplayOptionTab[] }): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
     const insightLogicProps: InsightLogicProps = {
@@ -301,9 +325,6 @@ export function InsightMeta({
     const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
-    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
-    // portal, which cascades into closing the dropdown before the user can interact with it.
-    const { tabs: displayOptionTabs } = useInsightDisplayOptions()
     const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
         ? {
               saving: savingSqlVisualization,

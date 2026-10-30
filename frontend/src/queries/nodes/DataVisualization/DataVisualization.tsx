@@ -23,6 +23,7 @@ import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nod
 import {
     AnyResponseType,
     DashboardFilter,
+    GoalLine,
     VisualizationNode,
     HogQLQuery,
     HogQLQueryResponse,
@@ -39,7 +40,12 @@ import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biCh
 import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
 import { getBIChartRecord } from 'products/business_intelligence/frontend/biDrilldown'
-import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
+import {
+    BIDrilldownProps,
+    BIDrillInteraction,
+    biDrilldownLogic,
+    biDrilldownLogicType,
+} from 'products/business_intelligence/frontend/biDrilldownLogic'
 import { BIDrilldownMenu } from 'products/business_intelligence/frontend/BIDrilldownMenu'
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
@@ -64,7 +70,7 @@ import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
 import { partOfWholeChartData } from './Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
-import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
+import { seriesBreakdownLogic, seriesBreakdownLogicValues } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
@@ -176,30 +182,27 @@ export function DataTableVisualization({
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     useAttachedLogic(dataVisualizationLogic(dataVisualizationLogicProps), attachTo)
-    useAttachedLogic(displayLogic({ key: dataVisualizationLogicProps.key }), attachTo)
     useAttachedLogic(variablesLogic(variablesLogicProps), attachTo)
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <BindLogic logic={variablesLogic} props={variablesLogicProps}>
-                        <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                            <InternalDataTableVisualization
-                                uniqueKey={key}
-                                query={query}
-                                setQuery={setQuery}
-                                context={context}
-                                cachedResults={cachedResults}
-                                readOnly={readOnly}
-                                exportContext={exportContext}
-                                editMode={editMode}
-                                embedded={embedded}
-                                inSharedMode={inSharedMode}
-                                filtersOverride={filtersOverride ?? insightProps.filtersOverride}
-                                variablesOverride={variablesOverride ?? insightProps.variablesOverride}
-                            />
-                        </BindLogic>
+                <BindLogic logic={variablesLogic} props={variablesLogicProps}>
+                    <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                        <InternalDataTableVisualization
+                            uniqueKey={key}
+                            query={query}
+                            setQuery={setQuery}
+                            context={context}
+                            cachedResults={cachedResults}
+                            readOnly={readOnly}
+                            exportContext={exportContext}
+                            editMode={editMode}
+                            embedded={embedded}
+                            inSharedMode={inSharedMode}
+                            filtersOverride={filtersOverride ?? insightProps.filtersOverride}
+                            variablesOverride={variablesOverride ?? insightProps.variablesOverride}
+                        />
                     </BindLogic>
                 </BindLogic>
             </BindLogic>
@@ -207,7 +210,138 @@ export function DataTableVisualization({
     )
 }
 
+interface ChartLogicValues {
+    drilldownProps: BIDrilldownProps
+    drilldownLogic: BuiltLogic<biDrilldownLogicType>
+    inspectResult: (record: Record<string, unknown>) => void
+    setInteraction: (interaction: BIDrillInteraction) => void
+    closeResultMenu: () => void
+    seriesBreakdownData: seriesBreakdownLogicValues['seriesBreakdownData']
+    chartData: seriesBreakdownLogicValues['chartData']
+    goalLines: GoalLine[]
+    alertThresholdLines: GoalLine[]
+    alertsInsightProps: InsightLogicProps
+    insightNumericId: number | 'new'
+}
+
+function getDrilldownProps(
+    props: Pick<DataTableVisualizationProps, 'filtersOverride' | 'variablesOverride' | 'inSharedMode' | 'context'>,
+    query: VisualizationNode,
+    key: string
+): BIDrilldownProps {
+    return {
+        key,
+        query,
+        filtersOverride: props.filtersOverride,
+        variablesOverride: props.variablesOverride,
+        onFilterDashboard: !props.inSharedMode ? props.context?.onSelectBIMark : undefined,
+        isDashboardFilterSelected: !props.inSharedMode ? props.context?.isBIMarkActiveFilter : undefined,
+        getDashboardFilterUrl: !props.inSharedMode ? props.context?.getBIMarkDashboardUrl : undefined,
+    }
+}
+
+// A plain SQL table needs none of the chart, alert, or drilldown logics. Every mounted logic makes each later
+// dispatch on the page slower, so tables skip them. The branches are different component types, so React
+// remounts the content when a tile switches between a table and a chart, and no hook runs conditionally.
 function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
+    const { query, effectiveVisualizationType, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const isPlainTable =
+        query.kind !== NodeKind.BIVisualizationNode && effectiveVisualizationType === ChartDisplayType.ActionsTable
+
+    if (isPlainTable && props.readOnly) {
+        return <DataTableVisualizationContent {...props} chartLogics={null} />
+    }
+    // BindLogic mounts displayLogic. Charts and the settings sidebar read it, and the sidebar only renders
+    // when the visualization is editable, so a read-only table does not bind it.
+    return (
+        <BindLogic logic={displayLogic} props={{ key: dataVisualizationProps.key }}>
+            {isPlainTable ? (
+                <DataTableVisualizationContent {...props} chartLogics={null} />
+            ) : (
+                <DataTableVisualizationWithChartLogics {...props} />
+            )}
+        </BindLogic>
+    )
+}
+
+function DataTableVisualizationWithChartLogics(props: DataTableVisualizationProps): JSX.Element {
+    const { query, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { filtersOverride, variablesOverride, inSharedMode, context } = props
+    const drilldownProps = useMemo(
+        () =>
+            getDrilldownProps(
+                { filtersOverride, variablesOverride, inSharedMode, context },
+                query,
+                dataVisualizationProps.key
+            ),
+        [filtersOverride, variablesOverride, inSharedMode, context, query, dataVisualizationProps.key]
+    )
+    const drilldownLogic = biDrilldownLogic(drilldownProps)
+    const { inspect: inspectResult, setInteraction, close: closeResultMenu } = useActions(drilldownLogic)
+    const { seriesBreakdownData, chartData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const { goalLines } = useValues(displayLogic)
+
+    // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
+    // insight (the SQL editor and other unsaved contexts have no alerts to show). Deliberately maps
+    // alerts directly instead of using the alertThresholdLines selector: that selector gates on the
+    // trends-only showAlertThresholdLines viz setting, which VisualizationNode doesn't have, so
+    // going through it would hide the lines on SQL charts entirely.
+    const contextInsightProps = props.context?.insightProps as InsightLogicProps | undefined
+    const alertsInsightProps = useMemo<InsightLogicProps>(
+        () => contextInsightProps ?? { dashboardItemId: undefined },
+        [contextInsightProps]
+    )
+    const { insight } = useValues(insightLogic(alertsInsightProps))
+    const { alerts } = useValues(
+        insightAlertsLogic({
+            insightId: insight?.id ?? 0,
+            insightLogicProps: alertsInsightProps,
+            deferInitialAlertsLoad: !insight?.id,
+        })
+    )
+    const alertThresholdLines = useMemo(
+        () => (insight?.id ? alertsToThresholdGoalLines(alerts) : []),
+        [insight?.id, alerts]
+    )
+    const insightNumericId = insight?.id || 'new'
+
+    // The content memoizes chart data on this object, so it only changes when one of its values changes
+    const chartLogics = useMemo<ChartLogicValues>(
+        () => ({
+            drilldownProps,
+            drilldownLogic,
+            inspectResult,
+            setInteraction,
+            closeResultMenu,
+            seriesBreakdownData,
+            chartData,
+            goalLines,
+            alertThresholdLines,
+            alertsInsightProps,
+            insightNumericId,
+        }),
+        [
+            drilldownProps,
+            drilldownLogic,
+            inspectResult,
+            setInteraction,
+            closeResultMenu,
+            seriesBreakdownData,
+            chartData,
+            goalLines,
+            alertThresholdLines,
+            alertsInsightProps,
+            insightNumericId,
+        ]
+    )
+
+    return <DataTableVisualizationContent {...props} chartLogics={chartLogics} />
+}
+
+function DataTableVisualizationContent({
+    chartLogics,
+    ...props
+}: DataTableVisualizationProps & { chartLogics: ChartLogicValues | null }): JSX.Element {
     const { readOnly } = props
     const settingsPanel = props.context?.visualizationSettingsPanel
 
@@ -240,24 +374,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         !props.embedded &&
         scenePresetChartHeight &&
         !(query.kind === NodeKind.BIVisualizationNode && props.context?.visualizationSettingsPanel)
-    const drilldownProps = {
-        key: dataVisualizationProps.key,
-        query,
-        filtersOverride: props.filtersOverride,
-        variablesOverride: props.variablesOverride,
-        onFilterDashboard: !props.inSharedMode ? props.context?.onSelectBIMark : undefined,
-        isDashboardFilterSelected: !props.inSharedMode ? props.context?.isBIMarkActiveFilter : undefined,
-        getDashboardFilterUrl: !props.inSharedMode ? props.context?.getBIMarkDashboardUrl : undefined,
-    }
-    const drilldownLogic = biDrilldownLogic(drilldownProps)
-    const { inspect: inspectResult, setInteraction, close: closeResultMenu } = useActions(drilldownLogic)
     const resultMenuTriggerRef = useRef<HTMLDivElement>(null)
     const inspectedPoint = useRef(false)
     const replayingClick = useRef(false)
+    const inspectResult = chartLogics?.inspectResult
     const inspect = useCallback(
         (record: Record<string, unknown>): void => {
             inspectedPoint.current = true
-            inspectResult(record)
+            inspectResult?.(record)
         },
         [inspectResult]
     )
@@ -265,30 +389,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
     const resultMenu = canDrill && !!props.context?.dashboardResultMenu
 
-    const { seriesBreakdownData, chartData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
-    const { goalLines } = useValues(displayLogic)
-
-    // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
-    // insight (the SQL editor and other unsaved contexts have no alerts to show). Deliberately maps
-    // alerts directly instead of using the alertThresholdLines selector: that selector gates on the
-    // trends-only showAlertThresholdLines viz setting, which VisualizationNode doesn't have, so
-    // going through it would hide the lines on SQL charts entirely.
-    const alertsInsightProps = (props.context?.insightProps as InsightLogicProps | undefined) ?? {
-        dashboardItemId: undefined,
-    }
-    const { insight } = useValues(insightLogic(alertsInsightProps))
-    const { alerts } = useValues(
-        insightAlertsLogic({
-            insightId: insight?.id ?? 0,
-            insightLogicProps: alertsInsightProps,
-            deferInitialAlertsLoad: !insight?.id,
-        })
+    const chartData = chartLogics?.chartData
+    const seriesBreakdownData = chartLogics?.seriesBreakdownData
+    const alertThresholdLines = chartLogics?.alertThresholdLines
+    const goalLines = chartLogics?.goalLines
+    const paneGoalLines = useMemo(
+        () => [...(alertThresholdLines ?? []), ...(goalLines ?? [])],
+        [alertThresholdLines, goalLines]
     )
-    const alertThresholdLines = useMemo(
-        () => (insight?.id ? alertsToThresholdGoalLines(alerts) : []),
-        [insight?.id, alerts]
-    )
-    const paneGoalLines = useMemo(() => [...alertThresholdLines, ...goalLines], [alertThresholdLines, goalLines])
     const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
     const paneConfig = useMemo(
         () => (biConfig ? { ...biConfig, chartType: effectiveVisualizationType } : undefined),
@@ -332,7 +440,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
     const sqlChartData = useMemo(() => {
-        if (!isSqlChartVisualizationType(effectiveVisualizationType)) {
+        if (!chartData || !isSqlChartVisualizationType(effectiveVisualizationType)) {
             return null
         }
         const { xData: chartXData, yData: chartYData } = chartData
@@ -367,7 +475,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     }, [effectiveVisualizationType, chartData, biConfig, dateAxis, isDateXAxis, timezone, dateBucket])
 
     const pieDisplayData = useMemo(() => {
-        if (!PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        if (!seriesBreakdownData || !PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
             return null
         }
         const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
@@ -533,15 +641,15 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } else if (sqlChartData) {
         const { xData: _xData, yData: _yData } = sqlChartData
         component = (
-            <BindLogic logic={insightLogic} props={alertsInsightProps}>
+            <BindLogic logic={insightLogic} props={chartLogics?.alertsInsightProps}>
                 <SqlChart
                     className="p-3"
                     {...sqlChartData}
                     visualizationType={effectiveVisualizationType}
                     chartSettings={chartSettings}
                     dashboardId={dashboardId}
-                    goalLines={[...alertThresholdLines, ...goalLines]}
-                    insightNumericId={insight?.id || 'new'}
+                    goalLines={paneGoalLines}
+                    insightNumericId={chartLogics?.insightNumericId ?? 'new'}
                     showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
                     embedded={props.embedded}
@@ -656,7 +764,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     if (query.kind === NodeKind.BIVisualizationNode) {
         component = (
             <>
-                {seriesBreakdownData.warning ? (
+                {seriesBreakdownData?.warning ? (
                     <LemonBanner type="info">{seriesBreakdownData.warning}</LemonBanner>
                 ) : null}
                 {!responseLoading && response && 'hasMore' in response && response.hasMore ? (
@@ -668,13 +776,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     </LemonBanner>
                 ) : null}
                 {component}
-                {canDrill ? (
+                {canDrill && chartLogics ? (
                     <>
                         {resultMenu && (
-                            <BIDrilldownMenu logicProps={drilldownProps} triggerRef={resultMenuTriggerRef} />
+                            <BIDrilldownMenu
+                                logicProps={chartLogics.drilldownProps}
+                                triggerRef={resultMenuTriggerRef}
+                            />
                         )}
                         <BIDrilldownModal
-                            logicProps={drilldownProps}
+                            logicProps={chartLogics.drilldownProps}
                             navigationDisabledReason={props.context?.biHierarchyDrillDisabledReason}
                             onNavigate={
                                 props.editMode && !props.inSharedMode ? props.context?.onDrillBIHierarchy : undefined
@@ -699,10 +810,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         ? (event) => {
                               if (
                                   !replayingClick.current &&
-                                  drilldownLogic.values.interaction &&
+                                  chartLogics?.drilldownLogic.values.interaction &&
                                   event.currentTarget.contains(event.target as Node)
                               ) {
-                                  closeResultMenu()
+                                  chartLogics?.closeResultMenu()
                               }
                           }
                         : undefined
@@ -723,7 +834,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                   return
                               }
                               event.preventDefault()
-                              setInteraction(getResultMenuPoint(event))
+                              chartLogics?.setInteraction(getResultMenuPoint(event))
                               if (!inspectedPoint.current) {
                                   replayingClick.current = true
                                   try {
