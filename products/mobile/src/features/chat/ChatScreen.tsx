@@ -1,7 +1,7 @@
+import { BlurTargetView } from 'expo-blur'
 import { usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { Keyboard, Text, type TextInput, useWindowDimensions, View } from 'react-native'
-import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
+import { Keyboard, type TextInput, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
@@ -9,22 +9,17 @@ import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
+import { useArchiveChat } from '@/features/chats/hooks'
 import { setViewedNotificationTask } from '@/features/notifications/foregroundNotifications'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
+import { taskWebUrl } from '@/model/adapters/chats'
 import { reportWebUrl } from '@/model/adapters/report'
 import type { InboxItem, ReportView } from '@/model/types'
-import { CloseIcon } from '@/ui/icons/CloseIcon'
-import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
-import { Pressable44 } from '@/ui/Pressable44'
-import { Scrim } from '@/ui/Scrim'
-import { createStyles, useTheme } from '@/ui/theme'
-import { iconSizes, motion, radii, type } from '@/ui/tokens'
-import { usePresence } from '@/ui/usePresence'
+import { createStyles } from '@/ui/theme'
 import { useScreenInsets } from '@/ui/useScreenInsets'
-import { useSheetDrag } from '@/ui/useSheetDrag'
 
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
 import { useModelCatalogue, useRunDefaults } from '../handoff/useRunOptions'
@@ -35,6 +30,7 @@ import type { AttachmentSource, PendingAttachment } from './attachments/types'
 import { releaseAttachments, useComposerAttachments } from './attachments/useComposerAttachments'
 import { ChatAccessGate } from './ChatAccessGate'
 import { ChatEmptyState } from './ChatEmptyState'
+import { CHAT_HEADER_HEIGHT, ChatHeader } from './ChatHeader'
 import { type ChatOptionsPage, ChatOptionsSheet } from './ChatOptionsSheet'
 import { Composer } from './Composer'
 import { ContextChip } from './ContextChip'
@@ -75,14 +71,14 @@ import { useChatDraft } from './useChatDraft'
 /** The Discuss shape and the context block name each attached report, so the list stays short. */
 const MAX_ATTACHED_REPORTS = 5
 
-interface ChatSheetProps {
+interface ChatScreenProps {
     initialReportId?: string
     /** An issue or a recording the chat opens about. It frames each message while its chip stays. */
     initialObject?: ChatObjectContext | null
     initialTaskId?: string
     initialRunId?: string
     source: ChatSheetSource
-    onClosed: () => void
+    onBack: () => void
 }
 
 function sessionTarget(taskId: string | undefined, runId: string | undefined): SessionOptions {
@@ -92,18 +88,16 @@ function sessionTarget(taskId: string | undefined, runId: string | undefined): S
     return runId ? { taskId, runId } : { taskId }
 }
 
-export function ChatSheet({
+export function ChatScreen({
     initialReportId,
     initialObject = null,
     initialTaskId,
     initialRunId,
     source,
-    onClosed,
-}: ChatSheetProps): ReactElement {
-    const { colors, shadows } = useTheme()
+    onBack,
+}: ChatScreenProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
-    const { height: windowHeight } = useWindowDimensions()
     const now = useNow()
     const inbox = useInboxItems()
     const [target, setTarget] = useState<SessionOptions>(() => sessionTarget(initialTaskId, initialRunId))
@@ -111,6 +105,15 @@ export function ChatSheet({
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
+    const blurTarget = useRef<View>(null)
+    const archiveActions = useArchiveChat()
+    const activeArchiveTarget = useRef(session.taskId)
+    useEffect(() => {
+        activeArchiveTarget.current = session.taskId
+        return () => {
+            activeArchiveTarget.current = null
+        }
+    }, [session.taskId])
     const preparingSend = useRef(false)
     const [preparing, setPreparing] = useState(false)
     const queueEpoch = useRef(0)
@@ -129,11 +132,11 @@ export function ChatSheet({
         )
         return () => setViewedNotificationTask(null)
     }, [visible, pathname, demo, scope, userUuid, session.taskId])
-    const { progress } = usePresence(visible, motion.sheet)
     const close = useCallback((): void => {
         queueEpoch.current++
         setVisible(false)
-    }, [])
+        onBack()
+    }, [onBack])
     const accountScope = useAuthStore((state) =>
         JSON.stringify([state.host, state.projectId, state.user?.uuid, sessionGeneration()])
     )
@@ -143,7 +146,6 @@ export function ChatSheet({
             close()
         }
     }, [accountScope, close])
-    const { drag, pan } = useSheetDrag(visible, close)
     const [draftReportId, setDraftReportId] = useState(() =>
         initialReportId && isReportId(initialReportId, demo) ? initialReportId : undefined
     )
@@ -228,14 +230,6 @@ export function ChatSheet({
         }
     }, [optionsDisabled])
 
-    useEffect(() => {
-        if (visible) {
-            return undefined
-        }
-        const timer = setTimeout(onClosed, motion.sheet)
-        return () => clearTimeout(timer)
-    }, [visible, onClosed])
-
     const hasRunConfig = session.runConfig !== undefined
     const seedAdapter = session.runConfig?.runtimeAdapter ?? null
     const seedModel = session.runConfig?.model ?? null
@@ -271,11 +265,6 @@ export function ChatSheet({
     const itemsById = useMemo(() => new Map(items.map((item) => [item.reportId, item])), [items])
     const mentionItems = useMemo(() => items.filter((item) => !attached.includes(item.reportId)), [items, attached])
     const canMention = attachedObject === null && attached.length < MAX_ATTACHED_REPORTS && mentionItems.length > 0
-    const sheetStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: (1 - progress.value) * windowHeight + drag.value }],
-    }))
-    // The sheet ends at the bottom edge of the window, so padding it by the keyboard height keeps the composer above
-    // the keyboard. `height` is negative while the keyboard is open, and the keyboard covers the home indicator.
     const bottomInset = insets.bottom
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, bottomInset) }))
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
@@ -429,14 +418,7 @@ export function ChatSheet({
         change(next)
         return joinQueueAttachments(current.rows)
     }
-    // The draft keeps text only, so a closed sheet loses the queued files, as it loses unsent composer files.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: `foldQueue` reads only refs.
-    useEffect(() => {
-        if (!visible) {
-            releaseAttachments(foldQueue())
-        }
-    }, [visible])
-    // An Android back pops the route without the sheet's own close.
+    // Native Back also unmounts the route without the header callback.
     // biome-ignore lint/correctness/useExhaustiveDependencies: `foldQueue` reads only refs.
     useEffect(() => () => releaseAttachments(foldQueue()), [])
     // The mode the chip shows, already mapped onto the harness the message runs on.
@@ -575,6 +557,17 @@ export function ChatSheet({
         input.current?.focus()
     }
 
+    const archiveChat = async (): Promise<void> => {
+        const taskId = session.taskId
+        if (!taskId) {
+            return
+        }
+        await archiveActions.archive({ sourceId: taskId })
+        if (activeArchiveTarget.current === taskId) {
+            close()
+        }
+    }
+
     const chips =
         attachedObject !== null || shownReports.length > 0 || attachments.files.length > 0 ? (
             <>
@@ -601,56 +594,24 @@ export function ChatSheet({
             </>
         ) : null
 
-    // The route is a native modal, so on Android the app's gesture root does not reach it and the sheet needs its own.
     return (
-        <GestureHandlerRootView style={styles.overlay} testID="chat-sheet">
+        <View style={styles.page} testID="chat-screen">
             <OverlayHost>
-                <View style={styles.overlay}>
-                    <Scrim color={colors.scrimChat} progress={progress} />
-                    <Animated.View style={[styles.sheet, shadows.bottomSheet, sheetStyle]} accessibilityViewIsModal>
+                <View style={styles.page}>
+                    <BlurTargetView ref={blurTarget} style={styles.body}>
                         <Animated.View style={[styles.keyboard, keyboardStyle]}>
-                            {/* The thread scrolls, so only the header takes the drag; a drag there never competes with a scroll. */}
-                            <GestureDetector gesture={pan}>
-                                <View style={styles.header} testID="chat-header">
-                                    <View style={styles.grabber} />
-                                    <View style={styles.headerRow}>
-                                        <Pressable44
-                                            onPress={close}
-                                            accessibilityLabel="Close"
-                                            pressedBackground={colors.background}
-                                            style={styles.round}
-                                            testID="chat-close"
-                                        >
-                                            <CloseIcon size={iconSizes.control} />
-                                        </Pressable44>
-                                        <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
-                                            {session.title ?? 'New chat'}
-                                        </Text>
-                                        {showEmptyState ? (
-                                            <View style={styles.headerSpacer} />
-                                        ) : (
-                                            <Pressable44
-                                                onPress={startNewChat}
-                                                accessibilityLabel="New chat"
-                                                pressedBackground={colors.background}
-                                                style={styles.round}
-                                                testID="chat-new"
-                                            >
-                                                <ComposeIcon size={iconSizes.control} />
-                                            </Pressable44>
-                                        )}
-                                    </View>
-                                </View>
-                            </GestureDetector>
                             {showEmptyState ? (
-                                <ChatEmptyState
-                                    reportCount={attached.length}
-                                    suggestedPrompts={suggestedPrompts}
-                                    onPrompt={setText}
-                                />
+                                <View style={[styles.empty, { paddingTop: insets.top + CHAT_HEADER_HEIGHT }]}>
+                                    <ChatEmptyState
+                                        reportCount={attached.length}
+                                        suggestedPrompts={suggestedPrompts}
+                                        onPrompt={setText}
+                                    />
+                                </View>
                             ) : (
                                 <SessionThread
                                     session={session}
+                                    topInset={insets.top + CHAT_HEADER_HEIGHT}
                                     onRetryHistory={() => {
                                         track('mobile_session_load_retried')
                                         session.reloadHistory().catch(() => undefined)
@@ -707,7 +668,15 @@ export function ChatSheet({
                                 </ChatAccessGate>
                             </View>
                         </Animated.View>
-                    </Animated.View>
+                    </BlurTargetView>
+                    <ChatHeader
+                        key={session.taskId ?? 'new'}
+                        webUrl={demo ? undefined : taskWebUrl(scope, session.taskId)}
+                        blurTarget={blurTarget}
+                        onBack={close}
+                        onNewChat={startNewChat}
+                        onArchive={session.taskId ? archiveChat : undefined}
+                    />
                     <ChatOptionsSheet
                         visible={optionsOpen}
                         page={optionsPage}
@@ -721,64 +690,17 @@ export function ChatSheet({
                     <AttachMenuSheet visible={attachOpen} onPick={pickAttachment} onClose={closeAttach} />
                 </View>
             </OverlayHost>
-        </GestureHandlerRootView>
+        </View>
     )
 }
 
 const useStyles = createStyles(({ colors }) => ({
-    overlay: {
+    page: {
         flex: 1,
-        justifyContent: 'flex-end',
-    },
-    sheet: {
-        height: '94%',
         backgroundColor: colors.surface,
-        borderTopLeftRadius: radii.floating,
-        borderTopRightRadius: radii.floating,
     },
-    keyboard: {
-        flex: 1,
-    },
-    header: {
-        paddingTop: 10,
-    },
-    grabber: {
-        width: 40,
-        height: 5,
-        borderRadius: 3,
-        backgroundColor: colors.border,
-        alignSelf: 'center',
-    },
-    headerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-        paddingTop: 6,
-        paddingHorizontal: 16,
-        paddingBottom: 8,
-    },
-    round: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        borderWidth: 1,
-        borderColor: colors.hairline,
-        backgroundColor: colors.surface,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    title: {
-        ...type.sheetTitle,
-        color: colors.ink,
-        flexShrink: 1,
-        textAlign: 'center',
-    },
-    headerSpacer: {
-        width: 44,
-        height: 44,
-    },
-    composerArea: {
-        position: 'relative',
-    },
+    body: { flex: 1 },
+    keyboard: { flex: 1 },
+    empty: { flex: 1 },
+    composerArea: { position: 'relative' },
 }))

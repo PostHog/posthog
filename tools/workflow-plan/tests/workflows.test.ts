@@ -1,5 +1,6 @@
 // These tests check the CI workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
+import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -562,12 +563,21 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
-        { name: 'mobile PR', github: pullRequest(), mobile: true, validate: true, install: true, appToken: true },
+        {
+            name: 'mobile PR',
+            github: pullRequest(),
+            mobile: true,
+            apiTypes: false,
+            checks: 'full',
+            install: true,
+            appToken: true,
+        },
         {
             name: 'fork PR',
             github: pullRequest({ fork: true }),
             mobile: true,
-            validate: true,
+            apiTypes: false,
+            checks: 'full',
             install: true,
             appToken: false,
         },
@@ -575,16 +585,44 @@ describe('CI workflow run plans', () => {
             name: 'Dependabot PR',
             github: { ...pullRequest(), actor: 'dependabot[bot]' },
             mobile: true,
-            validate: true,
+            apiTypes: false,
+            checks: 'full',
             install: true,
             appToken: false,
         },
-        { name: 'unrelated PR', github: pullRequest(), mobile: false, validate: false, install: false, appToken: true },
+        {
+            name: 'API types only',
+            github: pullRequest(),
+            mobile: false,
+            apiTypes: true,
+            checks: 'typecheck',
+            install: true,
+            appToken: true,
+        },
+        {
+            name: 'mobile and API types',
+            github: pullRequest(),
+            mobile: true,
+            apiTypes: true,
+            checks: 'full',
+            install: true,
+            appToken: true,
+        },
+        {
+            name: 'unrelated PR',
+            github: pullRequest(),
+            mobile: false,
+            apiTypes: false,
+            checks: 'none',
+            install: false,
+            appToken: true,
+        },
         {
             name: 'master cache warmer',
             github: { ...push(), workflow: workflow('mobile-ci.yml').name! },
             mobile: true,
-            validate: false,
+            apiTypes: false,
+            checks: 'none',
             install: true,
             appToken: false,
         },
@@ -592,15 +630,16 @@ describe('CI workflow run plans', () => {
             name: 'release checks',
             github: { ...push(), workflow: 'Mobile Release' },
             mobile: true,
-            validate: true,
+            apiTypes: false,
+            checks: 'full',
             install: true,
             appToken: false,
         },
-    ])('mobile CI on $name', ({ name, github, mobile, validate, install, appToken }) => {
+    ])('mobile CI on $name', ({ name, github, mobile, apiTypes, checks, install, appToken }) => {
         const plan = planWorkflow(workflow('mobile-ci.yml'), {
             name,
             github,
-            steps: { changes: { filter: pathsFilter({ mobile }) } },
+            steps: { changes: { filter: pathsFilter({ mobile, api_types: apiTypes }) } },
         })
         const validationSteps = [
             'Typecheck',
@@ -617,7 +656,31 @@ describe('CI workflow run plans', () => {
             plan.jobs.check?.steps
                 .filter((step) => step.runs && validationSteps.includes(step.name ?? ''))
                 .map((step) => step.name)
-        ).toEqual(validate ? validationSteps : [])
+        ).toEqual(checks === 'full' ? validationSteps : checks === 'typecheck' ? ['Typecheck'] : [])
+    })
+
+    it.each([
+        { result: 'success', exitCode: 0 },
+        { result: 'failure', exitCode: 1 },
+        { result: 'cancelled', exitCode: 1 },
+    ])('mobile gate reports an API-only typecheck $result', ({ result, exitCode }) => {
+        const script = evaluateValue(
+            workflow('mobile-ci.yml').jobs.mobile_checks?.steps?.[0]?.run,
+            {
+                needs: {
+                    changes: { result: 'success', outputs: { mobile: 'false', api_types: 'true' } },
+                    check: { result },
+                },
+            },
+            planFunctions({
+                dependenciesSucceeded: result === 'success',
+                dependenciesFailed: result === 'failure',
+                cancelled: false,
+            })
+        )
+        const gate = spawnSync('bash', ['-eu', '-c', String(script)], { encoding: 'utf8' })
+        expect(gate.error).toBeUndefined()
+        expect(gate.status, gate.stderr || gate.stdout).toBe(exitCode)
     })
 
     it.each([
