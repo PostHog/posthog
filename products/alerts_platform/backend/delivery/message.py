@@ -47,6 +47,7 @@ _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.BILLING: "Billing",
     SourceKind.WAREHOUSE_SOURCE: "Warehouse sync",
     SourceKind.WAREHOUSE_DESTINATION: "Warehouse destination",
+    SourceKind.METRICS: "Metric",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.

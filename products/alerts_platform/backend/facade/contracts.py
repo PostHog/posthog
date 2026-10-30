@@ -32,6 +32,7 @@ class SourceKind(StrEnum):
     BILLING = "billing"
     WAREHOUSE_SOURCE = "warehouse_source"
     WAREHOUSE_DESTINATION = "warehouse_destination"
+    METRICS = "metrics"
 
 
 @frozen
