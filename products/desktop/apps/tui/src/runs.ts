@@ -2,10 +2,11 @@ import type { TaskRunSessionLogsPage } from "@posthog/api-client/posthog-client"
 import type { CloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
 import { CloudTaskEvent } from "@posthog/core/cloud-task/schemas";
 import { THINKING_ACTIVITIES } from "@posthog/core/sessions/thinkingActivities";
-import type {
-  CloudTaskUpdatePayload,
-  StoredLogEntry,
-  TaskRunStatus,
+import {
+  type CloudTaskUpdatePayload,
+  type StoredLogEntry,
+  type TaskRunStatus,
+  TRANSCRIPT_TAIL_WINDOW,
 } from "@posthog/shared";
 import type { ChatNotice } from "./chatView";
 import {
@@ -39,6 +40,36 @@ export const emptyRunView: RunView = {
   loadingOlder: false,
   error: null,
 };
+
+// A view over a local agent's full log that hands the pane only its tail, as a cloud watch does: the transcript is
+// rebuilt on every event, and a long log made that cost a frame. `loadOlder` pages kept entries back in above.
+export function windowed(
+  onView: (view: RunView) => void,
+  { tail = TRANSCRIPT_TAIL_WINDOW, page = OLDER_PAGE_SIZE } = {},
+): { publish: (full: RunView) => void; loadOlder: () => void } {
+  let full = emptyRunView;
+  // How far back the pane has paged; the window never shrinks below it as the log grows.
+  let windowStart: number | null = null;
+  const show = (): void => {
+    const start = Math.min(
+      windowStart ?? Math.max(0, full.entries.length - tail),
+      Math.max(0, full.entries.length - tail),
+    );
+    onView({ ...full, entries: full.entries.slice(start), windowStart: start });
+  };
+  return {
+    publish: (next) => {
+      full = next;
+      show();
+    },
+    loadOlder: () => {
+      const current = windowStart ?? Math.max(0, full.entries.length - tail);
+      if (current === 0) return;
+      windowStart = Math.max(0, current - page);
+      show();
+    },
+  };
+}
 
 export type SessionLogs = (
   taskId: string,

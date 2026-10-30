@@ -15,6 +15,7 @@ import {
   runNotice,
   type SessionLogs,
   setupProgress,
+  windowed,
   withListedRun,
 } from "./runs";
 import { PENDING_ID } from "./transcript";
@@ -184,6 +185,52 @@ describe("agentUp", () => {
         windowStart,
       }),
     ).toBe(up);
+  });
+});
+
+describe("windowed", () => {
+  const full = (count: number): RunView => ({
+    ...emptyRunView,
+    loaded: true,
+    entries: Array.from({ length: count }, (_, i) => entry(`e${i}`)),
+  });
+
+  it("shows a local log's tail, pages the rest back in on loadOlder, and keeps following the tail as the log grows", () => {
+    const seen: RunView[] = [];
+    const window = windowed((view) => seen.push(view), { tail: 3, page: 2 });
+    window.publish(full(10));
+    expect(ids(seen.at(-1) as RunView)).toEqual(["e7", "e8", "e9"]);
+    expect(seen.at(-1)?.windowStart).toBe(7);
+
+    window.loadOlder();
+    expect(ids(seen.at(-1) as RunView)).toEqual(["e5", "e6", "e7", "e8", "e9"]);
+    expect(seen.at(-1)?.windowStart).toBe(5);
+
+    // A new entry arrives: the window keeps what was paged in and takes the new tail.
+    window.publish(full(11));
+    expect(ids(seen.at(-1) as RunView)).toEqual([
+      "e5",
+      "e6",
+      "e7",
+      "e8",
+      "e9",
+      "e10",
+    ]);
+    expect(seen.at(-1)?.windowStart).toBe(5);
+
+    // Paging to the start leaves nothing older.
+    window.loadOlder();
+    window.loadOlder();
+    window.loadOlder();
+    expect(seen.at(-1)?.windowStart).toBe(0);
+    expect(seen.at(-1)?.entries).toHaveLength(11);
+  });
+
+  it("passes a short log through whole", () => {
+    const seen: RunView[] = [];
+    windowed((view) => seen.push(view), { tail: 3, page: 2 }).publish(full(2));
+    expect(ids(seen.at(-1) as RunView)).toEqual(["e0", "e1"]);
+    expect(seen.at(-1)?.windowStart).toBe(0);
   });
 });
 
