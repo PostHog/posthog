@@ -21,7 +21,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.facade.api import _telemetry_props_from_extra
+from products.signals.backend.report_monitoring_signals import record_monitoring_delivery_outcome
 from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
@@ -365,6 +367,14 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
 
     if not result.safe:
         if input.signal_id and input.team_id is not None:
+            if (
+                input.source_id is not None
+                and input.source_product == SignalSourceProduct.SIGNALS_CHECK
+                and input.source_type == SignalSourceType.MONITORING_UNRESOLVED
+            ):
+                await database_sync_to_async(record_monitoring_delivery_outcome)(
+                    team_id=input.team_id, signal_id=input.signal_id, source_id=input.source_id, status="rejected"
+                )
             await database_sync_to_async(complete_signal_pipeline)(
                 team_id=input.team_id,
                 signal_id=input.signal_id,

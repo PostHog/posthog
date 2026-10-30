@@ -12,6 +12,7 @@ nowhere to land; `summary.py` treats `repository=None` as
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 from posthog.egress.limiter.policies import Priority
@@ -21,6 +22,10 @@ from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.signals.backend.report_generation.source_repository import source_repository_from_signals
+from products.signals.backend.report_monitoring_provenance import (
+    MonitoringRepositorySources,
+    monitoring_repository_sources,
+)
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
@@ -79,6 +84,8 @@ async def select_repository_for_team(
     verbose: bool = False,
     output_fn: OutputFn = None,
     source_repository: str | None = None,
+    source_repositories: Collection[str] = (),
+    require_private_destination: bool = False,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
 
@@ -119,6 +126,8 @@ async def select_repository_for_team(
             service_tier=agent_runtime.service_tier,
             past_corrections=past_corrections,
             source_repository=source_repository,
+            source_repositories=source_repositories,
+            require_private_destination=require_private_destination,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'
@@ -150,6 +159,7 @@ async def select_repository_for_report(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    monitoring_sources: MonitoringRepositorySources | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals.
 
@@ -159,6 +169,10 @@ async def select_repository_for_report(
     """
     from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
 
+    if monitoring_sources is None:
+        monitoring_sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+            team_id, signals
+        )
     request_section = render_signals_to_text(signals)
     return await select_repository_for_team(
         team_id,
@@ -171,4 +185,6 @@ async def select_repository_for_report(
         verbose=verbose,
         output_fn=output_fn,
         source_repository=source_repository_from_signals(signals),
+        source_repositories=monitoring_sources.repositories if monitoring_sources else (),
+        require_private_destination=monitoring_sources.require_private_destination if monitoring_sources else False,
     )

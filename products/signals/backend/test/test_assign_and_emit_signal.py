@@ -164,9 +164,20 @@ async def _monitoring_input(team: Team) -> AssignAndEmitSignalInput:
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("match", ["original", "new", "existing", "researched", "researching"])
-async def test_monitoring_signal_retries_reuse_the_grouped_report(ateam: Team, patch_side_effects, match: str) -> None:
+@pytest.mark.parametrize(
+    "match", ["original", "new", "existing", "researched", "researching", "blocked_new", "blocked_researched"]
+)
+@pytest.mark.parametrize("exempt_origin", [False, True])
+async def test_monitoring_signal_retries_reuse_the_grouped_report(
+    ateam: Team, patch_side_effects, match: str, exempt_origin: bool
+) -> None:
+    blocked = match.startswith("blocked_")
+    match = match.removeprefix("blocked_")
     signal = await _monitoring_input(ateam)
+    original_exemption = SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK if exempt_origin else None
+    await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"]).aupdate(
+        billing_exempt_reason=original_exemption
+    )
     if match == "new":
         signal.match_result = _new_match()
     elif match in {"existing", "researched", "researching"}:
@@ -177,10 +188,28 @@ async def test_monitoring_signal_retries_reuse_the_grouped_report(ateam: Team, p
             signal_count=4 if match in {"researched", "researching"} else 0,
             signals_researched=4 if match in {"researched", "researching"} else 0,
             researching_signal_count=4 if match == "researching" else None,
+            billing_exempt_reason=None if exempt_origin else SignalReport.BillingExemptReason.POSTHOG_SYSTEM,
         )
         signal.match_result = _existing_match(str(existing.id))
     with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
-        first = await assign_and_emit_signal_activity(signal)
+        with patch(
+            f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=blocked, enforced=blocked),
+        ):
+            first = await assign_and_emit_signal_activity(signal)
+        if blocked:
+            assert not first.promoted
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=ateam.id, signal_id=signal.signal_id, report_id=first.report_id
+            )
+            assert not await database_sync_to_async(
+                lambda: (
+                    SignalSpend.objects.for_team(ateam.id)
+                    .filter(signal_id=signal.signal_id, finalized_at__isnull=False)
+                    .exists()
+                )
+            )()
+
         signal.match_result = _new_match("A retry must not create this report")
         with time_machine.travel(first.timestamp + timedelta(minutes=5)):
             second = await assign_and_emit_signal_activity(signal)
@@ -190,9 +219,19 @@ async def test_monitoring_signal_retries_reuse_the_grouped_report(ateam: Team, p
         ):
             paused = await assign_and_emit_signal_activity(signal)
     assert first.report_id == second.report_id
+    if blocked:
+        assert second.promoted
     assert first.timestamp == second.timestamp
     assert paused.report_id == first.report_id and not paused.promoted
     successor = await SignalReport.objects.aget(team=ateam, id=first.report_id)
+    expected_exemption = (
+        original_exemption
+        if match in {"original", "new"}
+        else None
+        if exempt_origin
+        else SignalReport.BillingExemptReason.POSTHOG_SYSTEM
+    )
+    assert successor.billing_exempt_reason == expected_exemption
     assert successor.signal_count == (5 if match in {"researched", "researching"} else 1)
     assert successor.status == ("in_progress" if match == "researching" else "candidate")
     if match == "researching":
@@ -201,7 +240,7 @@ async def test_monitoring_signal_retries_reuse_the_grouped_report(ateam: Team, p
         team=ateam, report_id=successor.id, type="report_link", link_target_id=signal.extra["report_id"]
     ).acount() == (2 if match == "original" else 1)
     assert await SignalReport.objects.filter(team=ateam, id=signal.extra["report_id"], status="closed").aexists()
-    assert patch_side_effects["emit"].call_count == 1
+    assert patch_side_effects["emit"].call_count == 3
     receipt = await SignalEmissionRecord.objects.aget(team=ateam, source_id=signal.source_id)
     assert receipt.report_id == first.report_id
 
@@ -235,6 +274,12 @@ async def test_dropped_monitoring_delivery_can_retry_without_accepting_the_old_s
     signal = await _monitoring_input(ateam)
     old_signal_id = signal.signal_id
     await database_sync_to_async(complete_signal_pipeline)(team_id=ateam.id, signal_id=old_signal_id)
+    await (
+        SignalReportMonitoringAttempt.objects.for_team(ateam.id)
+        .filter(id=signal.source_id)
+        .aupdate(research_delivery_status="retryable")
+    )
+    await Organization.objects.filter(id=ateam.organization_id).aupdate(is_ai_data_processing_approved=True)
     with (
         patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
         patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock),

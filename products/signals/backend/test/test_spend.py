@@ -42,8 +42,16 @@ from products.signals.backend.emission.pipeline import check_actionability
 from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import SignalReport, SignalReportTask, SignalScoutRun, SignalSpend
+from products.signals.backend.models import (
+    SignalEmissionRecord,
+    SignalReport,
+    SignalReportMonitoringAttempt,
+    SignalReportTask,
+    SignalScoutRun,
+    SignalSpend,
+)
 from products.signals.backend.pricing import cost_to_spend
+from products.signals.backend.report_monitoring_signals import acknowledge_monitoring_research, emit_monitoring_research
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.runner import _self_heal_stale_runs
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
@@ -809,16 +817,57 @@ class TestSignalSpend(BaseTest):
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 4.01, other: 4.02}
         assert SignalSpend.objects.for_team(self.team.id).get(task_run_id=resumed.id).finalized_at is not None
 
-    @parameterized.expand([(SignalReport.Status.READY,), (SignalReport.Status.CANDIDATE,)])
-    def test_pipeline_handoff_stays_open_until_summary_completion(self, status: str) -> None:
+    @parameterized.expand(
+        [
+            (SignalReport.Status.READY, False, False),
+            (SignalReport.Status.CANDIDATE, False, False),
+            (SignalReport.Status.POTENTIAL, True, False),
+            (SignalReport.Status.READY, True, False),
+            (SignalReport.Status.IN_PROGRESS, True, False),
+            (SignalReport.Status.READY, True, True),
+        ]
+    )
+    def test_pipeline_handoff_stays_open_until_summary_completion(
+        self, status: str, monitoring: bool, cancelled: bool
+    ) -> None:
         driver = str(uuid4())
-        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver, status=status)
+        owner = str(uuid4()) if monitoring else driver
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=owner, status=status)
+        if monitoring:
+            origin = SignalReport.objects.create(team=self.team, status="closed")
+            attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).create(
+                team=self.team,
+                report=origin,
+                monitoring_started_at=timezone.now(),
+                research_requested_at=timezone.now(),
+            )
+            SignalEmissionRecord.objects.create(
+                team=self.team,
+                source_product="signals_check",
+                source_type="monitoring_unresolved",
+                source_id=str(attempt.id),
+                signal_id=driver,
+                report_id=str(report.id),
+                emitted_at=timezone.now(),
+            )
         record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
         self.assertIsNone(spend.finalized_at)
-        finish_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
+        if cancelled:
+            with self.captureOnCommitCallbacks(execute=True):
+                emit_monitoring_research(team_id=self.team.id, report_id=origin.id, attempt_id=attempt.id)
+            attempt.refresh_from_db()
+            assert attempt.research_delivery_status == "cancelled"
+        else:
+            finish_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
         spend.refresh_from_db()
+        if monitoring and not cancelled:
+            self.assertIsNone(spend.finalized_at)
+            with transaction.atomic():
+                report = SignalReport.objects.select_for_update().get(team=self.team, id=report.id)
+                acknowledge_monitoring_research(report=report, owner_signal_id=owner, signal_ids=[driver])
+            spend.refresh_from_db()
         self.assertIsNotNone(spend.finalized_at)
 
     @parameterized.expand([("terminal", False, False), ("next_pass", True, False), ("newer_pass", True, True)])

@@ -8,10 +8,13 @@ from temporalio.common import RetryPolicy
 
 from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.facade.api import _telemetry_props_from_extra
+from products.signals.backend.report_monitoring_signals import record_monitoring_delivery_outcome
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.types import EmitSignalInputs
 
@@ -36,6 +39,7 @@ class CaptureSignalDroppedInput:
     error: str
     extra: dict = field(default_factory=dict)
     signal_id: str | None = None
+    retryable: bool = False
 
 
 def summarize_drop_error(error: BaseException) -> tuple[str, str]:
@@ -54,7 +58,7 @@ def summarize_drop_error(error: BaseException) -> tuple[str, str]:
 
 
 def signal_dropped_input(
-    signal: EmitSignalInputs, stage: str, error_type: str, error: str
+    signal: EmitSignalInputs, stage: str, error_type: str, error: str, *, retryable: bool = False
 ) -> CaptureSignalDroppedInput:
     return CaptureSignalDroppedInput(
         team_id=signal.team_id,
@@ -69,6 +73,7 @@ def signal_dropped_input(
         # payloads, and the activity input is recorded verbatim in workflow history.
         extra=_telemetry_props_from_extra(signal.extra),
         signal_id=signal.signal_id,
+        retryable=retryable,
     )
 
 
@@ -104,6 +109,17 @@ def capture_signal_dropped_event(team: Team, input: CaptureSignalDroppedInput) -
 @close_db_connections
 async def capture_signal_dropped_activity(input: CaptureSignalDroppedInput) -> None:
     """Emit a lifecycle event when the pipeline drops a signal, so drops are trackable per signal."""
+    if (
+        input.signal_id
+        and input.source_product == SignalSourceProduct.SIGNALS_CHECK
+        and input.source_type == SignalSourceType.MONITORING_UNRESOLVED
+    ):
+        await database_sync_to_async(record_monitoring_delivery_outcome)(
+            team_id=input.team_id,
+            signal_id=input.signal_id,
+            source_id=input.source_id,
+            status="retryable" if input.retryable else "failed",
+        )
     metrics.increment_dropped(stage=input.stage, reason=input.error_type)
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
@@ -123,10 +139,12 @@ async def capture_signal_dropped(signal: EmitSignalInputs, error: BaseException,
     if not workflow.patched(_PATCH_SIGNAL_DROPPED):
         return
     error_type, error_message = summarize_drop_error(error)
+    cause = getattr(error, "cause", None) or error.__cause__ or error
+    retryable = not getattr(cause, "non_retryable", False) and error_type not in {"ValueError", "ValidationError"}
     try:
         await workflow.execute_activity(
             capture_signal_dropped_activity,
-            signal_dropped_input(signal, stage, error_type, error_message),
+            signal_dropped_input(signal, stage, error_type, error_message, retryable=retryable),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
