@@ -145,7 +145,9 @@ function significanceCell(row: VariantRow): ReactElement | string {
     if (parts.length === 0) {
         return '—'
     }
-    return <div className="flex items-center gap-2 justify-end">{parts}</div>
+    // The table grows to the width of its widest row and scrolls sideways past the card edge,
+    // so stack the parts to keep this column narrow.
+    return <div className="flex flex-col items-end gap-1">{parts}</div>
 }
 
 function buildRows(result: ExperimentMetricResult): VariantRow[] {
@@ -289,7 +291,7 @@ export function ExperimentResultsView({ data }: ExperimentResultsViewProps): Rea
     return (
         <div className="p-4">
             <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-lg font-semibold">{data.experiment?.name || 'Experiment results'}</span>
                     {isPreliminary && <Badge variant="warning">Preliminary</Badge>}
                     {data.status === 'failed' && <Badge variant="destructive">Failed</Badge>}
@@ -322,7 +324,11 @@ export function ExperimentResultsView({ data }: ExperimentResultsViewProps): Rea
                 ) : (
                     sections.map((section) => (
                         <Fragment key={section.label ?? 'metrics'}>
-                            {section.label && <span className="text-sm font-semibold">{section.label}</span>}
+                            {section.label && (
+                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                    {section.label}
+                                </span>
+                            )}
                             {section.entries.map((entry) => (
                                 <MetricCard key={entry.key} entry={entry} />
                             ))}
