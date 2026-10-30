@@ -77,7 +77,7 @@ class TeamIdPage:
     next_after_team_id: int | None
 
 
-@dataclass
+@dataclass(frozen=True)
 class HealthCheckWorkflowInputs:
     name: str
     kind: str
