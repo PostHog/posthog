@@ -3174,17 +3174,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 let savedInsight: InsightModel
                 try {
                     savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
-                    // Saving from a dashboard flow also places the insight on that dashboard.
-                    if (dashboardId) {
-                        const tile = await insightsApi.addToDashboard(savedInsight.id, dashboardId)
-                        savedInsight = {
-                            ...savedInsight,
-                            dashboard_tiles: [
-                                ...(savedInsight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
-                                tile,
-                            ],
-                        }
-                    }
                 } catch (e) {
                     actions.setInsightLoading(false)
                     if (e instanceof ApiError) {
@@ -3193,6 +3182,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         lemonToast.error('Could not update insight')
                     }
                     throw e
+                }
+                // The update has landed by now, so a refused placement must not skip the state sync below.
+                let placedOnDashboard = false
+                if (dashboardId) {
+                    try {
+                        const tile = await insightsApi.addToDashboard(savedInsight.id, dashboardId)
+                        savedInsight = {
+                            ...savedInsight,
+                            dashboard_tiles: [
+                                ...(savedInsight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
+                                tile,
+                            ],
+                        }
+                        placedOnDashboard = true
+                    } catch (e) {
+                        const detail = e instanceof ApiError ? e.detail : null
+                        lemonToast.error(
+                            `Insight saved, but it couldn't be added to the dashboard. ${detail ?? 'Add it from the insight page instead.'}`
+                        )
+                    }
                 }
                 actions.setInsightLoading(false)
                 captureBIEditorQuerySaved(biEditorState, 'insight', 'update', dashboardId !== null)
@@ -3216,7 +3225,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
-                if (dashboardId) {
+                if (dashboardId && placedOnDashboard) {
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
                         action: DashboardLoadAction.Update,

@@ -124,6 +124,21 @@ async function resolveInsightId(insight: Partial<InsightModel>): Promise<number>
     return insightId
 }
 
+// The tile endpoints return no insight, and this logic's copy can carry a dashboard's overrides in its query.
+async function reloadInsightAfterTileChange(
+    insightId: number,
+    currentResult: InsightModel['result'],
+    removedDashboardIds: number[]
+): Promise<InsightModel> {
+    const savedInsight = await insightsApi.getByNumericId(insightId)
+    if (!savedInsight) {
+        throw new Error('Cannot reload the insight after changing its dashboards')
+    }
+    const updatedInsight = { ...savedInsight, result: savedInsight.result || currentResult }
+    dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboardIds)
+    return updatedInsight
+}
+
 export const createEmptyInsight = (shortId: InsightShortId | `new-${string}` | 'new'): Partial<InsightModel> => ({
     short_id: shortId !== 'new' && !shortId.startsWith('new-') ? (shortId as InsightShortId) : undefined,
     name: undefined,
@@ -824,31 +839,17 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
                 addInsightToDashboard: async ({ dashboardId, callback }, breakpoint) => {
                     const insightId = await resolveInsightId(values.insight)
-                    const tile = await insightsApi.addToDashboard(insightId, dashboardId)
+                    await insightsApi.addToDashboard(insightId, dashboardId)
                     callback?.()
                     breakpoint()
-                    const updatedInsight = {
-                        ...values.insight,
-                        dashboard_tiles: [
-                            ...(values.insight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
-                            tile,
-                        ],
-                    } as InsightModel
-                    dashboardsModel.actions.updateDashboardInsight(updatedInsight)
-                    return updatedInsight
+                    return await reloadInsightAfterTileChange(insightId, values.insight.result, [])
                 },
                 removeInsightFromDashboard: async ({ dashboardId, callback }, breakpoint) => {
+                    const insightId = await resolveInsightId(values.insight)
                     await insightsApi.removeFromDashboard(values.insight, dashboardId)
                     callback?.()
                     breakpoint()
-                    const updatedInsight = {
-                        ...values.insight,
-                        dashboard_tiles: (values.insight.dashboard_tiles || []).filter(
-                            (t) => t.dashboard_id !== dashboardId
-                        ),
-                    } as InsightModel
-                    dashboardsModel.actions.updateDashboardInsight(updatedInsight, [dashboardId])
-                    return updatedInsight
+                    return await reloadInsightAfterTileChange(insightId, values.insight.result, [dashboardId])
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
                     // new insight

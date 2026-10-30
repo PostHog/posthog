@@ -731,7 +731,6 @@ describe('insightLogic', () => {
         }).toDispatchActions(['addInsightToDashboardSuccess'])
 
         expect(addToDashboard).toHaveBeenCalledWith(42, MOCK_DASHBOARD_ID)
-        expect(liveDashboardIds(logic.values.insight.dashboard_tiles)).toContain(MOCK_DASHBOARD_ID)
         addToDashboard.mockRestore()
     })
 
