@@ -8,9 +8,11 @@ from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet
 
 from rest_framework import serializers
 
+from posthog.api.pagination import select_page
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
+from posthog.paging import Page, PageRequest
 
 from products.cross_project_dashboards.backend.facade import contracts
 from products.cross_project_dashboards.backend.logic.access import assert_can_reference_insight, visible_project_ids
@@ -215,7 +217,9 @@ def _lock_tile_for_change(
     return tile, dashboard
 
 
-def list_dashboards(*, organization_id: UUID | str, user: User, offset: int, limit: int) -> contracts.DashboardPage:
+def list_dashboards(
+    *, organization_id: UUID | str, user: User, page: PageRequest
+) -> Page[contracts.CrossProjectDashboardSummary]:
     readable = Q(tiles__project_id__in=visible_project_ids(user, organization_id)) | ~Q(
         tiles__project_id__in=_existing_projects(organization_id)
     )
@@ -229,8 +233,7 @@ def list_dashboards(*, organization_id: UUID | str, user: User, offset: int, lim
         )
         .order_by("-created_at", "-id")
     )
-    page = dashboards[offset : offset + limit]
-    return contracts.DashboardPage(results=[_to_summary(dashboard) for dashboard in page], count=dashboards.count())
+    return select_page(dashboards, page).map(_to_summary)
 
 
 def get_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> contracts.CrossProjectDashboard:
@@ -271,11 +274,9 @@ def delete_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: U
 
 
 def list_tiles(
-    *, organization_id: UUID | str, dashboard_id: UUID, user: User, offset: int, limit: int
-) -> contracts.TilePage:
-    tiles = _tiles(organization_id, dashboard_id, user)
-    page = tiles[offset : offset + limit]
-    return contracts.TilePage(results=[_to_tile(tile) for tile in page], count=tiles.count())
+    *, organization_id: UUID | str, dashboard_id: UUID, user: User, page: PageRequest
+) -> Page[contracts.CrossProjectTile]:
+    return select_page(_tiles(organization_id, dashboard_id, user), page).map(_to_tile)
 
 
 def get_tile(
