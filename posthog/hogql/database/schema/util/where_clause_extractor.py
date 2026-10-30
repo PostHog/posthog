@@ -581,6 +581,7 @@ def is_events_only_field(node: ast.Field) -> bool:
     """True iff the field resolves to a direct field on the EventsTable (not a traversal to
     person/groups/sessions/etc. via a virtual/lazy join)."""
     from posthog.hogql.database.schema.events import EventsTable
+    from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 
     type_ = node.type
     if isinstance(type_, ast.PropertyType):
@@ -596,8 +597,8 @@ def is_events_only_field(node: ast.Field) -> bool:
     # Virtual tables (e.g. person, group) pivot to another underlying table, so they are not
     # safely "events-only" even if they hang off an events row.
 
-    if isinstance(table_type, ast.TableType):
-        return isinstance(table_type.table, EventsTable)
+    if isinstance(table_type, (ast.TableType, ast.LazyTableType)):
+        return isinstance(table_type.table, (EventsTable, EventsWithFlagCallsTable))
     return False
 
 
@@ -754,7 +755,7 @@ def build_session_id_v7_pushdown_predicate(
 
     Returns None if the outer query shape or WHERE can't be safely pushed down.
     """
-    events_join = _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
+    events_join = _events_scan_for_join(outer_node, join_to_add)
     if events_join is None or not isinstance(events_join.table, ast.Field):
         return None
 

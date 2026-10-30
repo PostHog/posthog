@@ -43,7 +43,11 @@ from posthog.hogql.constants import LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    EventsPredicatePushdownExtractor,
+    is_nondeterministic_function,
+)
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -352,6 +356,51 @@ class _ShortCircuitBlockerFinder(TraversingVisitor):
             super().visit_call(node)
 
 
+class _UnionScanWhereMover(CloningVisitor):
+    """Copies the WHERE of a query that reads a union scan into the scan itself.
+
+    Each read becomes the scan's own expression for that column. Sets `failed` for anything else, so the caller leaves
+    the WHERE where it is.
+    """
+
+    def __init__(self, scan: ast.SelectQuery, scan_alias: str):
+        super().__init__(clear_types=False)
+        self.columns = {column.alias: column.expr for column in scan.select if isinstance(column, ast.Alias)}
+        self.scan_alias = scan_alias
+        self.failed = False
+
+    def visit_field(self, node: ast.Field):
+        field_type = node.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if (
+            isinstance(field_type, ast.FieldType)
+            and isinstance(field_type.table_type, ast.SelectQueryAliasType)
+            and field_type.table_type.alias == self.scan_alias
+            and field_type.name in self.columns
+        ):
+            return clone_expr(self.columns[field_type.name], clear_types=False)
+        self.failed = True
+        return node
+
+    def visit_alias(self, node: ast.Alias):
+        # The resolver wraps a bare column in a hidden alias.
+        if not node.hidden:
+            self.failed = True
+        return self.visit(node.expr)
+
+    def visit_call(self, node: ast.Call):
+        if is_nondeterministic_function(node.name) or find_hogql_aggregation(node.name) is not None:
+            self.failed = True
+        return super().visit_call(node)
+
+    def _refuse(self, node):
+        self.failed = True
+        return node
+
+    visit_select_query = visit_select_set_query = visit_lambda = visit_property_access = _refuse
+
+
 class EventsPredicatePushdownTransform(TraversingVisitor):
     """Pushes events WHERE/PREWHERE predicates into a pre-filtering subquery:
     `FROM events` -> `FROM (SELECT <needed cols> FROM events WHERE <predicates>) AS events`.
@@ -398,6 +447,10 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         joined_aliases = self._collect_joined_aliases(node)
         if not joined_aliases:
             return "no_safe_joined_aliases"
+
+        union_scan = self._union_scan(node.select_from)
+        if union_scan is not None:
+            return self._push_into_union_scan(node, union_scan)
 
         events_table_type = node.select_from.type
         if not isinstance(events_table_type, (ast.TableType, ast.TableAliasType)):
@@ -498,7 +551,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             events_pushdown_enabled(self.context.modifiers)
             and node.select_from is not None
             and node.select_from.sample is None
-            and self._from_is_events_table(node.select_from)
+            and (self._from_is_events_table(node.select_from) or self._union_scan(node.select_from) is not None)
             and (node.where is not None or node.prewhere is not None)
             and node.select_from.next_join is not None
             and self._has_effective_limit(node)
@@ -590,6 +643,76 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
             table_type = table_type.table_type
         return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
+
+    def _union_scan(self, join_expr: ast.JoinExpr) -> ast.SelectQuery | None:
+        """The select that stands for `FROM posthog.events_with_flag_calls`, or None for any other FROM.
+
+        Lazy table resolution expands that table to `SELECT <columns> FROM (<events> UNION ALL ... <flag_evaluations>)`
+        and the query reads the result under the scan's alias. The select has no filter or limit of its own, so a
+        filter and a limit that the query would apply to its rows can apply to the select instead.
+        """
+        scan = join_expr.table
+        if not isinstance(join_expr.type, ast.SelectQueryAliasType) or not isinstance(scan, ast.SelectQuery):
+            return None
+        source = scan.select_from
+        union = source.table if source is not None else None
+        if (
+            source is None
+            or not isinstance(union, ast.SelectSetQuery)
+            or source.next_join is not None
+            or any(
+                value is not None
+                for value in (
+                    scan.where,
+                    scan.prewhere,
+                    scan.having,
+                    scan.qualify,
+                    scan.group_by,
+                    scan.order_by,
+                    scan.limit,
+                    scan.offset,
+                    scan.limit_by,
+                    scan.array_join_op,
+                    scan.distinct,
+                    scan.ctes,
+                    scan.window_exprs,
+                )
+            )
+            or not all(isinstance(column, ast.Alias) for column in scan.select)
+            or any(node.set_operator != "UNION ALL" for node in union.subsequent_select_queries)
+        ):
+            return None
+        for branch in union.select_queries():
+            table_type = branch.select_from.type if isinstance(branch, ast.SelectQuery) and branch.select_from else None
+            while isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
+            if not (
+                isinstance(table_type, ast.TableType)
+                and isinstance(table_type.table, (EventsTable, FlagEvaluationsTable))
+            ):
+                return None
+        return scan
+
+    def _push_into_union_scan(self, node: ast.SelectQuery, scan: ast.SelectQuery) -> str | None:
+        """Moves the WHERE and the LIMIT of `node` into the union scan, so its rows are capped before the joins.
+
+        Safe when the LIMIT is safe on events, and the whole WHERE reads only the scan's columns, so no residual
+        predicate is left on the joined rows.
+        """
+        assert node.select_from is not None and isinstance(node.select_from.type, ast.SelectQueryAliasType)
+        if node.where is None or node.prewhere is not None:
+            return "no_pushable_predicates"
+        inner_limit = self._safe_inner_limit(node, None, None)
+        if inner_limit is None:
+            return "no_short_circuitable_limit"
+        mover = _UnionScanWhereMover(scan, node.select_from.type.alias)
+        where = mover.visit(node.where)
+        if mover.failed:
+            return "where_not_on_union_scan_columns"
+        scan.where = cast(ast.Expr, where)
+        scan.limit = inner_limit
+        node.where = None
+        return None
 
     def _collect_joined_aliases(self, node: ast.SelectQuery) -> set[str]:
         """Aliases from the JOIN chain, or an empty set if any join uses an unsafe type (causing the caller to bail)."""
