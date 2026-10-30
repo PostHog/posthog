@@ -258,7 +258,10 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
             ),
         )
 
-    def test_a_claim_reaches_the_authoring_scout_and_the_claimants_memory_holder(self) -> None:
+    @parameterized.expand([("no_linked_login", None), ("linked_login", "octocat")])
+    def test_a_claim_reaches_the_authoring_scout_and_the_claimants_memory_holder(
+        self, _name: str, github_login: str | None
+    ) -> None:
         self._create_skill()
         self._create_skill(OTHER_SCOUT_SKILL)
         report = self._create_report()
@@ -269,19 +272,20 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
             skill_name=OTHER_SCOUT_SKILL,
         )
 
-        self._claim(report)
+        with patch("products.signals.backend.reviewer_correction_notes.actor_github_login", return_value=github_login):
+            self._claim(report)
 
         notes = self._correction_notes()
         assert sorted(note.skill_name for note in notes) == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
-        assert f"Claimed: `{self.user.uuid}`." in notes[0].content
+        assert f"Claimed: `{github_login or self.user.uuid}`." in notes[0].content
 
-    def test_a_repeat_claim_is_coalesced_but_does_not_hide_a_later_removal(self) -> None:
+    def test_a_repeat_claim_is_coalesced_across_a_removal_and_does_not_hide_it(self) -> None:
         report = self._create_report()
         identity = str(self.user.uuid)
 
         self._claim(report)
-        self._claim(report)
         self._forward(report, removed=(identity,))
+        self._claim(report)
 
         notes = self._correction_notes()
         assert len(notes) == 2

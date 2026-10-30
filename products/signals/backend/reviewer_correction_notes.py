@@ -304,9 +304,9 @@ def _forward_claim(*, team: Team, claim: ReviewerClaim) -> ForwardedCorrectionNo
     )
     if author is None:
         return _NOTHING_FORWARDED
-    # The login is what scouts route on. A member without one is still assignable in the Inbox by
-    # their PostHog user UUID.
-    claimant = _renderable([author.actor_login or str(author.actor.uuid)])
+    # The login is what scouts route on, so the note names it first. A memory can still name the
+    # PostHog user UUID, from before the login was linked, so holders are searched on both.
+    claimant = _renderable([identity for identity in (author.actor_login, str(author.actor.uuid)) if identity])
     if not claimant:
         return _NOTHING_FORWARDED
 
@@ -323,7 +323,7 @@ def _forward_claim(*, team: Team, claim: ReviewerClaim) -> ForwardedCorrectionNo
     note_ids: list[str] = []
     for skill_name in targets:
         # A claim, a release, and a claim again on one report is one piece of evidence.
-        if claimant[0] in _reviewers_already_told(team_id, skill_name, claim.report_id).claimed:
+        if _reviewers_already_told(team_id, skill_name, claim.report_id).claimed.intersection(claimant):
             continue
         note_id = _leave_note(author=author, skill_name=skill_name, content=content, expires_at=expires_at)
         if note_id is not None:
@@ -470,7 +470,8 @@ def _reviewers_already_told(team_id: int, skill_name: str, report_id: str) -> _R
                 removed_told |= _quoted_reviewers(paragraph) - already_seen
             elif paragraph.startswith(_CLAIMED_SECTION_PREFIX):
                 # Only the first sentence names the claimant. Identities cannot contain a period.
-                claimed_told |= _quoted_reviewers(paragraph.split(".", 1)[0]) - already_seen
+                # No reviewer edit reverses a claim, so a newer edit does not unsuppress an older claim.
+                claimed_told |= _quoted_reviewers(paragraph.split(".", 1)[0])
     return _ReviewersAlreadyTold(added=added_told, removed=removed_told, claimed=claimed_told)
 
 
