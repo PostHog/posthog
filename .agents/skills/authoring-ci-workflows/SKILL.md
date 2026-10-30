@@ -414,7 +414,27 @@ The only sanctioned exception is a job whose purpose is validating the migration
 
 ## Runners
 
-`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default).
+
+A light job's cost to the run is its wait for a runner, not its own length.
+Measured over 12 PR runs: GitHub-hosted jobs waited a median 70-125s for a runner, while `depot-*` jobs in the same runs waited 0-2s.
+Gates chain, so a gate's queue also delays the telemetry job behind it.
+
+So a light job belongs on `depot-ubuntu-24.04` when later jobs wait on it: a required gate, a telemetry job behind a gate, a test selector, or a `changes` job that every other job needs.
+Keep a light job GitHub-hosted when nothing waits on it.
+`ci-storybook.yml`, `ci-frontend.yml`, `ci-e2e-playwright.yml` and `ci-security.yaml` follow this rule for their `changes` jobs, gates, selectors and telemetry jobs.
+`select-jest-tests` is the exception among the selectors: it installs the frontend workspace to list related tests, so it shares a pnpm cache with the GitHub-hosted jest shards and stays there.
+
+Three exceptions keep a light job GitHub-hosted, or need a fork fallback:
+
+- **A job that restores a cached executable and then runs it with a secret** stays GitHub-hosted (`vr-setup`, `vr-complete`).
+  Depot Cache has no branch isolation, so fork-PR code on Depot can plant the entry. GitHub's cache only lets a master run restore what master saved.
+- **A job that checks out the fork head** takes the fork fallback that `select-stories`, `frontend-typescript-checks` and the four `changes` jobs use, because Depot runners inject shared cache credentials:
+  `runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}`.
+- **A wait that measures a time window** (a debounce `sleep`) must measure from the run's `created_at`, not from job start. A faster runner otherwise shrinks the window.
+
+Depot minutes are billed and GitHub-hosted minutes on this public repo are not, so do not move a job that nothing waits on.
+
 **Name the OS version, never `ubuntu-latest`.**
 GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
