@@ -373,6 +373,18 @@ describe("Composer", () => {
       composer.handleInput("a");
       expect(composer.selectedText()).toBe("");
     });
+
+    it("selects the word under a cell, and nothing on a space", () => {
+      const { composer, cellOf } = drawn();
+      const brown = cellOf("brown");
+      expect(
+        composer.selectWordAt({ ...brown, column: brown.column + 2 }),
+      ).toBe(true);
+      expect(composer.selectedText()).toBe("brown");
+      expect(
+        composer.selectWordAt({ ...brown, column: brown.column - 1 }),
+      ).toBe(false);
+    });
   });
 
   it("puts back a message that failed to send, images and all", () => {

@@ -21,6 +21,7 @@ import { inverseCells } from "./highlight";
 import { savedImage } from "./images";
 import { linkAt } from "./links";
 import type { Click } from "./mouse";
+import { wordAt } from "./selection";
 import { blue, orange, userMessageBackground } from "./theme";
 import {
   type ShellLine,
@@ -547,6 +548,19 @@ export class ChatView {
   // Selects from one cell of the chat on screen to another; cells past the chat's edges count as its edges.
   select(from: Click, to: Click): void {
     this.selection = { anchor: this.cellAt(from), head: this.cellAt(to) };
+  }
+
+  // Selects the word under a cell; false on a space.
+  selectWordAt(at: Click): boolean {
+    const { row, column } = this.cellAt(at);
+    const text = textBetween(this.content[row] ?? "", 0, Infinity);
+    const word = wordAt(text, column);
+    if (!word) return false;
+    this.selection = {
+      anchor: { row, column: word.start },
+      head: { row, column: word.end - 1 },
+    };
+    return true;
   }
 
   clearSelection(): void {

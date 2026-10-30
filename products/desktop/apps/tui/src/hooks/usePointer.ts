@@ -198,14 +198,19 @@ export function usePointer({
     onRelease: (at) => {
       const end = gesture.current.release(at);
       if (end?.kind === "click") onClick(end.at);
-      if (end?.kind !== "select" || !selecting.current) return;
-      selectIn(end.from, end.to);
-      const text = selecting.current.target.selectedText();
+      const current = selecting.current;
+      if (!current || !end || end.kind === "click") return;
+      if (end.kind === "select") selectIn(end.from, end.to);
+      else {
+        const { box, target } = current;
+        const local = { row: at.row - box.top, column: at.column - box.left };
+        if (!target.selectWordAt(local)) return;
+        repaint();
+      }
+      const text = current.target.selectedText();
       if (!text.trim()) return;
       copyToClipboard(text);
-      flashNotice("Copied to clipboard", {
-        paneId: selecting.current.paneId,
-      });
+      flashNotice("Copied to clipboard", { paneId: current.paneId });
     },
     onMove: (move) => {
       lastMove.current = { at: move, time: Date.now() };

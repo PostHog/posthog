@@ -336,6 +336,18 @@ describe("ChatView", () => {
       return { row, column: plain(lines)[row].indexOf(text) };
     };
 
+    it("selects the word under a cell, without the user message's caret", () => {
+      const { chat, lines } = chatWith();
+      const delta = cellOf(lines, "delta");
+      expect(chat.selectWordAt({ ...delta, column: delta.column + 3 })).toBe(
+        true,
+      );
+      expect(chat.selectedText()).toBe("delta");
+      expect(chat.selectWordAt({ ...delta, column: delta.column + 5 })).toBe(
+        false,
+      );
+    });
+
     it.each([
       ["forwards", false],
       ["backwards", true],

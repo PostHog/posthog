@@ -15,6 +15,7 @@ import {
 import { inverseCells } from "./highlight";
 import type { RunCommand } from "./models";
 import type { Click } from "./mouse";
+import { wordAt } from "./selection";
 import { orange } from "./theme";
 
 // Keys the app keeps for itself; everything else typed in a focused pane goes to its composer.
@@ -267,6 +268,19 @@ export class Composer {
       to: this.positionAt({ ...end, column: end.column + 1 }),
     };
     this.repaint();
+  }
+
+  // Selects the word under a cell of the drawn composer; false on a space.
+  selectWordAt(at: Click): boolean {
+    const { line, col } = this.positionAt(at);
+    const word = wordAt(this.editor.getLines()[line] ?? "", col);
+    if (!word) return false;
+    this.selection = {
+      from: { line, col: word.start },
+      to: { line, col: word.end },
+    };
+    this.repaint();
+    return true;
   }
 
   clearSelection(): void {
