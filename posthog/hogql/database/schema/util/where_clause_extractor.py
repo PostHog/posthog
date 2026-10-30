@@ -1047,6 +1047,14 @@ class _FieldNodeCollector(TraversingVisitor):
 # any future array-expanding function HogQL lowers into WHERE here.
 _ROW_MULTIPLYING_FUNCTIONS = {"arrayJoin"}
 
+# These return a different value on each read, so a copy of a filter that calls one selects other rows than the
+# original. Lowercase, because HogQL accepts some of them in any case, such as RAND().
+_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
+
+
+def is_nondeterministic_function(name: str) -> bool:
+    return name.lower() in _NONDETERMINISTIC_FUNCTIONS
+
 
 class _RowMultiplyingFunctionFinder(TraversingVisitor):
     """Detects any row-multiplying function call (e.g. arrayJoin) anywhere in an expression."""
