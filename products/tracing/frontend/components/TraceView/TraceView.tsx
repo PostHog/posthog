@@ -14,7 +14,7 @@ import type { ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 import { TraceCompareFlame } from 'products/tracing/frontend/TraceCompareFlame'
 import type { SpanInspectorTab, TraceViewMode } from 'products/tracing/frontend/types'
 
-import type { TraceDialogSource } from '../TraceDialog/traceDialogLogic'
+import type { TraceDialogSource } from '../TraceDialog/traceDialogOpenLogic'
 import { TraceDialogSpanTree } from '../TraceDialog/TraceDialogSpanTree'
 import { TraceLoadMoreFooter } from './TraceLoadMoreFooter'
 import { type TraceOperationsScope, traceViewLogic, type TraceViewSurface } from './traceViewLogic'

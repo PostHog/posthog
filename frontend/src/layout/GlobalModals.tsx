@@ -26,7 +26,7 @@ import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
 import { composeTicketLogic } from 'products/conversations/frontend/components/ComposeTicket/composeTicketLogic'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
-import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
+import { traceDialogOpenLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogOpenLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
 
@@ -66,7 +66,7 @@ export function GlobalModals(): JSX.Element {
     // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
     const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
     const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
-    const { isOpen: isTraceDialogOpen } = useValues(traceDialogLogic)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogOpenLogic)
     const shouldRenderTraceDialog = useKeepMountedWhileOpen(isTraceDialogOpen)
     const { isOpen: isComposeTicketModalOpen } = useValues(composeTicketLogic)
     const shouldRenderComposeTicketModal = useKeepMountedWhileOpen(isComposeTicketModalOpen)

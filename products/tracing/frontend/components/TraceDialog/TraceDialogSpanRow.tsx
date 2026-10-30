@@ -11,8 +11,8 @@ import { parseTimestampUs } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
 import type { TraceRunToggleMethod, TraceViewTimeline } from '../TraceView/traceViewLogic'
-import type { TraceDialogSource } from './traceDialogLogic'
 import { LOG_MARK_TAG_TYPE, TraceDialogLogMark } from './TraceDialogLogMark'
+import type { TraceDialogSource } from './traceDialogOpenLogic'
 import { summarizeRun, type TraceDialogRow } from './traceDialogRows'
 import { indentPx, MAX_VISUAL_DEPTH, TraceDialogTreeLines } from './TraceDialogTreeLines'
 

@@ -16,6 +16,7 @@ import type { Span } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
 import { TRACE_DIALOG_VIEW_ID, traceDialogLogic } from './traceDialogLogic'
+import { traceDialogOpenLogic } from './traceDialogOpenLogic'
 
 type TracePage = Awaited<ReturnType<typeof api.tracing.getTrace>>
 
@@ -96,16 +97,30 @@ describe('traceDialogLogic', () => {
     })
 
     it.each([
-        ['an id in the API case', 'B1'],
+        ['an id in the API case', 'B1', false],
         // Logs carry lowercase hex, and the trace API returns uppercase.
-        ['a lowercase hex id from a log', 'b1'],
-    ])('selects the span the dialog was opened from, given %s', async (_name, openedSpanId) => {
+        ['a lowercase hex id from a log', 'b1', false],
+        // The lazy dialog mounts this logic only after a caller has opened it.
+        ['a dialog that mounts after the open', 'b1', true],
+    ])('selects the span the dialog was opened from, given %s', async (_name, openedSpanId, mountsAfterOpen) => {
         getTraceSpy.mockResolvedValueOnce({ results: [span('A1'), span('B1')], hasMore: false, nextOffset: null })
+        if (mountsAfterOpen) {
+            traceDialogOpenLogic.mount()
+            logic.unmount()
+            logic = traceDialogLogic()
+        }
 
         await expectLogic(logic, () => {
-            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: openedSpanId }, { entryPoint: 'log_details' })
+            traceDialogOpenLogic.actions.openTraceDialog(
+                { traceId: 'abc123', spanId: openedSpanId },
+                { entryPoint: 'log_details' }
+            )
+            if (mountsAfterOpen) {
+                logic.mount()
+            }
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
+        expect(getTraceSpy).toHaveBeenCalledWith('abc123', expect.anything())
         expect(view.values.selectedSpan?.span_id).toBe('B1')
     })
 
