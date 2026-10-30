@@ -632,17 +632,22 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             (
                 "unconvertible_behavioral",
                 {"event_type": "events", "key": "$pageview", "value": "performed_event", "type": "behavioral"},
+                "could not be converted",
             ),
             # Converts, but the filters schema rejects it, as it does when sent as `filters`.
-            ("hogql_leaf", {"type": "hogql", "key": "1 = 1"}),
+            ("hogql_leaf", {"type": "hogql", "key": "1 = 1"}, None),
         ]
     )
-    def test_create_cohort_with_invalid_legacy_groups_returns_400(self, _name: str, leaf: dict) -> None:
+    def test_create_cohort_with_invalid_legacy_groups_returns_400(
+        self, _name: str, leaf: dict, expected_detail: str | None
+    ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "Malformed legacy group cohort", "groups": [{"properties": [leaf]}]},
         )
         self.assertEqual(response.status_code, 400, response.content)
+        if expected_detail:
+            self.assertIn(expected_detail, response.json()["detail"])
         self.assertFalse(Cohort.objects.filter(team=self.team, name="Malformed legacy group cohort").exists())
 
     def test_patch_cohort_used_in_flag_rejects_behavioral_groups(self):

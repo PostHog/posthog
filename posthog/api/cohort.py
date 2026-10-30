@@ -1549,10 +1549,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         instance = cast(Optional[Cohort], self.instance)
         return instance is not None and instance.is_static and attrs.get("is_static") is False
 
-    def _effective_filters_after_update(self, attrs: dict, team: Optional[Team] = None) -> dict | None:
-        # Derive the properties that survive the save, mirroring Cohort.properties precedence:
-        # filters win over the legacy groups field, so clearing filters re-activates preserved
-        # groups. Pass team on the create path, where there's no instance to read it from.
+    def _effective_filters_after_update(self, attrs: dict) -> dict | None:
+        # Derive the properties that survive the save, mirroring Cohort.properties precedence: filters
+        # win over the legacy groups field, so clearing filters re-activates preserved groups.
         instance = cast(Optional[Cohort], self.instance)
         filters = attrs.get("filters", instance.filters if instance else None)
         if filters:
@@ -1627,7 +1626,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return
 
         # Check what survives the save, not just the fields in the payload.
-        effective = self._effective_filters_after_update(attrs, team=team)
+        effective = self._effective_filters_after_update(attrs)
         properties = effective.get("properties") if effective else None
         # A payload query is what's being saved; a flip re-activates the instance's preserved query.
         query = attrs["query"] if "query" in attrs else (instance.query if reactivating_static and instance else None)
@@ -1672,7 +1671,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         team = _team_from_serializer_context(self.context)
         if team is None:
             return
-        effective = self._effective_filters_after_update(attrs, team=team)
+        effective = self._effective_filters_after_update(attrs)
         if not effective:
             return
         referenced_ids = [
@@ -1761,9 +1760,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         team = _team_from_serializer_context(self.context)
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
-        existing = self._effective_filters_after_update({}, team=team)
+        existing = self._effective_filters_after_update({})
         hidden_event = added_hidden_event(
-            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs, team=team))),
+            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs))),
             _behavioral_event_names(_flat_properties(existing)),
         )
         if hidden_event and team is not None and hides_flag_calls_from_query_builders(team.organization_id):

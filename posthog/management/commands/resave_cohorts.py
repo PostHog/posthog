@@ -389,6 +389,11 @@ class Command(BaseCommand):
     ) -> CohortResaveStats:
         """Process all cohorts for a single team."""
         all_cohorts = self._load_team_cohorts(team, batch_size)
+        # Convert groups-only cohorts up front so the dependency map, the sort, and the recompute
+        # all read their filters. Static cohorts never evaluate filters, so they stay as they are.
+        for loaded in all_cohorts:
+            if not loaded.filters and loaded.groups and not loaded.is_static:
+                loaded.filters = legacy_groups_to_filters(loaded.groups)
         seen_cohorts_cache: dict[int, CohortOrEmpty] = {c.id: c for c in all_cohorts}
         cohort_dependencies, unreadable_ids = self._build_dependency_map(team, all_cohorts, seen_cohorts_cache)
 
@@ -479,8 +484,6 @@ class Command(BaseCommand):
         cohort_dependencies: dict[int, set[int]] = {}
         unreadable_ids: set[int] = set()
         for cohort in all_cohorts:
-            if not cohort.filters and cohort.groups:
-                cohort.filters = legacy_groups_to_filters(cohort.groups)
             if not cohort.filters:
                 continue
             try:
@@ -510,8 +513,7 @@ class Command(BaseCommand):
         This only mutates the cohort in memory and returns the outcome; the caller persists the
         change and counts it.
         """
-        filters = cohort.filters or legacy_groups_to_filters(cohort.groups)
-
+        filters = cohort.filters
         # Nothing to recompute without filters.
         if not filters:
             return UNTOUCHED_COHORT

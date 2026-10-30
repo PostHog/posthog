@@ -58,6 +58,7 @@ from posthog.schema_migrations.upgrade import upgrade
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
+from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
@@ -170,24 +171,24 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
-def _normalize_legacy_operators(node: dict) -> None:
+def _normalize_legacy_operators(properties: dict) -> None:
     # Legacy groups store operators that filters validation rejects: person properties often omit
     # `operator`, which every evaluator reads as exact, and cohort references use in/not_in where
     # filters use `negation`.
-    if node.get("type") in ("AND", "OR"):
-        for child in node.get("values") or []:
-            if isinstance(child, dict):
-                _normalize_legacy_operators(child)
-    elif node.get("type") in ("person", "person_metadata") and node.get("operator") is None:
-        node["operator"] = "exact"
-    elif node.get("type") == "cohort" and node.get("operator") in ("in", "not_in", None):
-        # Legacy readers negate when either `negation` or `not_in` is set, so the two never cancel out.
-        if node.pop("operator", None) == "not_in":
-            node["negation"] = True
+    for leaf in walk_filter_leaves(properties):
+        if leaf.get("type") in ("person", "person_metadata") and leaf.get("operator") is None:
+            leaf["operator"] = "exact"
+        elif leaf.get("type") == "cohort" and leaf.get("operator") in ("in", "not_in", None):
+            # Legacy readers negate when either `negation` or `not_in` is set, so the two never cancel out.
+            if leaf.pop("operator", None) == "not_in":
+                leaf["negation"] = True
 
 
 def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
-    """Convert legacy cohort groups into filters format with deepcopy protection."""
+    """Convert legacy `groups` into `filters`, or return None if they're empty or any group can't be converted.
+
+    Copies `groups` first, because `Cohort.properties` rewrites them in place.
+    """
     if not groups:
         return None
     try:
