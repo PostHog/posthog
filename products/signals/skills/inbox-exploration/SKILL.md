@@ -5,8 +5,9 @@ description: >
   actionable issues and trends. Use when the user asks "what's in my inbox?", "what should I look at?",
   "which reports are actionable?", "what's PostHog flagged recently?", asks about a specific report by
   ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to resolve,
-  dismiss, or snooze a report, or wants to see which signal sources are configured. Covers listing, filtering,
-  drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
+  dismiss, or snooze a report, or wants to see which signal sources are configured. Also use before you
+  investigate an error, bug, metric change, or support ticket in code, to find research the Inbox already did.
+  Covers listing, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
   or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`.
 ---
 
@@ -37,6 +38,8 @@ the user's actual question.
   _Workflow: resolve, dismiss, or snooze a report_
 - "Get this merged" / "run the suggested prompt on this report" — see
   _Workflow: run an action on a report_
+- You are about to investigate an error, bug, metric change, or support ticket in code — see
+  _Workflow: check for existing work before you investigate_
 
 When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
 **`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
@@ -306,6 +309,39 @@ the rest — don't silently drop the section.
 End with a clear hand-off: "Want me to dig into the checkout errors?" → call
 `inbox-reports-retrieve` for the full report, then optionally hop to the `signals` skill to look
 at the underlying signal text.
+
+## Workflow: check for existing work before you investigate
+
+Before a deep dive in the codebase, check whether the Inbox already researched the problem.
+Skip the setup check here: an empty result only means that no report covers this problem.
+
+When you have the id of the source record, use an exact lookup.
+For an error tracking issue, the issue id is the `source_id`:
+
+```json
+inbox-reports-list
+{
+  "source_product": "error_tracking",
+  "source_id": "<issue_id>",
+  "include_all_statuses": true
+}
+```
+
+Otherwise, search with a short term such as the error type, the page, or the feature name.
+`search` matches report titles and summaries only, so try one or two short terms instead of a full sentence:
+
+```json
+inbox-reports-list
+{ "search": "checkout", "include_all_statuses": true, "limit": 10 }
+```
+
+- No match: continue the investigation, and do not mention the check.
+- A match: read it with `inbox-reports-retrieve` before you read code.
+  Use the research as a starting point, and verify it against the code.
+- The report has an open pull request: continue that work. Do not open a second pull request.
+- The report is resolved or dismissed: read why before you reopen the question.
+- You fix the problem: attach your pull request with `inbox-reports-claim` and `pr_url`, as in
+  _Workflow: act on an actionable report_. Its merge then resolves the report.
 
 ## Workflow: drill into a specific report
 

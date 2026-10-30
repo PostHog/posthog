@@ -25,7 +25,7 @@ import {
     trackToolsList,
     trackToolSpan,
 } from '@/hono/analytics'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import type { ResolvedState } from '@/hono/request-state-resolver'
@@ -203,12 +203,19 @@ describe('Hono MCP analytics contexts', () => {
         }
     })
 
-    it.each([true, false, undefined])('records the evaluated intent prompt flag: %s', async (flagValue) => {
-        const state = makeState({ toolFeatureFlags: { [MCP_INTENT_PROMPT_FLAG]: flagValue } })
+    it.each([
+        [MCP_INTENT_PROMPT_FLAG, true],
+        [MCP_INTENT_PROMPT_FLAG, false],
+        [MCP_INTENT_PROMPT_FLAG, undefined],
+        [MCP_INBOX_FIRST_FLAG, true],
+        [MCP_INBOX_FIRST_FLAG, false],
+        [MCP_INBOX_FIRST_FLAG, undefined],
+    ])('records the evaluated experiment flag %s: %s', async (flagKey, flagValue) => {
+        const state = makeState({ toolFeatureFlags: { [flagKey]: flagValue } })
 
         await trackToolCall('user-get', 12, false, state)
 
-        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${MCP_INTENT_PROMPT_FLAG}`]).toBe(flagValue)
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${flagKey}`]).toBe(flagValue)
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
