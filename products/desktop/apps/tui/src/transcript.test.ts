@@ -107,4 +107,16 @@ describe("transcriptFrom", () => {
       ]);
     },
   );
+
+  it("shows a new pi chat's first message before the sandbox echoes it, and only once after", () => {
+    expect(
+      transcriptFrom("pi", [], "Fix the flaky test").map(
+        ({ id: _, ...line }) => line,
+      ),
+    ).toEqual([{ kind: "user", text: "Fix the flaky test" }]);
+    const echoed = transcriptFrom("pi", PI_LOG, "Rename the helper").filter(
+      (line) => line.kind === "user",
+    );
+    expect(echoed).toHaveLength(1);
+  });
 });

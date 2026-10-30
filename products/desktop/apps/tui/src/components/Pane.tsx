@@ -8,6 +8,7 @@ import {
   emptyRunView,
   type RunSubscription,
   type RunView,
+  runNotice,
 } from "../runs";
 import { transcriptFrom } from "../transcript";
 import { Spinner } from "./Spinner";
@@ -89,7 +90,14 @@ export function Pane({
   const run = task?.latest_run;
 
   const composerLines = width > 0 ? composer.render(width, focused) : [];
-  const chatHeight = height - composerLines.length - (view.error ? 1 : 0);
+  const notice = task?.latest_run
+    ? runNotice(
+        { ...view, status: view.status ?? task.latest_run.status },
+        lines,
+      )
+    : null;
+  const chatHeight =
+    height - composerLines.length - (view.error ? 1 : 0) - (notice ? 1 : 0);
 
   let content: ReactElement;
   if (!paneTaskId)
@@ -114,6 +122,12 @@ export function Pane({
           </Text>
         ))}
         {view.error && <Text color="red">{view.error}</Text>}
+        {notice?.tone === "working" && <Spinner label={notice.text} />}
+        {notice?.tone === "error" && (
+          <Text color="red" wrap="truncate-end">
+            {notice.text}
+          </Text>
+        )}
       </>
     );
   }

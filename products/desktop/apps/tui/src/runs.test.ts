@@ -8,6 +8,7 @@ import {
   CloudRuns,
   emptyRunView,
   type RunView,
+  runNotice,
   type SessionLogs,
 } from "./runs";
 
@@ -95,6 +96,15 @@ describe("applyUpdate", () => {
       windowStart: 0,
     });
   });
+
+  it("keeps the run's own failure reason", () => {
+    const view = updates({
+      kind: "status",
+      status: "failed",
+      errorMessage: "Sandbox failed to start",
+    });
+    expect(view.runError).toBe("Sandbox failed to start");
+  });
 });
 
 describe("CloudRuns", () => {
@@ -169,5 +179,48 @@ describe("CloudRuns", () => {
     expect(seen[0]).toMatchObject({ loaded: true, windowStart: 200 });
     expect(ids(seen[0])).toHaveLength(300);
     expect(ids(seen[0]).at(-1)).toBe("e499");
+  });
+});
+
+describe("runNotice", () => {
+  const user = { kind: "user" as const, id: "u", text: "hi" };
+  const reply = { kind: "assistant" as const, id: "a", text: "hello" };
+
+  it.each([
+    [
+      "a queued run with only the first message",
+      { status: "queued" },
+      [user],
+      { text: "Starting cloud run…", tone: "working" },
+    ],
+    [
+      "a running run before any reply",
+      { status: "in_progress" },
+      [user],
+      { text: "Starting cloud run…", tone: "working" },
+    ],
+    [
+      "a running run that has replied",
+      { status: "in_progress" },
+      [user, reply],
+      null,
+    ],
+    [
+      "a failed run with a reason",
+      { status: "failed", runError: "Sandbox failed to start" },
+      [user],
+      { text: "Sandbox failed to start", tone: "error" },
+    ],
+    [
+      "a failed run without one",
+      { status: "failed" },
+      [user],
+      { text: "The run failed.", tone: "error" },
+    ],
+    ["a finished run", { status: "completed" }, [user, reply], null],
+  ] as const)("for %s", (_, run, lines, expected) => {
+    expect(
+      runNotice({ ...emptyRunView, loaded: true, ...run }, [...lines]),
+    ).toEqual(expected);
   });
 });

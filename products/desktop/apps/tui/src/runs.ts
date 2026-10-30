@@ -6,6 +6,7 @@ import type {
   StoredLogEntry,
   TaskRunStatus,
 } from "@posthog/shared";
+import type { TranscriptLine } from "./transcript";
 
 export interface RunView {
   loaded: boolean;
@@ -15,6 +16,9 @@ export interface RunView {
   loadingOlder: boolean;
   status?: TaskRunStatus;
   sandboxAlive?: boolean | null;
+  // Why the run itself failed, as the server reports it.
+  runError?: string | null;
+  // A problem watching the run, such as a lost stream.
   error: string | null;
 }
 
@@ -52,6 +56,7 @@ export function applyUpdate(
         windowStart: update.windowStart ?? 0,
         status: update.status ?? view.status,
         sandboxAlive: update.sandboxAlive ?? view.sandboxAlive,
+        runError: update.errorMessage ?? view.runError,
         error: null,
       };
     case "logs":
@@ -61,12 +66,28 @@ export function applyUpdate(
         ...view,
         status: update.status ?? view.status,
         sandboxAlive: update.sandboxAlive ?? view.sandboxAlive,
+        runError: update.errorMessage ?? view.runError,
       };
     case "error":
       return { ...view, error: `${update.errorTitle}: ${update.errorMessage}` };
     default:
       return view;
   }
+}
+
+// A status line for the pane while a run has nothing of its own to show.
+export function runNotice(
+  view: RunView,
+  lines: TranscriptLine[],
+): { text: string; tone: "working" | "error" } | null {
+  if (view.status === "failed") {
+    return { text: view.runError || "The run failed.", tone: "error" };
+  }
+  const replied = lines.some((line) => line.kind !== "user");
+  if ((view.status === "queued" || view.status === "in_progress") && !replied) {
+    return { text: "Starting cloud run…", tone: "working" };
+  }
+  return null;
 }
 
 const keyOf = (taskId: string, runId: string): string => `${taskId}:${runId}`;
