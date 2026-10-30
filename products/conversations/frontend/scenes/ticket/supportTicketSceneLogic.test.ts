@@ -71,6 +71,11 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsPartialUpdate: jest.fn(),
+    conversationsMacrosUsedCreate: jest.fn().mockResolvedValue({}),
+    conversationsMacrosList: jest.fn().mockResolvedValue({ results: [], next: null }),
+    conversationsMacrosCreate: jest.fn(),
+    conversationsMacrosPartialUpdate: jest.fn(),
+    conversationsMacrosDestroy: jest.fn(),
 }))
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -431,6 +436,26 @@ describe('supportTicketSceneLogic applyAiDraft', () => {
             message_id: 'msg-ai-1',
             outcome: 'used',
         })
+    })
+
+    it('fills the customer and agent names into the composer', async () => {
+        logic.actions.setTicket({
+            ...makeTicket(),
+            anonymous_traits: { email: 'jane@example.com' },
+            person: { properties: { name: 'Jane Doe' } },
+        } as unknown as Ticket)
+
+        await expectLogic(logic, () => {
+            logic.actions.insertMacro(
+                { id: 'macro-1', body: 'Hi {{customer.first_name}},\n{{agent.first_name}}' },
+                'button'
+            )
+        }).toFinishAllListeners()
+
+        expect(logic.values.composerInsertAt).toBe(1)
+        expect(logic.values.pendingComposerInsert).toContain('Jane')
+        expect(logic.values.pendingComposerInsert).toContain('John')
+        expect(logic.values.draftIsPrivate).toBe(false)
     })
 })
 

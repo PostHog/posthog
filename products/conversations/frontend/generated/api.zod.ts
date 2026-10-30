@@ -9,6 +9,60 @@
  */
 import * as zod from 'zod'
 
+export const conversationsMacrosCreateBodyNameMax = 200
+
+export const conversationsMacrosCreateBodyShortcutMax = 50
+
+export const conversationsMacrosCreateBodyBodyMax = 10000
+
+export const ConversationsMacrosCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsMacrosCreateBodyNameMax)
+        .describe('Name shown in the macro list and the composer menu.'),
+    shortcut: zod
+        .string()
+        .max(conversationsMacrosCreateBodyShortcutMax)
+        .nullish()
+        .describe(
+            'Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.'
+        ),
+    body: zod
+        .string()
+        .max(conversationsMacrosCreateBodyBodyMax)
+        .describe(
+            'Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.'
+        ),
+})
+
+export const conversationsMacrosPartialUpdateBodyNameMax = 200
+
+export const conversationsMacrosPartialUpdateBodyShortcutMax = 50
+
+export const conversationsMacrosPartialUpdateBodyBodyMax = 10000
+
+export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Name shown in the macro list and the composer menu.'),
+    shortcut: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyShortcutMax)
+        .nullish()
+        .describe(
+            'Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.'
+        ),
+    body: zod
+        .string()
+        .max(conversationsMacrosPartialUpdateBodyBodyMax)
+        .optional()
+        .describe(
+            'Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.'
+        ),
+})
+
 /**
  * Handle ticket updates including assignee changes.
  */

@@ -1,6 +1,7 @@
 from .ai_context import AIContextAccountPropertiesViewSet
 from .ai_reply_playbook import AIReplyPlaybookViewSet
 from .signing_secret import SigningSecretViewSet
+from .ticket_macros import TicketMacroViewSet
 from .ticket_views import TicketViewViewSet
 from .tickets import TicketViewSet
 from .widget import WidgetMessagesView, WidgetMessageView, WidgetTicketsView
@@ -10,6 +11,7 @@ __all__ = [
     "AIContextAccountPropertiesViewSet",
     "AIReplyPlaybookViewSet",
     "SigningSecretViewSet",
+    "TicketMacroViewSet",
     "TicketViewSet",
     "TicketViewViewSet",
     "WidgetMessageView",

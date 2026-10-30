@@ -4,6 +4,8 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+
 import type {
     AITriageSource,
     AiReplyFeedbackRating,
@@ -91,6 +93,11 @@ export interface ChatViewProps {
     fullEmailLoadingMessageId?: string | null
     onViewFullEmail?: (messageId: string) => void
     composerPrefillAt?: number
+    composerInsertAt?: number
+    composerInsertContent?: string | null
+    macroPicker?: React.ReactNode
+    enableMacros?: boolean
+    onInsertMacro?: (macro: TicketMacroApi) => void
     aiSources?: AITriageSource[]
     aiDraftApplying?: boolean
     onApplyAiDraft?: (message: ChatMessage) => void
@@ -142,6 +149,11 @@ export function ChatView({
     fullEmailLoadingMessageId,
     onViewFullEmail,
     composerPrefillAt,
+    composerInsertAt,
+    composerInsertContent,
+    macroPicker,
+    enableMacros,
+    onInsertMacro,
     aiSources,
     aiDraftApplying,
     onApplyAiDraft,
@@ -206,6 +218,11 @@ export function ChatView({
                     collapseUntilActive={collapseUntilActive}
                     threadId={threadId}
                     composerPrefillAt={composerPrefillAt}
+                    composerInsertAt={composerInsertAt}
+                    composerInsertContent={composerInsertContent}
+                    macroPicker={macroPicker}
+                    enableMacros={enableMacros}
+                    onInsertMacro={onInsertMacro}
                 />
             </div>
         </LemonCard>

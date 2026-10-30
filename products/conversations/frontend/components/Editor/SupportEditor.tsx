@@ -45,6 +45,10 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+
+import { MacroSuggestionExtension } from '../Macros/MacroSuggestionExtension'
+
 const lowlight = createLowlight(common)
 lowlight.register('plaintext', () => ({ contains: [] }))
 
@@ -163,6 +167,9 @@ export type SupportEditorProps = {
     autoFocus?: boolean
     /** Rendered inside the editor's frame, above the text */
     header?: React.ReactNode
+    /** Slash commands that insert team macros. Off for customer-facing composers. */
+    enableMacros?: boolean
+    onInsertMacro?: (macro: TicketMacroApi) => void
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -485,6 +492,8 @@ export function SupportEditor({
     className,
     autoFocus = false,
     header,
+    enableMacros = false,
+    onInsertMacro,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -513,6 +522,8 @@ export function SupportEditor({
     const handlePressCmdEnter = useCallback(() => {
         cmdEnterCallbackRef.current?.()
     }, [])
+    const onInsertMacroRef = useRef(onInsertMacro)
+    onInsertMacroRef.current = onInsertMacro
 
     const editor = useRichContentEditor({
         extensions: [
@@ -520,6 +531,9 @@ export function SupportEditor({
             Placeholder.configure({ placeholder }),
             CommandEnterExtension.configure({ onPressCmdEnter: handlePressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
+            ...(enableMacros
+                ? [MacroSuggestionExtension.configure({ getOnInsert: () => onInsertMacroRef.current })]
+                : []),
         ],
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,

@@ -83255,6 +83255,52 @@ export namespace Schemas {
       results: Ticket[];
     }
 
+    export interface TicketMacro {
+      /** UUID of the macro. */
+      readonly id: string;
+      /**
+         * Name shown in the macro list and the composer menu.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+         * @maxLength 50
+         * @nullable
+         */
+      shortcut?: string | null;
+      /**
+         * Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.
+         * @maxLength 10000
+         */
+      body: string;
+      /** How many times agents have inserted this macro. */
+      readonly usage_count: number;
+      /**
+         * When an agent last inserted this macro. Null if it has never been used.
+         * @nullable
+         */
+      readonly last_used_at: string | null;
+      /** When the macro was created. */
+      readonly created_at: string;
+      /**
+         * When the macro was last edited. Null until the first edit.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /** The user who created this macro. */
+      readonly created_by: UserBasic;
+    }
+
+    export interface PaginatedTicketMacroList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TicketMacro[];
+    }
+
     /**
      * * `customer_message` - Customer message
      * * `sent_reply` - Sent reply
@@ -94714,6 +94760,43 @@ export namespace Schemas {
       retention_days?: number;
       /** @nullable */
       readonly retention_last_updated?: string | null;
+    }
+
+    export interface PatchedTicketMacro {
+      /** UUID of the macro. */
+      readonly id?: string;
+      /**
+         * Name shown in the macro list and the composer menu.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+         * @maxLength 50
+         * @nullable
+         */
+      shortcut?: string | null;
+      /**
+         * Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, {{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. Variables are filled in when an agent inserts the macro.
+         * @maxLength 10000
+         */
+      body?: string;
+      /** How many times agents have inserted this macro. */
+      readonly usage_count?: number;
+      /**
+         * When an agent last inserted this macro. Null if it has never been used.
+         * @nullable
+         */
+      readonly last_used_at?: string | null;
+      /** When the macro was created. */
+      readonly created_at?: string;
+      /**
+         * When the macro was last edited. Null until the first edit.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
+      /** The user who created this macro. */
+      readonly created_by?: UserBasic;
     }
 
     /**
@@ -130277,6 +130360,7 @@ export namespace Schemas {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `TicketMacro` - TicketMacro
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -130395,6 +130479,7 @@ export namespace Schemas {
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      TicketMacro: 'TicketMacro',
       KnowledgeSource: 'KnowledgeSource',
       KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
@@ -130499,6 +130584,7 @@ export namespace Schemas {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `TicketMacro` - TicketMacro
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -130605,6 +130691,7 @@ export namespace Schemas {
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
+      TicketMacro: 'TicketMacro',
       KnowledgeSource: 'KnowledgeSource',
       KnowledgeLibrary: 'KnowledgeLibrary',
       InstanceSetting: 'InstanceSetting',
@@ -132339,6 +132426,17 @@ export namespace Schemas {
     };
 
     export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ConversationsMacrosListParams = {
     /**
      * Number of results to return per page.
      */

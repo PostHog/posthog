@@ -7,6 +7,8 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@p
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+
 import type { TicketChannel, TicketStatus } from '../../types'
 import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { ComposerHeader, SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
@@ -63,6 +65,13 @@ export interface MessageInputProps {
     threadId?: string
     /** When this changes, seed the editor from draftContent even if it is already mounted. */
     composerPrefillAt?: number
+    /** When this changes, insert composerInsertContent at the cursor, or replace the draft if it is empty. */
+    composerInsertAt?: number
+    composerInsertContent?: string | null
+    /** Shown on the left of the send bar. The agent ticket scene passes the macro menu. */
+    macroPicker?: React.ReactNode
+    enableMacros?: boolean
+    onInsertMacro?: (macro: TicketMacroApi) => void
     /** When set, a header names where the reply goes, and Send opens a menu of every way to send. Replaces draft mode. */
     simplifiedReplies?: SimplifiedRepliesProps
 }
@@ -92,6 +101,11 @@ export function MessageInput({
     collapseUntilActive = false,
     threadId,
     composerPrefillAt = 0,
+    composerInsertAt = 0,
+    composerInsertContent = null,
+    macroPicker,
+    enableMacros = false,
+    onInsertMacro,
     simplifiedReplies,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
@@ -178,6 +192,35 @@ export function MessageInput({
         editor.setContent(content)
         queueMicrotask(() => setIsEmpty(editor.isEmpty()))
     }, [composerPrefillAt])
+
+    useEffect(() => {
+        if (!composerInsertAt || !composerInsertContent) {
+            return
+        }
+        const html = composerInsertContent
+        // After the edit-restore effect, which queues its own setContent microtask.
+        queueMicrotask(() => {
+            const editor = editorRef.current
+            if (!editor) {
+                return
+            }
+            if (editor.isEmpty()) {
+                editor.setContent(html)
+            } else {
+                editor.insertContent(html)
+            }
+            queueMicrotask(() => {
+                const current = editorRef.current
+                if (!current) {
+                    return
+                }
+                const empty = current.isEmpty()
+                setIsEmpty(empty)
+                onDraftChange?.(empty ? null : current.getJSON())
+                current.focus()
+            })
+        })
+    }, [composerInsertAt, composerInsertContent, onDraftChange])
 
     // Support controlled or uncontrolled isPrivate
     const isPrivate = controlledIsPrivate ?? localIsPrivate
@@ -303,7 +346,8 @@ export function MessageInput({
         buttonText
     )
 
-    const showFullComposer = !collapseUntilActive || composerExpanded || !!draftContent || !!editingMessageId
+    const showFullComposer =
+        !collapseUntilActive || composerExpanded || !!draftContent || !!editingMessageId || !!composerInsertAt
 
     if (!showFullComposer) {
         return (
@@ -344,6 +388,8 @@ export function MessageInput({
                 onUploadingChange={setIsUploading}
                 disabled={messageSending || !!sendDisabledReason}
                 minRows={minRows}
+                enableMacros={enableMacros}
+                onInsertMacro={onInsertMacro}
                 className={
                     isPrivate || isEditing
                         ? 'bg-warning-highlight border-warning'
@@ -357,26 +403,27 @@ export function MessageInput({
                     ) : undefined
                 }
             />
-            <div className="flex justify-between items-center mt-2">
-                {showPrivateOption ? (
-                    <Tooltip title="Private notes are only visible to your team, not to the customer.">
-                        <span>
-                            <LemonCheckbox
-                                checked={isPrivate || isEditing}
-                                onChange={setIsPrivate}
-                                disabledReason={isEditing ? 'Editing a private note' : sendControlDisabledReason}
-                                label={
-                                    <span className="inline-flex items-center gap-1">
-                                        <IconLock className="text-sm" />
-                                        {isEditing ? 'Editing private note' : 'Attach as private note'}
-                                    </span>
-                                }
-                            />
-                        </span>
-                    </Tooltip>
-                ) : (
-                    <div />
-                )}
+            <div className="flex flex-wrap justify-between items-center gap-2 mt-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    {macroPicker}
+                    {showPrivateOption ? (
+                        <Tooltip title="Private notes are only visible to your team, not to the customer.">
+                            <span>
+                                <LemonCheckbox
+                                    checked={isPrivate || isEditing}
+                                    onChange={setIsPrivate}
+                                    disabledReason={isEditing ? 'Editing a private note' : sendControlDisabledReason}
+                                    label={
+                                        <span className="inline-flex items-center gap-1">
+                                            <IconLock className="text-sm" />
+                                            {isEditing ? 'Editing private note' : 'Attach as private note'}
+                                        </span>
+                                    }
+                                />
+                            </span>
+                        </Tooltip>
+                    ) : null}
+                </div>
                 <div className="flex items-center gap-2">
                     {onDraftModeChange && !simplifiedReplies && (
                         <Tooltip

@@ -33,6 +33,7 @@ import { ChatView } from '../../components/Chat/ChatView'
 import type { SimplifiedRepliesProps } from '../../components/ComposerHeader/ComposerHeader'
 import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
+import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import {
@@ -142,6 +143,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         fullEmailContentLoading,
         fullEmailMessageId,
         composerPrefillAt,
+        composerInsertAt,
+        pendingComposerInsert,
         aiDraftApplying,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
@@ -169,11 +172,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadFullEmail,
         closeFullEmail,
         applyAiDraft,
+        insertMacro,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
+    const macrosEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_MACROS]
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -341,6 +346,18 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
                         onViewFullEmail={loadFullEmail}
                         composerPrefillAt={composerPrefillAt}
+                        composerInsertAt={composerInsertAt}
+                        composerInsertContent={pendingComposerInsert}
+                        enableMacros={macrosEnabled}
+                        onInsertMacro={macrosEnabled ? (macro) => insertMacro(macro, 'slash') : undefined}
+                        macroPicker={
+                            macrosEnabled ? (
+                                <MacroPicker
+                                    disabledReason={sendDisabledReason}
+                                    onInsert={(macro) => insertMacro(macro, 'button')}
+                                />
+                            ) : undefined
+                        }
                         aiSources={ticket?.ai_triage?.sources}
                         aiDraftApplying={aiDraftApplying}
                         onApplyAiDraft={applyAiDraft}
