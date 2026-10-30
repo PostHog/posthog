@@ -5,7 +5,11 @@ from django.db import DatabaseError
 
 import requests
 from celery import Task, shared_task
-from redis.exceptions import LockError
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    LockError,
+    TimeoutError as RedisTimeoutError,
+)
 
 from posthog.models.integration import LinearIntegrationError, LinearRateLimitedError
 
@@ -40,9 +44,15 @@ def enqueue_linear_status_sync(payload: dict[str, Any]) -> None:
     ignore_result=True,
     acks_late=True,
     reject_on_worker_lost=True,
-    # The sync decides from the states it reads from Linear, so a failed read must retry rather
-    # than drop the delivery. Linear already holds the receipt and does not send it again.
-    autoretry_for=(DatabaseError, LinearIntegrationError, requests.RequestException),
+    # A failed Linear read, database query or Redis lock call must retry rather than drop the
+    # delivery. Linear already holds the receipt and does not send it again.
+    autoretry_for=(
+        DatabaseError,
+        LinearIntegrationError,
+        RedisConnectionError,
+        RedisTimeoutError,
+        requests.RequestException,
+    ),
     max_retries=5,
     retry_backoff=True,
     retry_backoff_max=300,

@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
+import redis.exceptions as redis_exceptions
 from celery.exceptions import Retry
 from parameterized import parameterized
 
@@ -49,23 +50,24 @@ class _FakeLinear:
         previous_state_type: str | None,
         *,
         failing_tokens: frozenset[str] = frozenset(),
-        rate_limited_for_seconds: int | None = None,
+        rate_limited_tokens: dict[str, int] | None = None,
     ) -> None:
         self.ticket_states = ticket_states
         self.previous_state_type = previous_state_type
         self.failing_tokens = failing_tokens
-        self.rate_limited_for_seconds = rate_limited_for_seconds
+        self.rate_limited_tokens = rate_limited_tokens or {}
 
     def post(self, url: str, *, headers: dict[str, str], json: dict[str, Any], timeout: int) -> Mock:
         query, variables = json["query"], json["variables"]
-        if self.rate_limited_for_seconds is not None:
-            reset_ms = int((time.time() + self.rate_limited_for_seconds) * 1000)
+        token = headers["Authorization"].removeprefix("Bearer ")
+        if token in self.rate_limited_tokens:
+            reset_ms = int((time.time() + self.rate_limited_tokens[token]) * 1000)
             return Mock(
                 status_code=429,
                 headers={"X-RateLimit-Requests-Reset": str(reset_ms)},
                 json=Mock(return_value={"errors": [{"extensions": {"code": "RATELIMITED"}}]}),
             )
-        if headers["Authorization"].removeprefix("Bearer ") in self.failing_tokens:
+        if token in self.failing_tokens:
             body: dict[str, Any] = {"errors": [{"message": "Authentication required"}]}
         elif "IssueStates" in query:
             wanted = {(match["team"]["key"]["eq"], match["number"]["eq"]) for match in variables["filter"]["or"]}
@@ -326,13 +328,43 @@ class TestLinearStatusSync(BaseTest):
         )
         assert statuses == {failing_issue.id: "active", working_issue.id: "resolved"}
 
-    def test_a_rate_limited_read_retries_once_linear_resets_the_limit(self) -> None:
+    @parameterized.expand([("alone", False), ("behind_a_project_whose_read_fails", True)])
+    def test_a_rate_limited_read_retries_once_linear_resets_the_limit(
+        self, _name: str, failing_project_first: bool
+    ) -> None:
+        if failing_project_first:
+            revoked_team = Team.objects.create(organization=self.organization, name="Revoked token")
+            self._opt_in(revoked_team)
+            self._linked_issue(revoked_team, self._linear_integration(revoked_team, token="revoked-token"), ["ENG-1"])
         self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+        linear = _FakeLinear(
+            {"ENG-1": "completed"},
+            "started",
+            failing_tokens=frozenset({"revoked-token"}),
+            rate_limited_tokens={"linear-token": 900},
+        )
 
         with (
             patch.object(process_linear_status_sync, "retry", side_effect=Retry()) as retry,
             self.assertRaises(Retry),
         ):
-            self._sync(_FakeLinear({"ENG-1": "completed"}, "started", rate_limited_for_seconds=900))
+            self._sync(linear)
 
         assert 899 <= retry.call_args.kwargs["countdown"] <= 900
+
+    @parameterized.expand(
+        [("connection_error", redis_exceptions.ConnectionError), ("timeout", redis_exceptions.TimeoutError)]
+    )
+    def test_a_redis_failure_on_the_issue_lock_retries(self, _name: str, error: type[Exception]) -> None:
+        self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+        redis_client = Mock()
+        redis_client.lock.return_value.acquire.side_effect = error("Redis is unreachable")
+
+        with (
+            patch("products.error_tracking.backend.logic.linear_status_sync.get_client", return_value=redis_client),
+            patch.object(process_linear_status_sync, "retry", side_effect=Retry()) as retry,
+            self.assertRaises(Retry),
+        ):
+            self._sync(_FakeLinear({"ENG-1": "completed"}, "started"))
+
+        assert isinstance(retry.call_args.kwargs["exc"], error)

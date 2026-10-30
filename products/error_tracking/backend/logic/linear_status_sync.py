@@ -22,7 +22,7 @@ from posthog.event_usage import groups
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.activity_logging.activity_log import Trigger
-from posthog.models.integration import Integration, LinearIntegration
+from posthog.models.integration import Integration, LinearIntegration, LinearRateLimitedError
 from posthog.ph_client import ph_scoped_capture
 from posthog.redis import get_client
 
@@ -120,8 +120,8 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
     )
 
     # Each project reads Linear with its own token, so one revoked token must not keep every other
-    # project's issue from syncing. The first failure is raised after the loop so the task retries,
-    # and a retry is a no-op for the issues that already changed.
+    # project's issue from syncing. One failure is raised after the loop so the task retries, and a
+    # retry is a no-op for the issues that already changed.
     previous_state = _PreviousStateType(job)
     failures: list[Exception] = []
     for issue in issues:
@@ -132,7 +132,7 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
             logger.warning("linear_status_sync_issue_failed", issue_id=str(issue.id), team_id=issue.team_id)
             failures.append(error)
     if failures:
-        raise failures[0]
+        raise _failure_to_retry(failures)
 
 
 @contextmanager
@@ -157,6 +157,20 @@ def _issue_lock(issue_id: UUID) -> Iterator[None]:
         # A job that outlived the lock timeout no longer owns it, and its work is already done.
         with suppress(LockNotOwnedError):
             lock.release()
+
+
+def _failure_to_retry(failures: list[Exception]) -> Exception:
+    """The failure that needs the longest wait, because the task picks its retry from the raised type.
+
+    A rate limit comes first, because a retry before Linear resets the limit fails again. A busy
+    issue comes next, because a job that died holding the lock keeps it for the lock timeout, and
+    the generic retry budget runs out before that.
+    """
+    rate_limited = [failure for failure in failures if isinstance(failure, LinearRateLimitedError)]
+    if rate_limited:
+        return max(rate_limited, key=lambda failure: failure.retry_after_seconds)
+    busy = [failure for failure in failures if isinstance(failure, LockError)]
+    return busy[0] if busy else failures[0]
 
 
 def _opted_in_team_ids(job: contracts.LinearStatusSyncJob) -> "QuerySet[ErrorTrackingSettings, int]":
