@@ -12,7 +12,7 @@ from products.signals.backend.activity_summary.read import ActivitySummaryStatus
 from products.signals.backend.personal_ranking.candidates import Candidate, NeedsYouKind
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
@@ -104,15 +104,15 @@ Each outcome has a probability and a lift. Lift is the probability over the base
 
 Read every candidate. Rank only the best {config.rank_top}, fold the duplicates, and ignore the rest. The candidates you do not rank follow in their given order.
 To pick and order the best {config.rank_top}:
-- Put first the reports that need this person: waiting on their input, claimed by them, or naming them as suggested reviewer.
+- Put first the reports that need this person: waiting on their input, claimed by them, or naming them as suggested reviewer. Among these, P0 and P1 reports come first.
 - Then the reports that match their themes, the objects they own or watch, and the products they work in.
-- Use priority and the ranking model's lift as evidence of value. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
+- Use priority and the ranking model's lift as evidence of value. Among the reports that match their work, a P0 or P1 report comes before a lower priority one. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
 - Old reports with no activity and reports far from their work go last.
 - When the person has a focus, it outranks their usual themes.
 
 Output:
 - `ranked`: at most {config.rank_top} entries, the best candidates that you do not fold, with `ref` (such as "c3"), `rank` (1 is first, no gaps, no repeats) and `tier`.
-- `tier`: "top" for the few they should look at today, "worth_a_look" for the rest of the useful reports, "later" for the rest. A lower rank never has a better tier.
+- `tier`: "top" for at most {config.top_max} reports they should look at today. A "top" report needs a needs-you fact, a match to one of their themes, an object they own, or the focus. "worth_a_look" for at most {config.worth_a_look_max} other useful reports. "later" for the rest. A lower rank never has a better tier.
 - `reason`: why this rank, in plain words. Name the theme, object, product or needs-you fact that matched. Never quote the profile. At most {reasons.top} characters for "top", {reasons.worth_a_look} for "worth_a_look", {reasons.later} for "later". Every entry needs a reason.
 - `matched`: the theme label that matched (as written in the person block) and the needs-you kinds that apply, or null when nothing matched.
 - `next_step`: one short action for ranks 1 to {min(limit, config.rank_top)}, at most {config.next_step_max_chars} characters, else null.

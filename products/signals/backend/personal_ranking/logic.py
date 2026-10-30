@@ -30,6 +30,7 @@ from products.signals.backend.personal_ranking.config import PersonalRankingConf
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
+    TIERS,
     render_person,
     system_prompt,
     user_message,
@@ -270,6 +271,7 @@ def _capture(
                 "candidate_count": len(build.candidates),
                 "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                 "folded_count": len(build.folded),
+                "tier_counts": {tier: sum(1 for entry in build.entries if entry.tier == tier) for tier in TIERS},
                 "pool_counts": pools,
                 **dataclasses.asdict(build.counts),
                 "tokens_in": build.tokens_in,
@@ -371,6 +373,8 @@ def build_personal_ranking(
                     model_reasons=model_reasons,
                     limit=limit,
                     rank_top=config.rank_top,
+                    top_max=config.top_max,
+                    worth_a_look_max=config.worth_a_look_max,
                     reason_limits=config.reason_limits,
                     next_step_max_chars=config.next_step_max_chars,
                 )
@@ -385,7 +389,9 @@ def build_personal_ranking(
         status=status,
         personalized=validated is not None and summary_ready,
         fallback_reason=fallback_reason,
-        entries=validated.entries if validated is not None else model_order(refs, model_reasons, limit),
+        entries=validated.entries
+        if validated is not None
+        else model_order(refs, model_reasons, min(limit, config.worth_a_look_max)),
         folded=validated.folded if validated is not None else (),
         candidates=tuple(candidates),
         counts=validated.counts if validated is not None else ValidationCounts(),
