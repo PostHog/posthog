@@ -3611,8 +3611,8 @@ interface Person {
 }
 
 export interface FunnelStep {
-    // The type returned from the API.
-    action_id: string
+    // The type returned from the API. Responses also carry the legacy `action_id` and `type` fields, which this type
+    // leaves out: read a step's query series with `getFunnelStepSeries` instead.
     average_conversion_time: number | null
     median_conversion_time: number | null
     count: number
@@ -3620,7 +3620,6 @@ export interface FunnelStep {
     custom_name?: string | null
     order: number
     people?: string[]
-    type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdowns?: BreakdownKeyType[]

@@ -1,7 +1,7 @@
 import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { IconCollapse, IconPlayFilled, IconX } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -10,13 +10,19 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import {
+    SeriesNode,
+    isActionsSeriesNode,
+    isEventsSeriesNode,
+    isWarehouseSeriesNode,
+} from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelPathType } from '~/types'
 
 import { journeyBuilderLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
 
-import { getActionFilterFromFunnelStep } from '../shared/funnelStepTableUtils'
 import { FunnelFlowNodeData } from './funnelFlowGraphLogic'
 import { funnelPathsExpansionLogic } from './funnelPathsExpansionLogic'
 import { StepNodeShell } from './StepNodeShell'
@@ -133,6 +139,22 @@ function StepHandle({
     )
 }
 
+function getStepPickerValue(node: SeriesNode | undefined): string | number | null {
+    if (!node) {
+        return null
+    }
+    if (isEventsSeriesNode(node)) {
+        return ensureStringIsNotBlank(node.event)
+    }
+    if (isActionsSeriesNode(node)) {
+        return node.id
+    }
+    if (isWarehouseSeriesNode(node)) {
+        return node.table_name
+    }
+    return ensureStringIsNotBlank(node.name)
+}
+
 export const BuilderStepNode = React.memo(function BuilderStepNode({
     data,
 }: {
@@ -140,14 +162,16 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
 }): JSX.Element {
     const { step, stepIndex } = data
     const { updateStepEvent, removeStep } = useActions(journeyBuilderLogic)
-    const { stepCount, taxonomicGroupTypes } = useValues(journeyBuilderLogic)
+    const { stepCount, taxonomicGroupTypes, series } = useValues(journeyBuilderLogic)
 
     const canRemove = stepCount > 1
-    const hasEvent = !!step.action_id
+    const stepSeries = series[stepIndex] as SeriesNode | undefined
+    const pickerValue = getStepPickerValue(stepSeries)
+    const hasEvent = pickerValue != null
     const hasConversionData = step.count != null && step.count > 0
-    // Stable identity — a fresh filter each render would defeat the picker's
-    // rename memo and re-render every visible list row while it is open.
-    const stepFilter = useMemo(() => (hasEvent ? getActionFilterFromFunnelStep(step) : undefined), [hasEvent, step])
+    // The node comes from the journey's query, so its identity stays stable between renders. A fresh filter each
+    // render would defeat the picker's rename memo and re-render every visible list row while it is open.
+    const stepFilter = hasEvent ? stepSeries : undefined
 
     return (
         <StepNodeShell
@@ -166,7 +190,7 @@ export const BuilderStepNode = React.memo(function BuilderStepNode({
                     <TaxonomicPopover
                         groupType={TaxonomicFilterGroupType.Events}
                         groupTypes={taxonomicGroupTypes}
-                        value={hasEvent ? (step.action_id as string) : undefined}
+                        value={pickerValue}
                         filter={stepFilter}
                         onChange={(value, groupType, item) => {
                             updateStepEvent(stepIndex, value as string, groupType, item)

@@ -55,12 +55,7 @@ export function isFunnelResult(results: unknown): results is FunnelResult {
 
     // FunnelResult items have: name, count, order
     const first = items[0] as Record<string, unknown>
-    return (
-        typeof first === 'object' &&
-        first !== null &&
-        'count' in first &&
-        ('order' in first || 'action_id' in first || 'name' in first)
-    )
+    return typeof first === 'object' && first !== null && 'count' in first && ('order' in first || 'name' in first)
 }
 
 /**

@@ -5,8 +5,9 @@ import {
     FunnelsQuery,
     GroupNode,
     InsightVizNode,
+    NodeKind,
 } from '~/queries/schema/schema-general'
-import { DashboardTile, InsightModel, SurveyEventsWithProperties } from '~/types'
+import { DashboardTile, FunnelVizType, InsightModel, SurveyEventsWithProperties } from '~/types'
 
 export interface FunnelContext {
     insightName: string
@@ -16,7 +17,6 @@ export interface FunnelContext {
 
 interface FunnelStepResult {
     count: number
-    type: string
 }
 
 export interface SurveyableFunnelInsight {
@@ -63,12 +63,20 @@ export function isSurveyableFunnelInsight(
 ): insight is SurveyableFunnelInsight {
     const query = insight?.query as InsightVizNode<FunnelsQuery> | undefined
     const result = insight?.result
+    if (!query || !isValidFunnelQuery(query)) {
+        return false
+    }
+    // Steps and flow funnels return one row per step. The other visualizations return conversion over time or
+    // conversion time bins, which have no first and last step to compare.
+    const vizType = query.source.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps
 
     return (
-        isValidFunnelQuery(query) &&
+        query.source.series.every((node) => node.kind === NodeKind.EventsNode || node.kind === NodeKind.ActionsNode) &&
+        (vizType === FunnelVizType.Steps || vizType === FunnelVizType.Flow) &&
         Array.isArray(result) &&
         result.length >= 2 &&
-        result.every((step: FunnelStepResult) => step.type === 'events' || step.type === 'actions')
+        // A breakdown funnel returns a list of steps for each breakdown value.
+        result.every((step) => !Array.isArray(step))
     )
 }
 

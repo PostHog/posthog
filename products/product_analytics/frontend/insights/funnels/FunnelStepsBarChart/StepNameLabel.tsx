@@ -15,7 +15,7 @@ import { AvailableFeature, FunnelStepWithConversionMetrics } from '~/types'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepPathLinks } from '../shared/FunnelStepPathLinks'
-import { getActionFilterFromFunnelStep } from '../shared/funnelStepTableUtils'
+import { getFunnelStepEntity } from '../shared/funnelStepSeries'
 import { ValueInspectorButton } from '../shared/ValueInspectorButton'
 
 type StepNameLabelProps = {
@@ -38,7 +38,7 @@ export function StepNameLabel({ step, stepIndex, showPersonsModal }: StepNameLab
 
     const name = (
         <span className="StepNameLabel__name font-semibold leading-5">
-            <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap showSingleName />
+            <EntityFilterInfo filter={getFunnelStepEntity(querySource, stepIndex, step)} allowWrap showSingleName />
             {isOptionalStep ? <span className="ml-1 text-xs font-normal">(optional)</span> : null}
         </span>
     )

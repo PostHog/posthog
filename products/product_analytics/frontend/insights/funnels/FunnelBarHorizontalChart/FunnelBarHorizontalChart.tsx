@@ -113,6 +113,7 @@ export function FunnelBarHorizontalChart({
                             step={step}
                             stepIndex={stepIndex}
                             firstStep={steps[0]}
+                            querySource={querySource}
                             breakdownFilter={breakdownFilter}
                             groupTypeLabel={groupTypeLabel}
                             showPersonsModal={showPersonsModal}
@@ -137,6 +138,7 @@ export function FunnelBarHorizontalChart({
                                     step={step}
                                     stepIndex={stepIndex}
                                     previousStep={steps[stepIndex - 1]}
+                                    querySource={querySource}
                                     isUnordered={isUnordered}
                                     isOptional={isOptional}
                                 />

@@ -5,7 +5,7 @@ import { Node, NodeTypes } from '@xyflow/react'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { makeStep, NodeCanvas } from './__mocks__/nodeStoryUtils'
+import { makeStep, makeStepSeries, NodeCanvas } from './__mocks__/nodeStoryUtils'
 import { FunnelFlowNodeData, PROFILE_FIT_VIEW_OPTIONS, PROFILE_NODE_WIDTH } from './funnelFlowGraphLogic'
 import { ProfileFlowNode } from './FunnelFlowNode'
 
@@ -21,7 +21,7 @@ function profileNode(
     return {
         id,
         type: 'profile',
-        data: { step, stepIndex, isOptional },
+        data: { step, stepIndex, isOptional, entity: makeStepSeries(step.name) },
         position: { x, y: 0 },
         draggable: false,
         connectable: false,

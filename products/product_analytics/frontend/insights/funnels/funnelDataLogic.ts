@@ -55,7 +55,6 @@ import type { PathsV2Query } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
-    EntityType,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelResultType,
@@ -213,7 +212,7 @@ function resolveSeriesCustomName(node: FunnelsQuerySeriesNodeUnion, rawLabel: st
  */
 function describesStep(node: FunnelsQuerySeriesNodeUnion, step: FunnelStepWithNestedBreakdown): boolean {
     if (node.kind === NodeKind.EventsNode) {
-        return step.action_id === (node.event ?? null)
+        return step.name === (node.event ?? null)
     }
     if (node.kind === NodeKind.FunnelsDataWarehouseNode) {
         return step.name === node.table_name
@@ -316,7 +315,6 @@ export interface funnelDataLogicValues {
     histogramGraphDataPrevious: HistogramGraphDatum[] | null
     incompletenessOffsetFromEnd: number
     indexedSteps: {
-        action_id: string
         average_conversion_time: number | null
         breakdown?: BreakdownKeyType | undefined
         breakdown_value?: BreakdownKeyType | undefined
@@ -338,7 +336,6 @@ export interface funnelDataLogicValues {
         order: number
         people?: string[] | undefined
         seriesIndex: number
-        type: EntityType
     }[]
     isBreakdownCompareFunnel: boolean
     isComparedFunnel: boolean
@@ -550,7 +547,6 @@ export interface funnelDataLogicMeta {
         advancedOptionsUsedCount: (funnelsFilter: FunnelsFilter | null | undefined) => number
         isSkewed: (conversionMetrics: FunnelTimeConversionMetrics, skewWarningHidden: boolean) => boolean
         indexedSteps: (steps: FunnelStepWithNestedBreakdown[]) => {
-            action_id: string
             average_conversion_time: number | null
             breakdown?: BreakdownKeyType | undefined
             breakdown_value?: BreakdownKeyType | undefined
@@ -572,7 +568,6 @@ export interface funnelDataLogicMeta {
             order: number
             people?: string[] | undefined
             seriesIndex: number
-            type: EntityType
         }[]
         getFunnelsColorToken: (
             resultCustomizations: Record<string, ResultCustomizationByValue> | undefined,
@@ -911,17 +906,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     // Same override rule the loaded steps use, so the label does not change on load.
                     const customName = resolveSeriesCustomName(node, rawLabel)
                     return {
-                        action_id:
-                            node.kind === NodeKind.ActionsNode
-                                ? String(node.id)
-                                : node.kind === NodeKind.EventsNode
-                                  ? (node.event ?? '')
-                                  : '',
                         name: customName || rawLabel || '',
                         custom_name: customName,
                         order: index,
                         count: 0,
-                        type: (node.kind === NodeKind.ActionsNode ? 'actions' : 'events') as EntityType,
                         average_conversion_time: null,
                         median_conversion_time: null,
                         converted_people_url: '',

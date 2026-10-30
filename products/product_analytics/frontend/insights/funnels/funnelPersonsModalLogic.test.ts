@@ -20,13 +20,11 @@ const Insight123 = '123' as InsightShortId
 const makeSeries = (
     overrides: Partial<FunnelStepWithConversionMetrics> = {}
 ): Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'> => ({
-    action_id: '$pageview',
     average_conversion_time: 0,
     median_conversion_time: 0,
     count: 1,
     name: '$pageview',
     order: 0,
-    type: 'events',
     converted_people_url: '',
     dropped_people_url: '',
     droppedOffFromPrevious: 0,
@@ -35,13 +33,11 @@ const makeSeries = (
 })
 
 const makeStep = (overrides: Partial<FunnelStep> = {}): FunnelStep => ({
-    action_id: '$pageview',
     average_conversion_time: 0,
     median_conversion_time: 0,
     count: 1,
     name: '$pageview',
     order: 0,
-    type: 'events',
     converted_people_url: '',
     dropped_people_url: '',
     ...overrides,

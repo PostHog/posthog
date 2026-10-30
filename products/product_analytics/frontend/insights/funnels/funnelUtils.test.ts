@@ -224,9 +224,7 @@ describe('getClampedFunnelStepRange', () => {
 
 // Helpers for building minimal FunnelStep fixtures
 const makeStep = (overrides: Partial<FunnelStep> & { count: number; order: number }): FunnelStep => ({
-    action_id: 'step',
     name: `Step ${overrides.order}`,
-    type: 'events',
     average_conversion_time: null,
     median_conversion_time: null,
     people: [],

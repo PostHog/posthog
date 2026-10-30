@@ -2,7 +2,7 @@
     "csv_rows": [
         "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
         "$pageview,,$pageview,5193,,",
-        "2671,,2671,88,30,473.5640151515152",
+        "User Signed Up,,2671,88,30,473.5640151515152",
         ""
     ],
     "response": {
@@ -33,6 +33,14 @@
                 "converted_people_url": "/api/person/funnel/?foo=bar",
                 "dropped_people_url": "/api/person/funnel/?foo=bar"
             }
-        ]
+        ],
+        "query": {
+            "kind": "FunnelsQuery",
+            "series": [
+                { "kind": "EventsNode", "event": "$pageview", "name": "$pageview" },
+                { "kind": "ActionsNode", "id": 2671, "name": "User Signed Up" }
+            ],
+            "funnelsFilter": { "funnelVizType": "steps" }
+        }
     }
 }

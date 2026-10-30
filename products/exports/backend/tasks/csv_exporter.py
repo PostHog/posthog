@@ -24,7 +24,7 @@ from pydantic import BaseModel, ValidationError
 from requests.exceptions import HTTPError
 from rest_framework_csv.renderers import CSVRenderer
 
-from posthog.schema import QuerySchemaRoot
+from posthog.schema import FunnelVizType, NodeKind, QuerySchemaRoot
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from posthog.hogql.errors import TableAccessDeniedError
@@ -297,6 +297,14 @@ def _custom_name_column(
     return custom_name if isinstance(custom_name, str) and custom_name else None
 
 
+def _returns_funnel_steps(series_query: Optional[Mapping[str, Any]]) -> bool:
+    # Steps and flow funnels return one row per step. A trends funnel returns conversion over time instead.
+    if not series_query or series_query.get("kind") != NodeKind.FUNNELS_QUERY:
+        return False
+    viz_type = (series_query.get("funnelsFilter") or {}).get("funnelVizType")
+    return viz_type in (None, FunnelVizType.STEPS, FunnelVizType.FLOW)
+
+
 def _series_query(query: dict) -> dict:
     # The runner unwraps a visualization node and runs the upgraded query, which stamps `kind` on legacy series nodes.
     upgraded = upgrade(deepcopy(query))
@@ -349,13 +357,13 @@ def _convert_response_to_csv_data(
             # persons modal like
             yield from results[0].get("people")
             return
-        elif isinstance(first_result, list) or first_result.get("action_id"):
+        elif isinstance(first_result, list) or _returns_funnel_steps(series_query):
             multiple_items = results if isinstance(first_result, list) else [results]
             # FUNNELS LIKE
             for items in multiple_items:
                 yield from (
                     {
-                        "name": x.get("custom_name") or x.get("action_id", ""),
+                        "name": x.get("custom_name") or x.get("name", ""),
                         "breakdown_value": _format_breakdown_value(x.get("breakdown_value")),
                         "action_id": x.get("action_id", ""),
                         "count": x.get("count", ""),

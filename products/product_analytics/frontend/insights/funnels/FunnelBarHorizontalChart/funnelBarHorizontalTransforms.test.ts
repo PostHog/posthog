@@ -1,4 +1,4 @@
-import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
+import { type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
     buildFunnelBarHorizontalCompareData,
@@ -24,13 +24,11 @@ function makeStep({
     ...overrides
 }: StepOverrides): FunnelStepWithConversionMetrics {
     return {
-        action_id: 'action',
         average_conversion_time: null,
         median_conversion_time: null,
         count: 0,
         name: 'Step',
         order: 0,
-        type: EntityTypes.EVENTS,
         converted_people_url: '',
         dropped_people_url: null,
         droppedOffFromPrevious: 0,

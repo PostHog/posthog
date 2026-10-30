@@ -10,7 +10,6 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import { getActionFilterFromFunnelStep } from '../shared/funnelStepTableUtils'
 import { ValueInspectorButton } from '../shared/ValueInspectorButton'
 import { FunnelFlowNodeData, PROFILE_NODE_WIDTH } from './funnelFlowGraphLogic'
 import { FunnelStepMoreFlow } from './FunnelStepMoreFlow'
@@ -29,7 +28,7 @@ export const ProfileFlowNode = React.memo(function ProfileFlowNode({
 }: {
     data: FunnelFlowNodeData
 }): JSX.Element {
-    const { step, stepIndex, isOptional } = data
+    const { step, stepIndex, isOptional, entity } = data
     const isCompleted = step.count > 0
 
     return (
@@ -50,13 +49,7 @@ export const ProfileFlowNode = React.memo(function ProfileFlowNode({
             <div className="text-secondary" style={{ maxWidth: PROFILE_NODE_WIDTH }}>
                 <div className="flex items-start gap-1">
                     <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
-                    <EntityFilterInfo
-                        filter={getActionFilterFromFunnelStep(step)}
-                        isOptional={isOptional}
-                        layout="column"
-                        allowWrap
-                        showIcon
-                    />
+                    <EntityFilterInfo filter={entity} isOptional={isOptional} layout="column" allowWrap showIcon />
                 </div>
             </div>
         </div>
@@ -68,7 +61,7 @@ export const JourneyFlowNode = React.memo(function JourneyFlowNode({
 }: {
     data: FunnelFlowNodeData
 }): JSX.Element {
-    const { step, stepIndex, isOptional } = data
+    const { step, stepIndex, isOptional, entity } = data
     const { insightProps } = useValues(insightLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
@@ -96,7 +89,7 @@ export const JourneyFlowNode = React.memo(function JourneyFlowNode({
                     />
                 </>
             }
-            eventDisplay={<EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />}
+            eventDisplay={<EntityFilterInfo filter={entity} allowWrap />}
             headerExtra={isOptional ? <OptionalChip /> : undefined}
             headerAction={<FunnelStepMoreFlow stepIndex={stepIndex} />}
             renderEnteredValue={(text) => (
