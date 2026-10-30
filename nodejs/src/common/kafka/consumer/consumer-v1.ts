@@ -35,12 +35,7 @@ import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
-import {
-    getKafkaConfigFromEnv,
-    redactKafkaConfig,
-    stripClassicProtocolConfig,
-    validateKafkaSecurityConfig,
-} from '../config'
+import { getKafkaConfigFromEnv, redactKafkaConfig, stripClassicProtocolConfig } from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
@@ -503,7 +498,6 @@ export class KafkaConsumer {
                 | 'earliest'
                 | 'latest'
                 | undefined) ?? 'earliest'
-        validateKafkaSecurityConfig(this.consumerConfig)
         const consumer = new RdKafkaConsumer(this.consumerConfig, {
             'auto.offset.reset': autoOffsetReset,
         })

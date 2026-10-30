@@ -89,21 +89,6 @@ export const getKafkaConfigFromEnv = (target: KafkaConfigTarget): GlobalConfig =
     return parseEnvToRdkafkaConfig(`KAFKA_${target}_`, { skipKeysInDefaultConfig: true })
 }
 
-export function validateKafkaSecurityConfig(config: GlobalConfig): void {
-    const protocol = config['security.protocol']?.toLowerCase()
-    if (protocol !== 'sasl_plaintext' && protocol !== 'sasl_ssl') {
-        return
-    }
-    const mechanism = (config['sasl.mechanisms'] ?? '').toUpperCase()
-    if (['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'].includes(mechanism)) {
-        for (const key of ['sasl.username', 'sasl.password'] as const) {
-            if (!config[key]) {
-                throw new Error(`${key} is required for username/password Kafka authentication`)
-            }
-        }
-    }
-}
-
 export function redactKafkaConfig(config: GlobalConfig): Record<string, unknown> {
     return Object.fromEntries(
         Object.entries(config).map(([key, value]) => [
