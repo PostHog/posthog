@@ -227,17 +227,21 @@ if (not empty(inputs.phone)) {
     }
 }
 
+let gclid := trim(toString(inputs.gclid ?? ''))
+let gbraid := trim(toString(inputs.gbraid ?? ''))
+let wbraid := trim(toString(inputs.wbraid ?? ''))
+
 // Google accepts a gclid with a gbraid, but never a gbraid with a wbraid.
 let clickIds := {}
-if (not empty(inputs.gclid)) {
-    clickIds.gclid := inputs.gclid
-    if (not empty(inputs.gbraid)) {
-        clickIds.gbraid := inputs.gbraid
+if (not empty(gclid)) {
+    clickIds.gclid := gclid
+    if (not empty(gbraid)) {
+        clickIds.gbraid := gbraid
     }
-} else if (not empty(inputs.gbraid)) {
-    clickIds.gbraid := inputs.gbraid
-} else if (not empty(inputs.wbraid)) {
-    clickIds.wbraid := inputs.wbraid
+} else if (not empty(gbraid)) {
+    clickIds.gbraid := gbraid
+} else if (not empty(wbraid)) {
+    clickIds.wbraid := wbraid
 }
 
 if (empty(clickIds) and empty(userIdentifiers)) {

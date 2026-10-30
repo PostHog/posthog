@@ -270,6 +270,7 @@ describe('google template', () => {
         ['gclid and wbraid', { gclid: 'g1', wbraid: 'w1' }, { gclid: 'g1' }],
         ['gbraid and wbraid', { gclid: null, gbraid: 'b1', wbraid: 'w1' }, { gbraid: 'b1' }],
         ['wbraid only', { gclid: null, wbraid: 'w1' }, { wbraid: 'w1' }],
+        ['whitespace around and instead of IDs', { gclid: '   ', gbraid: ' b1 ' }, { gbraid: 'b1' }],
         [
             '$initial_ fallbacks',
             { gclid: null, $initial_gclid: 'g0', $initial_gbraid: 'b0' },
