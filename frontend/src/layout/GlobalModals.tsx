@@ -15,7 +15,6 @@ import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
-import { MaybePhaiOnboarding } from 'scenes/max/components/MaybePhaiOnboarding'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -55,6 +54,12 @@ const TraceDialog = lazyWithRetry(() =>
 const ComposeTicketModal = lazyWithRetry(() =>
     import('products/conversations/frontend/components/ComposeTicket/ComposeTicketModal').then((m) => ({
         default: m.ComposeTicketModal,
+    }))
+)
+
+const MaybePhaiOnboarding = lazyWithRetry(() =>
+    import('scenes/max/components/MaybePhaiOnboarding').then((m) => ({
+        default: m.MaybePhaiOnboarding,
     }))
 )
 
@@ -107,7 +112,9 @@ export function GlobalModals(): JSX.Element {
             {superpowersEnabled && <SuperpowersModal />}
             <MaybeWelcomeDialog />
             <MaybeProductPushWelcome />
-            <MaybePhaiOnboarding />
+            <Suspense fallback={null}>
+                <MaybePhaiOnboarding />
+            </Suspense>
             {shouldRenderComposeTicketModal ? (
                 <Suspense fallback={null}>
                     <ComposeTicketModal />
