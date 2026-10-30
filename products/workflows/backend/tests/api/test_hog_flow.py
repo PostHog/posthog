@@ -8573,6 +8573,9 @@ class TestT3CodeStepOwnership(APIBaseTest):
     def _log_in_as(self, who: str) -> User:
         if who == "owner":
             return self.owner
+        if who == "teammate_without_access_control":
+            self.organization.available_product_features = []
+            self.organization.save()
         level = OrganizationMembership.Level.ADMIN if who == "admin" else OrganizationMembership.Level.MEMBER
         teammate = User.objects.create_and_join(self.organization, f"{who}@posthog.com", None, level=level)
         membership = OrganizationMembership.objects.get(user=teammate)
@@ -8595,6 +8598,7 @@ class TestT3CodeStepOwnership(APIBaseTest):
                 ("shared_editor", {"name": "Fix every error"}, status.HTTP_200_OK),
                 ("admin", {"name": "Fix every error"}, status.HTTP_200_OK),
                 ("teammate", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
+                ("teammate_without_access_control", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
                 ("shared_with_everyone", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
                 ("workflow_viewer_and_editor_of_all_workflows", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
                 ("everyone_viewer_and_editor_of_all_workflows", {"name": "Fix every error"}, status.HTTP_403_FORBIDDEN),
