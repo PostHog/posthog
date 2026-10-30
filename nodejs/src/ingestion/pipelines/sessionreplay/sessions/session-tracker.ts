@@ -174,7 +174,9 @@ export class SessionTracker {
                 const key = this.generateKey(teamId, sessionId)
                 this.localCache.set(key, true)
                 SessionBatchMetrics.incrementNewSessionsDetected()
-                pipeline.set(key, SEEN, 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS)
+                // NX keeps a '1' that code billing at first sight wrote after this consumer's hasSeen read. The key
+                // normally does not exist here, because only sessions that read as new reach this write.
+                pipeline.set(key, SEEN, 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
             }
             await pipeline.exec()
         } catch (error) {

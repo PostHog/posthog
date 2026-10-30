@@ -108,8 +108,20 @@ describe('SessionTracker', () => {
         it('sets each session key with a 48h TTL in one pipeline', async () => {
             await sessionTracker.markSeen(sessionSet([1, 'a'], [2, 'b']))
 
-            expect(mockPipeline.set).toHaveBeenCalledWith('@posthog/replay/session-seen:1:a', 'seen', 'EX', TTL_SECONDS)
-            expect(mockPipeline.set).toHaveBeenCalledWith('@posthog/replay/session-seen:2:b', 'seen', 'EX', TTL_SECONDS)
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-seen:1:a',
+                'seen',
+                'EX',
+                TTL_SECONDS,
+                'NX'
+            )
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-seen:2:b',
+                'seen',
+                'EX',
+                TTL_SECONDS,
+                'NX'
+            )
             expect(mockPipeline.exec).toHaveBeenCalledTimes(1)
             expect(SessionBatchMetrics.incrementNewSessionsDetected).toHaveBeenCalledTimes(2)
         })
@@ -130,7 +142,8 @@ describe('SessionTracker', () => {
                 '@posthog/replay/ml-mirror/session-seen:1:a',
                 'seen',
                 'EX',
-                TTL_SECONDS
+                TTL_SECONDS,
+                'NX'
             )
         })
 
