@@ -64,9 +64,26 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
 Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
 The optional `created_after` filter limits results and `count` to runs created after an ISO 8601 timestamp.
-On the Wizard page, the run details dialog shows live tasks for the newest active run in the project, or the newest recent run when none are active.
-It finds that run with a fixed launch cutoff on this filter, for active runs and the five newest runs of any status, and checks again every 30 seconds.
-It opens one event stream for an active run. Terminal runs do not open a stream.
+The browser checks every page of project runs every 30 seconds without a date or status cutoff.
+While the page is visible, it also checks the newest page every two seconds and on tab return, merging discoveries without dropping older runs.
+Starting a cloud run from the Library adds the creation response to shared state immediately, without waiting for a poll.
+Onboarding shows only runs created by the signed-in user.
+Each active user run has its own event stream; terminal runs do not open streams.
+Opening run details or restoring an onboarding run loads its task snapshot and artifacts, including after completion.
+
+### Onboarding state
+
+Entering onboarding records its start time in local storage, scoped to the project and user.
+Only `posthog-integration` runs created at or after that time can replace the installation instructions.
+The selected ID and creation timestamp are stored in `<project_id>.<user_id>.onboarding_wizard_run_id`.
+The start time is stored in `<project_id>.<user_id>.onboarding_wizard_started_at`.
+Returning to onboarding restores that run in any status; a newer eligible run supersedes it.
+Status updates to an older run do not make it a new installation.
+
+Users can continue onboarding while the setup agent runs.
+Failed runs show the reported error, and local success asks users to review their local changes.
+Cloud success lists the artifacts and links to the first pull request for review.
+Onboarding does not link to the runs scene; pull-request links open in a new tab so onboarding stays open.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
 Failed runs can also include an `error_code`.
@@ -156,6 +173,8 @@ Do not add the CLI and service completion events together when counting runs.
 
 The UI records library selections, create requests and failures, table searches, filters and pagination, detail dialog activity, run refreshes, copied run IDs, workspace opens, and artifact clicks.
 It also records confirmed cancellation requests and outcomes.
+Onboarding records `wizard onboarding state artifact clicked` for artifact-list links and the review button, with `artifact_type`, `artifact_id`, `click_source`, and shared run properties.
+`click_source` is `artifact_list` or `review_button`; informational Git diffs are not clickable.
 Polling does not create more view events. Clipboard failures do not count as command copies.
 Use `wizard run create requested` and `wizard run create failed` to measure request failures, including limit responses.
 Use `wizard_run_id` to join UI activity to run lifecycle and artifact events.

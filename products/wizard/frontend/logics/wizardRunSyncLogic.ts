@@ -1,15 +1,36 @@
-import { MakeLogicType, actions, events, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 
-import { getWizardRunsStreamRetrieveUrl, wizardRunsList } from '../generated/api'
-import type { WizardRunApi, WizardRunTaskApi, WizardRunTaskListApi } from '../generated/api.schemas'
+import { userLogic } from 'scenes/userLogic'
+
+import type { UserType } from '~/types'
+
+import { getWizardRunsStreamRetrieveUrl, wizardRunsList, wizardRunsTasksRetrieve } from '../generated/api'
+import type {
+    WizardRunApi,
+    WizardRunArtifactApi,
+    WizardRunTaskApi,
+    WizardRunTaskListApi,
+} from '../generated/api.schemas'
+import { loadWizardRunArtifacts } from '../lib/wizardApi'
 import { wizardRunIsActive } from '../lib/wizardRunDisplay'
 
 const RUN_POLL_MS = 30_000
+const RUN_DISCOVERY_POLL_MS = 2_000
 
-// Runs created before this are never synced, so older history does not open streams.
-const RUN_VISIBLE_AFTER = '2026-09-28T00:00:00Z'
-
-const RUN_LIST_LIMIT = 5
+const RUN_LIST_LIMIT = 100
 
 type RunStreamState = Pick<
     WizardRunApi,
@@ -17,23 +38,52 @@ type RunStreamState = Pick<
 > &
     WizardRunTaskListApi
 
+function streamRunPatch(state: RunStreamState): Partial<WizardRunApi> {
+    return {
+        status: state.status,
+        stage: state.stage,
+        error_code: state.error_code,
+        error_message: state.error_message,
+        updated_at: state.updated_at,
+        started_at: state.started_at,
+        finished_at: state.finished_at,
+    }
+}
+
 export interface wizardRunSyncLogicProps {
     projectId: string
 }
 
 export interface wizardRunSyncLogicValues {
+    user: UserType | null
     runs: WizardRunApi[]
-    run: WizardRunApi | null
-    tasks: readonly WizardRunTaskApi[]
+    userRuns: WizardRunApi[]
+    activeUserRuns: WizardRunApi[]
+    tasksByRunId: Record<string, readonly WizardRunTaskApi[]>
+    artifactsByRunId: Record<string, WizardRunArtifactApi[]>
+    runDataLoading: Record<string, boolean>
+    runDataErrors: Record<string, string | null>
 }
 
 export interface wizardRunSyncLogicActions {
-    checkRuns: () => { value: true }
-    runsLoaded: (runs: WizardRunApi[]) => { runs: WizardRunApi[] }
-    clearTasks: () => { value: true }
-    runUpdated: (state: RunStreamState) => { state: RunStreamState }
-    showRun: (run: WizardRunApi | null) => { run: WizardRunApi | null }
-    connectRun: () => { value: true }
+    checkRuns: (recentOnly?: boolean) => { recentOnly: boolean }
+    runsLoaded: (runs: WizardRunApi[], merge?: boolean) => { runs: WizardRunApi[]; merge: boolean }
+    runUpdated: (runId: string, state: RunStreamState) => { runId: string; state: RunStreamState }
+    loadRunData: (run: WizardRunApi) => { run: WizardRunApi }
+    tasksLoaded: (
+        runId: string,
+        tasks: readonly WizardRunTaskApi[]
+    ) => { runId: string; tasks: readonly WizardRunTaskApi[] }
+    runDataLoaded: (
+        runId: string,
+        artifacts: WizardRunArtifactApi[]
+    ) => {
+        runId: string
+        artifacts: WizardRunArtifactApi[]
+    }
+    runDataStarted: (runId: string) => { runId: string }
+    runDataFailed: (runId: string) => { runId: string }
+    connectRuns: () => { value: true }
 }
 
 export type wizardRunSyncLogicType = MakeLogicType<
@@ -42,115 +92,224 @@ export type wizardRunSyncLogicType = MakeLogicType<
     wizardRunSyncLogicProps
 >
 
-export const wizardRunSyncLogic = kea<wizardRunSyncLogicType>([
-    path(['products', 'wizard', 'wizardRunSyncLogic']),
+export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wizardRunSyncLogicType>([
     props({} as wizardRunSyncLogicProps),
     key((logicProps) => logicProps.projectId),
+    path((key) => ['products', 'wizard', 'wizardRunSyncLogic', key]),
+    connect(() => ({ values: [userLogic, ['user']] })),
     actions({
-        checkRuns: true,
-        runsLoaded: (runs: WizardRunApi[]) => ({ runs }),
-        clearTasks: true,
-        runUpdated: (state: RunStreamState) => ({ state }),
-        showRun: (run: WizardRunApi | null) => ({ run }),
-        connectRun: true,
+        checkRuns: (recentOnly = false) => ({ recentOnly }),
+        runsLoaded: (runs: WizardRunApi[], merge = false) => ({ runs, merge }),
+        runUpdated: (runId: string, state: RunStreamState) => ({ runId, state }),
+        loadRunData: (run: WizardRunApi) => ({ run }),
+        tasksLoaded: (runId: string, tasks: readonly WizardRunTaskApi[]) => ({ runId, tasks }),
+        runDataLoaded: (runId: string, artifacts: WizardRunArtifactApi[]) => ({ runId, artifacts }),
+        runDataStarted: (runId: string) => ({ runId }),
+        runDataFailed: (runId: string) => ({ runId }),
+        connectRuns: true,
     }),
     reducers({
-        runs: [[] as WizardRunApi[], { runsLoaded: (_, { runs }) => runs }],
-        run: [
-            null as WizardRunApi | null,
+        runs: [
+            [] as WizardRunApi[],
             {
-                runsLoaded: (current, { runs }) =>
-                    current ? (runs.find((run) => run.id === current.id) ?? current) : null,
-                showRun: (_, { run }) => run,
-                runUpdated: (current, { state }) => (current ? { ...current, ...state } : null),
+                runsLoaded: (current, { runs, merge }) => {
+                    const currentRuns = new Map(current.map((run) => [run.id, run]))
+                    const incomingIds = new Set(runs.map((run) => run.id))
+                    const nextRuns = merge ? [...runs, ...current.filter((run) => !incomingIds.has(run.id))] : runs
+                    return nextRuns.map((run) => {
+                        const streamedRun = currentRuns.get(run.id)
+                        return streamedRun &&
+                            Date.parse(streamedRun.updated_at ?? streamedRun.created_at) >
+                                Date.parse(run.updated_at ?? run.created_at)
+                            ? streamedRun
+                            : run
+                    })
+                },
+                runUpdated: (current, { runId, state }) =>
+                    current.map((run) => (run.id === runId ? { ...run, ...streamRunPatch(state) } : run)),
             },
         ],
-        tasks: [
-            [] as readonly WizardRunTaskApi[],
+        tasksByRunId: [
+            {} as Record<string, readonly WizardRunTaskApi[]>,
             {
-                clearTasks: () => [],
-                showRun: () => [],
-                runUpdated: (_, { state }) => state.tasks,
+                runUpdated: (current, { runId, state }) => ({ ...current, [runId]: state.tasks }),
+                tasksLoaded: (current, { runId, tasks }) => ({ ...current, [runId]: tasks }),
+            },
+        ],
+        artifactsByRunId: [
+            {} as Record<string, WizardRunArtifactApi[]>,
+            {
+                runDataLoaded: (current, { runId, artifacts }) => ({ ...current, [runId]: artifacts }),
+            },
+        ],
+        runDataLoading: [
+            {} as Record<string, boolean>,
+            {
+                runDataStarted: (state, { runId }) => ({ ...state, [runId]: true }),
+                runDataLoaded: (state, { runId }) => ({ ...state, [runId]: false }),
+                runDataFailed: (state, { runId }) => ({ ...state, [runId]: false }),
+            },
+        ],
+        runDataErrors: [
+            {} as Record<string, string | null>,
+            {
+                runDataStarted: (state, { runId }) => ({ ...state, [runId]: null }),
+                runDataFailed: (state, { runId }) => ({
+                    ...state,
+                    [runId]: "Couldn't load tasks and artifacts. Try again.",
+                }),
             },
         ],
     }),
+    selectors({
+        userRuns: [
+            (s) => [s.runs, s.user],
+            (runs: WizardRunApi[], user: UserType | null): WizardRunApi[] =>
+                user ? runs.filter((run) => run.created_by_id === user.id) : [],
+        ],
+        activeUserRuns: [(s) => [s.userRuns], (runs: WizardRunApi[]): WizardRunApi[] => runs.filter(wizardRunIsActive)],
+    }),
     listeners(({ actions, cache, props: logicProps, values }) => ({
-        checkRuns: async () => {
-            if (cache.checking) {
+        checkRuns: async ({ recentOnly }) => {
+            if (cache.checking || !logicProps.projectId || !values.user) {
                 return
             }
             cache.checking = true
+            const disposables = cache.disposables
+            const knownRunIds = new Set(values.runs.map((run) => run.id))
             try {
-                const [activePage, recentPage] = await Promise.all([
-                    wizardRunsList(logicProps.projectId, {
-                        status: ['created', 'running'],
-                        created_after: RUN_VISIBLE_AFTER,
+                const runs: WizardRunApi[] = []
+                let offset = 0
+                while (true) {
+                    const page = await wizardRunsList(logicProps.projectId, {
                         limit: RUN_LIST_LIMIT,
-                    }),
-                    wizardRunsList(logicProps.projectId, {
-                        created_after: RUN_VISIBLE_AFTER,
-                        limit: RUN_LIST_LIMIT,
-                    }),
-                ])
-                const activeRuns = activePage.results
-                    .map((run) => recentPage.results.find((recentRun) => recentRun.id === run.id) ?? run)
-                    .filter(wizardRunIsActive)
-                actions.runsLoaded([
-                    ...activeRuns,
-                    ...recentPage.results.filter((run) => !activeRuns.some((activeRun) => activeRun.id === run.id)),
-                ])
+                        offset,
+                    })
+                    if (disposables.isDisposed) {
+                        return
+                    }
+                    runs.push(...page.results)
+                    if (recentOnly || !page.next) {
+                        break
+                    }
+                    offset += RUN_LIST_LIMIT
+                }
+                // A Library creation response can arrive after this poll started but before its older snapshot.
+                const concurrentRuns = values.runs.filter((run) => !knownRunIds.has(run.id))
+                actions.runsLoaded(
+                    [...new Map([...concurrentRuns, ...runs].map((run) => [run.id, run])).values()],
+                    recentOnly
+                )
             } catch {
                 return
             } finally {
                 cache.checking = false
             }
         },
-        runsLoaded: () => {
-            const nextRun = values.runs[0] ?? (values.run && !wizardRunIsActive(values.run) ? values.run : null)
-            if (nextRun?.id !== values.run?.id) {
-                actions.showRun(nextRun)
-            }
-            actions.connectRun()
+        runsLoaded: () => actions.connectRuns(),
+        [userLogic.actionTypes.loadUserSuccess]: () => {
+            actions.connectRuns()
+            actions.checkRuns()
         },
-        connectRun: () => {
-            const run = values.run
-            if (!run || !wizardRunIsActive(run)) {
-                cache.disposables.dispose('run-stream')
-                cache.connectedRunId = undefined
+        runUpdated: ({ runId }) => {
+            actions.connectRuns()
+            const run = values.userRuns.find((run) => run.id === runId)
+            if (run && !wizardRunIsActive(run)) {
+                actions.checkRuns()
+                if (values.runDataLoading[run.id] !== undefined) {
+                    actions.loadRunData(run)
+                }
+            }
+        },
+        loadRunData: async ({ run }) => {
+            if (!values.userRuns.some((userRun) => userRun.id === run.id)) {
                 return
             }
-            if (cache.connectedRunId === run.id) {
+            const version = `${run.status}:${run.updated_at}`
+            if (cache.runDataVersions[run.id] === version || cache.runDataRequests[run.id]?.version === version) {
                 return
             }
-            cache.disposables.dispose('run-stream')
-            cache.connectedRunId = run.id
-            actions.clearTasks()
-            cache.disposables.add(() => {
-                const stream = new EventSource(getWizardRunsStreamRetrieveUrl(logicProps.projectId, run.id), {
-                    withCredentials: true,
-                })
-                stream.onmessage = (event: MessageEvent<string>): void => {
-                    try {
-                        const state = JSON.parse(event.data) as RunStreamState
-                        actions.runUpdated(state)
-                        if (!wizardRunIsActive({ ...run, ...state })) {
+            const request = { version }
+            cache.runDataRequests[run.id] = request
+            const disposables = cache.disposables
+            const isCurrentRequest = (): boolean => !disposables.isDisposed && cache.runDataRequests[run.id] === request
+            const previousTasks = values.tasksByRunId[run.id]
+            actions.runDataStarted(run.id)
+            try {
+                const [snapshot, artifacts] = await Promise.all([
+                    wizardRunsTasksRetrieve(logicProps.projectId, run.id),
+                    loadWizardRunArtifacts(logicProps.projectId, run.id),
+                ])
+                if (!isCurrentRequest()) {
+                    return
+                }
+                // A task snapshot requested before an SSE update must not overwrite that newer update.
+                if (values.tasksByRunId[run.id] === previousTasks) {
+                    actions.tasksLoaded(run.id, snapshot.tasks)
+                }
+                cache.runDataVersions[run.id] = version
+                actions.runDataLoaded(run.id, artifacts)
+            } catch {
+                if (isCurrentRequest()) {
+                    actions.runDataFailed(run.id)
+                }
+            } finally {
+                if (cache.runDataRequests[run.id] === request) {
+                    delete cache.runDataRequests[run.id]
+                }
+            }
+        },
+        connectRuns: () => {
+            const activeRunIds = values.activeUserRuns.map((run) => run.id)
+            const connectedRunIds: string[] = cache.connectedRunIds ?? []
+
+            for (const runId of connectedRunIds) {
+                if (!activeRunIds.includes(runId)) {
+                    cache.disposables.dispose(`run-stream:${runId}`)
+                }
+            }
+            cache.connectedRunIds = activeRunIds
+
+            for (const run of values.activeUserRuns) {
+                if (connectedRunIds.includes(run.id)) {
+                    continue
+                }
+                cache.disposables.add(() => {
+                    const stream = new EventSource(getWizardRunsStreamRetrieveUrl(logicProps.projectId, run.id), {
+                        withCredentials: true,
+                    })
+                    stream.onmessage = (event: MessageEvent<string>): void => {
+                        try {
+                            const state = JSON.parse(event.data) as RunStreamState
+                            actions.runUpdated(run.id, state)
+                        } catch {
                             actions.checkRuns()
                         }
-                    } catch {
-                        actions.checkRuns()
                     }
-                }
-                return () => stream.close()
-            }, 'run-stream')
+                    return () => stream.close()
+                }, `run-stream:${run.id}`)
+            }
         },
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
+            cache.runDataVersions = {}
+            cache.runDataRequests = {}
             actions.checkRuns()
             cache.disposables.add(() => {
                 const timer = window.setInterval(() => actions.checkRuns(), RUN_POLL_MS)
                 return () => window.clearInterval(timer)
             }, 'active-run-poll')
+            cache.disposables.add(() => {
+                const discoverRuns = (): void => actions.checkRuns(true)
+                const timer = window.setInterval(discoverRuns, RUN_DISCOVERY_POLL_MS)
+                window.addEventListener('focus', discoverRuns)
+                discoverRuns()
+                return () => {
+                    window.clearInterval(timer)
+                    window.removeEventListener('focus', discoverRuns)
+                }
+            }, 'run-discovery-poll')
         },
     })),
 ])

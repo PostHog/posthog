@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import type { WizardRunApi } from '../../generated/api.schemas'
 import { wizardRunDetailsLogic } from '../../logics/wizardRunDetailsLogic'
@@ -12,8 +13,19 @@ export function WizardRunSceneSyncDetailsDialog({
     projectId: string
     onRunAgain: (run: WizardRunApi) => void
 }): JSX.Element {
-    const { run, tasks } = useValues(wizardRunSyncLogic({ projectId }))
+    const { tasksByRunId } = useValues(wizardRunSyncLogic({ projectId }))
+    const { loadRunData } = useActions(wizardRunSyncLogic({ projectId }))
     const { selectedRun } = useValues(wizardRunDetailsLogic)
+    useEffect(() => {
+        if (selectedRun) {
+            loadRunData(selectedRun)
+        }
+    }, [selectedRun, loadRunData])
 
-    return <WizardRunDetailsDialog tasks={selectedRun?.id === run?.id ? tasks : []} onRunAgain={onRunAgain} />
+    return (
+        <WizardRunDetailsDialog
+            tasks={selectedRun ? (tasksByRunId[selectedRun.id] ?? []) : []}
+            onRunAgain={onRunAgain}
+        />
+    )
 }

@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import { type ReactNode, useState } from 'react'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
@@ -35,7 +36,13 @@ export function WizardCommandBlock({
                 size="md"
                 decoration="rainbow"
                 className="bg-bg-light border border-border hover:border-primary"
-                onCopy={(key) => setCastKey(key)}
+                onCopy={(key) => {
+                    setCastKey(key)
+                    posthog.capture('wizard command copy requested', {
+                        event_source: 'wizard_ui',
+                        command: subcommand ?? 'default',
+                    })
+                }}
                 // A subcommand pushes the displayed command past one line.
                 condensed={!!subcommand}
             />
