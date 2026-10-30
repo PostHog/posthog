@@ -16,6 +16,7 @@ from posthog.storage.object_storage import ObjectStorageError
 
 from products.ai_observability.backend.facade.blobs import BlobPointer
 from products.ai_observability.backend.llm.attachments import (
+    AUDIO_FORMATS,
     IMAGE_MIME_TYPES,
     MAX_IMAGE_BYTES,
     MAX_PDF_BYTES,
@@ -45,7 +46,7 @@ _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
 }
 
 
-_NUMBERED_MARKER_RE = re.compile(r"\[(image|file) \d+\]")
+_NUMBERED_MARKER_RE = re.compile(r"\[(image|file|audio) \d+\]")
 
 
 @frozen
@@ -69,7 +70,7 @@ class _Attachment:
 
 @frozen
 class _Media:
-    kind: Literal["image", "file"]
+    kind: Literal["image", "file", "audio"]
     number: int
     mime_type: str
     # An offloaded image has a pointer, a small one stays inline as base64.
@@ -135,7 +136,7 @@ class JudgeAttachments:
             attachments[image.marker] = attachment
 
         parts: list[Any] = [
-            {"type": "text", "text": "The transcript refers to these attachments as [image N] or [file N]."}
+            {"type": "text", "text": "The transcript refers to these attachments as [image N], [file N] or [audio N]."}
         ]
         outcomes: Counter[str] = Counter()
         for image in images:
@@ -213,19 +214,29 @@ class JudgeAttachments:
         return _Attachment(outcome="inline", part=part, inline_bytes=stored_size)
 
 
-def _kind(modality: str, mime_type: str | None) -> Literal["image", "file"] | None:
+def _kind(modality: str, mime_type: str | None) -> Literal["image", "file", "audio"] | None:
     if modality == "image" and mime_type in IMAGE_MIME_TYPES:
         return "image"
+    if modality == "audio" and mime_type in AUDIO_FORMATS:
+        return "audio"
     if mime_type == PDF_MIME_TYPE:
         return "file"
     return None
+
+
+_MIME_ALIASES = {
+    "image/jpg": "image/jpeg",
+    "audio/mp3": "audio/mpeg",
+    "audio/x-wav": "audio/wav",
+    "audio/wave": "audio/wav",
+}
 
 
 def _normalize_mime_type(mime_type: str | None) -> str | None:
     if mime_type is None:
         return None
     normalized = mime_type.strip().lower()
-    return "image/jpeg" if normalized == "image/jpg" else normalized
+    return _MIME_ALIASES.get(normalized, normalized)
 
 
 @lru_cache(maxsize=4096)

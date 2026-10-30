@@ -76,8 +76,9 @@ export function EvaluationModelPicker(): JSX.Element {
                                 data-attr="llma-evaluation-include-attachments"
                             />
                             <p className="text-muted text-sm">
-                                The judge sees the images in what it evaluates, and PDFs when it runs on OpenAI,
-                                Anthropic or Gemini. Other file types are not supported yet.
+                                The judge sees the images, PDFs and audio in what it evaluates. PDFs need an OpenAI,
+                                Anthropic or Gemini judge, and audio a Gemini judge or an OpenAI audio model. Other file
+                                types are not supported yet.
                             </p>
                         </LemonField.Pure>
                     )}

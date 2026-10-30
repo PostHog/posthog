@@ -7,6 +7,8 @@ from posthog.dataclasses import frozen
 
 IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
 PDF_MIME_TYPE = "application/pdf"
+# The formats OpenAI's chat API takes as input audio, which Gemini reads too.
+AUDIO_FORMATS = {"audio/wav": "wav", "audio/mpeg": "mp3"}
 # Providers whose image blocks take a link that they download themselves.
 _URL_PROVIDERS = frozenset({"openai", "azure_openai", "anthropic", "openrouter", "gemini"})
 # Providers that read PDFs natively. OpenRouter is left out: it parses PDFs for other models with a paid OCR engine.
@@ -19,7 +21,7 @@ MAX_PDF_BYTES = 10_000_000
 
 @frozen
 class AttachmentPart:
-    """An image or PDF in a message's content list. Each adapter converts it to its provider's block.
+    """An image, PDF or audio clip in a message's content list. Each adapter converts it to its provider's block.
 
     Set `url` for a link the provider downloads, or `data` for inline bytes.
     """
@@ -38,9 +40,16 @@ class AttachmentPart:
     def is_pdf(self) -> bool:
         return self.mime_type == PDF_MIME_TYPE
 
+    @property
+    def audio_format(self) -> str | None:
+        return AUDIO_FORMATS.get(self.mime_type)
+
 
 def attachment_transport(provider: str, model: str, mime_type: str) -> Literal["url", "inline"] | None:
-    """How a provider accepts an image or PDF of this type: a link, inline base64, or not at all."""
+    """How a provider accepts an attachment of this type: a link, inline base64, or not at all."""
+    if mime_type in AUDIO_FORMATS:
+        # OpenAI takes audio only as inline base64, and only on its audio models, so audio always goes inline.
+        return "inline" if provider == "gemini" or (provider == "openai" and "audio" in model) else None
     is_pdf = mime_type == PDF_MIME_TYPE
     if not is_pdf and mime_type not in IMAGE_MIME_TYPES:
         return None

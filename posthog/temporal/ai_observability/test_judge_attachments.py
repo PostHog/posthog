@@ -13,7 +13,8 @@ OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
 
 
 def _pointer(digit: str, mime: str = "image%2Fjpeg") -> MediaBlock:
-    return MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{digit * 64}?mime={mime}&size=63357")
+    modality = "audio" if mime.startswith("audio") else "image"
+    return MediaBlock(modality=modality, url=f"phaiblob://v1/sha256/{digit * 64}?mime={mime}&size=63357")
 
 
 def _inline(digit: str, length: int = 4) -> MediaBlock:
@@ -128,6 +129,30 @@ class TestJudgeAttachmentsContent:
                 id="format_rejected_by_provider",
             ),
             pytest.param(
+                "gemini",
+                "gemini-2.5-flash",
+                "audio%2Fwav",
+                "Audio 1:",
+                AttachmentPart(mime_type="audio/wav", data=b"hi"),
+                id="audio_inline_on_gemini",
+            ),
+            pytest.param(
+                "openai",
+                "gpt-4o-audio-preview",
+                "audio%2Fmp3",
+                "Audio 1:",
+                AttachmentPart(mime_type="audio/mpeg", data=b"hi"),
+                id="audio_on_an_openai_audio_model",
+            ),
+            pytest.param(
+                "openai",
+                "gpt-5.5",
+                "audio%2Fwav",
+                "Not attached, this judge can't read their file type: 1.",
+                None,
+                id="audio_on_an_openai_model_without_audio_input",
+            ),
+            pytest.param(
                 "openrouter",
                 "any",
                 "application%2Fpdf",
@@ -151,7 +176,7 @@ class TestJudgeAttachmentsContent:
             content = images.content(prompt, provider, model)
 
         assert content == [
-            {"type": "text", "text": "The transcript refers to these attachments as [image N] or [file N]."},
+            {"type": "text", "text": "The transcript refers to these attachments as [image N], [file N] or [audio N]."},
             {"type": "text", "text": expected_label},
             *([expected_part] if expected_part else []),
             {"type": "text", "text": prompt},

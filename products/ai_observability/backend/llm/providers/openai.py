@@ -574,6 +574,8 @@ Return ONLY the JSON object, no other text or markdown formatting."""
 
 
 def _openai_attachment_block(part: AttachmentPart) -> dict[str, Any]:
+    if part.audio_format is not None:
+        return {"type": "input_audio", "input_audio": {"data": part.base64(), "format": part.audio_format}}
     if part.is_pdf:
         # The chat API takes a PDF only as inline data, and requires a file name with it.
         return {"type": "file", "file": {"filename": "attachment.pdf", "file_data": part.data_uri()}}

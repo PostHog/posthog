@@ -113,7 +113,20 @@ class TestExtractTextFromMessages:
             pytest.param(
                 {"type": "image", "data": "aGk=", "mime_type": "image/png"}, "[image 1]", id="gemini_interactions"
             ),
-            pytest.param({"inlineData": {"mimeType": "audio/wav", "data": "aGk="}}, "[audio]", id="gemini_audio"),
+            pytest.param({"inlineData": {"mimeType": "audio/wav", "data": "aGk="}}, "[audio 1]", id="gemini_audio"),
+            pytest.param(
+                {"type": "input_audio", "input_audio": {"data": "aGk=", "format": "wav"}},
+                "[audio 1]",
+                id="openai_audio_wav",
+            ),
+            pytest.param(
+                {
+                    "type": "input_audio",
+                    "input_audio": {"data": f"phaiblob://v1/sha256/{'b' * 64}?mime=audio%2Fmp3", "format": "mp3"},
+                },
+                "[audio 1]",
+                id="openai_audio_offloaded",
+            ),
             pytest.param({"type": "input_audio", "input_audio": {"data": "aGk="}}, "[audio]", id="openai_audio"),
             pytest.param({"type": "document", "source": {"type": "base64", "data": "aGk="}}, "[file]", id="file"),
             pytest.param(

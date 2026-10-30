@@ -66,7 +66,7 @@ def parse_media_block(block: dict) -> MediaBlock | None:
         if block_type in _IMAGE_TYPES:
             return _image_block(block)
         if block_type in _AUDIO_TYPES:
-            return MediaBlock(modality="audio")
+            return _audio_block(block)
         if block_type in _FILE_TYPES:
             return _file_block(block)
     return None
@@ -104,6 +104,20 @@ def _image_block(block: dict) -> MediaBlock:
     return _with_source(
         "image", mime_type if isinstance(mime_type, str) else None, image_url or block.get("data") or block.get("uri")
     )
+
+
+def _audio_block(block: dict) -> MediaBlock:
+    # OpenAI chat names the format instead of a MIME type: `{"input_audio": {"data": ..., "format": "wav"}}`.
+    audio = block.get("input_audio")
+    if isinstance(audio, dict):
+        audio_format = audio.get("format")
+        mime_type = f"audio/{audio_format}" if isinstance(audio_format, str) and audio_format else None
+        return _with_source("audio", mime_type, audio.get("data"))
+    source = block.get("source")
+    fields = source if isinstance(source, dict) else block
+    mime_type = next((fields[key] for key in _MIME_KEYS if isinstance(fields.get(key), str)), None)
+    value = next((fields[key] for key in _FILE_SOURCE_KEYS if fields.get(key)), None)
+    return _with_source("audio", mime_type, value)
 
 
 def _file_block(block: dict) -> MediaBlock:

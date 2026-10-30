@@ -46,6 +46,7 @@ An exception applies when the judge sees images (the `llm-analytics-judge-images
 Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker instead of its base64 or link, so an output with large inline attachments can fit and the run continues.
 The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line for the rest.
 PDFs reach only OpenAI, Anthropic and Gemini judges, up to 10 MB each.
+WAV and MP3 audio becomes an `[audio N]` marker and reaches Gemini judges and OpenAI audio models, always inline.
 Attachments a judge can't read take none of its 20 slots, and one summary line counts them.
 
 Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.

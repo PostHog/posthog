@@ -200,6 +200,11 @@ class TestOpenAIAttachmentParts:
                 },
                 id="pdf",
             ),
+            pytest.param(
+                AttachmentPart(mime_type="audio/mpeg", data=b"hi"),
+                {"type": "input_audio", "input_audio": {"data": "aGk=", "format": "mp3"}},
+                id="audio",
+            ),
         ],
     )
     @pytest.mark.parametrize("json_fallback", [False, True], ids=["plain", "json_fallback"])
