@@ -6,8 +6,8 @@ from django.utils.html import format_html
 
 import structlog
 
+from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models import UploadedMedia
-from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
 
@@ -29,10 +29,12 @@ class UploadedMediaAdmin(admin.ModelAdmin):
         "has_stored_file",
     )
     # The table holds every dashboard image and toolbar screenshot, so look rows up by exact id
-    # (the UUID in the public URL) or team id, and skip the full count on each page.
+    # (the UUID in the public URL) or team id, and never count or sort the whole table.
     search_fields = ("id__exact", "team__id__exact")
     show_full_result_count = False
-    ordering = ("-created_at",)
+    paginator = NoCountPaginator
+    # UUIDT ids sort by creation time, so this ordering uses the primary key index. created_at has none.
+    ordering = ("-id",)
     actions = ["disable_serving", "enable_serving", "delete_stored_file"]
     fields = (
         "id",
@@ -138,15 +140,9 @@ class UploadedMediaAdmin(admin.ModelAdmin):
         # Stopping serving first is the confirmation step, because this delete can't be undone.
         stopped = [item for item in media if item.serving_disabled_at is not None]
         skipped = len(media) - len(stopped)
-        deleted: list[UploadedMedia] = []
-        failed = 0
-        for item in stopped:
-            try:
-                item.delete_stored_file()
-            except ObjectStorageError:
-                failed += 1
-                continue
-            deleted.append(item)
+        deleted = UploadedMedia.delete_stored_files(stopped)
+        failed = len(stopped) - len(deleted)
+        for item in deleted:
             self.log_change(request, item, "Deleted the stored file permanently.")
             logger.info("uploaded_media.stored_file_deleted", media_id=str(item.id), team_id=item.team_id)
 

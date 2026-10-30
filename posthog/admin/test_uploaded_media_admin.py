@@ -7,7 +7,6 @@ from django.contrib.admin.models import CHANGE, LogEntry
 from django.urls import reverse
 
 from posthog.models import UploadedMedia
-from posthog.storage.object_storage import ObjectStorageError
 
 _STOPPED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -59,21 +58,21 @@ class TestUploadedMediaAdminServingActions(BaseTest):
 
         assert not UploadedMedia.objects.filter(serving_disabled_at__isnull=False).exists()
 
-    @patch("posthog.models.uploaded_media.object_storage.delete")
-    def test_delete_removes_the_bytes_of_stopped_images_only(self, delete_object) -> None:
+    @patch("posthog.models.uploaded_media.object_storage.delete_objects", return_value=[])
+    def test_delete_removes_the_bytes_of_stopped_images_only(self, delete_objects) -> None:
         UploadedMedia.objects.filter(id=self.target.id).update(serving_disabled_at=_STOPPED_AT)
 
         self._run_action("delete_stored_file", self.target, self.bystander)
 
         self.target.refresh_from_db()
         self.bystander.refresh_from_db()
-        delete_object.assert_called_once_with("media_uploads/target")
+        delete_objects.assert_called_once_with(["media_uploads/target"])
         assert self.target.media_location is None
         assert self.bystander.media_location == "media_uploads/bystander"
         assert self._log_messages(self.target) == ["Deleted the stored file permanently."]
 
-    @patch("posthog.models.uploaded_media.object_storage.delete", side_effect=ObjectStorageError("delete failed"))
-    def test_failed_delete_keeps_the_location_so_staff_can_retry(self, _delete_object) -> None:
+    @patch("posthog.models.uploaded_media.object_storage.delete_objects", return_value=["media_uploads/target"])
+    def test_failed_delete_keeps_the_location_so_staff_can_retry(self, _delete_objects) -> None:
         UploadedMedia.objects.filter(id=self.target.id).update(serving_disabled_at=_STOPPED_AT)
 
         self._run_action("delete_stored_file")

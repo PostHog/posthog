@@ -178,16 +178,20 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
         self.save(update_fields=["serving_disabled_at"])
         return True
 
-    def delete_stored_file(self) -> None:
-        """Delete the image bytes from object storage and keep the row as a record of the takedown.
+    @classmethod
+    def delete_stored_files(cls, media: list["UploadedMedia"]) -> list["UploadedMedia"]:
+        """Delete the image bytes from object storage and keep the rows as a record of the takedown.
 
-        Raises ObjectStorageError when the delete fails. The row then still points at the object,
-        so the delete can be retried.
+        Returns the images whose bytes are gone. An image whose delete failed keeps its location, so
+        the delete can be retried. One batched call keeps a slow storage backend from blocking the
+        caller once per image.
         """
-        if self.media_location:
-            object_storage.delete(self.media_location)
-        self.media_location = None
-        self.save(update_fields=["media_location"])
+        failed = set(object_storage.delete_objects([item.media_location for item in media if item.media_location]))
+        deleted = [item for item in media if item.media_location not in failed]
+        cls.objects.filter(pk__in=[item.pk for item in deleted]).update(media_location=None)
+        for item in deleted:
+            item.media_location = None
+        return deleted
 
     @staticmethod
     def build_media_location(team_id: int, media_id) -> str:
