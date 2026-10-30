@@ -139,6 +139,12 @@ def _flatten_event(event: dict[str, Any]) -> dict[str, Any]:
     properties = event.get("properties")
     if isinstance(properties, dict):
         row.update(properties)
+    # Mixpanel SDKs send `$browser_version` as a number (`120`, `17.4`) or a dotted string
+    # (`"130.0.0.0"`). Keeping it text gives the column one type across every batch.
+    # `120.0` becomes "120" so it still casts into a table that stored the column as int64.
+    browser_version = row.get("$browser_version")
+    if isinstance(browser_version, (int, float)):
+        row["$browser_version"] = str(int(browser_version)) if browser_version.is_integer() else str(browser_version)
     return row
 
 

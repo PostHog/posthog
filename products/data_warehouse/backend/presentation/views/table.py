@@ -737,11 +737,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         old_csv_allow_double_quotes = instance.csv_allow_double_quotes
         was_history_table = instance.is_history_table
+        had_ph_history_naming = instance.has_ph_history_naming
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        # The sync owns this marker, and an `options` edit through this API must not drop it.
+        # The sync owns these markers, and an `options` edit through this API must not drop them.
         if was_history_table:
-            instance.mark_as_history_table()
+            instance.mark_as_history_table(ph_naming=had_ph_history_naming)
 
         if (
             instance._is_csv_format()

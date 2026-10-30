@@ -35,6 +35,7 @@ import type { DatabaseSchemaQueryResponse } from '../../../../../frontend/src/qu
 import type { ExternalDataSourceRevenueAnalyticsConfig } from '../../../../../frontend/src/types'
 import type { SourceConfigResponseApi } from '../../../../warehouse_sources/frontend/generated/api.schemas'
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { sourceTypeLabel } from '../fileUploadSources'
 import { joinsDataLogic } from './joinsDataLogic'
 import { sourcesDataLogic } from './sourcesDataLogic'
 
@@ -196,6 +197,9 @@ export interface sourceManagementLogicActions {
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
+    sourceDeleted: (source: ExternalDataSource) => {
+        source: ExternalDataSource
+    }
     sourceLoadingFinished: (source: ExternalDataSource) => {
         source: ExternalDataSource
     }
@@ -278,6 +282,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
     })),
     actions({
         deleteSource: (source: ExternalDataSource) => ({ source }),
+        sourceDeleted: (source: ExternalDataSource) => ({ source }),
         reloadSource: (source: ExternalDataSource) => ({ source }),
         sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -451,7 +456,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                     keys: [
                         {
                             name: 'label',
-                            getFn: (source) => availableSources?.[source.source_type]?.label ?? source.source_type,
+                            getFn: (source) => sourceTypeLabel(source.source_type, availableSources),
                         },
                         'source_type',
                         'prefix',
@@ -533,6 +538,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 actions.loadSources()
                 actions.loadPendingSelfManagedTableIds()
                 posthog.capture('source deleted', { sourceType: source.source_type })
+                actions.sourceDeleted(source)
             } catch (e) {
                 lemonToast.error("We couldn't delete this source. Refresh the page and try again.")
                 posthog.captureException(e)

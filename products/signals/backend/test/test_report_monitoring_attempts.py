@@ -586,7 +586,7 @@ class TestReportMonitoringAttempts(BaseTest):
             patch("products.signals.backend.tasks.close_dismissed_report_pr.delay") as close_pr,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            complete_implementation(
+            attempt = complete_implementation(
                 team_id=self.team.id,
                 report_id=self.report.id,
                 monitoring_started_at=self.now,
@@ -594,6 +594,9 @@ class TestReportMonitoringAttempts(BaseTest):
                 actor_user=self.user,
                 close_pr_on_resolve=close_pr_on_resolve,
             )
+        if has_checks:
+            assert attempt is not None
+            assert attempt.close_pr_on_resolve == close_pr_on_resolve
         properties = capture.call_args.kwargs["properties"]
         assert properties["actor_kind"] == "user"
         assert properties["actor_user_uuid"] == str(self.user.uuid)

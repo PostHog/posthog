@@ -3,6 +3,7 @@ import json
 import math
 import uuid
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import ExitStack
 from datetime import UTC, timedelta
 from functools import cached_property, partial
 from typing import Any, Literal, cast
@@ -29,6 +30,7 @@ from django.db.models import (
     Sum,
     Value,
     When,
+    Window,
 )
 from django.db.models.expressions import OrderBy
 from django.db.models.functions import Cast, Coalesce
@@ -46,7 +48,7 @@ from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -75,12 +77,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
-from posthog.permissions import (
-    APIScopePermission,
-    TeamMemberStrictManagementPermission,
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-)
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -143,10 +140,12 @@ from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
     InvalidStatusTransition,
+    SignalActorKind,
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportRefund,
     SignalScoutConfig,
     SignalSourceConfig,
@@ -321,6 +320,7 @@ from products.signals.backend.throttles import (
     ReportTaskActionRunBurstThrottle,
     ReportTaskActionRunSustainedThrottle,
 )
+from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -596,6 +596,19 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception:
             logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
+    def update(self, request: Request, *args: object, **kwargs: object) -> Response:
+        partial = kwargs.pop("partial", False)
+        with transaction.atomic():
+            # Read after locking so validation and merging use the last committed configuration.
+            self.queryset = self.queryset.select_for_update()
+            instance = self.get_object()
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+
+        # A best-effort status query must not roll back the configuration write if it fails.
+        return Response(serializer.data)
+
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)
         was_enabled = instance.enabled
@@ -618,7 +631,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.enabled and not was_enabled:
-            self._trigger_data_import_sync(instance)
+            transaction.on_commit(partial(self._trigger_data_import_sync, instance))
 
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {
@@ -652,18 +665,22 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
 
-class SignalSteeringPermission(TeamMemberStrictManagementPermission):
+# A task agent that could edit this list would widen the GitHub token of every later implementation run.
+_SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_repositories")
+
+
+class SignalSteeringPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         if (
             request.method in ("GET", "HEAD", "OPTIONS")
             or not isinstance(request.data, dict)
-            or not any(field in request.data for field in STEERING_FIELDS.values())
+            or not any(field in request.data for field in _SANDBOX_PROTECTED_CONFIG_FIELDS)
         ):
             return True
         if is_sandbox_oauth_request(request):
-            self.message = "Task agents cannot modify steering instructions."
+            self.message = "Task agents cannot modify steering instructions or implementation repositories."
             return False
-        return super().has_permission(request, view)
+        return True
 
 
 class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -775,6 +792,15 @@ _DISMISSAL_REASON_HELP_TEXT = (
 # GitHub caps owners at 39 characters and repository names at 100; 'owner/repo' fits in 140.
 _CORRECTED_REPOSITORY_MAX_LENGTH = 140
 _CORRECTED_REPOSITORY_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
+
+
+class SignalReportBulkClaimOutcome(models.TextChoices):
+    """Per-id result of a bulk claim. Mirrors the single-report claim responses:
+    `claimed` ~ 200, `conflict` ~ 409, `not_found` ~ 404."""
+
+    CLAIMED = "claimed", "claimed"
+    CONFLICT = "conflict", "conflict"
+    NOT_FOUND = "not_found", "not_found"
 
 
 class SignalReportBulkStateOutcome(models.TextChoices):
@@ -943,6 +969,56 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     )
     skipped_count = serializers.IntegerField(help_text="Number of reports whose transition was not allowed.")
     failed_count = serializers.IntegerField(help_text="Number of reports that failed on invalid request data.")
+    not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
+
+
+class SignalReportBulkClaimRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        min_length=1,
+        max_length=SIGNAL_REPORT_BULK_STATE_MAX_IDS,
+        help_text=(
+            "Report ids to claim for the caller in one call (1–"
+            f"{SIGNAL_REPORT_BULK_STATE_MAX_IDS}). Duplicates are de-duplicated. Each id is claimed "
+            "independently, so a report that cannot be claimed does not block the rest."
+        ),
+    )
+    takeover_agent_claims = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Take over a report that an agent or an internal task holds. A report that a person holds "
+            "directly is never taken over and comes back as a conflict."
+        ),
+    )
+
+
+class SignalReportBulkClaimResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The report id this result refers to.")
+    # A CharField like the bulk-state outcome, so the response enum cannot collide with another
+    # product's `OutcomeEnum` in the shared OpenAPI schema. Values come from SignalReportBulkClaimOutcome.
+    outcome = serializers.CharField(
+        help_text=(
+            "One of: claimed, conflict, not_found. claimed: the caller holds the claim, including when it "
+            "already did. conflict: the claim was refused, because someone else holds the report or its "
+            "status does not allow a claim (a 409 on the single-report endpoint). not_found: no report "
+            "with this id is visible to you."
+        ),
+    )
+    detail = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Human-readable explanation for a conflict or not_found outcome.",
+    )
+
+
+class SignalReportBulkClaimResponseSerializer(serializers.Serializer):
+    results = SignalReportBulkClaimResultSerializer(
+        many=True,
+        help_text="One result per requested id, in request order (after de-duplication).",
+    )
+    claimed_count = serializers.IntegerField(help_text="Number of reports the caller now holds.")
+    conflict_count = serializers.IntegerField(help_text="Number of reports whose claim was refused.")
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
@@ -1223,14 +1299,31 @@ class SignalReportListPagination(LimitOffsetPagination):
             return None
         self.offset = self.get_offset(request)
         self.request = request
-        page = list(queryset[self.offset : self.offset + self.limit])
+        if request.query_params.get("search"):
+            page, window_count = self._search_page(queryset, self.offset, self.limit)
+        else:
+            page, window_count = list(queryset[self.offset : self.offset + self.limit]), None
         if len(page) < self.limit and (page or self.offset == 0):
             self.count = self.offset + len(page)
+        elif window_count is not None:
+            self.count = window_count
         else:
             self.count = self.get_count(queryset)
         if self.count > self.limit and self.template is not None:
             self.display_page_controls = True
         return page
+
+    def _search_page(self, queryset, offset: int, limit: int) -> tuple[list[SignalReport], int | None]:
+        # Ids only, because COUNT(*) OVER () buffers every match and full report rows spill to disk.
+        rows = list(
+            queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
+                offset : offset + limit
+            ]
+        )
+        if not rows:
+            return [], None
+        reports = {report.pk: report for report in queryset.filter(pk__in=[pk for pk, _ in rows]).order_by()}
+        return [reports[pk] for pk, _ in rows if pk in reports], rows[0][1]
 
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)
@@ -1520,8 +1613,8 @@ _REPORT_LIST_PARAMETERS = [
         enum=["me", "mine"],
         description=(
             "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or "
-            "the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, "
-            "claims by MCP agents acting for them, and claims by internal tasks they started."
+            "the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and "
+            "claims by MCP agents acting for them. Internal task claims are not included."
         ),
     ),
 ]
@@ -1753,9 +1846,9 @@ class SignalReportViewSet(
         if self.action in {"list", "section_counts"}:
             qs = self._apply_signal_report_ranking_filters(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        if self.action not in {"bulk_state", "section_counts"}:
-            # `bulk_state` answers with one outcome per id, never a serialized report, and the list
-            # ordering that reads this value does not apply to it either.
+        if self.action not in {"bulk_state", "bulk_claim", "section_counts"}:
+            # `bulk_state` and `bulk_claim` answer with one outcome per id, never a serialized report, and
+            # the list ordering that reads this value does not apply to them either.
             qs = self._annotate_is_suggested_reviewer(qs)
             qs = self._prefetch_signal_report_ranking_score(qs)
         if self.action not in self._MULTI_REPORT_ACTIONS:
@@ -1819,7 +1912,7 @@ class SignalReportViewSet(
     }
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "section_counts"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "bulk_claim", "section_counts"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -1838,6 +1931,7 @@ class SignalReportViewSet(
         {
             "state",
             "bulk_state",
+            "bulk_claim",
             "retrieve",
             "signals",
             "refund",
@@ -2353,8 +2447,18 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            queryset = queryset.annotate(**{annotation: self._latest_ranking_value(head, "scores")})
+            latest_score = self._latest_ranking_value(head, "scores")
+            if self._inbox_ranker is not None:
+                queryset = queryset.annotate(
+                    **{self._ranking_decile_annotation(annotation): score_decile(latest_score)}
+                )
+            else:
+                queryset = queryset.annotate(**{annotation: latest_score})
         return queryset
+
+    @staticmethod
+    def _ranking_decile_annotation(score_annotation: str) -> str:
+        return f"{score_annotation}_decile"
 
     @staticmethod
     def _latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
@@ -2622,7 +2726,7 @@ class SignalReportViewSet(
             name = clause.lstrip("-")
             if name in ranking_annotations:
                 # The recommended preset sorts by the score decile, so the order shows no more than `inbox_merge_key`.
-                expression = score_decile(name) if self._inbox_ranker is not None else F(name)
+                expression = F(self._ranking_decile_annotation(name) if self._inbox_ranker is not None else name)
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
                     expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)
@@ -3965,7 +4069,8 @@ class SignalReportViewSet(
         if target_status == SignalReport.Status.MONITORING and not self._report_monitoring_enabled:
             return SignalReportBulkStateOutcome.SKIPPED, "Monitoring is unavailable for this organization."
 
-        with transaction.atomic():
+        # Release the delivery lock after commit so workers cannot read the previous verdict.
+        with ExitStack() as completion_locks, transaction.atomic():
             # Lock the report row for the whole guard + transition so it serializes with the refund
             # path (which locks the same row before suppressing). Re-read committed state under the
             # lock: a resolve/restore that raced a refund must observe the refund's SUPPRESSED status
@@ -3976,6 +4081,23 @@ class SignalReportViewSet(
                 is not None
             ):
                 report.refresh_from_db()
+            if (
+                SignalReportMonitoringAttempt.objects.for_team(self.team.id)
+                .filter(
+                    report_id=report.id,
+                    tracker_issue_close_requested_at__isnull=False,
+                    tracker_issue_close_processed_at__isnull=True,
+                )
+                .exists()
+            ):
+                acquired = completion_locks.enter_context(
+                    tracker_issue_completion_lock(team_id=self.team.id, report_id=str(report.id))
+                )
+                if not acquired:
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "This report is being finalized. Try again in a moment.",
+                    )
             if dismissal_reason == "verified_manually" and (
                 not self._report_monitoring_enabled
                 or report.monitoring_started_at is None
@@ -4314,6 +4436,72 @@ class SignalReportViewSet(
                 "skipped_count": counts[SignalReportBulkStateOutcome.SKIPPED.value],
                 "failed_count": counts[SignalReportBulkStateOutcome.FAILED.value],
                 "not_found_count": counts[SignalReportBulkStateOutcome.NOT_FOUND.value],
+            }
+        )
+
+    @validated_request(
+        request_serializer=SignalReportBulkClaimRequestSerializer,
+        responses={200: OpenApiResponse(response=SignalReportBulkClaimResponseSerializer)},
+        summary="Claim many signal reports",
+        description=(
+            "Claim many reports for the current user, internal task, or external agent in one call. Each id is "
+            "claimed independently, and the call is 200 even when some claims are refused: inspect `results` "
+            "and the counts. Use the single-report claim endpoint to release a claim or to add pull requests."
+        ),
+        operation_id="signals_reports_bulk_claim",
+    )
+    @action(detail=False, methods=["post"], url_path="bulk_claim", required_scopes=["task:write"])
+    def bulk_claim(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        data = request.validated_data
+        ordered_ids = list(dict.fromkeys(str(raw_id) for raw_id in data["ids"]))
+        reports_by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ordered_ids)}
+        actor = self._request_attribution()
+        claims = get_active_claims(team_id=self.team.id, report_ids=list(reports_by_id))
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated_session(request)
+
+        results: list[dict] = []
+        counts: dict[str, int] = {outcome.value: 0 for outcome in SignalReportBulkClaimOutcome}
+        for report_id in ordered_ids:
+            report = reports_by_id.get(report_id)
+            detail: str | None = None
+            if report is None:
+                outcome = SignalReportBulkClaimOutcome.NOT_FOUND
+                detail = "No report with this id is visible to you."
+            else:
+                claim = claims.get(report_id)
+                # The expected claim id makes the server refuse the takeover when a person claims the
+                # report between the read above and this write.
+                takeover_claim_id = (
+                    str(claim.claim_id)
+                    if data["takeover_agent_claims"]
+                    and claim is not None
+                    and claim.actor_kind in (SignalActorKind.AGENT, SignalActorKind.TASK)
+                    and not actor_works_under_claim(claim, actor)
+                    else None
+                )
+                try:
+                    claim_report(
+                        report=report,
+                        actor=actor,
+                        user=user,
+                        was_impersonated=was_impersonated,
+                        takeover=takeover_claim_id is not None,
+                        takeover_claim_id=takeover_claim_id,
+                    )
+                    outcome = SignalReportBulkClaimOutcome.CLAIMED
+                except ReportClaimConflict as err:
+                    outcome = SignalReportBulkClaimOutcome.CONFLICT
+                    detail = str(err)
+            results.append({"id": report_id, "outcome": outcome.value, "detail": detail})
+            counts[outcome.value] += 1
+
+        return Response(
+            {
+                "results": results,
+                "claimed_count": counts[SignalReportBulkClaimOutcome.CLAIMED.value],
+                "conflict_count": counts[SignalReportBulkClaimOutcome.CONFLICT.value],
+                "not_found_count": counts[SignalReportBulkClaimOutcome.NOT_FOUND.value],
             }
         )
 

@@ -52,7 +52,7 @@ from products.review_hog.backend.temporal.activities import (
     _track_review_failed,
     _track_review_started,
 )
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_STAMPHOG
 from products.signals.backend.enums import ReportPriority
 
 _PR_URL = "https://github.com/o/r/pull/7"
@@ -771,7 +771,7 @@ class TestTrackReviewCompleted(BaseTest):
         )
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(self._tracking_input(report_id, turn_trigger_source=TRIGGER_LABEL))
+            _track_review_completed(self._tracking_input(report_id, turn_trigger_source=TRIGGER_STAMPHOG))
             _track_review_failed(
                 TrackReviewFailedInput(
                     team_id=self.team.id, report_id=report_id, run_index=1, turn_trigger_source=TRIGGER_INBOX
@@ -803,7 +803,7 @@ class TestTrackReviewCompleted(BaseTest):
             # reads them, so every event names them next to the reviewer arm.
             assert props["validator_model"] == VALIDATION_MODEL
             assert props["validator_reasoning_effort"] == expected_validator_effort
-        assert completed.kwargs["properties"]["turn_trigger_source"] == "label"
+        assert completed.kwargs["properties"]["turn_trigger_source"] == "stamphog"
         assert failed.kwargs["properties"]["turn_trigger_source"] == "inbox"
         assert started.kwargs["properties"]["turn_trigger_source"] == "inbox"
         # No snapshot for this head, so the draft state is unknown on both events that carry it.

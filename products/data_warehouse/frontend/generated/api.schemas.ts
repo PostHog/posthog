@@ -3842,6 +3842,7 @@ export interface CredentialApi {
  * * `WooPayments` - WooPayments
  * * `Soniox` - Soniox
  * * `Nango` - Nango
+ * * `Fathom` - Fathom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5260,6 +5261,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WooPayments: 'WooPayments',
     Soniox: 'Soniox',
     Nango: 'Nango',
+    Fathom: 'Fathom',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

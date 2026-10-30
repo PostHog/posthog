@@ -536,6 +536,11 @@ export interface ExternalDataSchemaApi {
     /** Whether exact source-side column metadata is available for safe source-query projection. */
     readonly source_column_metadata_available: boolean
     /**
+     * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+     * @nullable
+     */
+    readonly history_table_name: string | null
+    /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
      */
@@ -727,6 +732,11 @@ export interface PatchedExternalDataSchemaApi {
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
     /** Whether exact source-side column metadata is available for safe source-query projection. */
     readonly source_column_metadata_available?: boolean
+    /**
+     * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+     * @nullable
+     */
+    readonly history_table_name?: string | null
     /**
      * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
      * @nullable
@@ -2202,6 +2212,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `WooPayments` - WooPayments
  * * `Soniox` - Soniox
  * * `Nango` - Nango
+ * * `Fathom` - Fathom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3620,6 +3631,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WooPayments: 'WooPayments',
     Soniox: 'Soniox',
     Nango: 'Nango',
+    Fathom: 'Fathom',
 } as const
 
 /**
@@ -5179,7 +5191,8 @@ export interface ExternalDataSourceCreateApi {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
-     * * `Nango` - Nango */
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -7104,7 +7117,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
-     * * `Nango` - Nango */
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -8602,7 +8616,8 @@ export interface DatabaseSchemaRequestApi {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
-     * * `Nango` - Nango */
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -10024,7 +10039,8 @@ export interface DirectConnectionSourceOptionApi {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
-     * * `Nango` - Nango */
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -11505,7 +11521,8 @@ export interface SourcePreviewRequestApi {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
-     * * `Nango` - Nango */
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -12962,7 +12979,8 @@ export interface SourceSetupApi {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
-     * * `Nango` - Nango */
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -14426,7 +14444,8 @@ export interface SourceCredentialCreateApi {
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
-     * * `Nango` - Nango */
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -14739,6 +14758,18 @@ export const WarehouseAlertDestinationTypeEnumApi = {
 } as const
 
 /**
+ * * `firing` - firing
+ * * `resolved` - resolved
+ */
+export type WarehouseAlertEventKindChoicesEnumApi =
+    (typeof WarehouseAlertEventKindChoicesEnumApi)[keyof typeof WarehouseAlertEventKindChoicesEnumApi]
+
+export const WarehouseAlertEventKindChoicesEnumApi = {
+    Firing: 'firing',
+    Resolved: 'resolved',
+} as const
+
+/**
  * * `critical` - critical
  * * `error` - error
  * * `warning` - warning
@@ -14765,8 +14796,8 @@ export const PagerDutyRegionEnumApi = {
 } as const
 
 export interface WarehouseAlertDestinationApi {
-    /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
-    hog_function_ids: string[]
+    /** Destination ID. Send it to the delete endpoint to remove the destination. */
+    id: string
     /** Notification destination type.
      *
      * * `slack` - slack
@@ -14775,8 +14806,10 @@ export interface WarehouseAlertDestinationApi {
      * * `discord` - discord
      * * `pagerduty` - pagerduty */
     type: WarehouseAlertDestinationTypeEnumApi
-    /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+    /** Whether the destination is sent to. */
     enabled: boolean
+    /** Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. */
+    event_kinds: WarehouseAlertEventKindChoicesEnumApi[]
     /** Integration ID of the Slack workspace. Set when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Set when type=slack. */
@@ -14810,6 +14843,11 @@ export interface WarehouseAlertCreateDestinationApi {
      * * `discord` - discord
      * * `pagerduty` - pagerduty */
     type: WarehouseAlertDestinationTypeEnumApi
+    /**
+     * Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.
+     * @minItems 1
+     */
+    event_kinds?: WarehouseAlertEventKindChoicesEnumApi[]
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -14834,18 +14872,13 @@ export interface WarehouseAlertCreateDestinationApi {
     pagerduty_region?: PagerDutyRegionEnumApi
 }
 
-export interface WarehouseAlertDestinationCreatedApi {
-    /** HogFunction IDs created for the destination, one per event kind. */
-    hog_function_ids: string[]
-}
-
 export interface WarehouseAlertDeleteDestinationApi {
     /**
-     * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+     * IDs of the alert's destinations to delete, as the list endpoint returns them.
      * @minItems 1
-     * @maxItems 100
+     * @maxItems 5
      */
-    hog_function_ids: string[]
+    destination_ids: string[]
 }
 
 export interface WarehouseColumnStatisticsApi {
