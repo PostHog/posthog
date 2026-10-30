@@ -958,6 +958,7 @@ mod tests {
             {"type": 4, "timestamp": 1, "data": {"href": "http://app.example.com/shop/item", "width": 800, "height": 600}},
             {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
             {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}, {"id": 10, "attributes": {"class": "bg-[url(https://cdn.example.com/t.png)]"}}]}},
+            {"type": 3, "timestamp": 4, "data": {"source": 8, "id": 3, "replaceSync": ".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png?X-Amz-Signature=abc123)}"}},
         ]);
         let lines = stored_lines(&events.to_string(), &[]);
         let reference = |url: &str| {

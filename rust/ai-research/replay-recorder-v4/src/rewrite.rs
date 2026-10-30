@@ -135,8 +135,15 @@ macro_rules! then_stage {
         }
     };
 }
-/// A CSS-escaped `:/` or `(//` as a JSON string holds it, which starts a URL that a selector names but no PHP-style JSON.
-const ESCAPED_URL_STARTS: [&[u8]; 2] = [br"\\:\\/", br"\\(\\/\\/"];
+/// A CSS-escaped `:/` or `//` as a JSON string holds it, which starts a URL that a selector names. PHP-style JSON holds
+/// `:\/\/` too, so a `//` right after a plain colon does not count.
+const ESCAPED_URL_STARTS: [&[u8]; 2] = [br"\\:\\/", br"\\/\\/"];
+
+fn holds_escaped_url(starts: &AhoCorasick, bytes: &[u8]) -> bool {
+    starts.find_iter(bytes).any(|found| {
+        found.pattern().as_usize() == 0 || found.start() == 0 || bytes[found.start() - 1] != b':'
+    })
+}
 
 /// The block's URLs as a selector holds them. Most events hold none, so these are built when one first does.
 struct EscapedMatchers {
@@ -653,7 +660,7 @@ impl UrlRewrite {
         };
         let rewritten = then_stage!(rebuilt, self.rewrite_css);
         let replaced = then_stage!(rewritten, self.replace_urls);
-        let replaced = if self.escaped_url_starts.is_match(replaced.as_ref()) {
+        let replaced = if holds_escaped_url(&self.escaped_url_starts, replaced.as_ref()) {
             then_stage!(replaced, self.replace_escaped_urls)
         } else {
             replaced
