@@ -181,7 +181,10 @@ export const shortcutLogic = kea<shortcutLogicType>([
             (shortcuts: ShortcutType[], disabledNames: string[]): SearchItem[] =>
                 shortcuts
                     .filter(
-                        (shortcut) => !disabledNames.includes(shortcut.name) && !HIDDEN_FROM_SEARCH.has(shortcut.name)
+                        (shortcut) =>
+                            !shortcut.hidden &&
+                            !disabledNames.includes(shortcut.name) &&
+                            !HIDDEN_FROM_SEARCH.has(shortcut.name)
                     )
                     .map((shortcut) => ({
                         id: `shortcut-${shortcut.name}`,
