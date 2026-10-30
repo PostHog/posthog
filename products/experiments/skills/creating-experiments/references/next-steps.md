@@ -8,6 +8,7 @@ If the user said they are away, or asked for a draft without questions, list the
 ## Options
 
 Offer an option only when its condition holds.
+A question tool needs at least two options. When only one holds, add a second that leaves things as they are, such as "Keep it as a draft for now".
 
 - **Launch the experiment.** Drafts only. Picking it is the user asking for a launch. Follow the launch steps in `managing-experiment-lifecycle`, including the pre-launch checklist.
 - **Set a reminder to check the results on <date>.** Launched experiments only. A draft has no start date to count from, so `managing-experiment-lifecycle` offers the reminder once the experiment launches. See [Set the reminder](#set-the-reminder).
