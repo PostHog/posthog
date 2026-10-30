@@ -1,6 +1,14 @@
-import { remoteVariableNames, scheduleFor, withoutNulls, type Endpoint, type EndpointFile } from './model'
+import {
+    isPlainHogql,
+    remoteVariableNames,
+    remoteVariableValues,
+    scheduleFor,
+    withoutNulls,
+    type Endpoint,
+    type EndpointFile,
+} from './model'
 
-export type ChangeField = 'description' | 'query' | 'materialization' | 'schedule' | 'variables'
+export type ChangeField = 'description' | 'query' | 'materialization' | 'schedule' | 'variables' | 'defaults'
 
 // One field that differs between a local file and PostHog. Push reads it from remote to local,
 // pull from local to remote.
@@ -26,7 +34,7 @@ function sortKeys(value: unknown): unknown {
 
 // PostHog stores variables inside the query, under IDs a file never names, so they're compared on their own.
 function comparableQuery(query: Record<string, unknown>): string {
-    if (query.kind === 'HogQLQuery' && typeof query.query === 'string') {
+    if (isPlainHogql(query) && typeof query.query === 'string') {
         return query.query.replace(/\r\n?/g, '\n')
     }
     const { variables: _variables, ...rest } = query
@@ -61,11 +69,32 @@ export function compare(file: EndpointFile, endpoint: Endpoint): Change[] {
     // PostHog keeps the refresh interval after materialization is turned off, so it only counts while on.
     const remoteSchedule = endpoint.is_materialized ? scheduleFor(endpoint.data_freshness_seconds) : undefined
     const localSchedule = file.materialization?.enabled ? file.materialization.schedule : undefined
-    add('schedule', localSchedule ?? '', remoteSchedule ?? '')
+    // A push without a schedule keeps the one PostHog has, so a file that names none matches any.
+    if (localSchedule !== undefined) {
+        add('schedule', localSchedule, remoteSchedule ?? '')
+    }
     const localVariables = (file.variables ?? []).map((variable) => variable.name)
     const remoteVariables = remoteVariableNames(endpoint)
     if (!sameSet(localVariables, remoteVariables)) {
         changes.push({ field: 'variables', local: localVariables.join(', '), remote: remoteVariables.join(', ') })
+    }
+    // A variable without a default in the file takes the project's, so only the defaults a file sets count.
+    const remoteValues = remoteVariableValues(endpoint)
+    const show = (value: unknown): string => JSON.stringify(sortKeys(value ?? null))
+    const changedDefaults = (file.variables ?? []).filter(
+        (variable) =>
+            variable.default !== undefined &&
+            remoteValues.has(variable.name) &&
+            show(variable.default) !== show(remoteValues.get(variable.name))
+    )
+    if (changedDefaults.length > 0) {
+        changes.push({
+            field: 'defaults',
+            local: changedDefaults.map((variable) => `${variable.name}=${show(variable.default)}`).join(', '),
+            remote: changedDefaults
+                .map((variable) => `${variable.name}=${show(remoteValues.get(variable.name))}`)
+                .join(', '),
+        })
     }
     return changes
 }

@@ -111,6 +111,46 @@ export function remoteHogql(endpoint: Endpoint): string {
     return typeof endpoint.query.query === 'string' ? endpoint.query.query : ''
 }
 
+// A variable's value on the endpoint, by code name.
+export function remoteVariableValues(endpoint: Endpoint): Map<string, unknown> {
+    const variables = (endpoint.query.variables ?? {}) as Record<string, { code_name?: unknown; value?: unknown }>
+    return new Map(
+        Object.values(variables)
+            .filter((variable) => typeof variable.code_name === 'string')
+            .map((variable) => [variable.code_name as string, variable.value])
+    )
+}
+
+// posthog-cli writes the lowercase type it infers from a default. PostHog only accepts its own type names.
+const API_VARIABLE_TYPES: Record<string, string> = {
+    string: 'String',
+    integer: 'Number',
+    number: 'Number',
+    boolean: 'Boolean',
+    array: 'List',
+    list: 'List',
+    date: 'Date',
+}
+
+export function apiVariableType(type: string): string {
+    return API_VARIABLE_TYPES[type.toLowerCase()] ?? type
+}
+
+// A HogQL query can hold settings besides its text, such as `connectionId` or `filters`. A file
+// keeps only the text when there are none, so that a push never drops them.
+export function isPlainHogql(query: Record<string, unknown>): boolean {
+    return (
+        query.kind === 'HogQLQuery' &&
+        typeof query.query === 'string' &&
+        Object.entries(query).every(
+            ([key, value]) =>
+                ['kind', 'query', 'variables'].includes(key) ||
+                value === null ||
+                (typeof value === 'object' && Object.keys(value).length === 0)
+        )
+    )
+}
+
 export function remoteVariableNames(endpoint: Endpoint | undefined): string[] {
     const variables = endpoint?.query.variables
     if (!variables || typeof variables !== 'object') {
@@ -156,7 +196,7 @@ export function fileFromEndpoint(endpoint: Endpoint, types: ReadonlyMap<string, 
     if (endpoint.description) {
         file.description = endpoint.description
     }
-    if (endpoint.query.kind === 'HogQLQuery' && typeof endpoint.query.query === 'string') {
+    if (isPlainHogql(endpoint.query) && typeof endpoint.query.query === 'string') {
         file.query = endpoint.query.query.replace(/\r\n?/g, '\n')
     } else {
         const { variables: _variables, ...definition } = endpoint.query
@@ -198,6 +238,10 @@ export function requestBody(file: EndpointFile, resolved: ResolvedVariables): Re
             }
             if (variable.default !== undefined) {
                 entry.value = variable.default
+                // Without `isNull`, PostHog replaces a null value with the project's default.
+                if (variable.default === null) {
+                    entry.isNull = true
+                }
             }
             return [[resolvedVariable.id, entry]]
         })
@@ -205,10 +249,8 @@ export function requestBody(file: EndpointFile, resolved: ResolvedVariables): Re
     if (Object.keys(variables).length > 0) {
         query.variables = variables
     }
-    const body: Record<string, unknown> = { name: file.name, query }
-    if (file.description !== undefined) {
-        body.description = file.description
-    }
+    // PostHog keeps the description when the field is missing, so a file without one sends it empty.
+    const body: Record<string, unknown> = { name: file.name, description: file.description ?? '', query }
     // A file without materialization turns it off, or the endpoint would differ from the file forever.
     body.is_materialized = file.materialization?.enabled ?? false
     if (file.materialization?.schedule) {

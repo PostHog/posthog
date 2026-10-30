@@ -104,6 +104,18 @@ describe('hog endpoints', () => {
         expect(result.files['/work/endpoints/weekly.yaml']).toBeUndefined()
     })
 
+    test('pull takes variable types from the values when the key cannot read project variables', async () => {
+        const result = await runHog(['endpoints', 'pull', 'by-type', '--yes'], {
+            env: AGENT,
+            respond: server([HOGQL], (url) =>
+                url === `${BASE}insight_variables/` ? { status: 403, body: { detail: 'Forbidden' } } : undefined
+            ),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE.replace('type: String', 'type: string'))
+    })
+
     test.each([
         [
             'a file that defines another endpoint',
@@ -121,6 +133,7 @@ describe('hog endpoints', () => {
             files,
             respond: server([TRENDS, HOGQL]),
         })
+        expect(result.exitCode).toBe(1)
         expect(result.files).toMatchObject(expected)
         expect(result.json().problems).toEqual([expect.objectContaining({ path: 'weekly.yaml' })])
     })
@@ -146,6 +159,12 @@ describe('hog endpoints', () => {
             { 'weekly.yaml': `${PULLED_WEEKLY}materialization:\n  enabled: false\n  schedule: 1hour\n` },
             0,
             [],
+        ],
+        [
+            'a changed default',
+            { 'by-type.yaml': PULLED_BY_TYPE.replace('default: $pageview', 'default: $autocapture') },
+            1,
+            [{ name: 'by-type', action: 'update', fields: ['defaults'] }],
         ],
         ['a file with a typo', { 'by-type.yaml': `${PULLED_BY_TYPE}descripton: oops\n` }, 1, []],
     ])('diff with %s', async (_name, files, exitCode, changed) => {
@@ -185,7 +204,8 @@ describe('hog endpoints', () => {
                     'query: SELECT count() FROM events WHERE properties.$geoip_country_code = {variables.country}',
                     'variables:',
                     '  - name: country',
-                    '    type: String',
+                    // posthog-cli writes lowercase types, and PostHog only accepts its own names.
+                    '    type: string',
                     '    default: US',
                     'materialization:',
                     '  enabled: true',
@@ -202,11 +222,12 @@ describe('hog endpoints', () => {
                       : undefined
             ),
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(1)
         expect(result.requests.filter((request) => request.method === 'POST').map((request) => request.body)).toEqual([
             { name: 'country', code_name: 'country', type: 'String', default_value: 'US' },
             {
                 name: 'by-country',
+                description: '',
                 query: {
                     kind: 'HogQLQuery',
                     query: 'SELECT count() FROM events WHERE properties.$geoip_country_code = {variables.country}',
@@ -218,7 +239,7 @@ describe('hog endpoints', () => {
         ])
         expect(result.json()).toMatchObject({
             outcomes: [{ name: 'by-country', status: 'created' }],
-            plan: [{}, { name: 'unused', action: 'skip', reason: expect.stringContaining('extra') }],
+            plan: [{}, { name: 'unused', action: 'skip', invalid: true, reason: expect.stringContaining('extra') }],
         })
     })
 

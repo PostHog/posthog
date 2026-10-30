@@ -10,6 +10,7 @@ import { listEndpoints, listInsightVariables } from '@/endpoints/api'
 import { readEndpointFiles, type FileProblem } from '@/endpoints/files'
 import { fileFromEndpoint, remoteVariableNames } from '@/endpoints/model'
 import { planPull, type PullItem } from '@/endpoints/plan'
+import { ApiError, type PostHogApi } from '@/posthog/api'
 
 import { actionLabel, changeLines, CONFIRM_OPTIONS, confirm, indent, SCOPES_READ, type Styler } from './shared'
 
@@ -33,6 +34,19 @@ function pullPlanLines(plan: PlannedItem[], style: Styler): string[] {
         ])
 }
 
+// posthog-cli pulls with only endpoint:read. A key that can't read the project's variables gets
+// each type from the variable's value instead, as posthog-cli does.
+async function variableTypes(api: PostHogApi): Promise<Map<string, string>> {
+    try {
+        return new Map((await listInsightVariables(api)).map((variable) => [variable.code_name, variable.type]))
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 403) {
+            return new Map()
+        }
+        throw error
+    }
+}
+
 export function endpointYaml(path: string, item: PullItem, types: ReadonlyMap<string, string>): string {
     const body = stringify(fileFromEndpoint(item.endpoint, types), { lineWidth: 0, blockQuote: 'literal' })
     return `# ${basename(path)}\n${body}`
@@ -52,7 +66,7 @@ export default defineCommand({
         ...CONFIRM_OPTIONS,
     },
     scopes: SCOPES_READ,
-    notes: 'An endpoint a local file already defines updates that file. Others go to <folder>/<name>.yaml. hog shows the changes and asks before it writes; agents and scripts pass --yes.',
+    notes: 'An endpoint a local file already defines updates that file. Others go to <folder>/<name>.yaml. hog shows the changes and asks before it writes; agents and scripts pass --yes. Exits with code 1 when an endpoint is missing or a file is left alone.',
     examples: [
         'hog endpoints pull daily-signups',
         'hog endpoints pull --all --to endpoints/',
@@ -150,12 +164,7 @@ export default defineCommand({
             return { status: 'cancelled', plan, written: [], problems }
         }
         const types = pending.some((item) => remoteVariableNames(item.endpoint).length > 0)
-            ? new Map(
-                  (await listInsightVariables(await ctx.posthog())).map((variable) => [
-                      variable.code_name,
-                      variable.type,
-                  ])
-              )
+            ? await variableTypes(await ctx.posthog())
             : new Map<string, string>()
         for (const item of pending) {
             await ctx.runtime.writeFile(item.path, endpointYaml(item.path, item, types))
@@ -185,4 +194,6 @@ export default defineCommand({
     agent({ result, out }) {
         out.json(result)
     },
+
+    exitCode: (result) => (result.problems.length > 0 ? 1 : 0),
 })
