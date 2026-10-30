@@ -24,10 +24,9 @@ from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
 from posthog.models import Team, User
 
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
-from products.signals.backend.activity_summary.summaries import MODEL_PRICES, cost_usd
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, read_config
+from products.signals.backend.personal_ranking.config import PersonalRankingConfig, build_cost_usd, read_config
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
@@ -360,9 +359,7 @@ def build_personal_ranking(
         model=config.model,
         tokens_in=call.tokens_in if call is not None else None,
         tokens_out=call.tokens_out if call is not None else None,
-        cost_usd=cost_usd(call.tokens_in, call.tokens_out, MODEL_PRICES.get(config.model))
-        if call is not None
-        else None,
+        cost_usd=build_cost_usd(config.model, call.tokens_in, call.tokens_out) if call is not None else None,
         latency_ms=call.latency_ms if call is not None else None,
     )
     if dry_run:

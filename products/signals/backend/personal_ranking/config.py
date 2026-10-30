@@ -11,7 +11,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
 
 logger = structlog.get_logger(__name__)
@@ -20,6 +19,28 @@ PERSONAL_INBOX_RANKING_FLAG = "personal-inbox-ranking"
 # Not a person: the flag must serve its payload to this id.
 PERSONAL_INBOX_RANKING_FLAG_DISTINCT_ID = "signals_personal_inbox_ranking"
 MAX_MODEL_NAME_CHARS = 100
+DEFAULT_MODEL = "gpt-6-luna"
+
+
+@frozen
+class ModelPrice:
+    """USD per million tokens."""
+
+    input: float
+    output: float
+
+
+# A model missing here records no cost, so a payload that switches model needs an entry here too.
+MODEL_PRICES: dict[str, ModelPrice] = {
+    DEFAULT_MODEL: ModelPrice(input=0.10, output=0.50),
+}
+
+
+def build_cost_usd(model: str, tokens_in: int | None, tokens_out: int | None) -> float | None:
+    price = MODEL_PRICES.get(model)
+    if price is None or tokens_in is None or tokens_out is None:
+        return None
+    return (tokens_in * price.input + tokens_out * price.output) / 1_000_000
 
 
 @frozen
