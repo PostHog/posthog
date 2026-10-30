@@ -54,6 +54,18 @@ def my_task(team_id: int):
     Repo.objects.all()
 ```
 
+## Fetch mode
+
+Scoped querysets use Django's `FETCH_PEERS` fetch mode.
+When code reads a relation or a deferred field that a row has not loaded, Django loads it for every row from the same query, in one query.
+A loop that reads `run.repo` on each of N rows costs 2 queries, not N + 1.
+
+`.iterator()` and `.aiterator()` use `FETCH_ONE`.
+A streamed query shares one peer list across all its rows, so `FETCH_PEERS` would scan a growing list on each read.
+Use `select_related()` in a streamed loop that reads a relation.
+
+To opt out, call `.fetch_mode(models.FETCH_ONE)` on the queryset.
+
 ## Adoption
 
 ### New main-DB model

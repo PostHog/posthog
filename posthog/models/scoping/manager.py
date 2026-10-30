@@ -16,7 +16,8 @@ raise on framework code that has no team context. Raw SQL bypasses the
 ORM entirely. Use this alongside explicit team checks at the API layer.
 """
 
-from typing import TypeVar, cast
+from collections.abc import AsyncIterator, Iterator
+from typing import Any, TypeVar, cast
 
 from django.db import models
 
@@ -65,7 +66,28 @@ class TeamScopedQuerySet(models.QuerySet[T]):
 
     Provides an `unscoped()` method to bypass automatic filtering when you
     need to explicitly query across teams.
+
+    Defaults to `FETCH_PEERS`: a lazy related or deferred read on one row
+    loads it for every row the same query returned, in one query.
     """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._fetch_mode = models.FETCH_PEERS
+
+    def iterator(self, chunk_size: int | None = None) -> Iterator[T]:
+        return super(TeamScopedQuerySet, self._without_streamed_peers()).iterator(chunk_size)
+
+    def aiterator(self, chunk_size: int = 2000) -> AsyncIterator[T]:
+        return super(TeamScopedQuerySet, self._without_streamed_peers()).aiterator(chunk_size)
+
+    def _without_streamed_peers(self) -> "TeamScopedQuerySet[T]":
+        # A streamed query shares one peer list across all its rows, and FETCH_PEERS
+        # scans that list on each lazy read, so a loop that reads a relation per row
+        # costs O(rows²). The rows a loop has dropped are not batched anyway.
+        if self._fetch_mode is models.FETCH_PEERS:
+            return self.fetch_mode(models.FETCH_ONE)
+        return self
 
     def _apply_team_filter(self, team_id: int) -> "TeamScopedQuerySet[T]":
         """Apply team filtering. Caller passes the canonical team_id; we

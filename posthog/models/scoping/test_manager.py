@@ -1,5 +1,9 @@
+from collections.abc import Callable, Iterable
+
 import pytest
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.models.scoping import team_scope, unscoped
 from posthog.models.scoping.manager import TeamScopedManager, TeamScopeError
@@ -70,6 +74,30 @@ class TestTeamScopedManager(BaseTest):
             flag = qs.first()
             assert flag is not None
             assert flag.key == "active-flag"
+
+    @parameterized.expand(
+        [
+            ("ambient_scope", lambda manager, team_id: manager.get_queryset().filter(active=True), 2),
+            ("unscoped", lambda manager, team_id: manager.unscoped().filter(team_id=team_id), 2),
+            ("for_team", lambda manager, team_id: manager.for_team(team_id, canonical=True), 2),
+            ("queryset_unscoped", lambda manager, team_id: manager.unscoped().unscoped().filter(team_id=team_id), 2),
+            ("iterator", lambda manager, team_id: manager.for_team(team_id, canonical=True).iterator(), 4),
+        ]
+    )
+    def test_related_read_on_every_row_batches_across_peers(
+        self,
+        _name: str,
+        build: Callable[[TeamScopedManager[FeatureFlag], int], Iterable[FeatureFlag]],
+        expected_queries: int,
+    ) -> None:
+        for key in ("flag-1", "flag-2", "flag-3"):
+            FeatureFlag.objects.create(team=self.team, key=key, active=True, created_by=self.user)
+
+        with team_scope(self.team.id):
+            rows = build(self._make_manager(), self.team.id)
+            with self.assertNumQueries(expected_queries):
+                flags = list(rows)
+                assert [flag.created_by for flag in flags] == [self.user] * 3
 
     def test_unscoped_context_clears_team(self):
         with team_scope(self.team.id):
