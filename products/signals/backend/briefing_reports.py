@@ -128,7 +128,7 @@ def reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
     )
 
 
-def _pull_request_state(state: str, merged: bool) -> str | None:
+def implementation_pull_request_state(state: str, merged: bool) -> str | None:
     if merged:
         return SignalReportAssignment.PrState.MERGED
     return state if state in IMPLEMENTATION_PR_STATES else None
@@ -199,7 +199,7 @@ def report_details(
                 status=effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled),
                 priority=priorities.get(report_id),
                 summary=summary_lead(report.summary, SUMMARY_LEAD_LIMIT),
-                pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)
+                pull_request_state=implementation_pull_request_state(pull_request.state, pull_request.merged)
                 if pull_request
                 else None,
                 pull_request_url=pull_request.url if pull_request else None,
