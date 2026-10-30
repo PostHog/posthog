@@ -63,6 +63,8 @@ posthog/tasks/test/test_ai_observability_usage_report.py
 posthog/tasks/test/test_usage_report.py
 posthog/temporal/tests/test_clickhouse.py
 posthog/temporal/ai_observability/eval_reports/test/test_activities.py
+posthog/temporal/ai_observability/test_run_trace_evaluation.py
+posthog/temporal/ai_observability/trace_summarization/tests/test_fetch_and_format.py
 products/autoresearch/backend/inference/test_person_property.py
 products/batch_exports/backend/tests/api/test_serializers.py
 products/batch_exports/backend/tests/temporal/destinations/test_http_batch_export_workflow.py
@@ -70,6 +72,7 @@ products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py
 products/batch_exports/backend/tests/temporal/test_batch_exports.py
 products/batch_exports/backend/tests/temporal/test_filters.py
 products/batch_exports/backend/tests/temporal/test_record_batch_model.py
+products/batch_exports/backend/tests/test_custom_events_schema.py
 products/batch_exports/backend/tests/test_hogql_source.py
 products/feature_flags/backend/test/test_request_usage.py
 
@@ -84,4 +87,5 @@ products/ai_observability/backend/api/test/test_evaluations.py
 products/ai_observability/backend/api/test/test_personal_spend.py
 products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py
+products/surveys/backend/responses/test_linked.py
 products/web_analytics/backend/test/test_heatmaps_api.py

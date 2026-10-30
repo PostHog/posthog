@@ -828,6 +828,7 @@ def call_llm_judge(
                     messages=[{"role": "user", "content": user_prompt}],
                     provider=provider,
                     response_format=response_format,
+                    reasoning_level=evaluation["evaluation_config"].get("reasoning_level"),
                 )
             )
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:

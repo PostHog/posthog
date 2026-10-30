@@ -147,6 +147,23 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             previous = await aretry_on_db_connection_drop(
                 lambda: database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(input.report_id)
             )
+            # Outside the pilot, research resolves its sandbox user from the team's GitHub integration
+            # and raises when there is none. A team that disconnected GitHub after the first run must
+            # go back through selection, which returns no repository and asks for a selection.
+            if (
+                previous is not None
+                and previous.repository is not None
+                and not input.github_optional
+                and await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(input.team_id)
+                is None
+            ):
+                logger.info(
+                    "signals repo selection reuse skipped: no GitHub integration",
+                    report_id=input.report_id,
+                    team_id=input.team_id,
+                    repository=previous.repository,
+                )
+                previous = None
             if previous is not None and previous.repository is not None:
                 logger.info(
                     "signals repo selection reused from previous run",

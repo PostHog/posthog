@@ -14,11 +14,15 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scopes
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
     AIObservabilitySummarizationSustainedThrottle,
 )
+from posthog.scopes import scopes_not_covered
+
+from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG
 
 from ..facade import api, contracts
 from .query_concurrency import query_concurrency_slots
@@ -64,6 +68,15 @@ NODE_ID_PARAMETER = OpenApiParameter(
     OpenApiParameter.PATH,
     description="The node id, sent as the unpadded base64url encoding of its UTF-8 bytes. The root node's id is the trace id.",
 )
+SURVEY_RESPONSE_SCOPES = ["survey:read", "query:read"]
+
+
+def _token_allows(request: ValidatedRequest, required_scopes: list[str]) -> bool:
+    """True for session auth, which carries no scopes."""
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, required_scopes)
+
+
 THROTTLED_RESPONSE = OpenApiResponse(description="Too many queries are running for the project or organization.")
 NOT_APPROVED_DETAIL = "AI data processing must be approved by your organization before using summaries."
 NOT_A_USER_DETAIL = "Summaries are only available to signed-in users and their personal API keys."
@@ -82,6 +95,9 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # Traces are project-wide data, so a grant on a single llm_analytics object must not open them.
     requires_resource_level_access = True
     serializer_class = _FallbackSerializer
+    permission_classes = [PostHogFeatureFlagPermission]
+    # Other actions are absent from the map, so the permission lets them through.
+    posthog_feature_flag = {ENGINEERING_ANALYTICS_FEATURE_FLAG: ["pull_request"]}
 
     def _read[T](self, request: ValidatedRequest, read: Callable[[User | None, datetime | None], T]) -> T:
         tag_queries(feature=Feature.QUERY)
@@ -199,12 +215,17 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["GET"], url_path="feedback")
     def feedback(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
-        """End-user feedback on a trace: the scores and the comments its feedback events carry, each with the step it targets."""
+        """End-user feedback on a trace: scores and comments from its feedback events, survey responses linked to it, and surveys shown but not answered."""
         try:
             trace_id = decode_trace_id_segment(pk)
         except MalformedTraceIdSegmentError:
             return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
-        feedback = self._read(request, lambda user, hint: api.get_trace_feedback(self.team, user, trace_id, hint))
+        # Survey responses are survey data, so a token also needs the scopes the survey responses endpoint requires.
+        include_surveys = _token_allows(request, SURVEY_RESPONSE_SCOPES)
+        feedback = self._read(
+            request,
+            lambda user, hint: api.get_trace_feedback(self.team, user, trace_id, hint, include_surveys=include_surveys),
+        )
         return Response(feedback.model_dump(mode="json", by_alias=True))
 
     @validated_request(
@@ -315,3 +336,34 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"detail": "No summary yet."}, status=status.HTTP_404_NOT_FOUND)
         response_status = pending_status if summary.status == "pending" else status.HTTP_200_OK
         return Response(summary.model_dump(mode="json", by_alias=True), status=response_status)
+
+    @validated_request(
+        query_serializer=TraceQuerySerializer,
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TracePullRequestLookup),
+            400: OpenApiResponse(description="The timestamp hint or the encoded trace id is malformed."),
+            403: OpenApiResponse(
+                description="The engineering-analytics feature flag is off for the project, or the API key lacks a scope."
+            ),
+            429: THROTTLED_RESPONSE,
+        },
+        operation_id="ai_observability_traces_pull_request_retrieve",
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        # The read opens engineering analytics data, so a key needs that product's scope as well.
+        required_scopes=["llm_analytics:read", "engineering_analytics:read"],
+    )
+    def pull_request(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """The pull request the trace's git branch belongs to, from engineering analytics."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        lookup = self._read(
+            request,
+            lambda user, hint: api.get_trace_pull_request(self.team, user, self.user_access_control, trace_id, hint),
+        )
+        return Response(lookup.model_dump(mode="json", by_alias=True))

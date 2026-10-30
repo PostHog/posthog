@@ -549,6 +549,49 @@ class TestLogsRows:
         assert abs(start - (now - timedelta(days=expected_start_days_ago))) < timedelta(minutes=1)
 
     @pytest.mark.parametrize(
+        "fraction, expected_start_delay",
+        [
+            ("", timedelta(0)),
+            # The request carries whole seconds, so it can only start inside retention one second later.
+            (".25", timedelta(seconds=1)),
+        ],
+    )
+    def test_narrows_the_window_to_the_accounts_log_retention(self, fraction, expected_start_delay):
+        retention_start = (datetime.now(UTC) - timedelta(days=4)).replace(microsecond=0)
+        retention_time = retention_start + timedelta(seconds=float(fraction or 0))
+        retention_message = (
+            "start time 2024-07-01 00:00:00 +0000 UTC with log retention days 5 is before log retention time "
+            f"{retention_start.strftime('%Y-%m-%d %H:%M:%S')}{fraction} +0000 UTC"
+        )
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if parsedate_to_datetime(request.json()["start"]) < retention_time:
+                return ScriptedResponse(status=400, json={"message": retention_message})
+            return ScriptedResponse(json={"items": [_log_item("e1")], "pagination": {}})
+
+        result = _driver().run("logs", respond)
+
+        assert result.raised is None
+        starts = [parsedate_to_datetime(request.json()["start"]) for request in result.requests]
+        assert len(starts) == 2
+        assert starts[1] == retention_start + expected_start_delay
+        assert [row["id"] for row in result.rows] == ["e1"]
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "invalid filter",
+            # A retention time that doesn't move the window forward would only be rejected again.
+            "start time is before log retention time 2000-01-01 00:00:00 +0000 UTC",
+        ],
+    )
+    def test_other_bad_requests_still_fail_the_sync(self, message):
+        result = _driver().run("logs", lambda _request: ScriptedResponse(status=400, json={"message": message}))
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
+
+    @pytest.mark.parametrize(
         "resume_token, saved_start, expected_tokens",
         [
             ("t5", "2024-07-01T00:00:00+00:00", ["t5"]),

@@ -1,10 +1,7 @@
-import json
-import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
-from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
     CharField,
@@ -141,9 +138,9 @@ from products.replay_vision.backend.scanner_access import (
     accessible_experiment_ids,
     accessible_observations,
     is_experiment_accessible,
-    readable_experiment_ids,
     readable_observation_scanner_ids,
     scanner_experiment_scope_q,
+    scanners_for_reading_observations,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -165,6 +162,7 @@ from products.replay_vision.backend.scanner_draft import (
     draft_scanner_from_goal,
     scopes_allow_read,
 )
+from products.replay_vision.backend.scanner_query import ScannerQueryError, clean_scanner_query
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
     run_inline_scan,
@@ -183,14 +181,12 @@ from products.replay_vision.backend.temporal.metrics import record_estimate_outc
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
 from products.replay_vision.backend.watch_rank import (
     ISSUE_CATEGORIES,
+    feed_window,
     rank_highlight_feed_by_embedding,
     select_embedding_filler,
     select_embedding_picks,
 )
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
-
-# Date is set by the schedule at trigger time, not by the user — strip on save.
-_QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 
 class ScannerCreationMethod(models.TextChoices):
@@ -232,24 +228,31 @@ def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> s
     return claimed if source == EventSource.WEB else source.value
 
 
-def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
-    # Exposure is derived from experiment_targeting at scan time, never persisted in the query blob:
-    # writable exposure there would bypass experiment_targeting's access check and let an editor run
-    # the exposure filter under the creator's access.
-    if query.get("experiment_exposure") is not None:
-        raise serializers.ValidationError(
-            "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
-        )
-
-
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
-_MAX_QUERY_BYTES = 50_000
 
 # Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
 _MAX_TAGS = 32
 
 logger = structlog.get_logger(__name__)
+
+
+class RecordingsQueryField(serializers.JSONField):
+    """A scanner's recording filter, a `RecordingsQuery`. The rules in `scanner_query` decide what a
+    scanner may keep, so this only refuses a value that is not an object, before any of them reads it."""
+
+    def to_internal_value(self, data: Any) -> Any:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Recording filter must be a JSON object.")
+        return value
+
+
+def _clean_query(value: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return clean_scanner_query(value)
+    except ScannerQueryError as error:
+        raise serializers.ValidationError(str(error))
 
 
 # Query keys that narrow which sessions a scanner matches. Date keys are schedule-controlled
@@ -472,14 +475,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "Falls back to the prompt's first line when no question matches the current prompt."
         ),
     )
-    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
-        serializers.JSONField(
-            required=False,
-            help_text=(
-                "Persisted `RecordingsQuery` shape used to pick candidate sessions. "
-                "`date_from`/`date_to` are stripped on save — the schedule controls time, not the user."
-            ),
-        )
+    query = RecordingsQueryField(
+        required=False,
+        help_text=(
+            "Persisted `RecordingsQuery` shape used to pick candidate sessions. "
+            "`date_from`/`date_to` are stripped on save — the schedule controls time, not the user."
+        ),
     )
     sampling_rate = serializers.FloatField(
         required=False,
@@ -799,7 +800,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._restore_redacted_experiment_config(attrs)
         self._validate_scanner_config(attrs)
         self._validate_experiment_scanner(attrs)
-        self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
         check_scout_scanner_credit_limit(
@@ -971,20 +971,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if message is not None:
             raise serializers.ValidationError({"scanner_config": message})
 
-    def _validate_and_strip_query(self, attrs: dict[str, Any]) -> None:
-        if "query" not in attrs:
-            return
-        try:
-            RecordingsQuery.model_validate(attrs["query"])
-        except PydanticValidationError:
-            raise serializers.ValidationError({"query": "Recording filter is invalid."})
-        _reject_direct_experiment_exposure(attrs["query"])
+    def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
-        attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
-        if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
-            raise serializers.ValidationError(
-                {"query": f"Recording filter is too large. Keep it under {_MAX_QUERY_BYTES // 1000} KB."}
-            )
+        return _clean_query(value)
 
     def to_representation(self, instance: ReplayScanner) -> dict[str, Any]:
         data = super().to_representation(instance)
@@ -1546,15 +1535,13 @@ class EstimateExperimentScopeSerializer(serializers.Serializer):
 class EstimateRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config."""
 
-    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
-        serializers.JSONField(
-            required=False,
-            help_text=(
-                "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the estimate scans a recent window (`window_days` in the response) and "
-                "scales it to 30 days. Omit to estimate against all recordings."
-            ),
-        )
+    query = RecordingsQueryField(
+        required=False,
+        help_text=(
+            "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
+            "ignored — the estimate scans a recent window (`window_days` in the response) and "
+            "scales it to 30 days. Omit to estimate against all recordings."
+        ),
     )
     sampling_rate = serializers.FloatField(
         required=False,
@@ -1613,12 +1600,7 @@ class EstimateRequestSerializer(serializers.Serializer):
         return attrs
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
-        try:
-            RecordingsQuery.model_validate(value)
-        except PydanticValidationError:
-            raise serializers.ValidationError("Recording filter is invalid.")
-        _reject_direct_experiment_exposure(value)
-        return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
+        return _clean_query(value)
 
 
 class ScannerTypeStatsSerializer(serializers.Serializer):
@@ -1651,25 +1633,13 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
 HIGHLIGHT_FEED_DEFAULT_LIMIT = 20
 HIGHLIGHT_FEED_MAX_LIMIT = 50
 HIGHLIGHT_FEED_DEFAULT_DATE_FROM = "-7d"
+# The `date_from` values the feed stores builds for, by window in days.
+HIGHLIGHT_FEED_PRESETS = {"-24h": 1, "-1d": 1, "-7d": 7, "-30d": 30, "-90d": 90}
 # Widest window one request may rank.
 HIGHLIGHT_FEED_MAX_WINDOW_DAYS = 90
 # The most picks one load ranks, and the furthest `offset` may reach.
 HIGHLIGHT_FEED_CANDIDATE_CAP = 1000
 HIGHLIGHT_FEED_IMPRESSIONS_MAX_IDS = 100
-# Loads in one bucket share their picks, so a reload or tab switch skips the pick query.
-HIGHLIGHT_FEED_PICKS_BUCKET_S = 10 * 60
-# Outlives the bucket by long enough to cover a reader scrolling one load.
-HIGHLIGHT_FEED_PICKS_CACHE_TTL_S = HIGHLIGHT_FEED_PICKS_BUCKET_S + 15 * 60
-
-
-def refresh_feed_viewed(rows: list[dict[str, Any]], viewer_id: int, as_of: datetime) -> list[dict[str, Any]]:
-    """Cached rows with `feed_viewed` as of `as_of`."""
-    viewed = set(
-        ReplayObservationView.objects.filter(
-            user_id=viewer_id, created_at__lte=as_of, observation_id__in=[row["id"] for row in rows]
-        ).values_list("observation_id", flat=True)
-    )
-    return [{**row, "feed_viewed": row["id"] in viewed} for row in rows]
 
 
 class HighlightFeedCategory(models.TextChoices):
@@ -1764,7 +1734,7 @@ class HighlightFeedQuerySerializer(serializers.Serializer):
         categories = set(validate_csv_choices(value, frozenset(ISSUE_CATEGORIES), "categories"))
         if not categories:
             raise serializers.ValidationError("Include at least one category.")
-        # Every category is the unfiltered feed, so it shares that feed's cached picks.
+        # Every category is the unfiltered feed, so both spellings read alike.
         return None if categories == set(ISSUE_CATEGORIES) else sorted(categories)
 
     def validate_scanner_ids(self, value: str) -> list[UUID]:
@@ -2503,82 +2473,58 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ).values_list("id", flat=True)
             )
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in created_ids]
-        # The scanner list stays off this base: the pick query adds it once per scanner in its lateral join.
-        candidates = ReplayObservation.objects.filter(
-            team_id=self.team_id,
-            status=ObservationStatus.SUCCEEDED,
-            created_at__gte=date_from,
-            created_at__lte=window_end,
-            completed_at__lte=as_of,
-        )
         if params.get("scanner_type"):
-            candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
+            typed_ids = set(
+                scanners_for_reading_observations(self.team_id)
+                .filter(id__in=allowed_ids, scanner_type=params["scanner_type"])
+                .values_list("id", flat=True)
+            )
+            allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in typed_ids]
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful never takes a slot.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
-        dismissed_ids = sorted(
+        dismissed_ids = list(
             ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of).values_list(
                 "observation_id", flat=True
             )
         )
-        walkable = candidates.exclude(id__in=dismissed_ids)
         viewed = Exists(
             ReplayObservationView.objects.filter(
                 observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
             )
         )
-        # Keyed on the bucket `as_of` falls in, so loads in one bucket share picks, and on the dismissals and the
-        # readable experiments, so a dismissal or an access change ranks afresh.
-        picks_key = (
-            "replay_vision:highlight_picks:"
-            + hashlib.sha256(
-                json.dumps(
-                    [
-                        self.team_id,
-                        viewer_id,
-                        int(as_of.timestamp()) // HIGHLIGHT_FEED_PICKS_BUCKET_S,
-                        params["date_from"],
-                        params.get("date_to"),
-                        list(map(str, dismissed_ids)),
-                        sorted(readable_experiment_ids(self.user_access_control, self.team_id)),
-                        sorted(map(str, allowed_ids)),
-                        params.get("scanner_type"),
-                        params.get("categories"),
-                    ]
-                ).encode()
-            ).hexdigest()
-        )
-        cached = cache.get(picks_key)
-        # Picks ranked as of a later moment may hold rows this load's first page never saw, so they don't serve it.
-        if cached is not None and cached[0] <= as_of:
-            picked_as_of, candidate_rows = cached
-            # An earlier load in the bucket ranked these, so its views may be older than this one's.
-            if picked_as_of != as_of:
-                candidate_rows = refresh_feed_viewed(candidate_rows, viewer_id, as_of)
-        else:
-            # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
-            candidate_rows = select_embedding_picks(
-                walkable,
-                allowed_ids,
-                viewed,
-                self.user_access_control,
+        categories = params.get("categories") or ISSUE_CATEGORIES
+        candidate_rows = select_embedding_picks(
+            feed_window(
                 self.team_id,
-                HIGHLIGHT_FEED_CANDIDATE_CAP,
-                params.get("categories") or ISSUE_CATEGORIES,
+                date_from,
+                window_end,
+                as_of,
+                None if date_to is not None else HIGHLIGHT_FEED_PRESETS.get(params["date_from"]),
+            ),
+            allowed_ids,
+            viewed,
+            self.user_access_control,
+            self.team_id,
+            HIGHLIGHT_FEED_CANDIDATE_CAP,
+            categories,
+            dismissed_ids,
+        )
+        # Picks in one feed group collapse into one card, so the floor counts groups.
+        pick_roots = {row["watch_group_root"] for row in candidate_rows}
+        if len(pick_roots) < HIGHLIGHT_FEED_MIN_ITEMS:
+            walkable = ReplayObservation.objects.filter(
+                team_id=self.team_id,
+                status=ObservationStatus.SUCCEEDED,
+                created_at__gte=date_from,
+                created_at__lte=window_end,
+                completed_at__lte=as_of,
+            ).exclude(id__in=dismissed_ids)
+            # Padding must not bring back a session the viewer hid by its category.
+            hidden = [category for category in ISSUE_CATEGORIES if category not in categories]
+            candidate_rows += select_embedding_filler(
+                walkable, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots, hidden
             )
-            # Picks in one feed group collapse into one card, so the floor counts groups.
-            pick_roots = {row["watch_group_root"] for row in candidate_rows}
-            if len(pick_roots) < HIGHLIGHT_FEED_MIN_ITEMS:
-                filler_base = walkable
-                if params.get("categories"):
-                    # Padding must not bring back a session the viewer hid by its category.
-                    hidden = [category for category in ISSUE_CATEGORIES if category not in params["categories"]]
-                    filler_base = walkable.exclude(watch_rank__category__in=hidden)
-                candidate_rows += select_embedding_filler(
-                    filler_base, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
-                )
-            # The first load in the bucket keeps the entry, so concurrent loads never replace it with later picks.
-            cache.add(picks_key, (as_of, candidate_rows), HIGHLIGHT_FEED_PICKS_CACHE_TTL_S)
         page_end = params["offset"] + params["limit"]
         impressions = feed_impression_counts(
             team_id=self.team_id,
