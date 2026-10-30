@@ -256,11 +256,14 @@ function fail(message) {
     process.exitCode = 1
 }
 
+function encodeWorkflowCommandValue(message) {
+    return message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
+}
+
 function warnViolation(message) {
     console.warn(`\n⚠️ ${message}`)
-    const encoded = message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
     // console.info (not console.log, which oxlint strips) writes to stdout, where GitHub Actions parses workflow commands.
-    console.info(`::warning title=Eager graph budget::${encoded}`)
+    console.info(`::warning title=Eager graph budget::${encodeWorkflowCommandValue(message)}`)
 }
 
 function assertReport(reportFilePath) {
@@ -332,7 +335,9 @@ function assertGrowth(reportFilePath, baseReportPath) {
             warnViolation(`${summary} The pull request labels could not be read, so this does not fail CI.`)
         } else {
             console.error(`\n❌ ${summary}\n${approvalHint}`)
-            console.info(`::error title=Eager graph growth::${summary} ${approvalHint}`)
+            console.info(
+                `::error title=Eager graph growth::${encodeWorkflowCommandValue(`${summary} ${approvalHint}`)}`
+            )
             blocking++
         }
     }
