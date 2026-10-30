@@ -469,6 +469,12 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["business_knowledge:read"],
     )
     def availability(self, request: Request, **kwargs) -> Response:
+        # A grant on one source passes this viewset's permissions, but these flags describe the whole resource.
+        access_controls = [self.user_access_control]
+        if self.team.parent_team_id:
+            access_controls.append(canonical_user_access_control(self))
+        if not all(ac.check_access_level_for_resource("business_knowledge", "viewer") for ac in access_controls):
+            raise exceptions.PermissionDenied(detail="You need access to business knowledge in this project.")
         return Response(
             KnowledgeAvailabilitySerializer(
                 {

@@ -630,9 +630,10 @@ def list_for_team(
     return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at", "id"))
 
 
-@with_team_scope(canonical=True)
 def has_sources(team_id: int) -> bool:
-    return KnowledgeSource.objects.filter(team_id=team_id).exists()
+    canonical_team_id = resolve_effective_team_id(team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        return KnowledgeSource.objects.filter(team_id=canonical_team_id).exists()
 
 
 @with_team_scope(canonical=True)

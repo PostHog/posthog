@@ -12,6 +12,7 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.business_knowledge.backend.github_repos import MAX_GITHUB_REPOS
+from products.business_knowledge.backend.logic import has_sources
 from products.business_knowledge.backend.models import KnowledgeSource, SourceType, TeamBusinessKnowledgeConfig
 
 BILLING = "acme/billing"
@@ -113,6 +114,10 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         self._connect()
         self._select([BILLING])
         assert self.client.get(url).json() == {"has_sources": True, "has_repositories": True}
+        child = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="Child"
+        )
+        assert has_sources(child.id)
 
     def test_select_stores_lowercased_names(self, _capture, _flag) -> None:
         self._connect()

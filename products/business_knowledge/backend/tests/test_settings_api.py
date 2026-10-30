@@ -319,6 +319,11 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
 
+    def test_a_grant_on_one_source_does_not_open_availability(self, _ff) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/business_knowledge/sources/availability/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
     def test_a_grant_on_one_source_does_not_change_its_libraries(self, _ff) -> None:
         library = create_library(self.team.id, "Docs")
         replace_library_sources(self.team.id, library.id, [self.source.id])
