@@ -324,7 +324,7 @@ def generate_event_definition_lookup(input: GenerateDigestDataBatchInput) -> Non
 class _ListDigestExperiments(Protocol):
     def __call__(
         self, *, period_start: datetime, period_end: datetime, team_ids: range
-    ) -> Sequence[DigestLaunchedExperiment] | Sequence[DigestCompletedExperiment]: ...
+    ) -> Iterable[DigestLaunchedExperiment | DigestCompletedExperiment]: ...
 
 
 def _generate_experiment_lookup(

@@ -363,37 +363,33 @@ class TeamExperimentsConfigSerializer(serializers.Serializer):
         ),
     )
 
-    def validate_experiment_recalculation_times(self, value: list[str] | None) -> list[str] | None:
+    def validate_experiment_recalculation_times(self, value: list[str] | None) -> tuple[str, ...] | None:
         # The settings update repeats this check. It runs here too so that, for a request with several
         # invalid fields, the 400 names the first invalid field in field order.
         try:
             experiments_api.validate_recalculation_times(value)
         except ExperimentValidationError as error:
             raise serializers.ValidationError(str(error))
-        return value
-
-
-def _experiments_settings_update(validated_data: dict[str, Any]) -> TeamExperimentsSettingsUpdate:
-    if (times := validated_data.get("experiment_recalculation_times")) is not None:
-        validated_data = {**validated_data, "experiment_recalculation_times": tuple(times)}
-    return TeamExperimentsSettingsUpdate(**validated_data)
+        return None if value is None else tuple(value)
 
 
 def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
     """Shared handler for the experiments_config action — exposed under both the
     team/environment and project routers so both surfaces stay in parity."""
-    # The first read creates the settings row with the defaults, also for a PATCH whose input is then rejected.
-    experiments_settings = experiments_api.get_team_experiments_settings(team.id)
-
     if request.method == "PATCH":
         serializer = TeamExperimentsConfigSerializer(data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            # Every request creates the settings row with the defaults when it is missing, a rejected PATCH too.
+            experiments_api.get_team_experiments_settings(team.id)
+            raise serializers.ValidationError(serializer.errors)
         try:
             experiments_settings = experiments_api.update_team_experiments_settings(
-                team_id=team.id, update=_experiments_settings_update(serializer.validated_data)
+                team_id=team.id, update=TeamExperimentsSettingsUpdate(**serializer.validated_data)
             )
         except ExperimentValidationError as error:
             raise serializers.ValidationError({error.field: [str(error)]} if error.field else [str(error)])
+    else:
+        experiments_settings = experiments_api.get_team_experiments_settings(team.id)
 
     return response.Response(TeamExperimentsConfigSerializer(experiments_settings).data)
 
