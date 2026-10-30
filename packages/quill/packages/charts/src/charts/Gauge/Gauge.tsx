@@ -11,8 +11,6 @@ import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme, TooltipConte
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
 import { measureLabelWidth } from '../../utils/text-measure'
-import { buildYTickFormatter } from '../../utils/y-formatters'
-import type { YFormatterConfig } from '../../utils/y-formatters'
 import { drawGauge } from './draw-gauge'
 import type { GaugePaint } from './draw-gauge'
 import { initialGaugeColors, resolveGaugeColors } from './gauge-colors'
@@ -48,9 +46,9 @@ export interface GaugeConfig {
     /** Arc thickness as a fraction of the gauge radius, so it scales with the container, up to 28px.
      *  Default 0.15. */
     thickness?: number
-    /** Formats the value, the min and max labels, and the tooltip with the library's axis formatters
-     *  (`duration`, `percentage`, `currency`, prefixes and suffixes). Ignored when `valueFormatter` is set. */
-    valueFormat?: YFormatterConfig
+    /** Formats the value, the min and max labels, and the tooltip. `buildYTickFormatter` builds one from
+     *  the axis format options (`duration`, `percentage`, `currency`, prefixes and suffixes). */
+    valueFormatter?: (value: number) => string
     /** Show the min and max under the arc ends. Default true. Always hidden above a 300° sweep, where
      *  the ends meet, and when the two labels would overlap. */
     showMinMax?: boolean
@@ -90,8 +88,6 @@ export interface GaugeProps {
     label?: string
     /** Marks a value on the track with a tick, such as an SLO target. Hidden when outside the range. */
     target?: number | GaugeTarget
-    /** Formats the value, the min and max labels, and the tooltip. Wins over `config.valueFormat`. */
-    valueFormatter?: (value: number) => string
     /** Shape, formatting, animation, and tooltip options. */
     config?: GaugeConfig
     /** Replaces the default tooltip content. */
@@ -194,7 +190,6 @@ function GaugeInner({
     theme,
     label,
     target: rawTarget,
-    valueFormatter,
     config,
     tooltip,
     className,
@@ -203,7 +198,7 @@ function GaugeInner({
     const {
         sweepAngle,
         thickness = DEFAULT_GAUGE_THICKNESS,
-        valueFormat,
+        valueFormatter,
         showMinMax = true,
         showThresholdBands,
         trackColor: trackColorProp,
@@ -229,10 +224,7 @@ function GaugeInner({
         margins: ZERO_MARGINS,
     })
 
-    const formatValue = useMemo(
-        () => valueFormatter ?? (valueFormat ? buildYTickFormatter(valueFormat) : defaultFormatter),
-        [valueFormatter, valueFormat]
-    )
+    const formatValue = valueFormatter ?? defaultFormatter
 
     // Keyed on the content, so an inline `thresholds={[…]}` does not re-resolve colors and repaint the
     // canvas on every parent render. A threshold list is a handful of steps, so the key is cheap.

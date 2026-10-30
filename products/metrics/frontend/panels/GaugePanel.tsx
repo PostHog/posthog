@@ -90,7 +90,7 @@ export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps)
                         color={`var(--${FALLBACK_COLOR})`}
                         theme={theme}
                         label={cell.name}
-                        valueFormatter={cell.formatValue}
+                        config={{ valueFormatter: cell.formatValue }}
                         dataAttr="metrics-gauge"
                     />
                 </div>

@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useEffect, useState } from 'react'
 
 import { playHoverAtFraction, Stage, useReactiveTheme } from '../../story-helpers'
+import { buildYTickFormatter } from '../../utils/y-formatters'
 import { Gauge } from './Gauge'
 import type { GaugeThreshold } from './gauge-layout'
 
@@ -45,7 +46,7 @@ export const Thresholds: Story = {
                     thresholds={HEALTH}
                     theme={theme}
                     label="CPU"
-                    config={{ valueFormat: { format: 'percentage' } }}
+                    config={{ valueFormatter: buildYTickFormatter({ format: 'percentage' }) }}
                 />
             </Stage>
         )
@@ -72,7 +73,7 @@ export const TargetMarker: Story = {
                     target={{ value: 0.94, label: 'SLO' }}
                     theme={theme}
                     label="Apdex"
-                    config={{ valueFormat: { decimalPlaces: 2 } }}
+                    config={{ valueFormatter: buildYTickFormatter({ decimalPlaces: 2 }) }}
                 />
             </Stage>
         )
@@ -107,7 +108,7 @@ export const Durations: Story = {
                     target={300}
                     theme={theme}
                     label="p95 latency"
-                    config={{ valueFormat: { format: 'duration_ms' } }}
+                    config={{ valueFormatter: buildYTickFormatter({ format: 'duration_ms' }) }}
                 />
             </Stage>
         )
@@ -128,7 +129,7 @@ export const Shapes: Story = {
                             thresholds={HEALTH}
                             theme={theme}
                             label={`${sweepAngle}°`}
-                            config={{ sweepAngle, valueFormat: { format: 'percentage' } }}
+                            config={{ sweepAngle, valueFormatter: buildYTickFormatter({ format: 'percentage' }) }}
                         />
                     </Stage>
                 ))}
@@ -154,7 +155,7 @@ export const Tiny: Story = {
                         thresholds={HEALTH}
                         theme={theme}
                         label="Bytes"
-                        config={{ valueFormat: { format: 'short' } }}
+                        config={{ valueFormatter: buildYTickFormatter({ format: 'short' }) }}
                     />
                 </Stage>
             </div>
@@ -179,7 +180,7 @@ export const Large: Story = {
                     target={{ value: 99.9, label: 'SLO' }}
                     theme={theme}
                     label="Availability, 30 days"
-                    config={{ valueFormat: { suffix: '%', decimalPlaces: 2 } }}
+                    config={{ valueFormatter: buildYTickFormatter({ suffix: '%', decimalPlaces: 2 }) }}
                 />
             </Stage>
         )
@@ -207,7 +208,7 @@ export const GridOfTwelve: Story = {
                             thresholds={HEALTH}
                             theme={theme}
                             label={pod.name}
-                            config={{ valueFormat: { format: 'percentage' } }}
+                            config={{ valueFormatter: buildYTickFormatter({ format: 'percentage' }) }}
                         />
                     </div>
                 ))}
@@ -264,7 +265,7 @@ export const Animated: Story = {
                     target={90}
                     theme={theme}
                     label="CPU"
-                    config={{ valueFormat: { format: 'percentage' } }}
+                    config={{ valueFormatter: buildYTickFormatter({ format: 'percentage' }) }}
                 />
             </Stage>
         )

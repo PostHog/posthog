@@ -38,7 +38,7 @@ describe('Gauge', () => {
                 max={100}
                 thresholds={THRESHOLDS}
                 theme={THEME}
-                valueFormatter={(v) => `${v}%`}
+                config={{ valueFormatter: (v) => `${v}%` }}
             />,
             { nativeTooltip: true }
         )
