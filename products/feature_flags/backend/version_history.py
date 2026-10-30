@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any
 
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
@@ -209,56 +210,51 @@ def find_version_at_timestamp(flag: FeatureFlag, timestamp: datetime, team_id: i
     if timestamp < flag.created_at:
         return None
 
-    # Get activity log entries at or before the timestamp, newest first
-    entries = (
-        ActivityLog.objects.filter(
-            team_id=team_id,
-            scope="FeatureFlag",
-            item_id=str(flag.id),
-            activity__in=["updated", "deleted", "restored"],
-            created_at__lte=timestamp,
-        )
-        .order_by("-created_at", "-id")
-        .values_list("activity", "detail")[:MAX_HISTORY_ENTRIES]
-        .iterator()
-    )
+    history = ActivityLog.objects.filter(
+        team_id=team_id,
+        scope="FeatureFlag",
+        item_id=str(flag.id),
+        created_at__lte=timestamp,
+    ).order_by("-created_at", "-id")
 
     # Deletion state and version are resolved independently. The most recent
     # entry that changed deletion state at or before the timestamp decides
     # existence, while a versioned "updated" entry does not, since a deleted
     # flag's row can still receive versioned writes (and bulk deletes log
-    # "deleted" with empty changes). The most recent entry with a version
-    # change decides the version. Deletion state comes from the activity name
-    # AND from a `deleted` field change: before #41043 (2025-11-19), soft
+    # "deleted" with empty changes). Deletion state comes from the activity
+    # name AND from a `deleted` field change: before #41043 (2025-11-19), soft
     # deletes and restores through PATCH were logged as "updated" with a
     # `deleted` change, and those legacy entries still decide existence.
-    alive_confirmed = False
-    version_at_timestamp: int | None = None
-    for activity, detail in entries:
+    lifecycle_entry = (
+        history.filter(Q(activity__in=["deleted", "restored"]) | Q(detail__changes__contains=[{"field": "deleted"}]))
+        .values_list("activity", "detail")
+        .first()
+    )
+    if lifecycle_entry is not None:
+        activity, detail = lifecycle_entry
         changes = (detail or {}).get("changes") or []
-        version_after = _get_version_after(changes)
         deleted_after = next(
             (change.get("after") for change in changes if change.get("field") == "deleted"),
             None,
         )
-
-        if version_after is not None and version_at_timestamp is None:
-            version_at_timestamp = version_after
-
-        if (activity == "deleted" or bool(deleted_after)) and not alive_confirmed:
+        marks_deleted = activity == "deleted" or bool(deleted_after)
+        if marks_deleted:
             return None
-        if activity == "restored" or (deleted_after is not None and not deleted_after):
-            alive_confirmed = True
 
-        if alive_confirmed and version_at_timestamp is not None:
-            return version_at_timestamp
+    # The most recent entry with a version change decides the version.
+    details = (
+        history.filter(activity__in=["updated", "deleted", "restored"])
+        .values_list("detail", flat=True)[:MAX_HISTORY_ENTRIES]
+        .iterator()
+    )
+    for detail in details:
+        version_after = _get_version_after((detail or {}).get("changes") or [])
+        if version_after is not None:
+            return version_after
 
-    if version_at_timestamp is not None:
-        return version_at_timestamp
-
-    # No activity log entries found. If timestamp is after the flag's last update,
-    # return the current version. The scan has authoritative deletion state,
-    # or we wouldn't reach here.
+    # No versioned entries found. If timestamp is after the flag's last update,
+    # return the current version. The lifecycle lookup above has authoritative
+    # deletion state, or we wouldn't reach here.
     if timestamp >= (flag.updated_at or flag.created_at):
         return flag.version
 

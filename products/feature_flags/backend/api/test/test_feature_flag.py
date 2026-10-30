@@ -15000,11 +15000,14 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("did not exist", after_response.json()["error"])
         self.assertEqual(mock_get_flags.call_count, 1)
 
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
-    def test_test_evaluation_with_timestamp_rejects_encrypted_payload_flags(self):
+    def test_test_evaluation_with_timestamp_rejects_encrypted_payload_flags(self, mock_get_flags, mock_build_props):
         """The reconstructed override would carry the stored ciphertext for a flag the
         team's flag list deliberately excludes, so historical evaluation must refuse
-        encrypted-payload flags the same way the versions endpoint does."""
+        encrypted-payload flags the same way the versions endpoint does. The first
+        gate fires before any ClickHouse or flags-service work."""
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="encrypted-flag",
@@ -15026,6 +15029,8 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("encrypted payloads", response.json()["error"])
+        mock_build_props.assert_not_called()
+        mock_get_flags.assert_not_called()
 
     @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
@@ -15199,6 +15204,43 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertIn("Cohort dependency not found", response.json()["error"])
+
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_transient_failure_returns_502(self, mock_get_flags, _mock_build_props):
+        """A transient service failure (timeout, connection exhaustion) is not a
+        property of the request, so it keeps a 5xx that retries and alerting
+        can see, unlike the deterministic dependency 400 above."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="transient-failing-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+            version=1,
+        )
+        create_person(team=self.team, distinct_ids=["test-user"])
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "transient-failing-flag": {
+                    "enabled": False,
+                    "failed": True,
+                    "variant": None,
+                    "reason": {"code": "group_mapping_retry", "description": "Failed to fetch group mapping"},
+                    "metadata": {},
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "timestamp": flag.created_at.isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY, response.json())
+        self.assertIn("Failed to fetch group mapping", response.json()["error"])
 
     def test_test_evaluation_distinct_id_person_id_conflict(self):
         """Test validation error when both distinct_id and person_id are provided."""

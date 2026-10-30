@@ -6163,14 +6163,25 @@ class FeatureFlagViewSet(
                     reason_description = reason_data.get("description") if reason_data else None
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
-                    # A failed per-flag result (e.g. a cohort the service could not
-                    # resolve) also comes back without conditions. Report it as an
-                    # evaluation error, not as the service misconfiguration the
-                    # missing-conditions branch below assumes.
+                    # A failed per-flag result also comes back without conditions.
+                    # Split it by cause: a dependency the definition cannot resolve
+                    # is deterministic, so a 400 tells the caller the request itself
+                    # cannot succeed. Anything else (timeouts, connection
+                    # exhaustion) is transient service trouble, so keep a logged
+                    # 5xx that retries and alerting can see.
                     if timestamp and flag_result.get("failed"):
+                        if reason.startswith(("dependency_not_found", "dependency_cycle")):
+                            return Response(
+                                {"error": f"Historical evaluation failed: {reason_description or reason}."},
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+                        logger.error(
+                            "Historical evaluation failed in the flags service",
+                            extra={"flag_key": feature_flag.key, "reason": reason},
+                        )
                         return Response(
-                            {"error": f"Historical evaluation failed: {reason_description or reason}."},
-                            status=status.HTTP_400_BAD_REQUEST,
+                            {"error": f"Historical evaluation failed: {reason_description or reason}. Try again."},
+                            status=status.HTTP_502_BAD_GATEWAY,
                         )
                     # Extract conditions from flag result (only valid path per Rust FlagDetails contract).
                     # When ``timestamp`` is set, missing conditions almost certainly means Rust

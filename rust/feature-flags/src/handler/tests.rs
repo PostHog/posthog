@@ -39,7 +39,8 @@ use crate::{
         test_utils::{
             flag_list_with_metadata_and_filter, insert_flags_for_team_in_redis,
             mock_group_type_cache, setup_hypercache_reader, setup_pg_reader_client,
-            setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
+            setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader,
+            write_flags_wire_json_to_redis, TestContext,
         },
     },
 };
@@ -1544,10 +1545,7 @@ async fn test_fetch_and_filter_override_adds_flag_missing_from_team_list() {
         cohorts: None,
     };
     let json_string = serde_json::to_string(&wrapper).unwrap();
-    let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
-    let cache_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
-    redis_client
-        .set_bytes(cache_key, pickled_bytes, None)
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
         .await
         .unwrap();
 
@@ -1628,10 +1626,7 @@ async fn test_fetch_and_filter_override_add_preserves_unparseable_marker() {
     let team = context.insert_new_team(None).await.unwrap();
 
     let json_string = payload_with_unparseable_flag(team.id).to_string();
-    let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
-    let cache_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
-    redis_client
-        .set_bytes(cache_key, pickled_bytes, None)
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
         .await
         .unwrap();
 
@@ -1714,10 +1709,7 @@ async fn test_fetch_and_filter_override_drops_scoped_cohort_list() {
         cohorts: Some(vec![]),
     };
     let json_string = serde_json::to_string(&wrapper).unwrap();
-    let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
-    let cache_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
-    redis_client
-        .set_bytes(cache_key, pickled_bytes, None)
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
         .await
         .unwrap();
 
@@ -1772,6 +1764,108 @@ async fn test_fetch_and_filter_override_drops_scoped_cohort_list() {
     );
 }
 
+/// A REPLACED flag's historical version can depend on flags its live version
+/// does not. The recompute must run for replacements too, or the cached
+/// `transitive_deps` would leave the dependency unevaluated and the condition
+/// would read as a silent non-match.
+#[tokio::test]
+async fn test_fetch_and_filter_replace_override_recomputes_metadata() {
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    // Two independent live flags: the cached metadata has no edges.
+    let flags = vec![
+        mock!(FeatureFlag,
+            name: "Flag A".mock_into(),
+            id: 1,
+            key: "flag-a".mock_into(),
+            team_id: team.id,
+            filters: FlagFilters::default()
+        ),
+        mock!(FeatureFlag,
+            name: "Flag B".mock_into(),
+            id: 2,
+            key: "flag-b".mock_into(),
+            team_id: team.id,
+            filters: FlagFilters::default()
+        ),
+    ];
+    let eval_metadata = EvaluationMetadata {
+        dependency_stages: vec![vec![1, 2]],
+        flags_with_missing_deps: vec![],
+        transitive_deps: HashMap::from([
+            (1, std::collections::HashSet::new()),
+            (2, std::collections::HashSet::new()),
+        ]),
+        ..Default::default()
+    };
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.clone(),
+        evaluation_metadata: eval_metadata,
+        cohorts: Some(vec![]),
+    };
+    let json_string = serde_json::to_string(&wrapper).unwrap();
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
+        .await
+        .unwrap();
+
+    // The historical version of flag-a depended on flag-b.
+    let override_def = json!({
+        "id": 1,
+        "team_id": team.id,
+        "name": "Flag A at the timestamp",
+        "key": "flag-a",
+        "filters": { "groups": [{
+            "properties": [{
+                "key": "2",
+                "type": "flag",
+                "value": "true",
+                "operator": "flag_evaluates_to",
+            }],
+            "rollout_percentage": 100,
+        }] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> = HashMap::from([("flag-a".to_string(), override_def)]);
+
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &FlagsQueryParams::default(),
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        result.evaluation_metadata.transitive_deps.get(&1),
+        Some(&std::collections::HashSet::from([2])),
+        "replace-path override must recompute transitive deps (got {:?})",
+        result.evaluation_metadata.transitive_deps
+    );
+    assert!(
+        result.cohorts.is_none(),
+        "an applied override must drop the scoped cohort list"
+    );
+}
+
 /// An added flag can depend on a flag that is itself still deleted and so
 /// absent from the merged list. The metadata recompute must mark the added
 /// flag as missing a dependency (it then fails closed), and the live flag
@@ -1813,10 +1907,7 @@ async fn test_fetch_and_filter_override_add_with_missing_dependency_fails_closed
         cohorts: None,
     };
     let json_string = serde_json::to_string(&wrapper).unwrap();
-    let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
-    let cache_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
-    redis_client
-        .set_bytes(cache_key, pickled_bytes, None)
+    write_flags_wire_json_to_redis(redis_client.clone(), team.id, json_string)
         .await
         .unwrap();
 

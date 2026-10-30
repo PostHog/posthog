@@ -173,69 +173,49 @@ fn apply_flag_overrides(
                 continue;
             }
         };
-        let Some(flag) = flags.iter_mut().find(|f| &f.key == flag_key) else {
-            // The key is not in the team's list, so this is a reconstructed
-            // deleted flag. Guards: the payload's key must match the map key, the
-            // payload must belong to the requesting team, and its id must not
-            // collide with an existing flag (duplicate ids would corrupt the
-            // id-keyed evaluation stages).
-            if override_flag.key != *flag_key || override_flag.team_id != request_team_id {
-                tracing::warn!(
-                    "Override identity mismatch for added flag {}: skipping (override key={:?}, team_id={}; request team_id={})",
-                    flag_key,
-                    override_flag.key,
-                    override_flag.team_id,
-                    request_team_id
-                );
-                continue;
-            }
-            if flags.iter().any(|f| f.id == override_flag.id) {
-                tracing::warn!(
-                    "Override for flag {} reuses id {} of an existing flag: skipping",
-                    flag_key,
-                    override_flag.id
-                );
-                continue;
-            }
-            tracing::debug!(
-                "Adding override definition for flag absent from team list: {}",
-                flag_key
-            );
-            flags.push(override_flag);
-            overridden_keys.push(flag_key.clone());
-            continue;
-        };
-        tracing::trace!(
-            "Found flag to override: {}, current filters: {:?}",
-            flag_key,
-            flag.filters
-        );
-        // Identity guard: a caller must not be able to use the override to
-        // swap in another flag's identity. The override is keyed by flag_key
-        // alone, so we reject payloads whose embedded key/id/team_id disagree
-        // with the flag we resolved from the team's flag list.
-        if override_flag.key != *flag_key
-            || override_flag.id != flag.id
-            || override_flag.team_id != flag.team_id
-        {
+        // Identity guards shared by both paths: the override map is keyed by
+        // flag_key alone, so the payload's embedded key must match it, and the
+        // payload must belong to the requesting team (every flag in `flags`
+        // does, since both list sources filter by team).
+        if override_flag.key != *flag_key || override_flag.team_id != request_team_id {
             tracing::warn!(
-                "Override identity mismatch for flag {}: skipping (override key={:?}, id={}, team_id={}; expected key={:?}, id={}, team_id={})",
+                "Override identity mismatch for flag {}: skipping (override key={:?}, team_id={}; request team_id={})",
                 flag_key,
                 override_flag.key,
-                override_flag.id,
                 override_flag.team_id,
-                flag.key,
-                flag.id,
-                flag.team_id
+                request_team_id
             );
             continue;
         }
-        tracing::trace!(
-            "Successfully parsed override flag: {}, new filters: {:?}",
-            flag_key,
-            override_flag.filters
-        );
-        *flag = override_flag;
+        match flags.iter().position(|f| &f.key == flag_key) {
+            Some(index) => {
+                // A payload must not swap in another flag's identity.
+                if override_flag.id != flags[index].id {
+                    tracing::warn!(
+                        "Override for flag {} has id {}, expected {}: skipping",
+                        flag_key,
+                        override_flag.id,
+                        flags[index].id
+                    );
+                    continue;
+                }
+                flags[index] = override_flag;
+            }
+            None => {
+                // The key is not in the team's list, so this is a reconstructed
+                // deleted flag: add it. Evaluation stages are keyed by id, so
+                // the added flag must not reuse an existing flag's id.
+                if flags.iter().any(|f| f.id == override_flag.id) {
+                    tracing::warn!(
+                        "Override for flag {} reuses id {} of an existing flag: skipping",
+                        flag_key,
+                        override_flag.id
+                    );
+                    continue;
+                }
+                flags.push(override_flag);
+            }
+        }
         overridden_keys.push(flag_key.clone());
     }
     overridden_keys
@@ -259,7 +239,8 @@ pub async fn fetch_and_filter(
 
     // Apply override flag definitions if provided. Overrides require a clone
     // because `prepared.flags` is Arc-backed and shared across requests.
-    // `overridden_metadata` is Some whenever an override was applied. The
+    // `overridden` is Some only when an override actually applied; a request
+    // whose overrides were all rejected falls back to the cached list. The
     // cached evaluation metadata was computed from the live definitions: an
     // ADDED flag (a reconstructed soft-deleted flag) sits in no dependency
     // stage, so it would never evaluate and the staging math would miscount
@@ -271,41 +252,41 @@ pub async fn fetch_and_filter(
     // stays absent from the list, so the recompute marks the added flag as
     // missing a dependency and it fails closed, same as any unresolvable
     // dependency.
-    let (overridden_flags, overridden_metadata): (
-        Option<PreparedFlags>,
-        Option<Arc<EvaluationMetadata>>,
-    ) = match override_flags_definitions {
-        Some(override_defs) => {
-            let mut flags_vec: Vec<FeatureFlag> = prepared.flags.iter().cloned().collect();
-            let overridden_keys = apply_flag_overrides(&mut flags_vec, override_defs, team_id);
-            let any_applied = !overridden_keys.is_empty();
-            if any_applied {
-                with_canonical_log(|log| {
-                    log.flags_overridden = Some(overridden_keys);
-                });
+    let overridden: Option<(PreparedFlags, Arc<EvaluationMetadata>)> =
+        match override_flags_definitions {
+            Some(override_defs) => {
+                let mut flags_vec: Vec<FeatureFlag> = prepared.flags.iter().cloned().collect();
+                let overridden_keys = apply_flag_overrides(&mut flags_vec, override_defs, team_id);
+                if overridden_keys.is_empty() {
+                    None
+                } else {
+                    with_canonical_log(|log| {
+                        log.flags_overridden = Some(overridden_keys);
+                    });
+                    // `has_unparseable_flags` is read-time state (set when the
+                    // cache read skipped or omitted a flag), not derivable from
+                    // the flag list, so the recompute must carry it over or a
+                    // partial evaluation would stop reporting
+                    // errorsWhileComputingFlags.
+                    let metadata = Arc::new(EvaluationMetadata {
+                        has_unparseable_flags: prepared.evaluation_metadata.has_unparseable_flags,
+                        ..compute_flag_dependencies_or_single_stage(team_id, &flags_vec)
+                    });
+                    Some((PreparedFlags::seal(flags_vec), metadata))
+                }
             }
-            let metadata = any_applied.then(|| {
-                // `has_unparseable_flags` is read-time state (set when the cache
-                // read skipped or omitted a flag), not derivable from the flag
-                // list, so the recompute must carry it over or a partial
-                // evaluation would stop reporting errorsWhileComputingFlags.
-                Arc::new(EvaluationMetadata {
-                    has_unparseable_flags: prepared.evaluation_metadata.has_unparseable_flags,
-                    ..compute_flag_dependencies_or_single_stage(team_id, &flags_vec)
-                })
-            });
-            (Some(PreparedFlags::seal(flags_vec)), metadata)
-        }
-        None => (None, None),
+            None => None,
+        };
+    let overrides_applied = overridden.is_some();
+    let (prepared_flags, evaluation_metadata) = match overridden {
+        Some((flags, metadata)) => (flags, metadata),
+        None => (
+            PreparedFlags::from_arc(Arc::clone(prepared.flags.as_arc())),
+            Arc::clone(&prepared.evaluation_metadata),
+        ),
     };
-    // Metadata is Some exactly when an override was applied; the cohort
-    // handling below keys off the same condition.
-    let overrides_applied = overridden_metadata.is_some();
 
-    let flags: &[FeatureFlag] = match &overridden_flags {
-        Some(p) => p,
-        None => &prepared.flags,
-    };
+    let flags: &[FeatureFlag] = &prepared_flags;
 
     // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
     // This is the single source of truth for "should this flag be skipped during evaluation."
@@ -343,13 +324,9 @@ pub async fn fetch_and_filter(
     // of refcount bumps rather than a deep copy of the flag slice, the
     // `EvaluationMetadata` map, or the cohort vec.
     let flag_list = FeatureFlagList {
-        flags: match overridden_flags {
-            Some(p) => p,
-            None => PreparedFlags::from_arc(Arc::clone(prepared.flags.as_arc())),
-        },
+        flags: prepared_flags,
         filtered_out_flag_ids,
-        evaluation_metadata: overridden_metadata
-            .unwrap_or_else(|| Arc::clone(&prepared.evaluation_metadata)),
+        evaluation_metadata,
         // The cached cohort list only holds cohorts the team's live flags
         // reference. An override can name others (a reconstructed deleted
         // flag's cohort, or one an older version of a live flag targeted), and
