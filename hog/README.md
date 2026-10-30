@@ -11,15 +11,46 @@ It is not published yet.
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
 
-| Command                   | Status                                                                                                                  |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `hog auth login`          | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
-| `hog auth status`         | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
-| `hog auth logout`         | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
-| `hog query run <query>`   | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
-| `hog query check <query>` | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
-| `hog commands`            | Lists every command, its arguments, options and scopes.                                                                 |
-| Everything else           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
+| Command                                 | Status                                                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `hog auth login`                        | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
+| `hog auth status`                       | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
+| `hog auth logout`                       | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
+| `hog query run <query>`                 | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
+| `hog query check <query>`               | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
+| `hog error-tracking inject [paths...]`  | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.               |
+| `hog error-tracking clone <from> <to>`  | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                      |
+| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.  |
+| `hog error-tracking process [paths...]` | Runs `inject`, then `upload`. Use it in CI after the build.                                                             |
+| `hog error-tracking release`            | Finds or creates the release for this build. `-o text` prints just its ID.                                              |
+| `hog error-tracking download <id/ref>`  | Downloads a symbol set from PostHog and unpacks it.                                                                     |
+| `hog error-tracking extract <file>`     | Unpacks a symbol set file.                                                                                              |
+| `hog config check`, `hog config schema` | Check `posthog.json` against its schema, or print the schema.                                                           |
+| `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
+| Everything else                         | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
+
+## What's left
+
+hog replaces posthog-cli once everything below is done.
+
+First, the commands that make hog a complete CLI:
+
+- [ ] `hog api`: the agent-first MCP tool catalog, with `tools`, `search`, `info`, `schema`, `call`, `skill` and `agents-md`. posthog-cli runs an embedded JavaScript bundle through Node. hog can import the bundle and drop the Node requirement.
+- [ ] `hog endpoints`: `list`, `get`, `open`, `run`, `push`, `pull` and `diff`.
+- [ ] `hog schema`: `pull` and `status`, which download event definitions and generate a typed SDK.
+
+Then, once the commands above work:
+
+- [ ] Global options from posthog-cli: `--dry-run` and `POSTHOG_CLI_DRY_RUN`, which skip the whole command without credentials, `--no-fail`, `--skip-ssl-verification`, and `--rate-limit` with `POSTHOG_CLIENT_RATE_LIMIT`.
+- [ ] Telemetry: the `posthog cli command run` and `error_tracking_cli_sourcemaps_upload_*` events posthog-cli sends.
+- [ ] Callers: the SDKs, build plugins and scripts that run `posthog-cli` with its arguments. Move them to hog, or give hog a `posthog-cli` entry point that translates the arguments.
+- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, and CI on Linux and Windows.
+
+Not planned:
+
+- `posthog-cli exp query editor`, the interactive query editor in the terminal. hog won't port it.
+- `posthog-cli exp task`. hog won't port it.
+- `posthog-cli exp logs import`, which imports historical logs from Loki. Not planned for now.
 
 ## Agents, people and pipes
 
@@ -34,6 +65,61 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
 Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
+
+## posthog.json
+
+Project settings live in `posthog.json`, which hog looks for from the current folder up to the git root.
+It never holds API keys.
+Point `$schema` at the published schema to get validation in your editor:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/PostHog/posthog/master/hog/posthog.schema.json",
+  "errorTracking": {
+    "release": { "name": "my-app" },
+    "sources": [{ "path": "app/build/outputs/mapping/release", "mapId": "<map id>" }]
+  }
+}
+```
+
+`posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter @posthog/hog schema`.
+
+## Error tracking
+
+`hog error-tracking` finds the artifacts in each path and detects their type from the files:
+
+- a `.js`, `.mjs` or `.cjs` file is a JavaScript bundle when its sourcemap exists, through its `sourceMappingURL` comment or a `.map` file next to it
+- a `.bundle` or `.jsbundle` file is a React Native bundle when its sourcemap exists
+- a `.map` file is a Hermes map when it has `x_hermes_function_offsets`, which only the Hermes compiler writes
+- a `.txt` file is a ProGuard or R8 mapping when its content parses as one
+- a `.dSYM` folder is an Apple debug symbol bundle, and hog uploads each architecture in it separately
+- any other file is an ELF or Mach-O binary when its first bytes say so. hog uploads it when it has debug info and a build ID or UUID, and lists why it skipped the others
+
+Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
+`--kind` skips detection.
+
+JavaScript releases work in two modes, as in posthog-cli:
+
+- `event`, the default, puts the release in the snippet hog adds to each bundle, so every event carries it. Chunk IDs come from the bundle content, so the same build gets the same IDs.
+- `symbol-set` puts the release in the sourcemap, and gives a bundle a new random chunk ID when its release changes.
+
+React Native with Hermes takes three steps, because the Hermes build runs between them:
+
+```bash
+hog error-tracking inject android/app/build/generated/assets         # before the Hermes build
+hog error-tracking clone index.android.bundle.map index.android.bundle.hbc.composed.map
+hog error-tracking upload android/app/build/generated/sourcemaps     # the composed maps
+```
+
+hog uploads the same bytes and content hashes as posthog-cli, so either CLI can re-upload what the other uploaded. A few things differ on purpose:
+
+- `posthog-cli sourcemap`, `hermes`, `proguard`, `dsym` and `symbol-sets upload` are `hog error-tracking`, with paths as arguments instead of `--directory` and `--path`
+- hog reads dSYM bundles itself, so it needs neither Xcode's `dwarfdump` nor `lipo`, and uploads dSYMs from Linux too
+- `--include-source` reads a binary's DWARF itself, with the same rules as posthog-cli, to bundle the source files it names. Where posthog-cli crashes on a malformed binary, hog uploads it without sources
+- native releases come from the flags, `posthog.json` or git, as in `posthog-cli symbol-sets upload`. hog doesn't read the release from the dSYM's `Info.plist`, as `posthog-cli dsym upload` does
+- `upload` sends only Hermes maps it detects. posthog-cli treats every JSON file in the folder as a map, and fails when it finds Metro's map there
+- hog walks folders in sorted order and skips `node_modules`, `.git` and symlinks, so two machines visit the same files in the same order
+- `--dry-run` shows the plan and the content hashes without writing files or contacting PostHog. posthog-cli's `--dry-run` skips the whole command.
 
 ## Credentials
 

@@ -41,7 +41,7 @@ from posthog.temporal.ai_observability.evaluation_types import (
     build_generation_not_found_result,
     build_skipped_evaluation_result,
 )
-from posthog.temporal.ai_observability.judge_images import ImagePrompt, build_image_prompt
+from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, build_attachment_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -56,6 +56,7 @@ from posthog.temporal.common.errors import NonReportableApplicationError, NonRep
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.decisions import (
     DecisionClient,
     DecisionEndpointBlockedError,
@@ -80,7 +81,6 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
-from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL
@@ -450,11 +450,11 @@ def _build_unparsable_response_skip_result(
 _IMAGE_REJECTION_STATUSES = frozenset({400, 413, 415, 422})
 
 
-class JudgeImagesRejectedError(Exception):
+class JudgeAttachmentsRejectedError(Exception):
     """Reported without the provider's message, which can quote a live presigned link."""
 
 
-def _image_rejection_status(error: Exception) -> int | None:
+def _attachment_rejection_status(error: Exception) -> int | None:
     """The status of a provider rejection an image can cause, raw or wrapped by an adapter."""
     for candidate in (error, error.__cause__):
         if (
@@ -585,14 +585,14 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
     user_prompt = _build_user_prompt(io.input_raw, io.output_raw, tools_data)
-    image_prompt = build_image_prompt(
+    attachment_prompt = build_attachment_prompt(
         evaluation,
         user_prompt,
         lambda media_marker: _build_user_prompt(io.input_raw, io.output_raw, tools_data, media_marker=media_marker),
     )
-    if user_prompt is None and image_prompt is not None:
+    if user_prompt is None and attachment_prompt is not None:
         # Inline base64 can push the plain text over the limit when the marked text still fits.
-        user_prompt = image_prompt.unnumbered_text()
+        user_prompt = attachment_prompt.unnumbered_text()
     if user_prompt is None:
         return build_skipped_evaluation_result(
             output_type=output_type,
@@ -607,7 +607,7 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         user_prompt=user_prompt,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
-        image_prompt=image_prompt,
+        attachment_prompt=attachment_prompt,
     )
 
 
@@ -650,7 +650,7 @@ def call_llm_judge(
     user_prompt: str,
     allows_na: bool,
     backfill: bool = False,
-    image_prompt: ImagePrompt | None = None,
+    attachment_prompt: AttachmentPrompt | None = None,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -859,8 +859,12 @@ def call_llm_judge(
                 ),
             )
         else:
-            content = image_prompt.images.content(image_prompt.text, provider, model) if image_prompt else user_prompt
-            sent_images = isinstance(content, list) and any(isinstance(part, ImagePart) for part in content)
+            content = (
+                attachment_prompt.attachments.content(attachment_prompt.text, provider, model)
+                if attachment_prompt
+                else user_prompt
+            )
+            sent_attachments = isinstance(content, list) and any(isinstance(part, AttachmentPart) for part in content)
             request = CompletionRequest(
                 model=model,
                 system=system_prompt,
@@ -873,13 +877,13 @@ def call_llm_judge(
             try:
                 response = client.complete(request)
             except Exception as e:
-                status = _image_rejection_status(e) if sent_images else None
+                status = _attachment_rejection_status(e) if sent_attachments else None
                 if status is None:
                     raise
             # Handle the rejection outside the except: the provider's error can quote a presigned link, and
             # an active exception reaches the logs through capture_exception and chains onto a retry failure.
             if status is not None:
-                # A model without image input, or an image link the provider could not download.
+                # A model without image or PDF input, or a link the provider could not download.
                 # Grade the plain transcript rather than skip the run.
                 context = {
                     "evaluation_id": evaluation["id"],
@@ -887,11 +891,14 @@ def call_llm_judge(
                     "provider": provider,
                     "model": model,
                     "status": status,
+                    "sent_pdfs": any(isinstance(part, AttachmentPart) and part.is_pdf for part in content),
                 }
-                logger.warning("judge_images_rejected", **context)
+                logger.warning("judge_attachments_rejected", **context)
                 if not is_byok:
-                    # On a PostHog key this can mean broken presigned links, so keep it visible.
-                    capture_exception(JudgeImagesRejectedError(f"Provider rejected judge images ({status})"), context)
+                    # On a PostHog key this can mean broken presigned links or a refused PDF, so keep it visible.
+                    capture_exception(
+                        JudgeAttachmentsRejectedError(f"Provider rejected judge images ({status})"), context
+                    )
                 response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)

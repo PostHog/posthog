@@ -7,8 +7,8 @@ import { urlToAction } from 'kea-router'
 
 import api, { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { redirectAfterLogin } from 'scenes/authentication/auth/loginLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { urls } from 'scenes/urls'
 
