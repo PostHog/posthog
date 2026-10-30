@@ -42,7 +42,7 @@ export interface workflowSurveyPickerLogicActions {
         selectedSurvey: SurveyApi | null
         payload?: string | null
     }
-    loadSurveys: (_: any) => any
+    loadSurveys: (_: void) => void
     loadSurveysFailure: (
         error: string,
         errorObject?: any
@@ -52,10 +52,10 @@ export interface workflowSurveyPickerLogicActions {
     }
     loadSurveysSuccess: (
         surveys: SurveyApi[],
-        payload?: any
+        payload?: void
     ) => {
         surveys: SurveyApi[]
-        payload?: any
+        payload?: void
     }
     setLimitingSurveyId: (surveyId: string | null) => {
         surveyId: string | null
@@ -96,7 +96,7 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
         surveys: [
             [] as SurveyApi[],
             {
-                loadSurveys: async (_, breakpoint): Promise<SurveyApi[]> => {
+                loadSurveys: async (_: void, breakpoint): Promise<SurveyApi[]> => {
                     if (!values.currentProjectId) {
                         return []
                     }
@@ -116,13 +116,16 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
         selectedSurvey: [
             null as SurveyApi | null,
             {
-                loadSelectedSurvey: async (surveyId: string | null): Promise<SurveyApi | null> => {
+                loadSelectedSurvey: async (surveyId: string | null, breakpoint): Promise<SurveyApi | null> => {
                     if (!surveyId || !values.currentProjectId) {
                         return null
                     }
                     try {
-                        return await surveysRetrieve(String(values.currentProjectId), surveyId)
+                        const survey = await surveysRetrieve(String(values.currentProjectId), surveyId)
+                        breakpoint()
+                        return survey
                     } catch (error) {
+                        breakpoint()
                         if (error instanceof ApiError && error.status === 404) {
                             return null
                         }
