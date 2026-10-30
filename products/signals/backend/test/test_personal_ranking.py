@@ -351,7 +351,7 @@ class TestBuildPersonalRanking(BaseTest):
         assert row.status == PersonalInboxRanking.Status.OK
         assert row.personalized is with_summary
         assert row.activity_summary_version == (7 if with_summary else None)
-        assert row.tokens_in == 1000 and row.cost_usd is not None
+        assert row.tokens_in == 1000
         needs_you = {candidate.report_id: candidate.needs_you for candidate in build.candidates}
         assert needs_you == {
             str(reports["waiting"].id): ("waiting_on_input",),

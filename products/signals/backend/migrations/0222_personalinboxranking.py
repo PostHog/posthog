@@ -41,7 +41,6 @@ class Migration(migrations.Migration):
                 ("prompt_version", models.PositiveSmallIntegerField()),
                 ("tokens_in", models.IntegerField(blank=True, null=True)),
                 ("tokens_out", models.IntegerField(blank=True, null=True)),
-                ("cost_usd", models.FloatField(blank=True, null=True)),
                 ("latency_ms", models.IntegerField(blank=True, null=True)),
                 (
                     "status",

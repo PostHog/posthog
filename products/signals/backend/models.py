@@ -4313,8 +4313,6 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
     # Null when the response had no usage, or there was no model call.
     tokens_in = models.IntegerField(null=True, blank=True)
     tokens_out = models.IntegerField(null=True, blank=True)
-    # Null when the usage or the model price is unknown.
-    cost_usd = models.FloatField(null=True, blank=True)
     latency_ms = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status)
     # One of the fixed strings of `personal_ranking/logic.py`, never model output.

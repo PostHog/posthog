@@ -26,7 +26,7 @@ from posthog.models import Team, User
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, build_cost_usd, read_config
+from products.signals.backend.personal_ranking.config import PersonalRankingConfig, read_config
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
@@ -93,7 +93,6 @@ class PersonalRankingBuild:
     model: str
     tokens_in: int | None = None
     tokens_out: int | None = None
-    cost_usd: float | None = None
     latency_ms: int | None = None
     # None for a dry run or a disabled build, which store nothing.
     ranking_id: str | None = None
@@ -244,7 +243,6 @@ def _capture(team: Team, user: User, build: PersonalRankingBuild, *, has_focus: 
                 **dataclasses.asdict(build.counts),
                 "tokens_in": build.tokens_in,
                 "tokens_out": build.tokens_out,
-                "cost_usd": build.cost_usd,
                 "latency_ms": build.latency_ms,
             },
             groups={"organization": str(team.organization_id), "project": str(team.uuid)},
@@ -267,7 +265,6 @@ def _store(team: Team, user: User, build: PersonalRankingBuild) -> PersonalRanki
         prompt_version=PROMPT_VERSION,
         tokens_in=build.tokens_in,
         tokens_out=build.tokens_out,
-        cost_usd=build.cost_usd,
         latency_ms=build.latency_ms,
         status=status,
         fallback_reason=build.fallback_reason,
@@ -359,7 +356,6 @@ def build_personal_ranking(
         model=config.model,
         tokens_in=call.tokens_in if call is not None else None,
         tokens_out=call.tokens_out if call is not None else None,
-        cost_usd=build_cost_usd(config.model, call.tokens_in, call.tokens_out) if call is not None else None,
         latency_ms=call.latency_ms if call is not None else None,
     )
     if dry_run:

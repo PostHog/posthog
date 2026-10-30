@@ -33,7 +33,7 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             f"candidates: {len(build.candidates)}, tokens: {build.tokens_in}/{build.tokens_out}, "
-            f"cost_usd: {build.cost_usd}, latency_ms: {build.latency_ms}, ranking_id: {build.ranking_id}"
+            f"latency_ms: {build.latency_ms}, ranking_id: {build.ranking_id}"
         )
         by_ref = {candidate.ref: candidate for candidate in build.candidates}
         for entry in build.entries:

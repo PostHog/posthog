@@ -23,27 +23,6 @@ DEFAULT_MODEL = "gpt-6-luna"
 
 
 @frozen
-class ModelPrice:
-    """USD per million tokens."""
-
-    input: float
-    output: float
-
-
-# A model missing here records no cost, so a payload that switches model needs an entry here too.
-MODEL_PRICES: dict[str, ModelPrice] = {
-    DEFAULT_MODEL: ModelPrice(input=0.10, output=0.50),
-}
-
-
-def build_cost_usd(model: str, tokens_in: int | None, tokens_out: int | None) -> float | None:
-    price = MODEL_PRICES.get(model)
-    if price is None or tokens_in is None or tokens_out is None:
-        return None
-    return (tokens_in * price.input + tokens_out * price.output) / 1_000_000
-
-
-@frozen
 class ReasonLimits:
     """The longest reason, in characters, of an entry in each tier."""
 
