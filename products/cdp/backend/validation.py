@@ -50,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+# Matches the cap the tasks API puts on a task's repositories.
+MAX_TASK_REPOSITORIES = 10
 
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
@@ -813,8 +815,18 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
-            if not isinstance(value, str):
-                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+            # A single string is the shape steps were saved in before the input took a list.
+            repositories = [value] if isinstance(value, str) else value
+            if (
+                not isinstance(repositories, list)
+                or not all(isinstance(v, str) for v in repositories)
+                or len(repositories) > MAX_TASK_REPOSITORIES
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "input": f"Value must be a list of up to {MAX_TASK_REPOSITORIES} repository names like your-org/your-repo."
+                    }
+                )
         elif item_type == "task_model":
             # A non-empty value means a model was chosen (an empty value returned above as "use the
             # default model"), so it must name a usable model. Otherwise the run-time consumer drops

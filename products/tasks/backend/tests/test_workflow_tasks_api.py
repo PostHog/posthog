@@ -595,18 +595,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert later_run.state["config_snapshot"]["connectors"]["mcp_gateway_server_ids"] == ["server-1"]
 
-    @parameterized.expand([("with_repository", True), ("without_repository", False)])
-    def test_pr_creation_follows_the_repository(self, _name: str, with_repository: bool) -> None:
-        body: dict = {}
-        if with_repository:
-            Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
-            body["repository"] = "posthog/posthog"
+    @parameterized.expand(
+        [
+            ("repositories", {"repositories": ["posthog/posthog", "posthog/posthog.com"]}),
+            ("legacy_repository", {"repository": "posthog/posthog"}),
+            ("no_repository", {}),
+        ]
+    )
+    def test_the_task_works_in_the_requested_repositories(self, _name: str, body: dict) -> None:
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        expected = body.get("repositories") or ([body["repository"]] if "repository" in body else [])
 
         response = self._post(body)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.repositories == expected
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        assert run.state["pending_dispatch"]["create_pr"] is with_repository
+        assert run.state["pending_dispatch"]["create_pr"] is bool(expected)
 
     def test_teammates_can_see_and_drive_workflow_tasks(self) -> None:
         teammate = self._create_user("teammate@posthog.com")

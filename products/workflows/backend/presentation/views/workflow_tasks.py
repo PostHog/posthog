@@ -90,7 +90,13 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         max_length=255,
         required=False,
         allow_blank=True,
-        help_text="GitHub repository as organization/repo. Omit for a task with no code access.",
+        help_text="Deprecated: use `repositories`. One GitHub repository as organization/repo.",
+    )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=10,
+        help_text="GitHub repositories the agent can work in, each as organization/repo. Omit for a task with no code access.",
     )
     channel = serializers.CharField(
         max_length=200,
@@ -223,7 +229,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 prompt=data["prompt"].strip(),
                 title=data.get("title"),
                 channel_ref=data.get("channel") or None,
-                repository=data.get("repository") or None,
+                repositories=data.get("repositories") or ([data["repository"]] if data.get("repository") else None),
                 model=data.get("model") or None,
                 reasoning_effort=data.get("reasoning_effort") or None,
                 connector_ids=data.get("connectors"),
