@@ -630,19 +630,6 @@ tools:
         inject_body:
             created_via: mcp
         feature_flag: warehouse-migration-import
-    warehouse-migration-items-skip:
-        operation: warehouse_migrations_items_bulk_skip_create
-        enabled: true
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Skip many connections in a Fivetran migration
-        description: >
-            Skip many Fivetran connections in one call. Pass 'keep_item_ids' to skip every connection except those, for
-            example when the user wants to migrate only one, or 'item_ids' to skip exactly those. Connections that are
-            being created or are already PostHog sources stay as they are and come back in 'not_skipped_item_ids'.
-        feature_flag: warehouse-migration-import
     warehouse-migration-item-skip:
         operation: warehouse_migrations_items_skip_create
         enabled: true
@@ -672,6 +659,19 @@ tools:
                 - '*.proposal.schemas.*.row_filters'
                 - '*.proposal.schemas.*.alternative_names'
                 - '*.proposal.prefill'
+    warehouse-migration-items-skip:
+        operation: warehouse_migrations_items_bulk_skip_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Skip many connections in a Fivetran migration
+        description: >
+            Skip many Fivetran connections in one call. Pass 'keep_item_ids' to skip every connection except those, for
+            example when the user wants to migrate only one, or 'item_ids' to skip exactly those. Connections that are
+            being created or are already PostHog sources stay as they are and come back in 'not_skipped_item_ids'.
+        feature_flag: warehouse-migration-import
     warehouse-migration-refresh:
         operation: warehouse_migrations_refresh_create
         enabled: true

@@ -8,6 +8,7 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.facade.contracts import (
+    WarehouseMigrationBulkSkip,
     WarehouseMigrationBusyError,
     WarehouseMigrationItemClaimedError,
     WarehouseMigrationKeyRejectedError,
@@ -78,8 +79,8 @@ def skip_items(
     migration_id: UUID,
     item_ids: Sequence[UUID] | None,
     keep_item_ids: Sequence[UUID] | None,
-) -> tuple[list[UUID], list[UUID]]:
-    """Skip the chosen items, or all but the kept ones. Returns the skipped ids and the ids an apply holds."""
+) -> WarehouseMigrationBulkSkip:
+    """Skip the chosen items, or all but the kept ones."""
     items = WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
     chosen = items.filter(id__in=item_ids) if item_ids is not None else items.exclude(id__in=keep_item_ids or [])
     # The same conditional update as a single skip, so an apply that claimed an item keeps it.
@@ -90,7 +91,7 @@ def skip_items(
     not_skipped: list[UUID] = []
     for item_id, status in chosen.order_by("name").values_list("id", "status"):
         (skipped if status == WarehouseMigrationItem.Status.SKIPPED else not_skipped).append(item_id)
-    return skipped, not_skipped
+    return WarehouseMigrationBulkSkip(skipped_item_ids=skipped, not_skipped_item_ids=not_skipped)
 
 
 def item_counts(migration: WarehouseMigration) -> dict[str, int]:
