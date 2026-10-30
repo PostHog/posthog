@@ -24,7 +24,7 @@ def resource_for_object(obj: Model, *, team: Team | None = None) -> Resource:
 
     `project_id` is the object's team id, because access rules are scoped to a team. Pass `team`
     only where today's check reads another team's rules for this object, such as the view's team.
-    Never for dashboards: v1 always reads a dashboard's own team.
+    Never for dashboards: all of a dashboard's rules come from its own team.
     """
     scope = model_to_resource(obj)
     if scope is None:

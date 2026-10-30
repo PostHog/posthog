@@ -231,6 +231,21 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
         assert results == [True, False, True]
 
+    def test_project_admin_cannot_manage_a_dashboard_in_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Costs", created_by=self.other_user)
+        self._rule("project", "admin", str(self.team.id), member=True)
+        subject = Subject(user_id=self.user.id)
+
+        own_team = authorization.check(
+            resource=resource_for_object(self.dashboard), action=Action.MANAGE_ACCESS, subject=subject
+        )
+        other = authorization.check(
+            resource=resource_for_object(other_dashboard), action=Action.MANAGE_ACCESS, subject=subject
+        )
+
+        assert (own_team, other) == (True, False)
+
     def test_resource_for_object_with_a_team_reads_that_team_rules(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
         source = ExternalDataSource.objects.create(
