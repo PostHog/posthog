@@ -198,6 +198,33 @@ A `function` node with `template_id: "template-posthog-replay-vision"` scans the
 - **Daily caps.** Each workflow can start 100 scans a day, and the project 500, unless the project settings change `replay_vision_scan_rate_limit_per_day` and `replay_vision_scan_team_rate_limit_per_day`. Past a cap the step returns `state: "skipped"` and the workflow continues.
 - **Access.** The token needs `session_recording:read` (or `:write`) and `replay_scanner:write`, and the user needs access to recordings and to the saved scanner. Without them, the save fails with a message that names what is missing.
 
+### T3 Code step
+
+A `function` node with `template_id: "template-t3-code"` starts a T3 Code agent run. It POSTs to the URL of a T3 Code scheduled task whose schedule is `{type: "webhook"}`, and T3 Code runs that task's prompt. Use it when a user wants their coding agent to act on something the workflow reacts to, such as an error, a signup or a failed payment.
+
+```json
+{
+  "id": "t3_code_1",
+  "name": "Investigate the failed payment",
+  "type": "function",
+  "config": {
+    "template_id": "template-t3-code",
+    "inputs": {
+      "webhook_url": { "value": "<webhookUrl from T3 Code>" },
+      "instructions": { "value": "Find out why the payment for {person.properties.email} failed" },
+      "payload": { "value": { "event": "{event}", "person": "{person}" } },
+      "signing_secret": { "value": "<the secret set on the T3 Code task>" }
+    }
+  }
+}
+```
+
+- **The URL comes from T3 Code.** If you also have the T3 Code `schedule_task` tool, create the task there first with `schedule: {type: "webhook", signature: {header: "x-hub-signature-256", encoding: "hex", prefix: "sha256=", secret: "<new random secret>"}}`, and use the `webhookUrl` it returns. Put the same secret in `signing_secret`. No `webhookUrl` means T3 Connect remote access is off, so PostHog can't reach the task: ask the user to turn it on. Otherwise ask the user to copy the URL from the task in T3 Code under Settings > Scheduled tasks.
+- **The T3 Code task's prompt decides what the agent sees.** The request body is `payload` plus an `instructions` key, so the task's prompt reads `{{body.instructions}}`, `{{body.event.event}}` or `{{body.person.properties.email}}`. Write the task prompt to use them. The `{...}` placeholders in the step's inputs are PostHog templates, and the `{{...}}` ones belong to the T3 Code prompt.
+- `webhook_url` and `signing_secret` are secrets: they are stored encrypted and never returned. Never put them in `instructions` or `payload`.
+- Each request carries an `x-posthog-delivery-id` header that stays the same across retries. Set the T3 Code task's replay key to `{{headers.x-posthog-delivery-id}}` so a retried request does not start a second run.
+- The step retries rate limits (429) and server errors. It fails with a message that says what to fix when the signature is wrong (401), the URL has no task (404), the task is turned off (409), or the body is over 1 MB (413). The step result is `{"deliveryId"}`.
+
 ### Opt out of messages step
 
 A `function` node with `template_id: "template-posthog-opt-out-of-messages"` adds the run's recipient to the opt-out list for one message category, or for all marketing messages. Later email, SMS and push steps for that category skip the recipient. Use it whenever a workflow has to opt someone out. Don't build this with a `webhook` step that calls `messaging_preferences/add_opt_out/` with an API key: that call breaks when the key's owner leaves or the key rotates, and its failures only show as webhook errors.

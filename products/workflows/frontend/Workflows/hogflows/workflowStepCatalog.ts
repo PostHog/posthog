@@ -67,6 +67,13 @@ const AI_TASK_ACTION_NODE: CreateActionType = {
     output_variable: { key: 'task', result_path: null, label: 'Task' },
 }
 
+const T3_CODE_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'T3 Code',
+    description: 'Start a T3 Code agent run with instructions and data from this workflow.',
+    config: { template_id: 'template-t3-code', inputs: {} },
+}
+
 const RUN_SCOUT_ACTION_NODE: CreateActionType = {
     type: 'function',
     name: 'Run scout',
@@ -230,6 +237,7 @@ function aiSteps({ featureFlags, currentTeam }: StepCatalogContext): CreateActio
     const mainEnvironment = isMainEnvironment(currentTeam)
     return [
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION] ? [AI_TASK_ACTION_NODE] : []),
+        T3_CODE_ACTION_NODE,
         ...(mainEnvironment ? [RUN_SCOUT_ACTION_NODE] : []),
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION] ? [CLASSIFY_ACTION_NODE] : []),
         ...(mainEnvironment ? [REPLAY_VISION_ACTION_NODE] : []),
@@ -244,7 +252,7 @@ function posthogSteps({ featureFlags }: StepCatalogContext): CreateActionType[] 
     ]
 }
 
-const BETA_TEMPLATE_IDS = new Set(['template-posthog-create-task'])
+const BETA_TEMPLATE_IDS = new Set(['template-posthog-create-task', 'template-t3-code'])
 
 export function isBetaStep(step: CreateActionType): boolean {
     const templateId = templateIdOf(step)
@@ -280,6 +288,7 @@ const ALWAYS_LISTED_STEPS: CreateActionType[] = [
     ...DELAY_NODES_TO_SHOW,
     ...LOGIC_NODES_TO_SHOW,
     ...POSTHOG_NODES_TO_SHOW,
+    T3_CODE_ACTION_NODE,
     ...getRegisteredActionNodeCategories().flatMap((category) => category.nodes),
 ]
 

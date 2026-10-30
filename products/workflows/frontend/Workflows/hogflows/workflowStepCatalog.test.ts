@@ -27,7 +27,7 @@ describe('workflowStepCatalog', () => {
     it('lists every step a workflow can always add, in the order the step picker shows them', () => {
         expect(listed({})).toEqual({
             Dispatch: ['Email', 'SMS', 'Slack', 'Webhook'],
-            AI: ['Run scout', 'Replay Vision'],
+            AI: ['T3 Code', 'Run scout', 'Replay Vision'],
             Delays: ['Delay', 'Time window', 'Wait until'],
             'Audience split': ['Conditional branch', 'Cohort branch'],
             'PostHog actions': ['Set variable', 'Capture event', 'Update person property', 'Set group property'],
@@ -44,7 +44,7 @@ describe('workflowStepCatalog', () => {
                     [FEATURE_FLAGS.WORKFLOW_CLASSIFY_ACTION]: true,
                 },
             },
-            ai: ['Create AI task', 'Run scout', 'Classify with AI', 'Replay Vision'],
+            ai: ['Create AI task', 'T3 Code', 'Run scout', 'Classify with AI', 'Replay Vision'],
         },
         {
             name: 'leaves the main-environment steps out of another environment',
@@ -52,12 +52,12 @@ describe('workflowStepCatalog', () => {
                 featureFlags: { [FEATURE_FLAGS.WORKFLOW_AI_TASK_ACTION]: true },
                 currentTeam: { id: 2, project_id: 1 },
             },
-            ai: ['Create AI task'],
+            ai: ['Create AI task', 'T3 Code'],
         },
         {
             name: 'leaves the main-environment steps out while the team loads',
             context: { currentTeam: null },
-            ai: undefined,
+            ai: ['T3 Code'],
         },
     ])('$name', ({ context, ai }) => {
         expect(listed(context).AI).toEqual(ai)
@@ -76,7 +76,11 @@ describe('workflowStepCatalog', () => {
         const template = (id: string, name: string): HogFunctionTemplateType =>
             ({ id, name, type: 'destination', status: 'stable', description: '' }) as HogFunctionTemplateType
 
-        const steps = destinationSteps([template('template-slack', 'Slack'), template('template-hubspot', 'HubSpot')])
+        const steps = destinationSteps([
+            template('template-slack', 'Slack'),
+            template('template-t3-code', 'T3 Code'),
+            template('template-hubspot', 'HubSpot'),
+        ])
 
         expect(steps.map((step) => step.name)).toEqual(['HubSpot'])
     })
