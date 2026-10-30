@@ -787,10 +787,12 @@ class LifecycleDeleteOutcome:
     """What one saga call left behind: the version each deleted person's tombstone committed at, and the persons it could not claim.
 
     A deleted person has no version when the op was recorded by a build that did not store one.
+    ``not_found`` holds the persons that had no live row when the saga claimed them.
     """
 
     deleted: dict[UUID, int | None]
     conflicts: list[UUID]
+    not_found: list[UUID]
 
 
 def lifecycle_delete_op_id(run_id: str, team_id: int, person_ids: Sequence[int]) -> UUID:
@@ -811,7 +813,7 @@ def tombstone_persons_via_lifecycle(
     The saga answers with an outcome per id and, for a deleted person, the version its tombstone
     committed at. Nothing is produced to ClickHouse from here: the saga's publish outbox carries the
     distinct-id tombstones and the person changelog carries the person row. NOT_FOUND means no live
-    row existed when the saga claimed the id, so there is nothing to delete, count, or log.
+    row existed when the saga claimed the id; the caller decides whether a tombstone explains it.
     """
     person_ids = sorted(person_uuids_by_id)
     request = LifecycleDeletePersonsRequest(
@@ -825,6 +827,7 @@ def tombstone_persons_via_lifecycle(
     results = personhog_call("lifecycle_delete_persons", personhog_fn, caller_tag="persons/deletion-lifecycle")
 
     conflicts: list[UUID] = []
+    not_found: list[UUID] = []
     deleted: dict[UUID, int | None] = {}
     for person_id in person_ids:
         uuid = person_uuids_by_id[person_id]
@@ -838,7 +841,9 @@ def tombstone_persons_via_lifecycle(
             conflicts.append(uuid)
         elif outcome == DELETE_PERSON_OUTCOME_DELETED and result is not None:
             deleted[uuid] = int(result.person_version) if result.HasField("person_version") else None
-    return LifecycleDeleteOutcome(deleted=deleted, conflicts=conflicts)
+        elif outcome == DELETE_PERSON_OUTCOME_NOT_FOUND:
+            not_found.append(uuid)
+    return LifecycleDeleteOutcome(deleted=deleted, conflicts=conflicts, not_found=not_found)
 
 
 @frozen

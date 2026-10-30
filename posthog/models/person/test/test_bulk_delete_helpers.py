@@ -335,10 +335,14 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
                 for run_id in ("run-1", "run-1", "run-2")
             ]
 
-        # The retry is answered from the op's record; the new run starts an op that finds no live person.
-        assert counts == [1, 1, 0]
+        # The retry is answered from the op's record; the new run starts an op that finds no live person
+        # and counts it from the tombstone the first op wrote.
+        assert counts == [1, 1, 1]
         ops = [call.request.op_id for call in self._saga_calls()]
         assert ops[0] == ops[1] != ops[2]
+        assert [call.method for call in get_active_fake().calls if call.method == "get_person_tombstones"] == [
+            "get_person_tombstones"
+        ]
         assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].version == 1
 
     def test_a_person_held_by_another_op_stays_live_and_fails_the_tombstone_step_until_the_next_attempt(self):
@@ -382,16 +386,34 @@ class LifecycleDeletePersonsProfileTests(BaseTest):
         assert (log.detail or {})["context"]["person_version"] is None
         assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].is_deleted is True
 
-    def test_a_person_the_saga_does_not_find_is_neither_counted_nor_failed(self):
+    def test_a_person_tombstoned_before_the_saga_claimed_it_is_counted_from_its_tombstone(self):
+        # Stands in for an earlier attempt whose saga op finished after its call failed.
         p = create_person(team=self.team, distinct_ids=["a"], properties={})
         tombstone_persons_in_postgres(self.team.pk, [p.uuid])
         ghost = Person(id=10**9, uuid=uuid4(), team=self.team)
         ghost._distinct_ids = []
         with _no_publish() as publish:
-            result = delete_persons_profile(self.team.pk, [p, ghost], actor=self.user)
+            result = delete_persons_profile(
+                self.team.pk, [p, ghost], actor=self.user, organization_id=self.organization.id
+            )
+
+        assert (result.deleted_count, result.failures) == (1, [])
+        publish.assert_not_called()
+        [lookup] = [call for call in get_active_fake().calls if call.method == "get_person_tombstones"]
+        assert set(lookup.request.person_uuids) == {str(p.uuid), str(ghost.uuid)}
+        [log] = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", activity="deleted")
+        assert (log.item_id, (log.detail or {})["context"]["person_version"]) == (str(p.pk), 1)
+
+    def test_a_failed_tombstone_lookup_for_an_unfound_person_drops_the_count_but_not_the_run(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        tombstone_persons_in_postgres(self.team.pk, [p.uuid])
+        with (
+            _no_publish(),
+            patch("posthog.models.person.bulk_delete.get_person_tombstones", side_effect=RuntimeError("replica down")),
+        ):
+            result = delete_persons_profile(self.team.pk, [p], actor=self.user, organization_id=self.organization.id)
 
         assert (result.deleted_count, result.failures) == (0, [])
-        publish.assert_not_called()
         assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
 
     def test_splits_a_batch_at_the_saga_person_cap(self):

@@ -707,6 +707,10 @@ def _tombstone_persons_via_lifecycle(
     A call that raises after the saga tombstoned the rows still counts them: the replica shows the
     tombstone, and the identity sweeper re-drives the op to completion, which is what writes the
     outbox pointer. Nothing here publishes to ClickHouse.
+
+    Every person here was live when the caller resolved it, so a NOT_FOUND means it was tombstoned
+    between that read and the saga's claim: by an earlier attempt's op that finished after its call
+    failed, or by another deleter. Its tombstone is read back so the delete is counted and logged.
     """
     person_by_uuid = {person.uuid: person for person in persons}
     deleted: builtins.list[_DeletedPerson] = []
@@ -734,7 +738,30 @@ def _tombstone_persons_via_lifecycle(
             _DeletedPerson(person=person_by_uuid[uuid], tombstone_version=version)
             for uuid, version in outcome.deleted.items()
         )
+        deleted.extend(
+            _DeletedPerson(person=person_by_uuid[tombstone.uuid], tombstone_version=tombstone.version)
+            for tombstone in _tombstones_behind_not_found(team_id, outcome.not_found)
+        )
     return deleted
+
+
+def _tombstones_behind_not_found(
+    team_id: int, person_uuids: builtins.list[uuid_lib.UUID]
+) -> builtins.list[PersonTombstone]:
+    """The tombstones of persons the saga did not find. A failed read drops the count rather than the run:
+    the persons are deleted either way, and a failure here would retry into the same NOT_FOUND."""
+    if not person_uuids:
+        return []
+    try:
+        return get_person_tombstones(team_id, person_uuids)
+    except Exception:
+        logger.warning(
+            "person_deletion.not_found_tombstone_check_failed",
+            team_id=team_id,
+            person_count=len(person_uuids),
+            exc_info=True,
+        )
+        return []
 
 
 class PersonTombstoneStateUnknown(Exception):
