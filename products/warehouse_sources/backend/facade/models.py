@@ -145,6 +145,7 @@ __all__ = [
     "update_sync_type_config_keys",
     "UnsupportedSyncTypeError",
     "resolve_sync_type",
+    "self_managed_table_ref",
     "CDC_SNAPSHOT_LANE_KEY",
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",

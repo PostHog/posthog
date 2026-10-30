@@ -45316,6 +45316,8 @@ export namespace Schemas {
          * @nullable
          */
       judge_method?: 'llm' | 'decision' | null;
+      /** Set to false to judge text only. */
+      include_media?: boolean;
       /**
          * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
          * @nullable
@@ -51772,6 +51774,8 @@ export namespace Schemas {
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
+      /** Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket. */
+      readonly pending_self_managed_table: boolean;
       /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
@@ -82335,6 +82339,11 @@ export namespace Schemas {
       readonly external_data_source: SimpleExternalDataSourceSerializers;
       /** @nullable */
       readonly external_schema: TableExternalSchema;
+      /**
+         * The managed source that will import this self-managed table on its first sync, if one is linked.
+         * @nullable
+         */
+      readonly pending_source_id: string | null;
       /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
       options?: TableOptions;
       /**
@@ -87700,6 +87709,8 @@ export namespace Schemas {
          * @nullable
          */
       judge_method?: 'llm' | 'decision' | null;
+      /** Set to false to judge text only. */
+      include_media?: boolean;
       /**
          * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
          * @nullable
@@ -88359,6 +88370,8 @@ export namespace Schemas {
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
+      /** Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket. */
+      readonly pending_self_managed_table?: boolean;
       /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
@@ -94322,6 +94335,11 @@ export namespace Schemas {
       readonly external_data_source?: SimpleExternalDataSourceSerializers;
       /** @nullable */
       readonly external_schema?: PatchedTableExternalSchema;
+      /**
+         * The managed source that will import this self-managed table on its first sync, if one is linked.
+         * @nullable
+         */
+      readonly pending_source_id?: string | null;
       /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
       options?: PatchedTableOptions;
       /**
@@ -144543,6 +144561,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only return self-managed tables that a managed source will import on its first sync.
+     */
+    pending_source?: boolean;
     /**
      * A search term.
      */

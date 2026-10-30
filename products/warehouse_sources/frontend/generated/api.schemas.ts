@@ -437,6 +437,8 @@ export interface ExternalDataSchemaApi {
     readonly incremental: boolean
     /** @nullable */
     readonly status: string | null
+    /** Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket. */
+    readonly pending_self_managed_table: boolean
     /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
      *
      * * `full_refresh` - full_refresh
@@ -639,6 +641,8 @@ export interface PatchedExternalDataSchemaApi {
     readonly incremental?: boolean
     /** @nullable */
     readonly status?: string | null
+    /** Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket. */
+    readonly pending_self_managed_table?: boolean
     /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
      *
      * * `full_refresh` - full_refresh

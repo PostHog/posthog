@@ -281,6 +281,7 @@ class TestExternalDataSource(APIBaseTest):
                 "latest_error",
                 "table",
                 "table_id",
+                "pending_self_managed_table",
             },
         )
         self.assertEqual(listed_schema["sync_frequency"], "6hour")
@@ -3395,6 +3396,7 @@ class TestExternalDataSource(APIBaseTest):
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
                     "status": schema.status,
+                    "pending_self_managed_table": False,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
                     "table_id": None,
