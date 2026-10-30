@@ -1,5 +1,5 @@
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.enterprise_copies import (
@@ -45,6 +45,9 @@ class EnterpriseEventDefinition(EventDefinition):
     def save(self, *args, **kwargs) -> None:
         update_fields = kwargs.get("update_fields")
         kwargs["update_fields"] = copy_enterprise_fields(self, EVENT_DEFINITION_COPIES, update_fields)
-        super().save(*args, **kwargs)
-        if saves_updated_at(update_fields):
-            EventDefinition.objects.filter(pk=self.pk).update(base_updated_at=self.updated_at)
+        # One transaction: an overlapping save waits on the row lock, so it cannot write an older
+        # updated_at copy after a newer one.
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if saves_updated_at(update_fields):
+                EventDefinition.objects.filter(pk=self.pk).update(base_updated_at=self.updated_at)
