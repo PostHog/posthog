@@ -37,6 +37,7 @@ def reverse_func(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("access_control", "0003_teamaccesscontrolconfig"),
         ("ee", "0067_remove_scimrequestlog_identity_provider_config_and_more"),
     ]
 
