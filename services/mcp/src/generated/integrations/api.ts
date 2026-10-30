@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -237,6 +237,57 @@ export const IntegrationsLinearTeamsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for the channel. Send dry_run first to see every failure without storing anything.
+ * @summary Import push device tokens
+ */
+export const IntegrationsPushTokensCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax = 200
+
+export const integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax = 4096
+
+export const integrationsPushTokensCreateBodyDryRunDefault = false
+export const integrationsPushTokensCreateBodyCreateMissingPersonsDefault = false
+
+export const IntegrationsPushTokensCreateBody = () => zod.object({
+    subscriptions: zod
+        .array(
+            zod.object({
+                distinct_id: zod
+                    .string()
+                    .max(integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax)
+                    .describe("The person's distinct ID in this project: the ID your app passes to `identify`."),
+                device_token: zod
+                    .string()
+                    .max(integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax)
+                    .describe(
+                        'The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.'
+                    ),
+            })
+        )
+        .describe('Up to 1000 devices to register on this push channel. List a person once per device.'),
+    dry_run: zod
+        .boolean()
+        .default(integrationsPushTokensCreateBodyDryRunDefault)
+        .describe(
+            'Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing.'
+        ),
+    create_missing_persons: zod
+        .boolean()
+        .default(integrationsPushTokensCreateBodyCreateMissingPersonsDefault)
+        .describe(
+            "Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push."
         ),
 })
 
