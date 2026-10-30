@@ -1483,9 +1483,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert all(item["is_default_owner"] is False for item in reviewers)
 
     def test_posting_reviewers_drops_the_default_owner_flag_on_a_mismatched_identity(self):
-        # An unprotected report stores the identity pair as given, and a later reviewer edit matches
-        # the stored login — so an entry pairing the owner's uuid with a teammate's login would hand
-        # the teammate the mark, and with it the silence their removal is supposed to break.
+        # An unprotected report stores the pair as given, and a later edit matches the stored login.
         report = self._create_report()
         owner = self._create_org_member("owner@example.com", github_login="owner-login")
         self._create_org_member("teammate@example.com", github_login="teammate-login")
@@ -1506,8 +1504,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
     @parameterized.expand(
         [
             ("by_uuid", False),
-            # An API caller can name the same member by login alone, the way the merge resolves it a
-            # step later. Dropping the flag here would teach the scouts a correction on removal.
+            # A caller can name the same member by login alone, as the merge itself resolves it.
             ("by_login", True),
         ]
     )
