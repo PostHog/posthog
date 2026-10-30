@@ -1144,8 +1144,10 @@ return result`,
                 logic.actions.loadEvaluationSuccess({
                     ...mockEvaluation,
                     evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
                     output_type: 'sentiment',
                     output_config: {},
+                    model_configuration: null,
                 })
                 expect(logic.values.trendInsightUrl).toContain('Negative%20rate')
             })
