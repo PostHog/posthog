@@ -686,6 +686,29 @@ function pinGatewayEnvSettings(
   return true;
 }
 
+function disableClaudeSandbox(options: Options): boolean {
+  const off: Settings = { sandbox: { enabled: false } };
+  if (typeof options.settings === "string") return false;
+  if (options.settings) {
+    options.settings = { ...options.settings, ...off };
+    return true;
+  }
+  const raw = options.extraArgs?.settings;
+  let base: Settings = {};
+  if (raw) {
+    try {
+      base = JSON.parse(raw) as Settings;
+    } catch {
+      return false;
+    }
+  }
+  options.extraArgs = {
+    ...options.extraArgs,
+    settings: JSON.stringify({ ...base, ...off }),
+  };
+  return true;
+}
+
 function ensureLocalSettings(cwd: string): void {
   const claudeDir = path.join(cwd, ".claude");
   const localSettingsPath = path.join(claudeDir, "settings.local.json");
@@ -824,6 +847,12 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       ),
     }),
   };
+
+  if (params.cloudMode && !disableClaudeSandbox(options)) {
+    options.settingSources = options.settingSources?.filter(
+      (source) => source !== "project" && source !== "local",
+    );
+  }
 
   if (
     params.gatewayEnv?.anthropicBaseUrl &&
