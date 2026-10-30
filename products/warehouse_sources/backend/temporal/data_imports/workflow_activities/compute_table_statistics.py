@@ -64,6 +64,8 @@ MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOM
 # Each commit since the last computation is one small object-store read; past this many the full
 # Add-action scan is the cheaper path again.
 MAX_INCREMENTAL_COMMITS = int(os.getenv("WAREHOUSE_STATS_MAX_INCREMENTAL_COMMITS", "200"))
+# Files x columns cap for the Add-action scan: a synthetic 20k x 100 scan took 0.9 GB, so 1M stays under 500 MB.
+MAX_ADD_ACTION_CELLS = int(os.getenv("WAREHOUSE_STATS_MAX_ADD_ACTION_CELLS", "1000000"))
 
 # Product-analytics events — query these to track statistics volume, columns profiled, skips, and errors.
 EVENT_STARTED = "data warehouse table statistics started"
@@ -116,6 +118,21 @@ class _ColumnStat:
     has_min_max: bool
 
 
+def _arrow_extreme(values: Any, which: str) -> Any:
+    """The smallest or largest non-null value of one Arrow column as a Python value, or None."""
+    import pyarrow as pa  # noqa: PLC0415 — heavy dep kept off this module's flag-check import path
+    import pyarrow.compute as pc  # noqa: PLC0415
+
+    try:
+        return pc.min_max(values)[which].as_py()
+    except pa.ArrowNotImplementedError:
+        # Arrow has no ordering for some types (list, struct), but Python can still compare their values.
+        non_null = [v for v in values.to_pylist() if v is not None]
+        if not non_null:
+            return None
+        return min(non_null) if which == "min" else max(non_null)
+
+
 def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tuple[int, dict[str, _ColumnStat]]:
     """Aggregate the Delta log's per-file stats into per-column whole-table stats.
 
@@ -124,29 +141,31 @@ def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tu
     Returns `(row_count, {column_name: _ColumnStat})`. Columns with no log stats get `has_min_max=False`.
     """
     import pyarrow as pa  # noqa: PLC0415 — heavy dep kept off this module's flag-check import path
+    import pyarrow.compute as pc  # noqa: PLC0415
 
-    # deltalake>=1.x returns an arro3 RecordBatch (no `to_pydict`); pa.table() normalizes both that
-    # (via the Arrow C interface) and an already-pyarrow input to a pyarrow Table we can read as a dict.
-    data = pa.table(add_actions).to_pydict()
-    row_count = sum(n for n in data.get("num_records", []) if n is not None)
+    # deltalake>=1.x returns an arro3 RecordBatch, which pa.table() reads through the Arrow C interface.
+    # Python objects for the whole table cost memory per file x column, so read only the needed columns.
+    data = add_actions if isinstance(add_actions, pa.Table | pa.RecordBatch) else pa.table(add_actions)
+    present = set(data.schema.names)
+    row_count = (pc.sum(data.column("num_records")).as_py() or 0) if "num_records" in present else 0
 
     result: dict[str, _ColumnStat] = {}
     for name, definition in (columns or {}).items():
         null_key, min_key, max_key = f"null_count.{name}", f"min.{name}", f"max.{name}"
 
         # `null_count = None` (unknown) when the log carried no per-file null counts — either the key is
-        # absent or every file's value is None. Mirrors the min/max guard below; a real zero stays 0.
-        null_values = [v for v in data.get(null_key, []) if v is not None] if null_key in data else []
-        null_count = sum(null_values) if null_values else None
+        # absent or every file's value is None. `pc.sum` skips nulls and returns null when none remain;
+        # a real zero stays 0.
+        null_count = pc.sum(data.column(null_key)).as_py() if null_key in present else None
 
-        mins = [v for v in data.get(min_key, []) if v is not None] if min_key in data else []
-        maxs = [v for v in data.get(max_key, []) if v is not None] if max_key in data else []
+        min_raw = _arrow_extreme(data.column(min_key), "min") if min_key in present else None
+        max_raw = _arrow_extreme(data.column(max_key), "max") if max_key in present else None
         # A source string column can carry a NUL (0x00) byte; min_value/max_value land in a Postgres
         # text column, which rejects it outright. Stripping it is consistent with treating these
         # bounds as approximate (delta-rs already truncates long strings here).
-        min_value = str(min(mins)).replace("\x00", "") if mins else None
-        max_value = str(max(maxs)).replace("\x00", "") if maxs else None
-        has_min_max = bool(mins or maxs)
+        min_value = str(min_raw).replace("\x00", "") if min_raw is not None else None
+        max_value = str(max_raw).replace("\x00", "") if max_raw is not None else None
+        has_min_max = min_raw is not None or max_raw is not None
 
         result[name] = _ColumnStat(
             column_type=clean_type(_column_type(definition)) or "unknown",
@@ -607,6 +626,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         delta_version=delta_version,
         log=log,
     )
+    file_count: int | None = None
     if folded is not None:
         row_count, stats_by_column = folded
         basis = "incremental"
@@ -620,6 +640,16 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
                 emit_completed("skipped", reason="no_delta_table")
                 return {"status": "skipped", "reason": "no_delta_table"}
             delta_version = delta_table.version()
+        file_count = len(delta_table.file_uris())
+        if file_count * len(columns) > MAX_ADD_ACTION_CELLS:
+            emit_completed(
+                "skipped",
+                reason="too_many_files",
+                file_count=file_count,
+                target_columns=len(columns),
+                delta_version=delta_version,
+            )
+            return {"status": "skipped", "reason": "too_many_files"}
         add_actions = delta_table.get_add_actions(flatten=True)
         if add_actions.num_rows == 0:
             emit_completed("skipped", reason="no_files")
@@ -642,7 +672,14 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         for column_name, stat in stats_by_column.items():
             _upsert_statistics(team, table, column_name, row_count, stat, delta_version, basis)
 
-    log.info("warehouse_statistics.done", columns=len(stats_by_column), row_count=row_count, basis=basis)
+    log.info(
+        "warehouse_statistics.done",
+        columns=len(stats_by_column),
+        row_count=row_count,
+        basis=basis,
+        file_count=file_count,
+        target_columns=len(columns),
+    )
     emit_completed("done", columns=len(stats_by_column), row_count=row_count, delta_version=delta_version, basis=basis)
     return {"status": "done", "columns": len(stats_by_column), "row_count": row_count, "basis": basis}
 
