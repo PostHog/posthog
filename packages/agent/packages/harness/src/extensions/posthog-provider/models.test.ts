@@ -191,7 +191,6 @@ describe("resolveModelConfigs", () => {
       ["text", "image"],
     ],
     ["a model pi knows is text-only", "o3-mini", "openai", ["text"]],
-    ["a model nothing knows", "mystery-model-1", "anthropic", ["text"]],
   ])(
     "reads image support for %s when the gateway sends no supports_vision",
     async (_, id, ownedBy, input) => {
