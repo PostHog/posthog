@@ -9469,14 +9469,14 @@ Note: Diffed against both specs - v2 (https://developers.pipedrive.com/docs/api/
 
 ## Pipeliner — **thin**
 
-Today (11): `accounts`, `appointments`, `clients`, `contacts`, `leads`, `notes`, `opportunities`, `pipelines`, `products`, `steps`, `tasks`
+Today (17): `accounts`, `appointments`, `clients`, `contacts`, `currencies`, `currency_exchange_rates`, `currency_exchange_rates_lists`, `leads`, `notes`, `opportunities`, `oppty_product_relations`, `pipelines`, `products`, `sales_unit_client_relations`, `sales_units`, `steps`, `tasks`
 
 Diffed against: <https://pipelinercrm.eu.apidog.com/>
 
-- [ ] `OpptyProductRelations` — product line items linking opportunities to products with quantity and price - synced opportunities and products are otherwise unjoinable (high)
-- [ ] `ProcessActivityLogs and ProcessActivityLogLines` — step/stage transition history for opportunities, the basis of sales-velocity and stage-conversion analysis (high)
-- [ ] `SalesUnits (and SalesUnitClientRelations)` — lookup resolving the sales unit IDs stamped on every account, contact, lead and opportunity we sync (high)
-- [ ] `Currencies and CurrencyExchangeRates` — lookup for the currency IDs on opportunity and product values; without it multi-currency pipelines can't be normalized (high)
+- [x] `OpptyProductRelations` — product line items linking opportunities to products with quantity and price - synced opportunities and products are otherwise unjoinable (high)
+- [ ] `ProcessActivityLogs and ProcessActivityLogLines` — step/stage transition history for opportunities, the basis of sales-velocity and stage-conversion analysis (high) — skipped: these are Automatizer workflow run logs, not opportunity stage history
+- [x] `SalesUnits (and SalesUnitClientRelations)` — lookup resolving the sales unit IDs stamped on every account, contact, lead and opportunity we sync (high)
+- [x] `Currencies and CurrencyExchangeRates` — lookup for the currency IDs on opportunity and product values; without it multi-currency pipelines can't be normalized (high)
 - [ ] `Processes (and ProcessTemplates)` — the sales process each Step belongs to - the parent lookup for the synced steps table (high)
 - [ ] `AccountTypes, ContactTypes, LeadTypes, OpportunityTypes, TaskTypes, AppointmentTypes` — type lookups resolving the type IDs on the core records already synced (high)
 - [ ] `Quotes (and QuoteProcesses, QuoteTypes)` — quoting is a first-class Pipeliner object tied to opportunities and completely absent today (medium)
