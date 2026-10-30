@@ -40,7 +40,7 @@ import {
   saveLayout,
 } from "../layout";
 import type { LocalAgent } from "../local";
-import type { PiControl } from "../models";
+import { type PiControl, runModel } from "../models";
 import type { MouseEvents } from "../mouse";
 import { openUrl } from "../openUrl";
 import { loadPrefs, savePrefs } from "../prefs";
@@ -458,7 +458,7 @@ export function App({
       onOffer={(offer) => setOffer(node.id, offer)}
       picker={pickerFor(node.id)}
       modal={modalFor(node.id) ?? null}
-      model={modelLabel(node.id, node.taskId)}
+      model={modelLabel(node.id, node.taskId, runModel(taskOf(node.taskId)))}
       // A cloud Claude Code or Codex run has no pi RPC, so its models, effort and commands stay unread.
       onRunLive={(taskId, runId) =>
         (isLocal(taskId) || taskOf(taskId)?.runtime === "pi") &&

@@ -51,6 +51,7 @@ describe("ClaudeLocalSession", () => {
 
     await session.start();
 
+    expect(session.model).toBe("claude-opus-5-5");
     expect(agent.startSession).toHaveBeenCalledWith({
       taskId: "t1",
       taskRunId: "local-1",
@@ -305,8 +306,20 @@ describe("ClaudeLocalSession", () => {
         },
       },
     });
-    expect(log.append).toHaveBeenCalledTimes(2);
+    agent.emit("session-event", {
+      taskRunId: "local-1",
+      payload: {
+        type: "acp_message",
+        ts: 3,
+        message: {
+          method: "session/new",
+          params: { _meta: { model: "claude-opus-5-5" } },
+        },
+      },
+    });
+    expect(log.append).toHaveBeenCalledTimes(3);
     expect(log.session).toHaveBeenCalledWith("claude-abc");
+    expect(session.model).toBe("claude-opus-5-5");
 
     const saved = {
       sessionId: "claude-abc",

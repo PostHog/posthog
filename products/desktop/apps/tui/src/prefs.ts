@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { BILLINGS, type Billing } from "./billing";
+import type { ModelChoice } from "./models";
 
 export type ChatPlace = "local" | "cloud";
 
@@ -16,7 +17,18 @@ export interface Prefs {
   billing: Billing;
   // The permission mode new Claude Code chats start in, from /mode.
   claudeMode: string;
+  // The last model picked with /model, which new chats start on when their agent offers it.
+  lastModel?: ModelChoice;
 }
+
+const modelOf = (saved: unknown): ModelChoice | undefined => {
+  const model = saved as Partial<ModelChoice> | null;
+  return typeof model?.provider === "string" &&
+    typeof model.id === "string" &&
+    typeof model.name === "string"
+    ? { provider: model.provider, id: model.id, name: model.name }
+    : undefined;
+};
 
 const PREFS_PATH = join(homedir(), ".config", "posthog-tui", "prefs.json");
 
@@ -50,6 +62,7 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
         BILLINGS.find((billing) => billing === saved.billing) ?? "posthog",
       claudeMode:
         typeof saved.claudeMode === "string" ? saved.claudeMode : "auto",
+      ...(modelOf(saved.lastModel) && { lastModel: modelOf(saved.lastModel) }),
     };
   } catch {
     return DEFAULT_PREFS;

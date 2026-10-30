@@ -14,6 +14,7 @@ import type { AcpLog } from "./localChats";
 import type { PiControl } from "./models";
 import { type AgentPrompt, type PromptReply, promptId } from "./prompts";
 import { emptyRunView, type RunView } from "./runs";
+import { claudeSettings } from "./starting";
 
 export interface ClaudeLocalInput {
   taskId: string;
@@ -50,6 +51,16 @@ export function claudePlan(
   }
 }
 
+// The model the agent service opened a session on, from its logged `session/new` request.
+const sessionModel = (entry: StoredLogEntry): string | undefined => {
+  const { notification } = entry as {
+    notification?: { method?: string; params?: { _meta?: { model?: string } } };
+  };
+  return notification?.method === "session/new"
+    ? notification.params?._meta?.model
+    : undefined;
+};
+
 const NOT_ON_CLAUDE = "Not available on a Claude Code chat";
 const unavailable = (): Promise<never> =>
   Promise.reject(new Error(NOT_ON_CLAUDE));
@@ -59,6 +70,8 @@ export class ClaudeLocalSession implements LocalAgent {
   readonly runtime = "acp";
   readonly plan = true;
   readonly control: PiControl;
+  // Claude Code reports no model over ACP, but the agent service logs the one it resolved when it opens the session.
+  model: string | undefined;
   private sessionId: string | null = null;
   private params: Omit<StartSessionInput, "runMode"> | null = null;
   private configOptions: ConfigOptions;
@@ -77,6 +90,7 @@ export class ClaudeLocalSession implements LocalAgent {
     private readonly loggedIn: () => Promise<boolean>,
     private readonly log?: Pick<AcpLog, "load" | "append" | "session">,
   ) {
+    this.model = input.model ?? claudeSettings().model;
     this.control = {
       models: unavailable,
       setModel: unavailable,
@@ -127,6 +141,7 @@ export class ClaudeLocalSession implements LocalAgent {
         notification: message.message,
       } as StoredLogEntry;
       this.log?.append(entry);
+      this.model = sessionModel(entry) ?? this.model;
       // Claude names its own session once the SDK is up; a reopen resumes that session.
       const notification = message.message as {
         method?: string;
@@ -163,8 +178,13 @@ export class ClaudeLocalSession implements LocalAgent {
       if (taskRunId === this.input.taskRunId) this.sessionId = null;
     };
     const saved = this.log?.load();
-    if (saved?.entries.length)
+    if (saved?.entries.length) {
+      this.model = saved.entries.reduce<string | undefined>(
+        (model, entry) => sessionModel(entry) ?? model,
+        this.model,
+      );
       this.publish({ ...this.view, entries: saved.entries });
+    }
     this.agent.on(AgentServiceEvent.SessionEvent, onEvent);
     this.agent.on(AgentServiceEvent.PermissionRequest, onPermission);
     this.agent.on(AgentServiceEvent.SessionIdleKilled, onIdleKilled);
