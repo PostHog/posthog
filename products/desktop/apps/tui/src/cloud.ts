@@ -5,6 +5,7 @@ import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
 import type { RootLogger, ScopedLogger } from "@posthog/di/logger";
 import type { IAnalytics } from "@posthog/platform/analytics";
+import { TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
 import { CloudRuns } from "./runs";
 
 export const LOG_PATH = join(tmpdir(), "posthog-tui.log");
@@ -86,6 +87,9 @@ export function createCloudRuns(
     },
     analytics: noAnalytics,
     logger,
+    transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
   });
-  return new CloudRuns(engine, context);
+  return new CloudRuns(engine, context, (taskId, runId, options) =>
+    api.getTaskRunSessionLogsPage(taskId, runId, options),
+  );
 }

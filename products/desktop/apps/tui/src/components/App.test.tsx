@@ -40,7 +40,10 @@ describe("App", () => {
       listRecent: async () => ({ tasks: [task()], hasMore: false }),
       get: vi.fn(),
     } as unknown as WorkList;
-    const runs = { watch: vi.fn(() => () => {}) } as unknown as CloudRuns;
+    const runs = {
+      watch: vi.fn(() => ({ stop: () => {}, loadOlder: async () => {} })),
+      prefetch: vi.fn(async () => {}),
+    } as unknown as CloudRuns;
 
     const { instance } = renderInTerminal(<App work={work} runs={runs} />);
     await vi.waitFor(() => expect(runs.watch).toHaveBeenCalledTimes(1));

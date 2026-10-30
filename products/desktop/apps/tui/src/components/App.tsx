@@ -39,6 +39,8 @@ import { Sidebar } from "./Sidebar";
 const PAGE_SIZE = 10;
 const REFRESH_MS = 10_000;
 const CLOSE_CONFIRM_MS = 1_000;
+// Log entries per preloaded run: roughly the last ten messages.
+const PREVIEW_ENTRIES = 300;
 
 function boxOf(element: DOMElement): ScreenBox {
   const { x, y, width, height } = measureElement(element);
@@ -129,6 +131,27 @@ export function App({
       clearInterval(timer);
     };
   }, [work, limit]);
+
+  // Preloads each listed cloud run's recent messages, one at a time, so opening one shows them at once.
+  const prefetched = useRef(new Set<string>());
+  useEffect(() => {
+    const pending = (page.tasks ?? []).flatMap((task) => {
+      const run = task.latest_run;
+      return run &&
+        run.environment !== "local" &&
+        !prefetched.current.has(run.id)
+        ? [{ taskId: task.id, runId: run.id }]
+        : [];
+    });
+    for (const { runId } of pending) prefetched.current.add(runId);
+    void (async () => {
+      for (const { taskId, runId } of pending) {
+        await runs.prefetch(taskId, runId, PREVIEW_ENTRIES).catch(() => {
+          prefetched.current.delete(runId);
+        });
+      }
+    })();
+  }, [runs, page.tasks]);
 
   // Open tasks outside the recent page are fetched once each, so they keep a title and a transcript.
   const openTaskIds = layout.workspaces

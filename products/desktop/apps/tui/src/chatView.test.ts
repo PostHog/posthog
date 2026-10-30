@@ -47,4 +47,18 @@ describe("ChatView", () => {
     chat.scrollToEnd();
     expect(plain(chat.render(40, 5)).join("\n")).toContain("Reply 30");
   });
+
+  it("marks the top while earlier messages exist, and keeps the reader's place when they arrive", () => {
+    const chat = new ChatView();
+    chat.setTranscript(replies(30).slice(20), { hasOlder: true });
+    chat.render(40, 5);
+    chat.scrollBy(-1000);
+    expect(chat.isAtTop()).toBe(true);
+    expect(plain(chat.render(40, 5))[0]).toContain("Loading earlier messages");
+
+    chat.scrollBy(2);
+    const reading = plain(chat.render(40, 5));
+    chat.setTranscript(replies(30), { hasOlder: false });
+    expect(plain(chat.render(40, 5))).toEqual(reading);
+  });
 });
