@@ -292,6 +292,28 @@ describe("App flows", () => {
     }
   });
 
+  it("folds a workspace with ← from one of its chats, parks the cursor on its title, and unfolds it with →", async () => {
+    const split = splitFocused(openTask(initialLayout(), "c1"), "row");
+    const app = cloudApp({ layout: split });
+    try {
+      await vi.waitFor(() => expect(app.plain()).toContain("Fix the build"));
+      // Tab to the sidebar, then down from Today onto the workspace's first chat, which opens it.
+      for (const key of ["\t", "\x1b[B"]) {
+        app.press(key);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      app.press("\x1b[D");
+      await vi.waitFor(() =>
+        expect(app.plain().slice(-3000)).toContain("Workspace #1 (2)"),
+      );
+      expect(app.plain().slice(-3000)).not.toContain("╰");
+      app.press("\x1b[C");
+      await vi.waitFor(() => expect(app.plain().slice(-3000)).toContain("╰"));
+    } finally {
+      app.close();
+    }
+  });
+
   it("closes a split pane only on a second Ctrl+C, and quits the last pane the same way", async () => {
     const split = splitFocused(openTask(initialLayout(), "c1"), "row");
     const app = cloudApp({ layout: split });

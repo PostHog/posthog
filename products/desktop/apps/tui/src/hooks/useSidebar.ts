@@ -113,12 +113,20 @@ export function useSidebar({
       setNavigating(true);
       setLayout(opened);
     },
-    setCollapsed: (workspaceId, collapse) =>
+    setCollapsed: (workspaceId, collapse) => {
       setCollapsed((current) => {
         const next = new Set(current);
         if (collapse) next.add(workspaceId);
         else next.delete(workspaceId);
         return next;
-      }),
+      });
+      // Folded, the chats are gone, so the cursor rests on the title; unfolded, it goes to the focused chat.
+      const workspace = layout.workspaces.find((w) => w.id === workspaceId);
+      setSelected(
+        collapse
+          ? `workspace:${workspaceId}`
+          : `pane:${workspace?.focusedPaneId}`,
+      );
+    },
   };
 }

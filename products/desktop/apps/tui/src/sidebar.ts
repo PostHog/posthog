@@ -44,6 +44,8 @@ export type SidebarRow =
       // Runs on this machine rather than in the cloud.
       local: boolean;
       nested: boolean;
+      // The workspace a nested row's pane sits in.
+      workspaceId?: string;
       // The final task in its workspace group, drawn with a closing connector.
       last?: boolean;
     }
@@ -175,6 +177,7 @@ export function sidebarRows({
     nested: boolean,
     savedTitle?: string,
     last?: boolean,
+    workspaceId?: string,
   ): SidebarRow => {
     const task = taskId ? byId.get(taskId) : undefined;
     const runsHere = taskId !== null && isLocal(taskId);
@@ -197,6 +200,7 @@ export function sidebarRows({
       local: runsHere,
       nested,
       last,
+      ...(workspaceId && { workspaceId }),
     };
   };
 
@@ -238,7 +242,9 @@ export function sidebarRows({
     workspacePanes.forEach((pane, paneIndex) => {
       if (!expanded) return;
       const last = paneIndex === workspacePanes.length - 1;
-      rows.push(taskRow(pane.taskId, pane.id, true, pane.title, last));
+      rows.push(
+        taskRow(pane.taskId, pane.id, true, pane.title, last, workspace.id),
+      );
     });
     rows.push({ kind: "gap" });
   });
@@ -263,9 +269,20 @@ export function sidebarRows({
   return rows;
 }
 
-// Workspace rows only label their group; the keyboard moves between chats.
+// An open workspace's row only labels its chats, which the keyboard moves between; folded, the row stands for them.
 export const isSelectable = (row: SidebarRow): boolean =>
-  row.kind === "task" || row.kind === "today" || row.kind === "viewMore";
+  row.kind === "task" ||
+  row.kind === "today" ||
+  row.kind === "viewMore" ||
+  (row.kind === "workspace" && !row.expanded);
+
+// The workspace a row folds or unfolds with ← and →: its own, or the one its chat sits in.
+export const workspaceOf = (row: SidebarRow | undefined): string | undefined =>
+  row?.kind === "workspace"
+    ? row.workspaceId
+    : row?.kind === "task"
+      ? row.workspaceId
+      : undefined;
 
 export function moveSelection(
   rows: SidebarRow[],
