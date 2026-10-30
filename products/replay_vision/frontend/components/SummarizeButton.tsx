@@ -22,10 +22,12 @@ export function SummarizeButton({
     sessionId,
     scanBlock,
     inWatchLayout = false,
+    fullWidth = false,
 }: {
     sessionId: string
     scanBlock: ScanBlock | null
     inWatchLayout?: boolean
+    fullWidth?: boolean
 }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { summarizePending, defaultSummarizer, summarizerScanners, observations } = useValues(logic)
@@ -50,7 +52,7 @@ export function SummarizeButton({
           : 'Summarize this recording'
     const label = summarizePending ? 'Summarizing…' : idleLabel
     const summarizerTooltip = summarizePending
-        ? `Watching this recording. The summary appears in the ${inWatchLayout ? 'Scans segment' : 'Observations tab'} when it is ready.`
+        ? `Watching this recording. The summary appears in the ${inWatchLayout ? 'Observations section' : 'Observations tab'} when it is ready.`
         : defaultSummarizer
           ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
           : 'Writes a summary using a built-in prompt.'
@@ -87,7 +89,9 @@ export function SummarizeButton({
     const button = (
         <LemonButton
             size="small"
-            type={hasSummary ? 'tertiary' : 'secondary'}
+            type={inWatchLayout ? (hasSummary ? 'secondary' : 'primary') : hasSummary ? 'tertiary' : 'secondary'}
+            fullWidth={fullWidth}
+            center={fullWidth}
             icon={<IconNotebook />}
             loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.

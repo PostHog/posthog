@@ -227,6 +227,30 @@ describe('MessageAssetsService', () => {
             expect(row!.html).toContain('&lt;img src=x')
         })
 
+        it('keeps a placeholder instead of the content when the step is marked sensitive', () => {
+            const invocation = invocationWithAction('flow-1')
+            invocation.hogFunction.metadata = { sensitive: true }
+            invocation.hogFunction.inputs = { title: { value: 'New message from {person.properties.name}' } }
+
+            const row = service.buildRowForPush(
+                invocation,
+                pushParams({
+                    title: 'New message from Ada',
+                    body: 'meet me at 6',
+                    image: 'https://example.com/private.png',
+                    apns: { subtitle: 'Private chat' },
+                }),
+                ['APNs'],
+                pushRecipient
+            )
+
+            expect(row).toMatchObject({ kind: 'push', subject: 'New message from {person.properties.name}' })
+            expect(row!.html).toContain('Notification content not stored')
+            for (const value of ['Ada', 'meet me at 6', 'private.png', 'Private chat']) {
+                expect(row!.html).not.toContain(value)
+            }
+        })
+
         it('returns null for a push sent outside a workflow step, which the Assets API cannot retrieve', () => {
             const invocation = invocationWithAction('flow-1')
             invocation.state.actionId = undefined

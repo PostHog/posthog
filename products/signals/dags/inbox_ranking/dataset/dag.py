@@ -142,8 +142,10 @@ from products.signals.dags.inbox_ranking.common import (
 )
 from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    CONTEXT_KINDS,
+    CONTEXT_LABEL_COLUMNS,
     EMBEDDING_COLUMNS,
-    LABEL_COLUMNS,
+    ENGAGEMENT_EXPORT_COLUMNS,
     PROJECT_VECTORS_SCHEMA_VERSION,
     USER_INTERACTION_COLUMNS,
     USER_VECTORS_SCHEMA_VERSION,
@@ -205,7 +207,7 @@ ACTIVITY_SUMMARY_VECTORS_TABLE = "inbox_activity_summary_vectors"
 REVIEWERS_SCHEMA_VERSION = 1
 
 # The engagement export is read in another region, so its shape moves apart from every local snapshot.
-ENGAGEMENT_EXPORT_SCHEMA_VERSION = 1
+ENGAGEMENT_EXPORT_SCHEMA_VERSION = 2
 # The activity summary vectors are a (team, user, day) leaf, so their shape moves apart too.
 ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION = 1
 # Every document type that carries an activity summary vector. A backfilled type joins this tuple,
@@ -1501,9 +1503,9 @@ def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
     excluded_reports = embeddings.num_rows - consented.num_rows
     del embeddings
     labels = read_parquet(
-        client, bucket, partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
+        client, bucket, partition_object_key(prefix, LABELS_TABLE, partition_key), list(CONTEXT_LABEL_COLUMNS)
     )
-    table = project_vectors(labels, consented, snapshot_end)
+    table = project_vectors(labels, consented, snapshot_end, CONTEXT_KINDS)
 
     key = partition_object_key(prefix, PROJECT_VECTORS_TABLE, partition_key)
     write_parquet(client, bucket, key, table, schema_version=PROJECT_VECTORS_SCHEMA_VERSION)
@@ -1513,7 +1515,7 @@ def inbox_project_vectors(context: dagster.AssetExecutionContext) -> None:
             "teams": dagster.MetadataValue.int(len(set(table.column("team_id").to_pylist()))),
             **{
                 f"teams_with_{kind}_history": dagster.MetadataValue.int(count)
-                for kind, count in teams_with_history(table).items()
+                for kind, count in teams_with_history(table, CONTEXT_KINDS).items()
             },
             "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded_reports),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
@@ -1751,11 +1753,11 @@ def engagement_export_refusal(label_rows: int, local_rows: int) -> str | None:
     **COMMON_ASSET_KWARGS,
 )
 def inbox_engagement_export(context: dagster.AssetExecutionContext) -> None:
-    """Export the UI engagement moments of the other region's reports to the mirror store.
+    """Export the engagement moments of the other region's reports to the mirror store.
 
     The other region builds its project vectors from its own report embeddings, but the open,
-    action and dismiss moments exist only in this region's labels snapshot. The export carries
-    only `LABEL_COLUMNS`: report ids and timestamps, no team ids, no text and no vectors. The
+    action, dismiss and fixed moments exist only in this region's labels snapshot. The export
+    carries only `ENGAGEMENT_EXPORT_COLUMNS`: report ids and timestamps, no team ids, no text and no vectors. The
     labels snapshot is cumulative, so each day is a full snapshot as of the end of dt=D.
     """
     if skip_unconfigured(context):
@@ -1769,7 +1771,10 @@ def inbox_engagement_export(context: dagster.AssetExecutionContext) -> None:
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
 
     labels = read_parquet(
-        s3_client(), dataset_bucket(), partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
+        s3_client(),
+        dataset_bucket(),
+        partition_object_key(prefix, LABELS_TABLE, partition_key),
+        list(ENGAGEMENT_EXPORT_COLUMNS),
     )
     # telemetry imports the training modules, which import this module.
     from products.signals.dags.inbox_ranking.training.telemetry import (  # noqa: PLC0415

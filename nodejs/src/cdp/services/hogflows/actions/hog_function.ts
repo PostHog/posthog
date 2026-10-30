@@ -216,7 +216,10 @@ export class HogFunctionHandler implements ActionHandler {
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
-            result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
+            result.invocation.state.currentAction!.hogFunctionState = {
+                ...functionResult.invocation.state,
+                ...(functionResult.invocation.hogFunction?.metadata?.sensitive === true ? { sensitive: true } : {}),
+            }
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
             result.invocation.queuePriority = functionResult.invocation.queuePriority
@@ -431,6 +434,11 @@ export class HogFunctionHandler implements ActionHandler {
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
+        // A send that started protected stays protected through its retries, even if protection is turned off
+        // before the retry runs: the queued message was rendered under protection.
+        if (invocation.state.currentAction?.hogFunctionState?.sensitive) {
+            hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
+        }
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>

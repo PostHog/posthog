@@ -740,8 +740,13 @@ class _MirrorProjectVectors:
     refusal: str | None
 
 
+# The mirror region deploys apart from this one, so its day can carry the version before the
+# current one. The scorer skips a model that reads a kind the day has no rows for.
+_NAMEABLE_PROJECT_VECTORS_SCHEMA_VERSIONS = frozenset({"1", str(PROJECT_VECTORS_SCHEMA_VERSION)})
+
+
 def _project_vectors_refusal(metadata: Mapping[str, str], oldest: datetime.date) -> str | None:
-    if metadata.get(PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY) != str(PROJECT_VECTORS_SCHEMA_VERSION):
+    if metadata.get(PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY) not in _NAMEABLE_PROJECT_VECTORS_SCHEMA_VERSIONS:
         return UNKNOWN_SCHEMA_VERSION
     try:
         engagement_date = datetime.date.fromisoformat(metadata.get(PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY, ""))

@@ -96,4 +96,8 @@ service PersonHogLeader {
   // retry goes through once the healer clears it); a destroyed target
   // answers NOT_FOUND.
   rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
+
+  // Consistency repair only. Writes the person's current state at min_version
+  // or above; a person already there gets no write.
+  rpc RaisePersonVersion(personhog.types.v1.RaisePersonVersionRequest) returns (personhog.types.v1.RaisePersonVersionResponse);
 }
