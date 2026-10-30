@@ -657,7 +657,7 @@ jobs:
                   echo "properties=$properties" >> "$GITHUB_OUTPUT"
 
             - name: Capture eager graph to DevEx PostHog
-              if: steps.eager-trend.outputs.properties != ''
+              if: ${{ !cancelled() && steps.eager-trend.outputs.properties != '' }}
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
