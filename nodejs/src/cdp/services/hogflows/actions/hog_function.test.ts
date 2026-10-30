@@ -820,6 +820,44 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    it('keeps a paused protected send protected on its retry after protection is turned off', async () => {
+        const sentWith: any[] = []
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            (hogFunctionInvocation: any) => {
+                sentWith.push(hogFunctionInvocation.hogFunction.metadata)
+                return Promise.resolve({
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            }
+        )
+        action.config.sensitive = true
+        const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+        expect(firstResult.invocation.state.currentAction!.hogFunctionState!.sensitive).toBe(true)
+
+        action.config.sensitive = false
+        await hogFunctionHandler.execute({
+            invocation: firstResult.invocation,
+            action,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
+    })
+
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({

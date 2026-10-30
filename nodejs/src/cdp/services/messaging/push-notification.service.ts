@@ -700,7 +700,10 @@ export class PushNotificationService {
             const err = normalizeFcmError(status, body, fetchError)
             // Keep the raw provider response available for deep debugging, at debug level so it doesn't
             // clutter the workflow log — the user-facing explanation is the normalized message below.
-            addLog('debug', `FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            // FCM can quote the rejected message back, so a protected push never logs it.
+            if (result.invocation.hogFunction.metadata?.sensitive !== true) {
+                addLog('debug', `FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            }
             if (err.unregistered) {
                 return { sent: false, unregistered: true, message: err.message }
             }

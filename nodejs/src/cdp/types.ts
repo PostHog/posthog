@@ -426,6 +426,8 @@ export type CyclotronJobInvocationHogFunctionContext = {
     // version (a retry's scheduled time) and lose the original.
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
+    // Set when a protected workflow step pauses mid-send, so its retries stay protected.
+    sensitive?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
 }
